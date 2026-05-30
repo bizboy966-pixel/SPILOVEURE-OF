@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "SPILIVERE",
+    "slug": "spilivere",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "spilivere",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.spilivere.app"
+    },
+    "android": {
+      "package": "com.spilivere.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0B2D6F"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png",
+      "name": "SPILIVERE — Affiliate System",
+      "shortName": "SPILIVERE",
+      "lang": "fr",
+      "description": "SPILIVERE — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover.",
+      "themeColor": "#1B5BFF",
+      "backgroundColor": "#0B2D6F",
+      "display": "standalone",
+      "orientation": "portrait"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0B2D6F"
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
