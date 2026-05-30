@@ -44,7 +44,7 @@ export default function Community() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>Communauté</Text>
-        <Text style={styles.sub}>Annonces officielles et canaux SPILIVERE.</Text>
+        <Text style={styles.sub}>Annonces officielles et canaux Spiloveure.</Text>
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>

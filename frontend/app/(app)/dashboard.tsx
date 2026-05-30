@@ -40,7 +40,7 @@ export default function Dashboard() {
     setRefreshing(false);
   };
 
-  const inviteLink = `${process.env.EXPO_PUBLIC_BACKEND_URL || "https://spilivere.com"}/register?ref=${user?.username || ""}`;
+  const inviteLink = `https://spiloveure.com/u/${user?.username || "admin"}`;
 
   const copy = async () => {
     try {
@@ -53,7 +53,7 @@ export default function Dashboard() {
 
   const share = async () => {
     try {
-      await Share.share({ message: `Rejoignez-moi sur SPILIVERE : ${inviteLink}` });
+      await Share.share({ message: `Rejoignez-moi sur Spiloveure : ${inviteLink}` });
     } catch {}
   };
 
@@ -68,7 +68,7 @@ export default function Dashboard() {
                 style={{ width: 32, height: 32 }} resizeMode="contain"
               />
               <View>
-                <Text style={styles.brand}>SPILIVERE</Text>
+                <Text style={styles.brand}>Spiloveure</Text>
                 <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
               </View>
             </View>

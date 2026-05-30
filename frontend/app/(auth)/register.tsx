@@ -29,7 +29,7 @@ export default function Register() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [sponsor, setSponsor] = useState(params.ref || "");
+  const [sponsor, setSponsor] = useState((params.ref as string) || "admin");
   const [accept, setAccept] = useState(false);
   const [show, setShow] = useState(false);
   const [show2, setShow2] = useState(false);
@@ -85,7 +85,7 @@ export default function Register() {
               source={{ uri: "https://static.prod-images.emergentagent.com/jobs/b12b1b84-683b-4214-93da-3dadbb1ebcc9/images/6f73611a18525e5bbe4b26146875d9672e3abac247ab2b195b7b76dab1811770.png" }}
               style={styles.logo} resizeMode="contain"
             />
-            <Text style={styles.brand}>SPILIVERE</Text>
+            <Text style={styles.brand}>Spiloveure</Text>
             <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
             <Text style={styles.h1}>Rejoignez une <Text style={{ color: "#A5C2FF" }}>communauté</Text> qui gagne !</Text>
             <Text style={styles.sub}>Créez votre compte et commencez dès aujourd'hui.</Text>
@@ -176,9 +176,12 @@ export default function Register() {
               value={sponsor}
               onChangeText={setSponsor}
               autoCapitalize="none"
-              editable={!params.ref}
+              editable={false}
               testID="register-sponsor"
             />
+            <Text style={styles.sponsorHint}>
+              Code parrain verrouillé{params.ref ? " (transmis via votre lien d'invitation)" : " (parrain par défaut)"}.
+            </Text>
 
             <TouchableOpacity style={styles.checkRow} onPress={() => setAccept((v) => !v)} testID="register-accept">
               <View style={[styles.check, accept && styles.checkOn]}>
@@ -270,6 +273,7 @@ const styles = StyleSheet.create({
   checkOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   checkLabel: { flex: 1, color: theme.colors.textSecondary },
   link: { color: theme.colors.primary, fontWeight: "700" },
+  sponsorHint: { color: theme.colors.textSecondary, fontSize: 12, fontStyle: "italic", marginTop: -8, marginBottom: 12, marginLeft: 4 },
   bottomRow: { flexDirection: "row", justifyContent: "center", marginTop: 16, flexWrap: "wrap" },
   bottomText: { color: theme.colors.textSecondary },
   errBox: {

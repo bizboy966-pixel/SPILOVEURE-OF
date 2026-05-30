@@ -73,7 +73,7 @@ export default function Activation() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Ionicons name="shield-checkmark" size={28} color="#fff" />
           <View>
-            <Text style={styles.brand}>SPILIVERE</Text>
+            <Text style={styles.brand}>Spiloveure</Text>
             <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
           </View>
         </View>

@@ -14,7 +14,7 @@ import { formatFCFA, formatDate } from "@/src/utils/format";
 export default function Profile() {
   const router = useRouter();
   const { user } = useAuth();
-  const link = `${process.env.EXPO_PUBLIC_BACKEND_URL || "https://spilivere.com"}/register?ref=${user?.username || ""}`;
+  const link = `https://spiloveure.com/u/${user?.username || "admin"}`;
 
   const copy = async () => {
     await Clipboard.setStringAsync(link);
@@ -63,7 +63,7 @@ export default function Profile() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]}
-              onPress={() => Share.share({ message: `Rejoignez SPILIVERE : ${link}` })}
+              onPress={() => Share.share({ message: `Rejoignez Spiloveure : ${link}` })}
               testID="profile-share"
             >
               <Ionicons name="share-social" size={16} color="#fff" />

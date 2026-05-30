@@ -13,18 +13,18 @@ export default function Root({ children }: PropsWithChildren) {
           content="width=device-width, initial-scale=1, shrink-to-fit=no"
         />
 
-        <title>SPILIVERE — Plateforme d'affiliation à matrice binaire</title>
-        <meta name="description" content="SPILIVERE — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover." />
+        <title>Spiloveure — Plateforme d'affiliation à matrice binaire</title>
+        <meta name="description" content="Spiloveure — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover." />
         <meta name="theme-color" content="#1B5BFF" />
-        <meta name="application-name" content="SPILIVERE" />
+        <meta name="application-name" content="Spiloveure" />
 
         <meta property="og:type" content="website" />
-        <meta property="og:title" content="SPILIVERE — Plateforme d'affiliation" />
-        <meta property="og:description" content="Rejoignez SPILIVERE et développez votre réseau d'affiliation grâce à un système binaire forcé à 12 niveaux." />
+        <meta property="og:title" content="Spiloveure — Plateforme d'affiliation" />
+        <meta property="og:description" content="Rejoignez Spiloveure et développez votre réseau d'affiliation grâce à un système binaire forcé à 12 niveaux." />
         <meta property="og:locale" content="fr_FR" />
 
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="SPILIVERE — Plateforme d'affiliation" />
+        <meta name="twitter:title" content="Spiloveure — Plateforme d'affiliation" />
         <meta name="twitter:description" content="Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs." />
 
         <ScrollViewStyleReset />

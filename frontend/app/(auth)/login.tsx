@@ -48,7 +48,7 @@ export default function Login() {
                 style={styles.logo}
                 resizeMode="contain"
               />
-              <Text style={styles.brand}>SPILIVERE</Text>
+              <Text style={styles.brand}>Spiloveure</Text>
               <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
             </View>
             <Text style={styles.welcome}>Bienvenue de retour !</Text>

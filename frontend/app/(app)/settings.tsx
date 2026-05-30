@@ -85,8 +85,8 @@ export default function Settings() {
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Support</Text>
           <SupportRow icon="logo-whatsapp" label="WhatsApp" url="https://wa.me/22890000000" color="#25D366" />
-          <SupportRow icon="paper-plane" label="Telegram" url="https://t.me/spilivere" color="#26A5E4" />
-          <SupportRow icon="mail" label="E-mail" url="mailto:support@spilivere.com" color={theme.colors.primary} />
+          <SupportRow icon="paper-plane" label="Telegram" url="https://t.me/spiloveure" color="#26A5E4" />
+          <SupportRow icon="mail" label="E-mail" url="mailto:support@spiloveure.com" color={theme.colors.primary} />
         </Card>
 
         <TouchableOpacity style={styles.dangerBtn} onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} testID="settings-signout">

@@ -81,7 +81,7 @@ export default function AdminHome() {
           <View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Ionicons name="shield-checkmark" size={22} color="#fff" />
-              <Text style={styles.title}>Panel Admin SPILIVERE</Text>
+              <Text style={styles.title}>Panel Admin Spiloveure</Text>
             </View>
             <Text style={styles.sub}>Connecté en tant que {user?.username}</Text>
           </View>

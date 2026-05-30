@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SPILIVERE",
+    "name": "Spiloveure",
     "slug": "spilivere",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -24,10 +24,10 @@
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png",
-      "name": "SPILIVERE — Affiliate System",
-      "shortName": "SPILIVERE",
+      "name": "Spiloveure — Affiliate System",
+      "shortName": "Spiloveure",
       "lang": "fr",
-      "description": "SPILIVERE — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover.",
+      "description": "Spiloveure — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover.",
       "themeColor": "#1B5BFF",
       "backgroundColor": "#0B2D6F",
       "display": "standalone",
