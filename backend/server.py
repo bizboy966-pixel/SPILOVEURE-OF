@@ -489,6 +489,47 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
 
 
+
+@admin_router.get("/outbound-ip")
+async def admin_outbound_ip():
+    """Return the public outbound IP of the running backend pod.
+
+    Useful to whitelist this IP on third-party payment providers (e.g. Money Fusion)
+    that require IP-based access control on their API.
+    """
+    import httpx
+    services = [
+        "https://api.ipify.org?format=json",
+        "https://ipv4.icanhazip.com",
+        "https://ifconfig.me/ip",
+    ]
+    ips: list[str] = []
+    errors: list[str] = []
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for url in services:
+            try:
+                r = await client.get(url)
+                text = r.text.strip()
+                if url.endswith("json"):
+                    import json as _json
+                    ip = _json.loads(text).get("ip", "")
+                else:
+                    ip = text
+                if ip:
+                    ips.append(ip)
+            except Exception as e:
+                errors.append(f"{url}: {e.__class__.__name__}")
+    unique = sorted(set(ips))
+    return {
+        "outbound_ip": unique[0] if unique else None,
+        "all_detected": unique,
+        "checked_services": services,
+        "errors": errors,
+        "hint": "Whitelist this IP in your Money Fusion application settings.",
+    }
+
+
+
 @admin_router.get("/stats")
 async def admin_stats(request: Request):
     db = request.app.state.db
