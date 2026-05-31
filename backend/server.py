@@ -6,12 +6,13 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -482,6 +483,289 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     items = await db.channels.find({"active": True}, {"_id": 0}).to_list(50)
     return items
+
+
+
+# ============ PAYMENTS (SoleasPay) ============
+
+import soleaspay  # noqa: E402
+
+
+def _new_order_id(prefix: str = "SPV") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12].upper()}"
+
+
+async def _record_status_event(db, order_id: str, new_status: str, payload: Dict[str, Any], source: str):
+    await db.soleaspay_payments.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc),
+                "last_provider_payload": payload,
+            },
+            "$push": {
+                "events": {
+                    "status": new_status,
+                    "source": source,
+                    "received_at": datetime.now(timezone.utc),
+                    "payload": payload,
+                }
+            },
+        },
+    )
+
+
+class InitiatePaymentIn(BaseModel):
+    level: int = Field(default=1, ge=1, le=12)
+    wallet: str  # MSISDN of the payer (Mobile Money number)
+    service: int = Field(default=soleaspay.SERVICE_MOMO)  # 1=MOMO, 2=OM, 5=EUM
+    currency: str = Field(default="XOF")  # XOF or XAF
+    otp: Optional[str] = None  # required only for Orange Money in some cases
+
+
+@api.post("/payments/soleaspay/initiate")
+async def soleaspay_initiate(
+    data: InitiatePaymentIn,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """Create a SoleasPay Pay-In (Mobile Money push) for activating a level.
+
+    Requires the user to be authenticated. The order_id is generated server-side
+    and stored in MongoDB. The actual money flow happens asynchronously: the
+    customer confirms the USSD prompt on their phone, SoleasPay then sends a
+    webhook to /api/payments/soleaspay/webhook.
+    """
+    db = request.app.state.db
+    level = data.level
+    lv = LEVELS_BY_NUM.get(level)
+    if not lv:
+        raise HTTPException(status_code=400, detail="Niveau invalide")
+
+    # Anti-double activation
+    if user.get("max_level", 0) >= level:
+        raise HTTPException(status_code=400, detail="Niveau déjà activé")
+    if level != user.get("max_level", 0) + 1:
+        raise HTTPException(status_code=400, detail="Vous devez activer les niveaux dans l'ordre")
+
+    # Idempotency: re-use an existing pending order for the same user+level
+    existing = await db.soleaspay_payments.find_one(
+        {"user_id": user["id"], "level": level, "status": "pending"},
+        {"_id": 0},
+    )
+    if existing:
+        return {
+            "order_id": existing["order_id"],
+            "pay_id": existing.get("pay_id"),
+            "status": existing["status"],
+            "amount": existing["amount"],
+            "currency": existing["currency"],
+            "message": "Paiement en cours, confirmez l'invite USSD sur votre téléphone.",
+            "reused": True,
+        }
+
+    order_id = _new_order_id()
+    amount = float(lv["price"])
+    currency = (data.currency or "XOF").upper()
+
+    payment_doc = {
+        "order_id": order_id,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "level": level,
+        "amount": amount,
+        "currency": currency,
+        "wallet": data.wallet,
+        "service": data.service,
+        "status": "pending",
+        "pay_id": None,
+        "events": [],
+        "last_provider_payload": None,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.soleaspay_payments.insert_one(payment_doc)
+
+    try:
+        provider_resp = await soleaspay.initiate_payment(
+            wallet=data.wallet,
+            amount=amount,
+            currency=currency,
+            order_id=order_id,
+            description=f"Spiloveure activation niveau {level}",
+            payer=user.get("username", "spiloveure_user"),
+            payer_email=user.get("email", ""),
+            service=data.service,
+            otp=data.otp,
+        )
+    except soleaspay.SoleasPayError as exc:
+        await _record_status_event(db, order_id, "failed", {"error": str(exc)}, "initiate")
+        raise HTTPException(status_code=502, detail=f"SoleasPay : {exc}")
+
+    pay_id = (provider_resp.get("data") or {}).get("reference")
+    await db.soleaspay_payments.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "pay_id": pay_id,
+                "last_provider_payload": provider_resp,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    return {
+        "order_id": order_id,
+        "pay_id": pay_id,
+        "status": "pending",
+        "amount": amount,
+        "currency": currency,
+        "message": "Confirmez l'invite Mobile Money envoyée sur votre téléphone.",
+        "reused": False,
+    }
+
+
+@api.get("/payments/soleaspay/status")
+async def soleaspay_status(
+    order: str,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """Return the current local status of a Pay-In (used by the frontend for polling)."""
+    db = request.app.state.db
+    doc = await db.soleaspay_payments.find_one(
+        {"order_id": order, "user_id": user["id"]},
+        {"_id": 0, "events": 0, "last_provider_payload": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+    return doc
+
+
+async def _process_soleaspay_event(
+    db, *, order_id: str, raw_status: str, success_flag: Optional[bool],
+    payload: Dict[str, Any], source: str,
+) -> str:
+    """Update the payment record and trigger level activation if paid. Idempotent."""
+    payment = await db.soleaspay_payments.find_one({"order_id": order_id}, {"_id": 0})
+    if not payment:
+        log.warning("soleaspay event for unknown order_id=%s (source=%s)", order_id, source)
+        return "unknown_order"
+
+    new_status = soleaspay.normalize_status(raw_status, success_flag)
+    await _record_status_event(db, order_id, new_status, payload, source)
+
+    if new_status == "paid" and payment.get("status") != "paid":
+        try:
+            await activate_level(db, payment["user_id"], int(payment["level"]), source="soleaspay")
+            await db.soleaspay_payments.update_one(
+                {"order_id": order_id},
+                {"$set": {"activation_done": True}},
+            )
+            log.info("activation_done order=%s user=%s level=%s", order_id, payment["user_id"], payment["level"])
+        except Exception as exc:
+            log.exception("activate_level failed for order=%s: %s", order_id, exc)
+            await db.soleaspay_payments.update_one(
+                {"order_id": order_id},
+                {"$set": {"activation_error": str(exc)}},
+            )
+
+    return new_status
+
+
+@api.post("/payments/soleaspay/webhook")
+async def soleaspay_webhook(request: Request):
+    """Receive asynchronous status updates from SoleasPay.
+
+    Security: SoleasPay sends a `x-private-key` header equal to SHA-512 of our
+    callback secret. We verify it in constant-time before processing the payload.
+
+    Body schema (from doc.mysoleas.com/soleaspay-v3):
+        {
+            "success": bool,
+            "status": "SUCCESS" | "RECEIVED" | "REFUND" | "FAILURE",
+            "created_at": "...",
+            "data": {
+                "operation": "...",
+                "reference": "internal reference",          # SoleasPay's pay_id
+                "external_reference": "order id",            # our order_id
+                "transaction_reference": "...",
+                "amount": "...",
+                "currency": "..."
+            }
+        }
+    """
+    db = request.app.state.db
+    raw_body = await request.body()
+    provided_key = request.headers.get("x-private-key") or request.headers.get("X-Private-Key")
+
+    if not soleaspay.verify_callback_signature(provided_key):
+        log.warning(
+            "soleaspay webhook signature mismatch from %s (len=%d)",
+            request.client.host if request.client else "?",
+            len(raw_body),
+        )
+        # Always 200 OK to avoid retry storms; we just don't process.
+        return {"received": True, "verified": False}
+
+    try:
+        payload = await request.json()
+    except Exception:
+        log.exception("soleaspay webhook invalid JSON body")
+        return {"received": True, "verified": True, "error": "invalid_json"}
+
+    data = payload.get("data") or {}
+    order_id = data.get("external_reference") or payload.get("external_reference")
+    if not order_id:
+        return {"received": True, "verified": True, "error": "missing_external_reference"}
+
+    raw_status = payload.get("status") or data.get("status") or ""
+    success_flag = payload.get("success")
+
+    new_status = await _process_soleaspay_event(
+        db,
+        order_id=order_id,
+        raw_status=raw_status,
+        success_flag=success_flag,
+        payload=payload,
+        source="webhook",
+    )
+    return {"received": True, "verified": True, "status": new_status}
+
+
+@api.post("/payments/soleaspay/verify/{order_id}")
+async def soleaspay_verify(order_id: str, request: Request, user=Depends(get_current_user)):
+    """Manually reconcile a payment with SoleasPay's verif-pay endpoint.
+
+    Useful when the webhook is delayed or lost. Owner-only.
+    """
+    db = request.app.state.db
+    doc = await db.soleaspay_payments.find_one(
+        {"order_id": order_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+    if not doc.get("pay_id"):
+        raise HTTPException(status_code=400, detail="Aucun pay_id SoleasPay disponible")
+
+    try:
+        resp = await soleaspay.verify_payment(order_id=order_id, pay_id=doc["pay_id"])
+    except soleaspay.SoleasPayError as exc:
+        raise HTTPException(status_code=502, detail=f"SoleasPay : {exc}")
+
+    raw_status = resp.get("status") or (resp.get("data") or {}).get("status")
+    new_status = await _process_soleaspay_event(
+        db,
+        order_id=order_id,
+        raw_status=raw_status or "",
+        success_flag=resp.get("success"),
+        payload=resp,
+        source="verify",
+    )
+    return {"order_id": order_id, "status": new_status, "provider_raw": resp}
+
+
 
 
 # ============ ADMIN ============
