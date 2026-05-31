@@ -474,6 +474,81 @@ async def my_withdrawals(request: Request, user=Depends(get_current_user)):
     return items
 
 
+
+@api.get("/transactions")
+async def my_transactions(request: Request, user=Depends(get_current_user)):
+    """Unified transaction history: activations + payments + withdrawals.
+
+    Returns a single list sorted by date (newest first) with a stable shape:
+      {type, status, amount, fee?, net?, currency, label, ref, date, meta}
+    """
+    db = request.app.state.db
+    out: list[dict] = []
+
+    # Activations (admin-validated flow)
+    async for a in db.activations.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+        out.append({
+            "type": "activation",
+            "status": a.get("status", "pending"),
+            "amount": float(a.get("amount", 0) or 0),
+            "fee": None,
+            "net": None,
+            "currency": "XOF",
+            "label": f"Activation niveau {a.get('level', '?')}",
+            "ref": a.get("id"),
+            "date": a.get("created_at"),
+            "meta": {
+                "level": a.get("level"),
+                "operator": a.get("operator"),
+                "payment_method": a.get("payment_method"),
+                "transaction_ref": a.get("transaction_ref"),
+            },
+        })
+
+    # Automatic payments (AshTechPay flow)
+    async for p in db.payments.find({"user_id": user["id"]}, {"_id": 0, "events": 0, "last_provider_payload": 0}).sort("created_at", -1):
+        out.append({
+            "type": "payment",
+            "status": p.get("status", "pending"),
+            "amount": float(p.get("amount", 0) or 0),
+            "fee": None,
+            "net": None,
+            "currency": p.get("currency", "XOF"),
+            "label": f"Paiement niveau {p.get('level', '?')}",
+            "ref": p.get("reference"),
+            "date": p.get("created_at"),
+            "meta": {
+                "level": p.get("level"),
+                "operator": p.get("operator"),
+                "phone": p.get("phone"),
+                "country": p.get("country_code"),
+            },
+        })
+
+    # Withdrawals
+    async for w in db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+        out.append({
+            "type": "withdrawal",
+            "status": w.get("status", "pending"),
+            "amount": float(w.get("amount", 0) or 0),
+            "fee": float(w.get("fee", 0) or 0) if w.get("fee") is not None else None,
+            "net": float(w.get("net_payout", 0) or 0) if w.get("net_payout") is not None else None,
+            "currency": "XOF",
+            "label": "Retrait",
+            "ref": w.get("id"),
+            "date": w.get("created_at"),
+            "meta": {
+                "operator": w.get("operator"),
+                "phone": w.get("phone"),
+                "country": w.get("country"),
+            },
+        })
+
+    out.sort(key=lambda r: (r.get("date") or datetime.now(timezone.utc)), reverse=True)
+    return out
+
+
+
 # ============ COMMUNITY / ANNOUNCEMENTS (public-ish to logged-in users) ============
 
 @api.get("/announcements")

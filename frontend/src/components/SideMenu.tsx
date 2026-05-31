@@ -14,6 +14,16 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
     setTimeout(() => router.push(path), 50);
   };
 
+  const refreshPage = () => {
+    onClose();
+    if (typeof window !== "undefined" && window.location) {
+      window.location.reload();
+    } else {
+      // On native: re-push current route to force a refresh
+      setTimeout(() => router.replace(router.canGoBack() ? "/(app)/dashboard" : "/(app)/dashboard"), 50);
+    }
+  };
+
   const items: { icon: keyof typeof Ionicons.glyphMap; label: string; path: string; testID: string; color: string }[] = [
     { icon: "home", label: "Tableau de bord", path: "/(app)/dashboard", testID: "menu-dashboard", color: "#3B82F6" },
     { icon: "git-network", label: "Les matrices", path: "/(app)/matrices", testID: "menu-matrices", color: theme.colors.secondary },
@@ -22,6 +32,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
     { icon: "person", label: "Mon profil", path: "/(app)/profile", testID: "menu-profile", color: "#0EA5E9" },
     { icon: "wallet", label: "Portefeuille retrait", path: "/(app)/wallet", testID: "menu-wallet", color: "#A855F7" },
     { icon: "cash", label: "Demande de retrait", path: "/(app)/withdrawal", testID: "menu-withdrawal", color: theme.colors.success },
+    { icon: "receipt", label: "Historique des transactions", path: "/(app)/transactions", testID: "menu-transactions", color: "#EC4899" },
     { icon: "megaphone", label: "Communauté", path: "/(app)/community", testID: "menu-community", color: "#F97316" },
     { icon: "settings", label: "Paramètres", path: "/(app)/settings", testID: "menu-settings", color: theme.colors.textSecondary },
   ];
@@ -75,6 +86,18 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              style={[styles.item, { marginTop: 4 }]}
+              onPress={refreshPage}
+              testID="menu-refresh"
+            >
+              <View style={[styles.itemIcon, { backgroundColor: "#0EA5E922" }]}>
+                <Ionicons name="refresh" size={20} color="#0EA5E9" />
+              </View>
+              <Text style={styles.itemLabel}>Actualiser la page</Text>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.item, { marginTop: 8 }]}
               onPress={async () => {
