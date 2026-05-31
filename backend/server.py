@@ -484,6 +484,235 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
     return items
 
 
+# ============ PAYMENTS (Money Fusion) ============
+
+import moneyfusion  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+
+
+def _new_order_id() -> str:
+    return f"SPV-{uuid.uuid4().hex[:12].upper()}"
+
+
+async def _record_mf_event(db, *, token: str, new_status: str, payload: dict, source: str):
+    await db.moneyfusion_payments.update_one(
+        {"token_pay": token},
+        {
+            "$set": {
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc),
+                "last_provider_payload": payload,
+            },
+            "$push": {
+                "events": {
+                    "status": new_status,
+                    "source": source,
+                    "received_at": datetime.now(timezone.utc),
+                    "payload": payload,
+                }
+            },
+        },
+    )
+
+
+class InitiateMfPaymentIn(BaseModel):
+    level: int = Field(default=1, ge=1, le=12)
+    phone: str
+    name: Optional[str] = None  # falls back to user's username
+
+
+@api.post("/payments/moneyfusion/initiate")
+async def mf_initiate(data: InitiateMfPaymentIn, request: Request, user=Depends(get_current_user)):
+    """Create a Money Fusion hosted payment for a level activation."""
+    db = request.app.state.db
+    level = data.level
+    lv = LEVELS_BY_NUM.get(level)
+    if not lv:
+        raise HTTPException(status_code=400, detail="Niveau invalide")
+    if user.get("max_level", 0) >= level:
+        raise HTTPException(status_code=400, detail="Niveau déjà activé")
+    if level != user.get("max_level", 0) + 1:
+        raise HTTPException(status_code=400, detail="Vous devez activer les niveaux dans l'ordre")
+
+    existing = await db.moneyfusion_payments.find_one(
+        {"user_id": user["id"], "level": level, "status": "pending"},
+        {"_id": 0},
+    )
+    if existing and existing.get("payment_url"):
+        return {
+            "order_id": existing["order_id"],
+            "token": existing.get("token_pay"),
+            "status": "pending",
+            "amount": existing["amount"],
+            "currency": existing["currency"],
+            "url": existing["payment_url"],
+            "reused": True,
+        }
+
+    order_id = _new_order_id()
+    amount = float(lv["price"])
+    currency = "XOF"
+
+    doc = {
+        "order_id": order_id,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "level": level,
+        "amount": amount,
+        "currency": currency,
+        "phone": data.phone,
+        "name": data.name or user.get("username", ""),
+        "status": "pending",
+        "token_pay": None,
+        "payment_url": None,
+        "events": [],
+        "last_provider_payload": None,
+        "activation_done": False,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.moneyfusion_payments.insert_one(doc)
+
+    try:
+        provider_resp = await moneyfusion.initiate_payment(
+            total_price=amount,
+            article=[{f"Activation niveau {level}": amount}],
+            customer_name=data.name or user.get("username", "spiloveure_user"),
+            customer_phone=data.phone,
+            user_id=str(user["id"]),
+            order_id=order_id,
+            level=level,
+        )
+    except moneyfusion.MoneyFusionError as exc:
+        await db.moneyfusion_payments.update_one(
+            {"order_id": order_id},
+            {"$set": {"status": "failed", "last_provider_payload": {"error": str(exc)}}},
+        )
+        raise HTTPException(status_code=502, detail=f"Money Fusion : {exc}")
+
+    token_pay = provider_resp.get("token")
+    payment_url = provider_resp.get("url")
+    await db.moneyfusion_payments.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "token_pay": token_pay,
+                "payment_url": payment_url,
+                "last_provider_payload": provider_resp,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    return {
+        "order_id": order_id,
+        "token": token_pay,
+        "status": "pending",
+        "amount": amount,
+        "currency": currency,
+        "url": payment_url,
+        "reused": False,
+    }
+
+
+@api.get("/payments/moneyfusion/status")
+async def mf_status(token: str, request: Request, user=Depends(get_current_user)):
+    """Return the current local status of a Money Fusion payment."""
+    db = request.app.state.db
+    doc = await db.moneyfusion_payments.find_one(
+        {"token_pay": token, "user_id": user["id"]},
+        {"_id": 0, "events": 0, "last_provider_payload": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    return doc
+
+
+async def _process_mf_event(db, *, token: str, raw_status: str, event: str, payload: dict, source: str) -> str:
+    """Update payment record + trigger level activation on success. Idempotent."""
+    payment = await db.moneyfusion_payments.find_one({"token_pay": token}, {"_id": 0})
+    if not payment:
+        log.warning("moneyfusion event for unknown token_pay=%s (source=%s)", token, source)
+        return "unknown_token"
+
+    new_status = moneyfusion.normalize_status(raw_status, event)
+
+    if payment.get("status") == new_status and new_status in ("paid", "failed"):
+        return new_status
+
+    await _record_mf_event(db, token=token, new_status=new_status, payload=payload, source=source)
+
+    if new_status == "paid" and not payment.get("activation_done"):
+        try:
+            await activate_level(db, payment["user_id"], int(payment["level"]), source="moneyfusion")
+            await db.moneyfusion_payments.update_one(
+                {"token_pay": token},
+                {"$set": {"activation_done": True}},
+            )
+            log.info("activation_done order=%s user=%s level=%s", payment["order_id"], payment["user_id"], payment["level"])
+        except Exception as exc:
+            log.exception("activate_level failed for token=%s: %s", token, exc)
+            await db.moneyfusion_payments.update_one(
+                {"token_pay": token},
+                {"$set": {"activation_error": str(exc)}},
+            )
+
+    return new_status
+
+
+@api.post("/payments/moneyfusion/webhook")
+async def mf_webhook(request: Request):
+    """Receive Money Fusion webhook (POST). No signature: keyed by tokenPay."""
+    db = request.app.state.db
+    try:
+        payload = await request.json()
+    except Exception:
+        log.exception("moneyfusion webhook invalid JSON body")
+        return {"received": True, "error": "invalid_json"}
+
+    token = payload.get("tokenPay") or payload.get("token") or (payload.get("data") or {}).get("tokenPay")
+    if not token:
+        return {"received": True, "error": "missing_tokenPay"}
+
+    event = payload.get("event") or ""
+    raw_status = payload.get("statut") or (payload.get("data") or {}).get("statut") or ""
+
+    new_status = await _process_mf_event(
+        db,
+        token=token,
+        raw_status=raw_status if isinstance(raw_status, str) else "",
+        event=event,
+        payload=payload,
+        source="webhook",
+    )
+    return {"received": True, "status": new_status}
+
+
+@api.post("/payments/moneyfusion/verify/{token}")
+async def mf_verify(token: str, request: Request, user=Depends(get_current_user)):
+    """Reconcile a payment by querying Money Fusion directly. Owner-only."""
+    db = request.app.state.db
+    doc = await db.moneyfusion_payments.find_one(
+        {"token_pay": token, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+
+    try:
+        resp = await moneyfusion.check_payment_status(token)
+    except moneyfusion.MoneyFusionError as exc:
+        raise HTTPException(status_code=502, detail=f"Money Fusion : {exc}")
+
+    data = resp.get("data") or {}
+    raw_status = data.get("statut") or ""
+    new_status = await _process_mf_event(
+        db, token=token, raw_status=raw_status, event="", payload=resp, source="verify",
+    )
+    return {"token": token, "status": new_status, "provider_raw": resp}
+
+
+
+
 
 # ============ ADMIN ============
 
