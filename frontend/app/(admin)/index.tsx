@@ -24,6 +24,9 @@ export default function AdminHome() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [stats, setStats] = useState<any>(null);
+  const [serverIp, setServerIp] = useState<string | null>(null);
+  const [ipLoading, setIpLoading] = useState(false);
+  const [ipError, setIpError] = useState<string | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [usersQ, setUsersQ] = useState("");
   const [activations, setActivations] = useState<any[]>([]);
@@ -54,6 +57,35 @@ export default function AdminHome() {
   }, [tab, usersQ]);
 
   useEffect(() => { load(); }, [load]);
+
+  const fetchServerIp = useCallback(async () => {
+    setIpLoading(true);
+    setIpError(null);
+    try {
+      const data = await api.get("/admin/outbound-ip");
+      const ip = data?.outbound_ip || (Array.isArray(data?.all_detected) && data.all_detected[0]) || null;
+      setServerIp(ip);
+      if (!ip) setIpError("IP non détectée");
+    } catch (e: any) {
+      setIpError(e?.detail || "Impossible de récupérer l'IP");
+    } finally {
+      setIpLoading(false);
+    }
+  }, []);
+
+  const copyIp = useCallback(async () => {
+    if (!serverIp) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(serverIp);
+        Alert.alert("Copié", `IP ${serverIp} copiée dans le presse-papiers.`);
+      } else {
+        Alert.alert("IP serveur", serverIp);
+      }
+    } catch {
+      Alert.alert("IP serveur", serverIp);
+    }
+  }, [serverIp]);
 
   const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie") => {
     try {
@@ -119,6 +151,68 @@ export default function AdminHome() {
               <StatCard icon="trending-up" color="#0EA5E9" label="Total activations" value={formatFCFA(stats.total_activations_amount)} small />
               <StatCard icon="arrow-down-circle" color={theme.colors.danger} label="Total retraits" value={formatFCFA(stats.total_withdrawals_amount)} small />
             </View>
+
+            <Card style={{ marginTop: 14 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#0EA5E922" }}>
+                  <Ionicons name="globe-outline" size={20} color="#0EA5E9" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 15 }}>IP du serveur de production</Text>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                    À whitelister chez votre passerelle de paiement (Money Fusion, etc.).
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <View style={{
+                  flex: 1, minWidth: 180, paddingVertical: 12, paddingHorizontal: 14,
+                  backgroundColor: theme.colors.background, borderRadius: 10,
+                  borderWidth: 1, borderColor: theme.colors.border,
+                }}>
+                  <Text style={{
+                    fontFamily: "monospace", fontSize: 16, fontWeight: "700",
+                    color: serverIp ? theme.colors.text : theme.colors.textSecondary,
+                    letterSpacing: 0.5,
+                  }} selectable testID="admin-server-ip-value">
+                    {ipLoading ? "Détection en cours…" : (serverIp || ipError || "Cliquez sur Actualiser")}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={fetchServerIp}
+                  disabled={ipLoading}
+                  style={{
+                    backgroundColor: theme.colors.primary, paddingVertical: 12, paddingHorizontal: 14,
+                    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6,
+                    opacity: ipLoading ? 0.6 : 1,
+                  }}
+                  testID="admin-server-ip-refresh"
+                >
+                  <Ionicons name="refresh" size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Actualiser</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={copyIp}
+                  disabled={!serverIp}
+                  style={{
+                    backgroundColor: serverIp ? theme.colors.success : theme.colors.border,
+                    paddingVertical: 12, paddingHorizontal: 14,
+                    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6,
+                  }}
+                  testID="admin-server-ip-copy"
+                >
+                  <Ionicons name="copy-outline" size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Copier</Text>
+                </TouchableOpacity>
+              </View>
+
+              {ipError && !ipLoading && (
+                <Text style={{ color: theme.colors.danger, fontSize: 12, marginTop: 8 }}>{ipError}</Text>
+              )}
+            </Card>
           </>
         )}
 
