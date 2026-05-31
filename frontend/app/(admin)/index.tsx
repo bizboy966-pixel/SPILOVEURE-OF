@@ -43,6 +43,10 @@ export default function AdminHome() {
   const [chPlatform, setChPlatform] = useState("telegram");
   const [chDesc, setChDesc] = useState("");
 
+  // Sub-tab filters for activations / withdrawals
+  const [actFilter, setActFilter] = useState<"pending" | "validated" | "rejected">("pending");
+  const [wdFilter, setWdFilter] = useState<"pending" | "validated" | "rejected">("pending");
+
   // Manual payment settings
   const [mpEnabled, setMpEnabled] = useState(false);
   const [mpTitle, setMpTitle] = useState("Paiement manuel");
@@ -325,9 +329,26 @@ export default function AdminHome() {
 
         {tab === "activations" && (
           <>
-            {activations.length === 0 ? (
-              <Card><Text style={styles.empty}>Aucune activation.</Text></Card>
-            ) : activations.map((a) => (
+            <SubTabs
+              tabs={[
+                { key: "pending", label: "En attente", color: theme.colors.warning, count: activations.filter((a) => a.status === "pending").length },
+                { key: "validated", label: "Activées", color: theme.colors.success, count: activations.filter((a) => a.status === "validated" || a.status === "active").length },
+                { key: "rejected", label: "Rejetées", color: theme.colors.danger, count: activations.filter((a) => a.status === "rejected").length },
+              ]}
+              active={actFilter}
+              onChange={(k) => setActFilter(k as any)}
+              testIdPrefix="activations-filter"
+            />
+            {(() => {
+              const filtered = activations.filter((a) => {
+                if (actFilter === "pending") return a.status === "pending";
+                if (actFilter === "validated") return a.status === "validated" || a.status === "active";
+                return a.status === "rejected";
+              });
+              if (filtered.length === 0) {
+                return <Card><Text style={styles.empty}>Aucune activation {actFilter === "pending" ? "en attente" : actFilter === "validated" ? "validée" : "rejetée"}.</Text></Card>;
+              }
+              return filtered.map((a) => (
               <Card key={a.id} style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <Text style={styles.userName}>{a.username}</Text>
@@ -372,24 +393,50 @@ export default function AdminHome() {
                   </TouchableOpacity>
                 </View>
               </Card>
-            ))}
+              ));
+            })()}
           </>
         )}
 
         {tab === "withdrawals" && (
           <>
-            {withdrawals.length === 0 ? (
-              <Card><Text style={styles.empty}>Aucun retrait.</Text></Card>
-            ) : withdrawals.map((w) => (
+            <SubTabs
+              tabs={[
+                { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending").length },
+                { key: "validated", label: "Validés", color: theme.colors.success, count: withdrawals.filter((w) => w.status === "validated" || w.status === "completed").length },
+                { key: "rejected", label: "Rejetés", color: theme.colors.danger, count: withdrawals.filter((w) => w.status === "rejected").length },
+              ]}
+              active={wdFilter}
+              onChange={(k) => setWdFilter(k as any)}
+              testIdPrefix="withdrawals-filter"
+            />
+            {(() => {
+              const filtered = withdrawals.filter((w) => {
+                if (wdFilter === "pending") return w.status === "pending";
+                if (wdFilter === "validated") return w.status === "validated" || w.status === "completed";
+                return w.status === "rejected";
+              });
+              if (filtered.length === 0) {
+                return <Card><Text style={styles.empty}>Aucun retrait {wdFilter === "pending" ? "en attente" : wdFilter === "validated" ? "validé" : "rejeté"}.</Text></Card>;
+              }
+              return filtered.map((w) => (
               <Card key={w.id} style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                   <Text style={styles.userName}>{w.username}</Text>
                   <PillStatus status={w.status} />
                 </View>
-                <Text style={styles.userMeta}>{formatFCFA(w.amount)}</Text>
-                <Text style={styles.userMeta}>{w.full_name} • {w.operator}</Text>
-                <Text style={styles.userMeta}>{w.phone} • {w.country}</Text>
-                <Text style={styles.userMeta}>{formatDateTime(w.created_at)}</Text>
+                <View style={styles.kvBox}>
+                  <KvRow k="Montant demandé" v={formatFCFA(w.amount)} />
+                  {w.fee != null ? <KvRow k="Frais de retrait" v={formatFCFA(w.fee)} /> : null}
+                  {w.net_payout != null ? <KvRow k="Montant net" v={formatFCFA(w.net_payout)} /> : null}
+                  <KvRow k="Bénéficiaire" v={w.full_name || "—"} />
+                  <KvRow k="Opérateur" v={w.operator || "—"} />
+                  <KvRow k="Numéro" v={w.phone || "—"} />
+                  <KvRow k="Pays" v={w.country || "—"} />
+                  <KvRow k="Date" v={formatDateTime(w.created_at)} />
+                  {w.validated_at ? <KvRow k="Validé le" v={formatDateTime(w.validated_at)} /> : null}
+                  {w.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(w.rejected_at)} /> : null}
+                </View>
                 {w.status === "pending" && (
                   <View style={styles.actRow}>
                     <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`))} testID={`admin-validate-wd-${w.id}`}>
@@ -403,7 +450,8 @@ export default function AdminHome() {
                   </View>
                 )}
               </Card>
-            ))}
+              ));
+            })()}
           </>
         )}
 
@@ -777,8 +825,39 @@ export default function AdminHome() {
   );
 }
 
-function StatCard({ icon, color, label, value, small }: { icon: any; color: string; label: string; value: any; small?: boolean }) {
+function SubTabs({
+  tabs, active, onChange, testIdPrefix,
+}: {
+  tabs: { key: string; label: string; color: string; count: number }[];
+  active: string;
+  onChange: (key: string) => void;
+  testIdPrefix?: string;
+}) {
   return (
+    <View style={styles.subTabsRow}>
+      {tabs.map((t) => {
+        const on = active === t.key;
+        return (
+          <TouchableOpacity
+            key={t.key}
+            style={[styles.subTab, on ? { backgroundColor: t.color, borderColor: t.color } : { borderColor: theme.colors.border }]}
+            onPress={() => onChange(t.key)}
+            testID={testIdPrefix ? `${testIdPrefix}-${t.key}` : undefined}
+          >
+            <View style={[styles.subTabDot, { backgroundColor: t.color }]} />
+            <Text style={[styles.subTabLbl, on && { color: "#fff" }]}>{t.label}</Text>
+            <View style={[styles.subTabBadge, on ? { backgroundColor: "rgba(255,255,255,0.25)" } : { backgroundColor: theme.colors.surfaceSecondary }]}>
+              <Text style={[styles.subTabBadgeT, on && { color: "#fff" }]}>{t.count}</Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+
+function StatCard({ icon, color, label, value, small }: { icon: any; color: string; label: string; value: any; small?: boolean }) {  return (
     <View style={styles.statCard}>
       <View style={[styles.statIcon, { backgroundColor: `${color}22` }]}>
         <Ionicons name={icon} size={20} color={color} />
@@ -867,4 +946,11 @@ const styles = StyleSheet.create({
   previewLine: { color: theme.colors.textPrimary, fontSize: 13, marginTop: 2 },
   previewBtn: { marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
   previewBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 12, letterSpacing: 0.4 },
+
+  subTabsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+  subTab: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, backgroundColor: theme.colors.surfaceSecondary },
+  subTabDot: { width: 8, height: 8, borderRadius: 4 },
+  subTabLbl: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
+  subTabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, minWidth: 20, alignItems: "center" },
+  subTabBadgeT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 10 },
 });

@@ -385,6 +385,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         spillover_active = await db.users.count_documents({"id": {"$in": spillover_active_ids}, "status": "active"})
     cur = user.get("max_level", 0)
     level_info = LEVELS_BY_NUM.get(cur) if cur else None
+    total_profit = float(user.get("commission_direct", 0) or 0) + float(user.get("commission_spillover", 0) or 0)
     return {
         "user": user,
         "balance_total": user.get("balance_profit", 0) + user.get("balance_upgrade", 0),
@@ -392,6 +393,8 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "balance_upgrade": user.get("balance_upgrade", 0),
         "commission_direct": user.get("commission_direct", 0),
         "commission_spillover": user.get("commission_spillover", 0),
+        "total_profit": total_profit,
+        "total_withdrawn": float(user.get("total_withdrawn", 0) or 0),
         "direct_count": direct_count,
         "direct_active": direct_active,
         "direct_inactive": direct_count - direct_active,

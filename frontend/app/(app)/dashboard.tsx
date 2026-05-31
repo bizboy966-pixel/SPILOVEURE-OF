@@ -116,6 +116,30 @@ export default function Dashboard() {
           </LinearGradient>
         </TouchableOpacity>
 
+        {/* Profit Total + Retrait Total — lifetime stats */}
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { backgroundColor: "#7C3AED" }]}>
+            <View style={styles.statIconBox}>
+              <Ionicons name="diamond" size={20} color="#fff" />
+            </View>
+            <Text style={styles.statLabel}>Profit Total</Text>
+            <Text style={styles.statValue} testID="dashboard-total-profit">
+              {formatFCFA(stats?.total_profit)}
+            </Text>
+            <Text style={styles.statHint}>cumul historique</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: "#1B5BFF" }]}>
+            <View style={styles.statIconBox}>
+              <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+            </View>
+            <Text style={styles.statLabel}>Retrait Total</Text>
+            <Text style={styles.statValue} testID="dashboard-total-withdrawn">
+              {formatFCFA(stats?.total_withdrawn)}
+            </Text>
+            <Text style={styles.statHint}>retraits validés</Text>
+          </View>
+        </View>
+
         {/* Commissions */}
         <View style={styles.row}>
           <View style={[styles.commCard, { backgroundColor: theme.colors.secondary }]}>
@@ -254,6 +278,12 @@ const styles = StyleSheet.create({
   balanceLabel: { color: "#C7D9FF", fontSize: 13 },
   balanceValue: { color: "#fff", fontSize: 32, fontWeight: "800", marginTop: 4 },
   balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
+  statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  statCard: { flex: 1, padding: 14, borderRadius: 16, alignItems: "flex-start", shadowColor: "#000", shadowOpacity: 0.06, shadowOffset: { width: 0, height: 4 }, shadowRadius: 8, elevation: 3 },
+  statIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  statLabel: { color: "rgba(255,255,255,0.85)", fontSize: 11, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: "700" },
+  statValue: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 4 },
+  statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
   walletIcon: { width: 64, height: 64, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
   row: { flexDirection: "row", gap: 12, marginTop: 12 },

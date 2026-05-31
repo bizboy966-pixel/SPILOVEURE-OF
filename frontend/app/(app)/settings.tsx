@@ -39,6 +39,13 @@ export default function Settings() {
     })();
   }, []);
 
+  // Sync local form state with the loaded user (fixes "Enregistrer" doing nothing
+  // when fields weren't pre-filled because user was still loading).
+  useEffect(() => {
+    if (user?.email) setEmail(user.email);
+    if (user?.phone) setPhone(user.phone);
+  }, [user?.email, user?.phone]);
+
   const changePwd = async () => {
     if (newPwd !== newPwd2) return Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
     setLoadingPwd(true);
