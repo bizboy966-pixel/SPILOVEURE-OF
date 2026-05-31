@@ -434,8 +434,20 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         raise HTTPException(400, "Veuillez d’abord enregistrer votre portefeuille de retrait.")
     if data.amount <= 0:
         raise HTTPException(400, "Montant invalide.")
+
+    # Load admin-configured withdrawal settings
+    wd_settings = await _get_withdrawal_settings(db)
+    if not wd_settings["enabled"]:
+        raise HTTPException(403, "Les retraits sont actuellement désactivés.")
+    if wd_settings["min_amount"] and data.amount < wd_settings["min_amount"]:
+        raise HTTPException(400, f"Montant minimum de retrait : {wd_settings['min_amount']:.0f} FCFA.")
+    if wd_settings["max_amount"] and data.amount > wd_settings["max_amount"]:
+        raise HTTPException(400, f"Montant maximum de retrait : {wd_settings['max_amount']:.0f} FCFA.")
     if data.amount > user.get("balance_profit", 0):
         raise HTTPException(400, "Solde profit insuffisant.")
+
+    fee, net = _compute_withdrawal_fee(float(data.amount), wd_settings)
+
     # Lock balance immediately
     await db.users.update_one(
         {"id": user["id"]}, {"$inc": {"balance_profit": -data.amount}},
@@ -443,12 +455,13 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     wd_id = str(uuid.uuid4())
     await db.withdrawals.insert_one({
         "id": wd_id, "user_id": user["id"], "username": user["username"],
-        "amount": data.amount, "status": "pending",
+        "amount": data.amount, "fee": fee, "net_payout": net,
+        "status": "pending",
         "operator": wallet["operator"], "phone": wallet["phone"],
         "full_name": wallet["full_name"], "country": wallet["country"],
         "created_at": datetime.now(timezone.utc),
     })
-    return {"id": wd_id, "status": "pending"}
+    return {"id": wd_id, "status": "pending", "amount": data.amount, "fee": fee, "net_payout": net}
 
 
 @api.get("/withdrawals/mine")
@@ -759,6 +772,84 @@ async def get_manual_payment(request: Request):
         "phone_to_pay": doc.get("phone_to_pay") or "",
         "operator_name": doc.get("operator_name") or "",
     }
+
+
+class WithdrawalSettings(BaseModel):
+    fee_percent: float = Field(default=0, ge=0, le=100)   # 0 .. 100 (%)
+    fee_flat: float = Field(default=0, ge=0)              # absolute amount in user currency
+    min_amount: float = Field(default=0, ge=0)            # minimum withdrawal amount
+    max_amount: Optional[float] = Field(default=None, ge=0)
+    enabled: bool = True
+
+
+class SupportLinks(BaseModel):
+    telegram_url: Optional[str] = None
+    whatsapp_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    youtube_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    discord_url: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website_url: Optional[str] = None
+
+
+def _withdrawal_defaults(doc: dict) -> dict:
+    return {
+        "fee_percent": float(doc.get("fee_percent", 0) or 0),
+        "fee_flat": float(doc.get("fee_flat", 0) or 0),
+        "min_amount": float(doc.get("min_amount", 0) or 0),
+        "max_amount": doc.get("max_amount"),
+        "enabled": bool(doc.get("enabled", True)),
+    }
+
+
+def _support_defaults(doc: dict) -> dict:
+    return {
+        "telegram_url": doc.get("telegram_url") or "",
+        "whatsapp_url": doc.get("whatsapp_url") or "",
+        "facebook_url": doc.get("facebook_url") or "",
+        "youtube_url": doc.get("youtube_url") or "",
+        "instagram_url": doc.get("instagram_url") or "",
+        "twitter_url": doc.get("twitter_url") or "",
+        "discord_url": doc.get("discord_url") or "",
+        "email": doc.get("email") or "",
+        "phone": doc.get("phone") or "",
+        "website_url": doc.get("website_url") or "",
+    }
+
+
+async def _get_withdrawal_settings(db) -> dict:
+    doc = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
+    return _withdrawal_defaults(doc)
+
+
+def _compute_withdrawal_fee(amount: float, settings: dict) -> tuple[float, float]:
+    """Return (fee, net) given gross withdrawal amount and settings."""
+    pct = float(settings.get("fee_percent", 0) or 0) / 100.0
+    flat = float(settings.get("fee_flat", 0) or 0)
+    fee = round(amount * pct + flat, 2)
+    fee = max(0.0, min(fee, amount))
+    net = round(amount - fee, 2)
+    return fee, net
+
+
+@api.get("/settings/withdrawal")
+async def get_withdrawal_settings(request: Request):
+    """Public read of withdrawal fee settings (used by /withdrawal screen)."""
+    db = request.app.state.db
+    return await _get_withdrawal_settings(db)
+
+
+@api.get("/settings/support")
+async def get_support_links(request: Request):
+    """Public read of support/social links (used by /settings screen)."""
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "support_links"}, {"_id": 0}) or {}
+    return _support_defaults(doc)
+
+
 
 
 
@@ -1242,6 +1333,78 @@ async def admin_update_manual_payment(
         {"_id": "manual_payment"}, {"$set": payload}, upsert=True,
     )
     return {"ok": True, "settings": payload}
+
+
+
+# --- Withdrawal settings ---
+
+@admin_router.get("/settings/withdrawal")
+async def admin_get_withdrawal_settings(request: Request):
+    db = request.app.state.db
+    settings = await _get_withdrawal_settings(db)
+    raw = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
+    settings["updated_at"] = raw.get("updated_at")
+    settings["updated_by"] = raw.get("updated_by")
+    return settings
+
+
+@admin_router.put("/settings/withdrawal")
+async def admin_update_withdrawal_settings(
+    data: WithdrawalSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "fee_percent": float(data.fee_percent),
+        "fee_flat": float(data.fee_flat),
+        "min_amount": float(data.min_amount),
+        "max_amount": float(data.max_amount) if data.max_amount is not None else None,
+        "enabled": bool(data.enabled),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "withdrawal_settings"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+# --- Support / Social links ---
+
+@admin_router.get("/settings/support")
+async def admin_get_support_links(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "support_links"}, {"_id": 0}) or {}
+    out = _support_defaults(doc)
+    out["updated_at"] = doc.get("updated_at")
+    out["updated_by"] = doc.get("updated_by")
+    return out
+
+
+@admin_router.put("/settings/support")
+async def admin_update_support_links(
+    data: SupportLinks, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "telegram_url": (data.telegram_url or "").strip(),
+        "whatsapp_url": (data.whatsapp_url or "").strip(),
+        "facebook_url": (data.facebook_url or "").strip(),
+        "youtube_url": (data.youtube_url or "").strip(),
+        "instagram_url": (data.instagram_url or "").strip(),
+        "twitter_url": (data.twitter_url or "").strip(),
+        "discord_url": (data.discord_url or "").strip(),
+        "email": (data.email or "").strip(),
+        "phone": (data.phone or "").strip(),
+        "website_url": (data.website_url or "").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "support_links"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
 
 
 

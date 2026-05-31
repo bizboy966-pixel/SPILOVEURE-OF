@@ -52,6 +52,27 @@ export default function AdminHome() {
   const [mpOperator, setMpOperator] = useState("");
   const [mpSaving, setMpSaving] = useState(false);
 
+  // Withdrawal fee settings
+  const [wdEnabled, setWdEnabled] = useState(true);
+  const [wdFeePercent, setWdFeePercent] = useState("0");
+  const [wdFeeFlat, setWdFeeFlat] = useState("0");
+  const [wdMinAmount, setWdMinAmount] = useState("0");
+  const [wdMaxAmount, setWdMaxAmount] = useState("");
+  const [wdSaving, setWdSaving] = useState(false);
+
+  // Support / social links
+  const [supTelegram, setSupTelegram] = useState("");
+  const [supWhatsapp, setSupWhatsapp] = useState("");
+  const [supFacebook, setSupFacebook] = useState("");
+  const [supYoutube, setSupYoutube] = useState("");
+  const [supInstagram, setSupInstagram] = useState("");
+  const [supTwitter, setSupTwitter] = useState("");
+  const [supDiscord, setSupDiscord] = useState("");
+  const [supEmail, setSupEmail] = useState("");
+  const [supPhone, setSupPhone] = useState("");
+  const [supWebsite, setSupWebsite] = useState("");
+  const [supSaving, setSupSaving] = useState(false);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") setStats(await api.get("/admin/stats"));
@@ -68,6 +89,25 @@ export default function AdminHome() {
         setMpPaymentUrl(cfg.payment_url || "");
         setMpPhone(cfg.phone_to_pay || "");
         setMpOperator(cfg.operator_name || "");
+
+        const wd = await api.get<any>("/admin/settings/withdrawal");
+        setWdEnabled(wd.enabled !== false);
+        setWdFeePercent(String(wd.fee_percent ?? 0));
+        setWdFeeFlat(String(wd.fee_flat ?? 0));
+        setWdMinAmount(String(wd.min_amount ?? 0));
+        setWdMaxAmount(wd.max_amount ? String(wd.max_amount) : "");
+
+        const sup = await api.get<any>("/admin/settings/support");
+        setSupTelegram(sup.telegram_url || "");
+        setSupWhatsapp(sup.whatsapp_url || "");
+        setSupFacebook(sup.facebook_url || "");
+        setSupYoutube(sup.youtube_url || "");
+        setSupInstagram(sup.instagram_url || "");
+        setSupTwitter(sup.twitter_url || "");
+        setSupDiscord(sup.discord_url || "");
+        setSupEmail(sup.email || "");
+        setSupPhone(sup.phone || "");
+        setSupWebsite(sup.website_url || "");
       }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
@@ -122,7 +162,7 @@ export default function AdminHome() {
     { key: "withdrawals", label: "Retraits", icon: "cash" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
-    { key: "payment", label: "Paiement", icon: "card" },
+    { key: "payment", label: "Réglages", icon: "settings" },
   ];
 
   return (
@@ -574,6 +614,161 @@ export default function AdminHome() {
                   </View>
                 )}
               </View>
+            </Card>
+
+            {/* ----- Withdrawal fee settings ----- */}
+            <Card style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="cash" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Frais de retrait</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Configure les frais appliqués lorsque les utilisateurs demandent un retrait.
+                Frais total = (montant × pourcentage) + frais fixes. Le minimum bloque les demandes inférieures.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.toggleRow, wdEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setWdEnabled((v) => !v)}
+                testID="wd-toggle-enabled"
+              >
+                <Ionicons
+                  name={wdEnabled ? "checkmark-circle" : "close-circle-outline"}
+                  size={20}
+                  color={wdEnabled ? "#fff" : theme.colors.textSecondary}
+                />
+                <Text style={[styles.toggleTxt, wdEnabled && { color: "#fff" }]}>
+                  {wdEnabled ? "Retraits activés pour les utilisateurs" : "Retraits désactivés"}
+                </Text>
+              </TouchableOpacity>
+
+              <Input
+                label="Frais en pourcentage (%)"
+                value={wdFeePercent}
+                onChangeText={setWdFeePercent}
+                keyboardType="numeric"
+                placeholder="Ex: 5 (pour 5%)"
+                testID="wd-fee-percent"
+              />
+              <Input
+                label="Frais fixes (FCFA)"
+                value={wdFeeFlat}
+                onChangeText={setWdFeeFlat}
+                keyboardType="numeric"
+                placeholder="Ex: 100"
+                testID="wd-fee-flat"
+              />
+              <Input
+                label="Montant minimum de retrait (FCFA)"
+                value={wdMinAmount}
+                onChangeText={setWdMinAmount}
+                keyboardType="numeric"
+                placeholder="Ex: 1000"
+                testID="wd-min-amount"
+              />
+              <Input
+                label="Montant maximum de retrait (FCFA) — optionnel"
+                value={wdMaxAmount}
+                onChangeText={setWdMaxAmount}
+                keyboardType="numeric"
+                placeholder="Laissez vide pour aucun plafond"
+                testID="wd-max-amount"
+              />
+
+              <View style={styles.previewBox}>
+                <Text style={styles.previewTitle}>Exemple sur un retrait de 10 000 FCFA</Text>
+                {(() => {
+                  const amt = 10000;
+                  const pct = Number(wdFeePercent || 0);
+                  const flat = Number(wdFeeFlat || 0);
+                  const fee = Math.min(amt, Math.round(amt * pct / 100 + flat));
+                  const net = Math.max(0, amt - fee);
+                  return (
+                    <>
+                      <Text style={styles.previewLine}>Frais : <Text style={{ fontWeight: "700", color: theme.colors.danger }}>{fee.toLocaleString("fr-FR")} FCFA</Text></Text>
+                      <Text style={styles.previewLine}>L'utilisateur reçoit : <Text style={{ fontWeight: "800", color: theme.colors.success || "#10B981" }}>{net.toLocaleString("fr-FR")} FCFA</Text></Text>
+                    </>
+                  );
+                })()}
+              </View>
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LES FRAIS"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={wdSaving}
+                onPress={async () => {
+                  setWdSaving(true);
+                  try {
+                    await api.put("/admin/settings/withdrawal", {
+                      enabled: wdEnabled,
+                      fee_percent: Number(wdFeePercent || 0),
+                      fee_flat: Number(wdFeeFlat || 0),
+                      min_amount: Number(wdMinAmount || 0),
+                      max_amount: wdMaxAmount ? Number(wdMaxAmount) : null,
+                    });
+                    Alert.alert("✅ Sauvegardé", "Les frais de retrait sont appliqués immédiatement.");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setWdSaving(false);
+                  }
+                }}
+                testID="wd-save"
+              />
+            </Card>
+
+            {/* ----- Support / Social links ----- */}
+            <Card style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="headset" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Liens de support & réseaux sociaux</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Ces liens apparaissent dans la page "Support" de l'application utilisateur.
+                Laissez vide les canaux que vous ne souhaitez pas afficher.
+              </Text>
+
+              <Input label="WhatsApp (URL)" value={supWhatsapp} onChangeText={setSupWhatsapp} placeholder="https://wa.me/22890000000" autoCapitalize="none" testID="sup-whatsapp" />
+              <Input label="Telegram (URL)" value={supTelegram} onChangeText={setSupTelegram} placeholder="https://t.me/spiloveure" autoCapitalize="none" testID="sup-telegram" />
+              <Input label="E-mail support" value={supEmail} onChangeText={setSupEmail} placeholder="support@spiloveure.com" autoCapitalize="none" keyboardType="email-address" testID="sup-email" />
+              <Input label="Téléphone support" value={supPhone} onChangeText={setSupPhone} placeholder="+22890000000" keyboardType="phone-pad" testID="sup-phone" />
+              <Input label="Facebook (URL)" value={supFacebook} onChangeText={setSupFacebook} placeholder="https://facebook.com/spiloveure" autoCapitalize="none" testID="sup-facebook" />
+              <Input label="YouTube (URL)" value={supYoutube} onChangeText={setSupYoutube} placeholder="https://youtube.com/@spiloveure" autoCapitalize="none" testID="sup-youtube" />
+              <Input label="Instagram (URL)" value={supInstagram} onChangeText={setSupInstagram} placeholder="https://instagram.com/spiloveure" autoCapitalize="none" testID="sup-instagram" />
+              <Input label="Twitter / X (URL)" value={supTwitter} onChangeText={setSupTwitter} placeholder="https://twitter.com/spiloveure" autoCapitalize="none" testID="sup-twitter" />
+              <Input label="Discord (URL)" value={supDiscord} onChangeText={setSupDiscord} placeholder="https://discord.gg/..." autoCapitalize="none" testID="sup-discord" />
+              <Input label="Site web (URL)" value={supWebsite} onChangeText={setSupWebsite} placeholder="https://spiloveure.com" autoCapitalize="none" testID="sup-website" />
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LES LIENS"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={supSaving}
+                onPress={async () => {
+                  setSupSaving(true);
+                  try {
+                    await api.put("/admin/settings/support", {
+                      telegram_url: supTelegram,
+                      whatsapp_url: supWhatsapp,
+                      facebook_url: supFacebook,
+                      youtube_url: supYoutube,
+                      instagram_url: supInstagram,
+                      twitter_url: supTwitter,
+                      discord_url: supDiscord,
+                      email: supEmail,
+                      phone: supPhone,
+                      website_url: supWebsite,
+                    });
+                    Alert.alert("✅ Sauvegardé", "Les liens de support sont mis à jour.");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setSupSaving(false);
+                  }
+                }}
+                testID="sup-save"
+              />
             </Card>
           </>
         )}

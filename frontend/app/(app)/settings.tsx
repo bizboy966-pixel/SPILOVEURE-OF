@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View, TouchableOpacity, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,6 +12,12 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 
+type SupportConfig = {
+  telegram_url: string; whatsapp_url: string; facebook_url: string; youtube_url: string;
+  instagram_url: string; twitter_url: string; discord_url: string;
+  email: string; phone: string; website_url: string;
+};
+
 export default function Settings() {
   const router = useRouter();
   const { user, refresh, signOut } = useAuth();
@@ -22,6 +28,16 @@ export default function Settings() {
   const [email, setEmail] = useState(user?.email || "");
   const [loadingPwd, setLoadingPwd] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [support, setSupport] = useState<SupportConfig | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await api.get<SupportConfig>("/settings/support", { auth: false });
+        setSupport(s);
+      } catch {}
+    })();
+  }, []);
 
   const changePwd = async () => {
     if (newPwd !== newPwd2) return Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
@@ -83,10 +99,25 @@ export default function Settings() {
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Support</Text>
-          <SupportRow icon="logo-whatsapp" label="WhatsApp" url="https://wa.me/22890000000" color="#25D366" />
-          <SupportRow icon="paper-plane" label="Telegram" url="https://t.me/spiloveure" color="#26A5E4" />
-          <SupportRow icon="mail" label="E-mail" url="mailto:support@spiloveure.com" color={theme.colors.primary} />
+          <Text style={styles.section}>Support & Réseaux sociaux</Text>
+          {!support || !(support.whatsapp_url || support.telegram_url || support.email || support.phone || support.facebook_url || support.youtube_url || support.instagram_url || support.twitter_url || support.discord_url || support.website_url) ? (
+            <Text style={{ color: theme.colors.textSecondary, fontStyle: "italic", textAlign: "center", padding: 16 }}>
+              Aucun canal de support configuré pour le moment.
+            </Text>
+          ) : (
+            <>
+              {!!support.whatsapp_url && <SupportRow icon="logo-whatsapp" label="WhatsApp" url={support.whatsapp_url} color="#25D366" />}
+              {!!support.telegram_url && <SupportRow icon="paper-plane" label="Telegram" url={support.telegram_url} color="#26A5E4" />}
+              {!!support.email && <SupportRow icon="mail" label="E-mail" url={`mailto:${support.email}`} color={theme.colors.primary} />}
+              {!!support.phone && <SupportRow icon="call" label="Téléphone" url={`tel:${support.phone}`} color="#10B981" />}
+              {!!support.facebook_url && <SupportRow icon="logo-facebook" label="Facebook" url={support.facebook_url} color="#1877F2" />}
+              {!!support.youtube_url && <SupportRow icon="logo-youtube" label="YouTube" url={support.youtube_url} color="#FF0000" />}
+              {!!support.instagram_url && <SupportRow icon="logo-instagram" label="Instagram" url={support.instagram_url} color="#E1306C" />}
+              {!!support.twitter_url && <SupportRow icon="logo-twitter" label="Twitter / X" url={support.twitter_url} color="#000000" />}
+              {!!support.discord_url && <SupportRow icon="logo-discord" label="Discord" url={support.discord_url} color="#5865F2" />}
+              {!!support.website_url && <SupportRow icon="globe" label="Site web" url={support.website_url} color="#6366F1" />}
+            </>
+          )}
         </Card>
 
         <TouchableOpacity style={styles.dangerBtn} onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} testID="settings-signout">
