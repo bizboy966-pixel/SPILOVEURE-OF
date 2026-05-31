@@ -10,35 +10,34 @@ const API = process.env.EXPO_PUBLIC_BACKEND_URL;
 type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
 
 /**
- * Money Fusion redirects the customer here after payment.
- * The token may be appended by Money Fusion or already present in sessionStorage
- * (set by the activation screen before redirect). We poll /payments/moneyfusion/status
- * until we get a definitive result.
+ * Generic payment success / status-tracking page.
+ * Reads the payment reference from URL `?ref=...` or from sessionStorage
+ * (set by the activation screen before starting the payment).
  */
 export default function PaymentSuccess() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ token?: string; tokenPay?: string }>();
+  const params = useLocalSearchParams<{ ref?: string; token?: string }>();
   const { token: authToken, user } = useAuth();
   const [status, setStatus] = useState<Status>("checking");
   const [amount, setAmount] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string>("");
+  const [ref, setRef] = useState<string | undefined>(
+    (params.ref || params.token) as string | undefined,
+  );
 
-  const tokenPay = (params.token || params.tokenPay) as string | undefined;
-  const [resolvedToken, setResolvedToken] = useState<string | undefined>(tokenPay);
-
+  // Fallback: read ref from sessionStorage if not in URL
   useEffect(() => {
-    if (resolvedToken) return;
-    // Fallback: Money Fusion may redirect without query params. We stored the
-    // token in sessionStorage right before redirecting.
+    if (ref) return;
     if (typeof window !== "undefined" && window.sessionStorage) {
-      const fromStorage = window.sessionStorage.getItem("mf_token");
-      if (fromStorage) setResolvedToken(fromStorage);
+      const fromStorage = window.sessionStorage.getItem("pay_ref");
+      if (fromStorage) setRef(fromStorage);
     }
-  }, [resolvedToken]);
+  }, [ref]);
 
+  // Poll the status endpoint until we have a definitive result
   useEffect(() => {
-    if (!resolvedToken || !authToken) {
-      if (!resolvedToken) setStatus("unknown");
+    if (!ref || !authToken) {
+      if (!ref) setStatus("unknown");
       return;
     }
     let cancelled = false;
@@ -46,7 +45,7 @@ export default function PaymentSuccess() {
     const poll = async () => {
       attempts += 1;
       try {
-        const r = await fetch(`${API}/api/payments/moneyfusion/status?token=${encodeURIComponent(resolvedToken)}`, {
+        const r = await fetch(`${API}/api/payments/secure/status?ref=${encodeURIComponent(ref)}`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!r.ok) {
@@ -60,12 +59,15 @@ export default function PaymentSuccess() {
         if (data.status === "paid") {
           setStatus("paid");
           if (typeof window !== "undefined" && window.sessionStorage) {
-            try { window.sessionStorage.removeItem("mf_token"); window.sessionStorage.removeItem("mf_order_id"); } catch {}
+            try { window.sessionStorage.removeItem("pay_ref"); } catch {}
           }
+        } else if (data.status === "failed") {
+          setStatus("failed");
+        } else if (attempts < 40) {
+          setTimeout(poll, 4000);
+        } else {
+          setStatus("pending");
         }
-        else if (data.status === "failed") setStatus("failed");
-        else if (attempts < 40) setTimeout(poll, 4000);
-        else setStatus("pending");
       } catch {
         if (!cancelled && attempts < 20) setTimeout(poll, 4000);
       }
@@ -74,7 +76,7 @@ export default function PaymentSuccess() {
     return () => {
       cancelled = true;
     };
-  }, [resolvedToken, authToken]);
+  }, [ref, authToken]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -84,7 +86,7 @@ export default function PaymentSuccess() {
             <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={styles.title}>Vérification du paiement…</Text>
             <Text style={styles.sub}>
-              Nous attendons la confirmation de Money Fusion. Cela peut prendre quelques secondes.
+              Confirmez l'invite Mobile Money reçue sur votre téléphone. La validation est automatique.
             </Text>
           </>
         ) : status === "paid" ? (
@@ -107,7 +109,7 @@ export default function PaymentSuccess() {
             </View>
             <Text style={styles.title}>Paiement échoué</Text>
             <Text style={styles.sub}>
-              Le paiement n'a pas pu être confirmé. Vous pouvez réessayer depuis votre tableau de bord.
+              Le paiement n'a pas pu être confirmé. Vérifiez votre solde ou réessayez avec un autre opérateur.
             </Text>
           </>
         ) : (

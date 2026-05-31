@@ -484,9 +484,10 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
     return items
 
 
-# ============ PAYMENTS (Money Fusion) ============
 
-import moneyfusion  # noqa: E402
+# ============ PAYMENTS (Secure Gateway) ============
+
+import secure_pay  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 
@@ -494,9 +495,9 @@ def _new_order_id() -> str:
     return f"SPV-{uuid.uuid4().hex[:12].upper()}"
 
 
-async def _record_mf_event(db, *, token: str, new_status: str, payload: dict, source: str):
-    await db.moneyfusion_payments.update_one(
-        {"token_pay": token},
+async def _record_payment_event(db, *, ref: str, new_status: str, payload: dict, source: str):
+    await db.payments.update_one(
+        {"reference": ref},
         {
             "$set": {
                 "status": new_status,
@@ -515,15 +516,17 @@ async def _record_mf_event(db, *, token: str, new_status: str, payload: dict, so
     )
 
 
-class InitiateMfPaymentIn(BaseModel):
+class InitiatePaymentIn(BaseModel):
     level: int = Field(default=1, ge=1, le=12)
     phone: str
-    name: Optional[str] = None  # falls back to user's username
+    operator: str
+    country_code: str = Field(default="TG")
+    otp: Optional[str] = None
 
 
-@api.post("/payments/moneyfusion/initiate")
-async def mf_initiate(data: InitiateMfPaymentIn, request: Request, user=Depends(get_current_user)):
-    """Create a Money Fusion hosted payment for a level activation."""
+@api.post("/payments/secure/initiate")
+async def secure_initiate(data: InitiatePaymentIn, request: Request, user=Depends(get_current_user)):
+    """Initiate a secure Mobile Money payment for level activation."""
     db = request.app.state.db
     level = data.level
     lv = LEVELS_BY_NUM.get(level)
@@ -534,93 +537,114 @@ async def mf_initiate(data: InitiateMfPaymentIn, request: Request, user=Depends(
     if level != user.get("max_level", 0) + 1:
         raise HTTPException(status_code=400, detail="Vous devez activer les niveaux dans l'ordre")
 
-    existing = await db.moneyfusion_payments.find_one(
+    # Reuse a pending payment to avoid double-charges
+    existing = await db.payments.find_one(
         {"user_id": user["id"], "level": level, "status": "pending"},
         {"_id": 0},
     )
-    if existing and existing.get("payment_url"):
+    if existing and existing.get("transaction_id"):
         return {
-            "order_id": existing["order_id"],
-            "token": existing.get("token_pay"),
+            "order_id": existing["reference"],
+            "transaction_id": existing["transaction_id"],
             "status": "pending",
             "amount": existing["amount"],
             "currency": existing["currency"],
-            "url": existing["payment_url"],
+            "flow": existing.get("flow") or "ussd_push",
+            "wave_url": existing.get("wave_url"),
             "reused": True,
         }
 
-    order_id = _new_order_id()
+    reference = _new_order_id()
     amount = float(lv["price"])
-    currency = "XOF"
+    currency = "XOF" if data.country_code in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
 
     doc = {
-        "order_id": order_id,
+        "reference": reference,
         "user_id": user["id"],
         "username": user.get("username"),
         "level": level,
         "amount": amount,
         "currency": currency,
         "phone": data.phone,
-        "name": data.name or user.get("username", ""),
+        "operator": data.operator,
+        "country_code": data.country_code,
         "status": "pending",
-        "token_pay": None,
-        "payment_url": None,
+        "transaction_id": None,
+        "wave_url": None,
+        "flow": None,
         "events": [],
         "last_provider_payload": None,
         "activation_done": False,
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
-    await db.moneyfusion_payments.insert_one(doc)
+    await db.payments.insert_one(doc)
 
     try:
-        provider_resp = await moneyfusion.initiate_payment(
-            total_price=amount,
-            article=[{f"Activation niveau {level}": amount}],
-            customer_name=data.name or user.get("username", "spiloveure_user"),
-            customer_phone=data.phone,
-            user_id=str(user["id"]),
-            order_id=order_id,
-            level=level,
+        resp = await secure_pay.initiate_collect(
+            amount=amount,
+            currency=currency,
+            phone=data.phone,
+            operator=data.operator,
+            country_code=data.country_code,
+            reference=reference,
+            otp=data.otp,
         )
-    except moneyfusion.MoneyFusionError as exc:
-        await db.moneyfusion_payments.update_one(
-            {"order_id": order_id},
+    except secure_pay.SecurePayError as exc:
+        if exc.code == "otp_required":
+            # Keep payment as pending — frontend will re-submit with otp
+            await db.payments.update_one(
+                {"reference": reference},
+                {"$set": {"otp_required": True, "ussd_code": exc.ussd_code, "last_provider_payload": {"otp_required": True, "ussd_code": exc.ussd_code}}},
+            )
+            return {
+                "order_id": reference,
+                "status": "otp_required",
+                "ussd_code": exc.ussd_code,
+                "message": str(exc),
+                "amount": amount,
+                "currency": currency,
+            }
+        await db.payments.update_one(
+            {"reference": reference},
             {"$set": {"status": "failed", "last_provider_payload": {"error": str(exc)}}},
         )
-        raise HTTPException(status_code=502, detail=f"Money Fusion : {exc}")
+        raise HTTPException(status_code=502, detail=str(exc))
 
-    token_pay = provider_resp.get("token")
-    payment_url = provider_resp.get("url")
-    await db.moneyfusion_payments.update_one(
-        {"order_id": order_id},
+    transaction_id = resp.get("transaction_id")
+    flow = resp.get("flow") or "ussd_push"
+    wave_url = resp.get("wave_url")
+    await db.payments.update_one(
+        {"reference": reference},
         {
             "$set": {
-                "token_pay": token_pay,
-                "payment_url": payment_url,
-                "last_provider_payload": provider_resp,
+                "transaction_id": transaction_id,
+                "flow": flow,
+                "wave_url": wave_url,
+                "last_provider_payload": resp,
                 "updated_at": datetime.now(timezone.utc),
             }
         },
     )
 
     return {
-        "order_id": order_id,
-        "token": token_pay,
+        "order_id": reference,
+        "transaction_id": transaction_id,
         "status": "pending",
         "amount": amount,
         "currency": currency,
-        "url": payment_url,
+        "flow": flow,
+        "wave_url": wave_url,
         "reused": False,
     }
 
 
-@api.get("/payments/moneyfusion/status")
-async def mf_status(token: str, request: Request, user=Depends(get_current_user)):
-    """Return the current local status of a Money Fusion payment."""
+@api.get("/payments/secure/status")
+async def secure_status(ref: str, request: Request, user=Depends(get_current_user)):
+    """Return the local status of a payment (used by frontend polling)."""
     db = request.app.state.db
-    doc = await db.moneyfusion_payments.find_one(
-        {"token_pay": token, "user_id": user["id"]},
+    doc = await db.payments.find_one(
+        {"reference": ref, "user_id": user["id"]},
         {"_id": 0, "events": 0, "last_provider_payload": 0},
     )
     if not doc:
@@ -628,89 +652,113 @@ async def mf_status(token: str, request: Request, user=Depends(get_current_user)
     return doc
 
 
-async def _process_mf_event(db, *, token: str, raw_status: str, event: str, payload: dict, source: str) -> str:
-    """Update payment record + trigger level activation on success. Idempotent."""
-    payment = await db.moneyfusion_payments.find_one({"token_pay": token}, {"_id": 0})
+async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, payload: dict, source: str) -> str:
+    payment = await db.payments.find_one({"reference": ref}, {"_id": 0})
     if not payment:
-        log.warning("moneyfusion event for unknown token_pay=%s (source=%s)", token, source)
-        return "unknown_token"
+        log.warning("payment event for unknown reference=%s (source=%s)", ref, source)
+        return "unknown_reference"
 
-    new_status = moneyfusion.normalize_status(raw_status, event)
+    new_status = secure_pay.normalize_status(raw_status, event)
 
+    # Idempotence: if already in a final state and unchanged, skip.
     if payment.get("status") == new_status and new_status in ("paid", "failed"):
         return new_status
 
-    await _record_mf_event(db, token=token, new_status=new_status, payload=payload, source=source)
+    await _record_payment_event(db, ref=ref, new_status=new_status, payload=payload, source=source)
 
     if new_status == "paid" and not payment.get("activation_done"):
         try:
-            await activate_level(db, payment["user_id"], int(payment["level"]), source="moneyfusion")
-            await db.moneyfusion_payments.update_one(
-                {"token_pay": token},
+            await activate_level(db, payment["user_id"], int(payment["level"]), source="secure_pay")
+            await db.payments.update_one(
+                {"reference": ref},
                 {"$set": {"activation_done": True}},
             )
-            log.info("activation_done order=%s user=%s level=%s", payment["order_id"], payment["user_id"], payment["level"])
+            log.info("activation_done ref=%s user=%s level=%s", ref, payment["user_id"], payment["level"])
         except Exception as exc:
-            log.exception("activate_level failed for token=%s: %s", token, exc)
-            await db.moneyfusion_payments.update_one(
-                {"token_pay": token},
+            log.exception("activate_level failed for ref=%s: %s", ref, exc)
+            await db.payments.update_one(
+                {"reference": ref},
                 {"$set": {"activation_error": str(exc)}},
             )
 
     return new_status
 
 
-@api.post("/payments/moneyfusion/webhook")
-async def mf_webhook(request: Request):
-    """Receive Money Fusion webhook (POST). No signature: keyed by tokenPay."""
+@api.post("/payments/secure/webhook")
+async def secure_webhook(request: Request):
+    """Receive asynchronous payment events. Keyed by `reference`/`transaction_id`."""
     db = request.app.state.db
     try:
         payload = await request.json()
     except Exception:
-        log.exception("moneyfusion webhook invalid JSON body")
+        log.exception("secure webhook invalid JSON body")
         return {"received": True, "error": "invalid_json"}
 
-    token = payload.get("tokenPay") or payload.get("token") or (payload.get("data") or {}).get("tokenPay")
-    if not token:
-        return {"received": True, "error": "missing_tokenPay"}
+    ref = payload.get("reference")
+    if not ref:
+        # fallback: try to find by transaction_id
+        tx_id = payload.get("transaction_id")
+        if tx_id:
+            doc = await db.payments.find_one({"transaction_id": tx_id}, {"reference": 1})
+            ref = doc.get("reference") if doc else None
+    if not ref:
+        return {"received": True, "error": "missing_reference"}
 
     event = payload.get("event") or ""
-    raw_status = payload.get("statut") or (payload.get("data") or {}).get("statut") or ""
+    raw_status = payload.get("status") or ""
 
-    new_status = await _process_mf_event(
-        db,
-        token=token,
-        raw_status=raw_status if isinstance(raw_status, str) else "",
-        event=event,
-        payload=payload,
-        source="webhook",
+    new_status = await _process_payment_event(
+        db, ref=ref, raw_status=raw_status, event=event, payload=payload, source="webhook",
     )
     return {"received": True, "status": new_status}
 
 
-@api.post("/payments/moneyfusion/verify/{token}")
-async def mf_verify(token: str, request: Request, user=Depends(get_current_user)):
-    """Reconcile a payment by querying Money Fusion directly. Owner-only."""
+@api.post("/payments/secure/verify/{ref}")
+async def secure_verify(ref: str, request: Request, user=Depends(get_current_user)):
+    """Reconcile a payment by querying the provider directly. Owner-only."""
     db = request.app.state.db
-    doc = await db.moneyfusion_payments.find_one(
-        {"token_pay": token, "user_id": user["id"]}, {"_id": 0}
-    )
+    doc = await db.payments.find_one({"reference": ref, "user_id": user["id"]}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Paiement introuvable")
+    if not doc.get("transaction_id"):
+        raise HTTPException(status_code=400, detail="Aucun identifiant de transaction")
 
     try:
-        resp = await moneyfusion.check_payment_status(token)
-    except moneyfusion.MoneyFusionError as exc:
-        raise HTTPException(status_code=502, detail=f"Money Fusion : {exc}")
+        resp = await secure_pay.get_transaction_status(doc["transaction_id"])
+    except secure_pay.SecurePayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
-    data = resp.get("data") or {}
-    raw_status = data.get("statut") or ""
-    new_status = await _process_mf_event(
-        db, token=token, raw_status=raw_status, event="", payload=resp, source="verify",
+    new_status = await _process_payment_event(
+        db, ref=ref, raw_status=resp.get("status") or "", event="", payload=resp, source="verify",
     )
-    return {"token": token, "status": new_status, "provider_raw": resp}
+    return {"reference": ref, "status": new_status, "provider_raw": resp}
 
 
+# ============ APP SETTINGS (manual payment instructions) ============
+
+class ManualPaymentSettings(BaseModel):
+    enabled: bool = False
+    payment_url: Optional[str] = None
+    title: Optional[str] = "Paiement manuel"
+    instructions: Optional[str] = None
+    phone_to_pay: Optional[str] = None
+    operator_name: Optional[str] = None
+
+
+@api.get("/settings/manual-payment")
+async def get_manual_payment(request: Request):
+    """Public read of manual payment settings (used by /activation manual flow)."""
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    # Sanitize: never expose admin-only fields.
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "payment_url": doc.get("payment_url") or "",
+        "title": doc.get("title") or "Paiement manuel",
+        "instructions": doc.get("instructions") or "",
+        "phone_to_pay": doc.get("phone_to_pay") or "",
+        "operator_name": doc.get("operator_name") or "",
+    }
 
 
 
@@ -1157,6 +1205,45 @@ async def admin_timeseries(request: Request, days: int = 14):
         "activations": await series("activations", {"status": "validated"}),
         "withdrawals": await series("withdrawals", {"status": "validated"}),
     }
+
+
+@admin_router.get("/settings/manual-payment")
+async def admin_get_manual_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "payment_url": doc.get("payment_url") or "",
+        "title": doc.get("title") or "Paiement manuel",
+        "instructions": doc.get("instructions") or "",
+        "phone_to_pay": doc.get("phone_to_pay") or "",
+        "operator_name": doc.get("operator_name") or "",
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/manual-payment")
+async def admin_update_manual_payment(
+    data: ManualPaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": data.enabled,
+        "payment_url": (data.payment_url or "").strip(),
+        "title": (data.title or "Paiement manuel").strip(),
+        "instructions": (data.instructions or "").strip(),
+        "phone_to_pay": (data.phone_to_pay or "").strip(),
+        "operator_name": (data.operator_name or "").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "manual_payment"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
 
 
 api.include_router(admin_router)

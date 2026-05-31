@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -43,6 +43,15 @@ export default function AdminHome() {
   const [chPlatform, setChPlatform] = useState("telegram");
   const [chDesc, setChDesc] = useState("");
 
+  // Manual payment settings
+  const [mpEnabled, setMpEnabled] = useState(false);
+  const [mpTitle, setMpTitle] = useState("Paiement manuel");
+  const [mpInstructions, setMpInstructions] = useState("");
+  const [mpPaymentUrl, setMpPaymentUrl] = useState("");
+  const [mpPhone, setMpPhone] = useState("");
+  const [mpOperator, setMpOperator] = useState("");
+  const [mpSaving, setMpSaving] = useState(false);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") setStats(await api.get("/admin/stats"));
@@ -51,6 +60,15 @@ export default function AdminHome() {
       if (tab === "withdrawals") setWithdrawals(await api.get("/admin/withdrawals"));
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
+      if (tab === "payment") {
+        const cfg = await api.get<any>("/admin/settings/manual-payment");
+        setMpEnabled(!!cfg.enabled);
+        setMpTitle(cfg.title || "Paiement manuel");
+        setMpInstructions(cfg.instructions || "");
+        setMpPaymentUrl(cfg.payment_url || "");
+        setMpPhone(cfg.phone_to_pay || "");
+        setMpOperator(cfg.operator_name || "");
+      }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
     }
@@ -104,6 +122,7 @@ export default function AdminHome() {
     { key: "withdrawals", label: "Retraits", icon: "cash" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
+    { key: "payment", label: "Paiement", icon: "card" },
   ];
 
   return (
@@ -423,6 +442,141 @@ export default function AdminHome() {
             ))}
           </>
         )}
+
+        {tab === "payment" && (
+          <>
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="card" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Configuration paiement manuel</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Cette section permet aux utilisateurs d'effectuer un paiement en dehors du flux automatique.
+                Ils verront le titre, les instructions, le bouton vers le lien de paiement et les coordonnées que vous renseignez ici.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.toggleRow, mpEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setMpEnabled((v) => !v)}
+                testID="mp-toggle-enabled"
+              >
+                <Ionicons
+                  name={mpEnabled ? "checkmark-circle" : "close-circle-outline"}
+                  size={20}
+                  color={mpEnabled ? "#fff" : theme.colors.textSecondary}
+                />
+                <Text style={[styles.toggleTxt, mpEnabled && { color: "#fff" }]}>
+                  {mpEnabled ? "Activé — visible aux utilisateurs" : "Désactivé — masqué"}
+                </Text>
+              </TouchableOpacity>
+
+              <Input
+                label="Titre affiché"
+                value={mpTitle}
+                onChangeText={setMpTitle}
+                placeholder="Ex: Paiement manuel"
+                testID="mp-title"
+              />
+              <Input
+                label="Lien de paiement (URL)"
+                value={mpPaymentUrl}
+                onChangeText={setMpPaymentUrl}
+                placeholder="https://..."
+                autoCapitalize="none"
+                keyboardType="url"
+                testID="mp-payment-url"
+              />
+              <Text style={styles.lbl}>Instructions</Text>
+              <TextInput
+                style={styles.textarea}
+                value={mpInstructions}
+                onChangeText={setMpInstructions}
+                placeholder="Ex: Effectuez un dépôt Mobile Money sur le numéro ci-dessous puis cliquez sur le lien pour confirmer..."
+                placeholderTextColor={theme.colors.textSecondary}
+                multiline
+                numberOfLines={5}
+                testID="mp-instructions"
+              />
+              <Input
+                label="Opérateur Mobile Money"
+                value={mpOperator}
+                onChangeText={setMpOperator}
+                placeholder="Ex: T-Money, MTN MoMo, Orange Money..."
+                testID="mp-operator"
+              />
+              <Input
+                label="Numéro Mobile Money à payer"
+                value={mpPhone}
+                onChangeText={setMpPhone}
+                placeholder="Ex: 22890000000"
+                keyboardType="phone-pad"
+                testID="mp-phone"
+              />
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LA CONFIGURATION"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={mpSaving}
+                onPress={async () => {
+                  setMpSaving(true);
+                  try {
+                    await api.put("/admin/settings/manual-payment", {
+                      enabled: mpEnabled,
+                      title: mpTitle,
+                      instructions: mpInstructions,
+                      payment_url: mpPaymentUrl,
+                      phone_to_pay: mpPhone,
+                      operator_name: mpOperator,
+                    });
+                    Alert.alert("Configuration sauvegardée", "Les utilisateurs verront immédiatement les changements.");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setMpSaving(false);
+                  }
+                }}
+                testID="mp-save"
+              />
+            </Card>
+
+            <Card style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="eye" size={20} color={theme.colors.primary} />
+                <Text style={styles.section}>Aperçu côté utilisateur</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Voici ce que verront les utilisateurs sur l'écran d'activation si la section est activée :
+              </Text>
+              <View style={styles.previewBox}>
+                <Text style={styles.previewTitle}>{mpTitle || "Paiement manuel"}</Text>
+                {!!mpInstructions && (
+                  <Text style={styles.previewInstr}>{mpInstructions}</Text>
+                )}
+                {(!!mpOperator || !!mpPhone) && (
+                  <View style={styles.previewKv}>
+                    {!!mpOperator && (
+                      <Text style={styles.previewLine}>
+                        <Text style={{ fontWeight: "700" }}>Opérateur : </Text>{mpOperator}
+                      </Text>
+                    )}
+                    {!!mpPhone && (
+                      <Text style={styles.previewLine}>
+                        <Text style={{ fontWeight: "700" }}>Numéro à payer : </Text>{mpPhone}
+                      </Text>
+                    )}
+                  </View>
+                )}
+                {!!mpPaymentUrl && (
+                  <View style={[styles.previewBtn]}>
+                    <Ionicons name="open" size={14} color="#fff" />
+                    <Text style={styles.previewBtnTxt}>OUVRIR LE LIEN DE PAIEMENT</Text>
+                  </View>
+                )}
+              </View>
+            </Card>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -503,4 +657,19 @@ const styles = StyleSheet.create({
   kvV: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12, flex: 1, textAlign: "right" },
   tag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   tagT: { fontSize: 9, fontWeight: "800" },
+
+  helperTxt: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, marginBottom: 14 },
+  toggleOn: { backgroundColor: theme.colors.success || "#10B981" },
+  toggleOff: { backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  toggleTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 },
+  textarea: { backgroundColor: theme.colors.surfaceSecondary, borderRadius: 12, padding: 12, minHeight: 96, color: theme.colors.textPrimary, fontSize: 14, marginBottom: 12, textAlignVertical: "top" },
+
+  previewBox: { padding: 16, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8 },
+  previewTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 15, marginBottom: 8 },
+  previewInstr: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  previewKv: { marginTop: 10, padding: 10, backgroundColor: "#fff", borderRadius: 10 },
+  previewLine: { color: theme.colors.textPrimary, fontSize: 13, marginTop: 2 },
+  previewBtn: { marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
+  previewBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 12, letterSpacing: 0.4 },
 });
