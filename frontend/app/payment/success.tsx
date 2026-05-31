@@ -11,7 +11,7 @@ type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
 
 /**
  * Money Fusion redirects the customer here after payment.
- * The token may be appended by Money Fusion or already present in localStorage
+ * The token may be appended by Money Fusion or already present in sessionStorage
  * (set by the activation screen before redirect). We poll /payments/moneyfusion/status
  * until we get a definitive result.
  */
@@ -24,10 +24,21 @@ export default function PaymentSuccess() {
   const [currency, setCurrency] = useState<string>("");
 
   const tokenPay = (params.token || params.tokenPay) as string | undefined;
+  const [resolvedToken, setResolvedToken] = useState<string | undefined>(tokenPay);
 
   useEffect(() => {
-    if (!tokenPay || !authToken) {
-      setStatus("unknown");
+    if (resolvedToken) return;
+    // Fallback: Money Fusion may redirect without query params. We stored the
+    // token in sessionStorage right before redirecting.
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      const fromStorage = window.sessionStorage.getItem("mf_token");
+      if (fromStorage) setResolvedToken(fromStorage);
+    }
+  }, [resolvedToken]);
+
+  useEffect(() => {
+    if (!resolvedToken || !authToken) {
+      if (!resolvedToken) setStatus("unknown");
       return;
     }
     let cancelled = false;
@@ -35,7 +46,7 @@ export default function PaymentSuccess() {
     const poll = async () => {
       attempts += 1;
       try {
-        const r = await fetch(`${API}/api/payments/moneyfusion/status?token=${encodeURIComponent(tokenPay)}`, {
+        const r = await fetch(`${API}/api/payments/moneyfusion/status?token=${encodeURIComponent(resolvedToken)}`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!r.ok) {
@@ -46,7 +57,12 @@ export default function PaymentSuccess() {
         if (cancelled) return;
         setAmount(data.amount ?? null);
         setCurrency(data.currency ?? "");
-        if (data.status === "paid") setStatus("paid");
+        if (data.status === "paid") {
+          setStatus("paid");
+          if (typeof window !== "undefined" && window.sessionStorage) {
+            try { window.sessionStorage.removeItem("mf_token"); window.sessionStorage.removeItem("mf_order_id"); } catch {}
+          }
+        }
         else if (data.status === "failed") setStatus("failed");
         else if (attempts < 40) setTimeout(poll, 4000);
         else setStatus("pending");
@@ -58,7 +74,7 @@ export default function PaymentSuccess() {
     return () => {
       cancelled = true;
     };
-  }, [tokenPay, authToken]);
+  }, [resolvedToken, authToken]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

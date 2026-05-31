@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert,
+  ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert, TextInput, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,59 +9,67 @@ import { useRouter } from "expo-router";
 
 import { Button } from "@/src/components/Button";
 import { Card } from "@/src/components/Card";
-import { PasswordConfirmModal } from "@/src/components/PasswordConfirmModal";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
 
-const PAYMENT_METHODS = [
-  { key: "mobile_money", label: "Mobile Money", icon: "phone-portrait" },
-  { key: "card", label: "Carte bancaire", icon: "card" },
-  { key: "crypto", label: "Crypto", icon: "logo-bitcoin" },
-] as const;
-
 export default function Activation() {
   const router = useRouter();
   const { user, refresh } = useAuth();
   const [level1, setLevel1] = useState<any>(null);
-  const [method, setMethod] = useState<"mobile_money" | "card" | "crypto">("mobile_money");
-  const [operators, setOperators] = useState<string[]>([]);
-  const [operator, setOperator] = useState<string | null>(null);
-  const [paymentPhone, setPaymentPhone] = useState("");
-  const [txRef, setTxRef] = useState("");
-  const [showPwd, setShowPwd] = useState(false);
+  const [payerName, setPayerName] = useState<string>("");
+  const [payerPhone, setPayerPhone] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const cfg = await api.get<{ levels: any[]; operators_by_country: Record<string, string[]> }>(
-        "/config", { auth: false }
-      );
-      setLevel1(cfg.levels[0]);
-      const ops = cfg.operators_by_country[user?.country || "TG"] || [];
-      setOperators(ops);
-      setOperator(ops[0] || null);
+      try {
+        const cfg = await api.get<{ levels: any[] }>("/config", { auth: false });
+        setLevel1(cfg.levels[0]);
+      } catch {}
     })();
-  }, [user?.country]);
+    setPayerName(user?.username || "");
+    setPayerPhone(user?.phone || "");
+  }, [user?.username, user?.phone]);
 
-  const submit = async (confirmToken: string) => {
+  const amount = useMemo(() => level1?.price || 5000, [level1]);
+  const canPay = payerPhone.trim().length >= 8 && payerName.trim().length >= 2 && !submitting;
+
+  const payWithMoneyFusion = async () => {
+    if (!canPay) {
+      Alert.alert("Champs requis", "Veuillez saisir votre nom et un numéro de téléphone valide (au moins 8 chiffres).");
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.post("/activations/request", {
-        level: 1,
-        payment_method: method,
-        operator,
-        payment_phone: paymentPhone || user?.phone,
-        transaction_ref: txRef,
-      }, { pwdConfirm: confirmToken });
-      Alert.alert(
-        "Demande envoyée ✅",
-        "Votre demande d'activation a été soumise. L'administrateur va la valider rapidement.",
-        [{ text: "OK", onPress: async () => { await refresh(); router.replace("/(app)/dashboard"); } }],
+      const resp = await api.post<{ url: string; token: string; order_id: string }>(
+        "/payments/moneyfusion/initiate",
+        { level: 1, name: payerName.trim(), phone: payerPhone.trim() },
       );
+      // Store token so the success page can poll the right payment
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        try {
+          window.sessionStorage.setItem("mf_token", resp.token);
+          window.sessionStorage.setItem("mf_order_id", resp.order_id);
+        } catch {}
+      }
+      // Redirect to the Money Fusion hosted payment page
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.location.href = resp.url;
+      } else {
+        Alert.alert(
+          "Redirection vers Money Fusion",
+          `Ouvrez cette URL dans votre navigateur : ${resp.url}`,
+        );
+      }
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Erreur d'activation.");
+      Alert.alert(
+        "Paiement impossible",
+        e?.detail ||
+          "Money Fusion a refusé la requête. Vérifiez que votre application est approuvée et que l'IP du serveur est whitelistée.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -78,7 +86,7 @@ export default function Activation() {
           </View>
         </View>
         <Text style={styles.title}>Activation du compte</Text>
-        <Text style={styles.sub}>Activez votre Niveau 1 pour accéder à toutes les fonctionnalités.</Text>
+        <Text style={styles.sub}>Activez votre Niveau 1 et débloquez tout votre potentiel.</Text>
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
@@ -97,96 +105,182 @@ export default function Activation() {
           </View>
           <View style={styles.amountBox}>
             <Text style={styles.amountLabel}>Montant d'activation</Text>
-            <Text style={styles.amount}>{formatFCFA(level1?.price || 2500)}</Text>
+            <Text style={styles.amount}>{formatFCFA(amount)}</Text>
             <Text style={styles.amountHint}>Montant non modifiable</Text>
             <View style={{ marginTop: 8, gap: 4 }}>
-              <Text style={styles.detail}>• {formatFCFA((level1?.price || 0) - (level1?.platform_fee || 0))} → Commission</Text>
+              <Text style={styles.detail}>• {formatFCFA(amount - (level1?.platform_fee || 0))} → Commission</Text>
               <Text style={styles.detail}>• {formatFCFA(level1?.platform_fee || 0)} → Frais plateforme</Text>
             </View>
           </View>
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Choisissez votre mode de paiement</Text>
-          <View style={styles.methodRow}>
-            {PAYMENT_METHODS.map((m) => (
-              <TouchableOpacity
-                key={m.key}
-                style={[styles.methodCard, method === m.key && styles.methodCardOn]}
-                onPress={() => setMethod(m.key)}
-                testID={`payment-method-${m.key}`}
-              >
-                <Ionicons name={m.icon as any} size={22} color={method === m.key ? "#fff" : theme.colors.textPrimary} />
-                <Text style={[styles.methodLabel, method === m.key && { color: "#fff" }]}>{m.label}</Text>
-                {method === m.key ? <Ionicons name="checkmark-circle" size={16} color="#fff" /> : null}
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {method === "mobile_money" && operators.length > 0 ? (
-            <View style={{ marginTop: 16 }}>
-              <Text style={styles.section}>Sélectionnez votre opérateur</Text>
-              <View style={styles.opGrid}>
-                {operators.map((op) => (
-                  <TouchableOpacity
-                    key={op}
-                    style={[styles.opChip, operator === op && styles.opChipOn]}
-                    onPress={() => setOperator(op)}
-                    testID={`operator-${op}`}
-                  >
-                    <Text style={[styles.opText, operator === op && { color: "#fff" }]}>{op}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={styles.mfBadge}>
+              <Ionicons name="flash" size={14} color="#fff" />
+              <Text style={styles.mfBadgeText}>RAPIDE</Text>
             </View>
-          ) : null}
+            <Text style={styles.section}>Paiement Mobile Money via Money Fusion</Text>
+          </View>
+          <Text style={styles.helper}>
+            Payez en un clic via T-Money, Mixx by Yas, Moov Money, Orange Money, Wave et plus.
+            Votre niveau sera activé automatiquement dès confirmation du paiement.
+          </Text>
 
-          <View style={{ marginTop: 12 }}>
-            <Text style={styles.lblSmall}>Numéro utilisé pour le paiement</Text>
-            <TouchableOpacity style={styles.input} activeOpacity={1}>
-              <Text style={styles.inputText}>{paymentPhone || user?.phone || "Saisir le numéro"}</Text>
-            </TouchableOpacity>
-            <Text style={styles.lblSmall}>Référence de la transaction (optionnel)</Text>
-            <TouchableOpacity style={styles.input} activeOpacity={1}>
-              <Text style={styles.inputText}>{txRef || "Ex: TX-12345"}</Text>
-            </TouchableOpacity>
+          <View style={{ marginTop: 14 }}>
+            <Text style={styles.lblSmall}>Nom du payeur</Text>
+            <TextInput
+              style={styles.input}
+              value={payerName}
+              onChangeText={setPayerName}
+              placeholder="Ex: Jean Kossi"
+              placeholderTextColor={theme.colors.textSecondary}
+              autoCapitalize="words"
+              testID="mf-payer-name"
+            />
+            <Text style={styles.lblSmall}>Numéro Mobile Money</Text>
+            <TextInput
+              style={styles.input}
+              value={payerPhone}
+              onChangeText={setPayerPhone}
+              placeholder="Ex: 22890000000"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="phone-pad"
+              testID="mf-payer-phone"
+            />
+            <Text style={styles.hint}>
+              Le numéro qui recevra l'invite Mobile Money pour confirmer le paiement.
+            </Text>
           </View>
 
           <View style={{ marginTop: 16 }}>
             <Button
-              title="ACTIVER MON COMPTE"
-              icon={<Ionicons name="lock-closed" size={18} color="#fff" />}
-              onPress={() => setShowPwd(true)}
+              title={`PAYER ${formatFCFA(amount)} VIA MONEY FUSION`}
+              icon={<Ionicons name="card" size={18} color="#fff" />}
+              onPress={payWithMoneyFusion}
               loading={submitting}
-              testID="activate-submit"
+              disabled={!canPay}
+              testID="mf-pay-button"
             />
-            <Text style={styles.notice}>🔒 En cliquant, vous acceptez les conditions d'utilisation.</Text>
+            <Text style={styles.notice}>
+              🔒 Paiement sécurisé hébergé par Money Fusion. Vous serez redirigé vers leur plateforme.
+            </Text>
           </View>
         </Card>
 
+        <TouchableOpacity
+          style={styles.altLink}
+          onPress={() => setShowManual((s) => !s)}
+          testID="toggle-manual-flow"
+        >
+          <Ionicons
+            name={showManual ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={theme.colors.textSecondary}
+          />
+          <Text style={styles.altLinkText}>
+            {showManual ? "Masquer" : "Autre méthode : demande manuelle (validation admin)"}
+          </Text>
+        </TouchableOpacity>
+
+        {showManual && <ManualRequestCard onDone={async () => { await refresh(); router.replace("/(app)/dashboard"); }} />}
+
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Comment ça fonctionne ?</Text>
-          <Step n={1} label="Activation" desc="Vous effectuez le paiement pour activer le Niveau 1." />
-          <Step n={2} label="Paiement" desc="Demande envoyée via Mobile Money." />
-          <Step n={3} label="Validation" desc="L'administrateur valide votre paiement." />
-          <Step n={4} label="Accès" desc="Votre compte est activé et vous accédez au tableau de bord." />
+          <Step n={1} label="Saisie" desc="Entrez votre nom et numéro Mobile Money." />
+          <Step n={2} label="Paiement" desc="Vous êtes redirigé vers la page sécurisée Money Fusion." />
+          <Step n={3} label="Confirmation" desc="Vous confirmez l'invite USSD reçue sur votre téléphone." />
+          <Step n={4} label="Activation" desc="Votre niveau est activé automatiquement." />
         </Card>
       </ScrollView>
-
-      <PasswordConfirmModal
-        visible={showPwd}
-        onClose={() => setShowPwd(false)}
-        onConfirm={submit}
-        title="Confirmer le paiement"
-      />
     </SafeAreaView>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Manual fallback (existing admin-validation flow) — kept as a backup
+// -----------------------------------------------------------------------------
+function ManualRequestCard({ onDone }: { onDone: () => void }) {
+  const [operator, setOperator] = useState<string>("");
+  const [paymentPhone, setPaymentPhone] = useState("");
+  const [txRef, setTxRef] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post("/activations/request", {
+        level: 1,
+        payment_method: "mobile_money",
+        operator,
+        payment_phone: paymentPhone,
+        transaction_ref: txRef,
+      });
+      Alert.alert(
+        "Demande envoyée ✅",
+        "L'administrateur va valider votre paiement manuellement.",
+        [{ text: "OK", onPress: onDone }],
+      );
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.detail || "Erreur d'envoi de la demande.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={{ marginTop: 12 }}>
+      <Text style={styles.section}>Demande manuelle</Text>
+      <Text style={styles.helper}>
+        Utilisez ce formulaire si Money Fusion ne fonctionne pas. Vous payez en dehors de la plateforme et l'admin valide ensuite votre paiement.
+      </Text>
+      <Text style={styles.lblSmall}>Opérateur</Text>
+      <TextInput
+        style={styles.input}
+        value={operator}
+        onChangeText={setOperator}
+        placeholder="T-Money, Mixx, Moov, Orange..."
+        placeholderTextColor={theme.colors.textSecondary}
+        testID="manual-operator"
+      />
+      <Text style={styles.lblSmall}>Numéro de paiement</Text>
+      <TextInput
+        style={styles.input}
+        value={paymentPhone}
+        onChangeText={setPaymentPhone}
+        placeholder="22890000000"
+        placeholderTextColor={theme.colors.textSecondary}
+        keyboardType="phone-pad"
+        testID="manual-phone"
+      />
+      <Text style={styles.lblSmall}>Référence de transaction</Text>
+      <TextInput
+        style={styles.input}
+        value={txRef}
+        onChangeText={setTxRef}
+        placeholder="Ex: TX-12345"
+        placeholderTextColor={theme.colors.textSecondary}
+        testID="manual-txref"
+      />
+      <View style={{ marginTop: 14 }}>
+        <Button
+          title="ENVOYER LA DEMANDE"
+          icon={<Ionicons name="paper-plane" size={18} color="#fff" />}
+          onPress={submit}
+          loading={busy}
+          testID="manual-submit"
+        />
+      </View>
+    </Card>
   );
 }
 
 function Row({ label, value, icon }: { label: string; value: string; icon: any }) {
   return (
     <View style={styles.row}>
-      <View style={styles.rowIcon}><Ionicons name={icon} size={16} color={theme.colors.primary} /></View>
+      <View style={styles.rowIcon}>
+        <Ionicons name={icon} size={16} color={theme.colors.primary} />
+      </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.rowLbl}>{label}</Text>
         <Text style={styles.rowVal}>{value}</Text>
@@ -214,7 +308,8 @@ const styles = StyleSheet.create({
   brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 2 },
   title: { color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 16 },
   sub: { color: "#C7D9FF", marginTop: 4 },
-  section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 10, fontSize: 16 },
+  section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6, fontSize: 16 },
+  helper: { color: theme.colors.textSecondary, fontSize: 13, marginTop: 4, lineHeight: 18 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   rowIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
   rowLbl: { color: theme.colors.textSecondary, fontSize: 12 },
@@ -229,22 +324,14 @@ const styles = StyleSheet.create({
   amount: { color: theme.colors.primary, fontSize: 32, fontWeight: "800" },
   amountHint: { color: theme.colors.textSecondary, fontSize: 11 },
   detail: { color: theme.colors.textSecondary, fontSize: 12 },
-  methodRow: { flexDirection: "row", gap: 8 },
-  methodCard: {
-    flex: 1, padding: 12, borderRadius: 12,
-    borderWidth: 1.5, borderColor: theme.colors.border,
-    alignItems: "center", gap: 4, backgroundColor: "#fff",
-  },
-  methodCardOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  methodLabel: { fontSize: 11, color: theme.colors.textPrimary, fontWeight: "600", textAlign: "center" },
-  opGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
-  opChip: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
-  opChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  opText: { color: theme.colors.textPrimary, fontWeight: "600" },
-  lblSmall: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 4 },
-  input: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 12, marginBottom: 4 },
-  inputText: { color: theme.colors.textPrimary },
+  mfBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#10B981", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  mfBadgeText: { color: "#fff", fontWeight: "800", fontSize: 9, letterSpacing: 1 },
+  lblSmall: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 10, marginBottom: 4 },
+  input: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 12, color: theme.colors.textPrimary, fontSize: 14 },
+  hint: { color: theme.colors.textSecondary, fontSize: 11, fontStyle: "italic", marginTop: 4 },
   notice: { textAlign: "center", color: theme.colors.textSecondary, fontSize: 11, marginTop: 8 },
+  altLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, paddingVertical: 6 },
+  altLinkText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   step: { flexDirection: "row", gap: 12, marginTop: 8, alignItems: "flex-start" },
   stepN: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
   stepNT: { color: "#fff", fontWeight: "800" },
