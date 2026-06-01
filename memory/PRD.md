@@ -2,56 +2,64 @@
 
 ## Problem Statement (original)
 Importer le code depuis ce repo GitHub : https://github.com/bizboy966-pixel/Spiloveure
-C'est une app Expo Router avec backend FastAPI + MongoDB.
-Je veux la déployer comme application Web accessible depuis un navigateur, et connecter le domaine spiloveure.com.
+App Expo Router (Web) + backend FastAPI + MongoDB. Déploiement web sur `spiloveure.com`.
+Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), commissions immédiates à l'activation.
 
 ## Architecture
-- Frontend: **Expo Router (SDK 54)** — TypeScript + React Native Web. Sortie web statique via Metro. Démarrée en mode `expo start --web --port 3000` (CI=1, no telemetry).
-- Backend: **FastAPI + Motor (MongoDB async)** sur port 8001 avec préfixe `/api`.
-- DB: MongoDB locale (`MONGO_URL=mongodb://localhost:27017`, `DB_NAME=spilivere`).
-- Reverse-proxy Kubernetes : routes `/api/*` → backend:8001, le reste → frontend:3000.
-- URL preview : `https://spiloveure-deploy.preview.emergentagent.com`.
+- Frontend: Expo Router (SDK 54) — TypeScript + React Native Web, Metro bundler, port 3000.
+- Backend: FastAPI + Motor (MongoDB async) port 8001, préfixe `/api`.
+- DB: MongoDB locale (`MONGO_URL`, `DB_NAME=spilivere`).
+- Reverse-proxy K8s : `/api/*` → backend:8001, le reste → frontend:3000.
+- Preview : `https://spiloveure-deploy.preview.emergentagent.com`.
 
-## What was done (2026-01-30)
-- Import complet du repo GitHub `bizboy966-pixel/Spiloveure` dans `/app`.
-- Backend `/app/backend` : 8 modules (auth, levels, matrix, models, server, etc.), seed admin idempotent au démarrage.
-- Frontend `/app/frontend` : Expo Router ré-écrit, configuration web Metro bundler.
-- `.env` backend : ajout des secrets nécessaires (JWT_SECRET, ADMIN_*, JWT_ALGORITHM, expirations).
-- `.env` frontend : `EXPO_PUBLIC_BACKEND_URL` pointant vers l'URL preview.
-- Script `start` modifié : `CI=1 EXPO_NO_TELEMETRY=1 expo start --web --port 3000`.
-- Dépendances installées (yarn + pip).
-- Supervisor : backend + frontend RUNNING, app accessible sur l'URL preview.
+## Règles MLM critiques
+- Matrice binaire forcée 12 niveaux. Niveau N a 2^N positions descendantes (N1=2, N2=4, … N12=4096).
+- Activation Niveau N → commission payée **immédiatement** à l'ancêtre **exactement N hops au-dessus** via la chaîne de **parrainage** (sponsor_id).
+- Si cet ancêtre n'a pas activé le niveau N → commission **ignorée** (non rétroactive).
+- Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
+- Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Validations end-to-end
-- `GET /api/` → `{"app":"SPILIVERE","ok":true}` ✅
-- `GET /api/config` → niveaux + pays + opérateurs renvoyés ✅
-- `POST /api/auth/login` (admin@spiloveure.com) → JWT renvoyé ✅
-- `GET /api/auth/me` (avec token) → role=admin, status=active ✅
-- `GET /api/admin/stats` → stats vides initiales ✅
-- `GET /api/dashboard` → balance_total=0 ✅
-- Page `/` redirige vers `/login` (route Expo Router fonctionnelle) ✅
-- Formulaire de connexion s'affiche correctement (UI vérifiée par screenshot) ✅
+## Implementation Status (à jour 2026-02-01)
+- ✅ Auth complet (register, login, change/confirm password, update profile)
+- ✅ Matrice binaire 12 niveaux + auto-upgrade en cascade
+- ✅ Activations manuelles (admin) + automatiques (AshTechPay)
+- ✅ Wallet + retraits (création, fee_percent/fee_flat, min/max, validation admin)
+- ✅ Tableau de bord (balance, total_profit, total_withdrawn, spillover_count, niveau courant)
+- ✅ **Logique commission distribute_commission** validée par tests (3/3) — N hops via sponsor chain + skip si pas qualifié + spillover 50/50 (`/app/backend/tests/test_commission_distribution.py`)
+- ✅ **Équipe directe** : arbre binaire visuel (gauche/droite, badges Spillover, profondeur 2/3/4) — `/app/frontend/app/(app)/team-direct.tsx`
+- ✅ **Détails d'équipe** : onglets N1..N12 par profondeur matrice (N1=2, N2=4, … N12=4096), barre de progression, format FR — `/app/frontend/app/(app)/team-details.tsx`
+- ✅ Endpoint `GET /api/team/level?level=N` (Query ge=1 le=12 → 422) + `/api/team/tree?max_depth=N`
+- ✅ Historique transactions unifié (activations + payments + withdrawals)
+- ✅ Admin panel : users (ban/unban/credit/debit/move_matrix/...), activations/withdrawals (pending/validated/rejected), settings (manual_payment, withdrawal fees, support_links)
+- ✅ Indexes MongoDB ajoutés
 
-## Implementation Status — IMPLÉMENTÉ
-- Auth complet : register, login, change-password, confirm-password, update-profile
-- Système matrice binaire 12 niveaux (levels.py, matrix.py)
-- Activations (demandes utilisateur + validation admin)
-- Wallet + retraits (création, validation, refus)
-- Tableau de bord utilisateur
-- Équipe directe + détails matrice (BFS)
-- Annonces + canaux communautaires
-- Panel admin : utilisateurs, activations, retraits, annonces, channels, logs, timeseries
+## API Key Endpoints
+- `POST /api/auth/login|register|change-password|confirm-password`
+- `GET /api/dashboard|team/direct|team/tree|team/level?level=N`
+- `POST /api/activations/request` (L1 manuel admin, L2+ auto)
+- `POST /api/payments/secure/initiate|webhook|verify/{ref}` (AshTechPay)
+- `POST /api/withdrawals` + `GET /api/withdrawals/mine`
+- Admin: `/api/admin/users|activations|withdrawals|settings/*|stats|logs`
 
-## Pending — déploiement public
-- **P0** : Click sur "Deploy" depuis l'interface Emergent pour publier sur `*.emergent.host`.
-- **P0** : Connecter `spiloveure.com` après déploiement (CNAME / DNS via le bouton Deploy → Custom Domain).
-- **P1** : Tests utilisateurs (inscription, parrainage, activation niveau 1, retraits).
-- **P2** : Intégration paiements (Mobile Money / carte / crypto) pour activations réelles — actuellement les activations niveau 1 sont en attente de validation manuelle admin.
-- **P2** : Notifications (email / push) pour annonces, validations admin.
+## DB Schema clés
+- `users`: id, email, username, role, status, max_level, sponsor_id, sponsor_username, balance_profit, balance_upgrade, commission_direct, commission_spillover, total_earned, total_withdrawn
+- `matrix_placements`: user_id, parent_id (placement matrice), leg (left/right), sponsor_id, level, is_spillover (parent_id ≠ sponsor_id)
+- `payments`: reference (SPV-...), transaction_id, status (pending/paid/failed), amount, currency, level, events[], activation_done
+- `commissions`: user_id, from_user_id, level, kind (direct/spillover_sponsor/spillover_beneficiary), amount, upgrade_share, profit_share
+- `app_settings`: _id ∈ {manual_payment, withdrawal_settings, support_links}
 
-## Test Credentials (admin par défaut)
-Voir `/app/memory/test_credentials.md`.
+## Test credentials
+Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emma91972006`.
+
+## Roadmap / Backlog
+- **P1** : Restaurer `admin.max_level=12` en prod (actuellement 2 — bloque tests commissions L3+ en environnement live).
+- **P1** : Tests e2e complets sur staging (parrainage → registration → activation L1 → spillover → L2 → retrait).
+- **P2** : Notifications (email/push) sur validations admin.
+- **P2** : Déploiement public sur `*.emergent.host` + DNS `spiloveure.com`.
+- **P2** : Webhooks AshTechPay validés en environnement de production réel.
+- **P3** : Localisation EN + autres langues.
 
 ## Known caveats
-- Le `react-native-secure-store` n'est pas dispo sur Web ; le storage utilise `index.web.ts` (AsyncStorage / IndexedDB). Cela est correctement géré par Metro qui pick le bon fichier selon la plateforme.
-- L'app n'a pas été testée pour mobile natif (iOS/Android) dans ce passage — uniquement Web. Le code reste compatible pour un `expo build` mobile ultérieur.
+- Metro tourne en `CI=1` mode (pas de watch). Un changement de code peut nécessiter `supervisorctl restart frontend` pour purger le cache de bundle SSR.
+- AsyncStorage web v2 stocke dans `localStorage` (clé `auth_token`, valeur JSON.stringified).
+- React Native `Alert.alert` ne fonctionne pas sur Expo Web — utiliser `window.confirm`/`window.alert` côté web.

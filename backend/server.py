@@ -403,7 +403,7 @@ async def team_tree(request: Request, max_depth: int = 4, user=Depends(get_curre
 
 
 @api.get("/team/level")
-async def team_level(level: int, request: Request, user=Depends(get_current_user)):
+async def team_level(request: Request, level: int = Query(..., ge=1, le=12), user=Depends(get_current_user)):
     """Return all matrix-level-1 descendants at exactly tree-depth N below the user.
 
     N1 = 2 max members, N2 = 4 max, N3 = 8 max, ... Nk = 2^k max.
@@ -411,8 +411,6 @@ async def team_level(level: int, request: Request, user=Depends(get_current_user
     `matrix_placements.level=1` defines positions in the binary tree.
     """
     db = request.app.state.db
-    if level < 1 or level > 12:
-        raise HTTPException(400, "Niveau hors limites (1..12)")
 
     # BFS down the level-1 placement tree, collecting nodes at each depth.
     current = [user["id"]]

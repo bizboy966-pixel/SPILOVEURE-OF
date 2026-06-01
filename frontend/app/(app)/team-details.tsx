@@ -82,7 +82,7 @@ export default function TeamDetails() {
             >
               <Text style={[styles.lvlChipT, on && { color: "#fff" }]}>N{lvl}</Text>
               <Text style={[styles.lvlChipCap, on && { color: "rgba(255,255,255,0.85)" }]}>
-                {cap >= 1000 ? `${cap / 1000}k` : cap}
+                {cap.toLocaleString("fr-FR")}
               </Text>
             </TouchableOpacity>
           );
