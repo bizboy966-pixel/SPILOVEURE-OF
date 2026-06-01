@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert, TextInput, Platform, Linking,
+  ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert, TextInput, Platform, Linking, Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -167,8 +167,11 @@ export default function Activation() {
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Ionicons name="shield-checkmark" size={28} color="#fff" />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Image
+            source={require("@/assets/images/spiloveure-logo.png")}
+            style={{ width: 44, height: 44 }} resizeMode="contain"
+          />
           <View>
             <Text style={styles.brand}>Spiloveure</Text>
             <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>

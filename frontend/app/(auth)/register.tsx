@@ -82,11 +82,9 @@ export default function Register() {
         <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
           <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
             <Image
-              source={{ uri: "https://static.prod-images.emergentagent.com/jobs/b12b1b84-683b-4214-93da-3dadbb1ebcc9/images/6f73611a18525e5bbe4b26146875d9672e3abac247ab2b195b7b76dab1811770.png" }}
+              source={require("@/assets/images/spiloveure-logo.png")}
               style={styles.logo} resizeMode="contain"
             />
-            <Text style={styles.brand}>Spiloveure</Text>
-            <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
             <Text style={styles.h1}>Rejoignez une <Text style={{ color: "#A5C2FF" }}>communauté</Text> qui gagne !</Text>
             <Text style={styles.sub}>Créez votre compte et commencez dès aujourd'hui.</Text>
           </LinearGradient>
@@ -237,9 +235,7 @@ export default function Register() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24, alignItems: "center" },
-  logo: { width: 56, height: 56 },
-  brand: { color: "#fff", fontSize: 20, fontWeight: "800", letterSpacing: 2, marginTop: 4 },
-  brandSub: { color: "#A5C2FF", fontSize: 10, letterSpacing: 3 },
+  logo: { width: 150, height: 150 },
   h1: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center", marginTop: 16 },
   sub: { color: "#C7D9FF", textAlign: "center", marginTop: 6 },
   card: {

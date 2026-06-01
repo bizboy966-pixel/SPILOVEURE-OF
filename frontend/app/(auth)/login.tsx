@@ -44,12 +44,10 @@ export default function Login() {
           <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
             <View style={styles.logoBox}>
               <Image
-                source={{ uri: "https://static.prod-images.emergentagent.com/jobs/b12b1b84-683b-4214-93da-3dadbb1ebcc9/images/6f73611a18525e5bbe4b26146875d9672e3abac247ab2b195b7b76dab1811770.png" }}
+                source={require("@/assets/images/spiloveure-logo.png")}
                 style={styles.logo}
                 resizeMode="contain"
               />
-              <Text style={styles.brand}>Spiloveure</Text>
-              <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
             </View>
             <Text style={styles.welcome}>Bienvenue de retour !</Text>
             <Text style={styles.welcomeSub}>
@@ -121,9 +119,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24, alignItems: "center" },
   logoBox: { alignItems: "center", marginBottom: 16 },
-  logo: { width: 64, height: 64 },
-  brand: { color: "#fff", fontSize: 22, fontWeight: "800", letterSpacing: 2, marginTop: 4 },
-  brandSub: { color: "#A5C2FF", fontSize: 10, letterSpacing: 3, marginTop: 2 },
+  logo: { width: 180, height: 180 },
   welcome: { color: "#fff", fontSize: 26, fontWeight: "800", textAlign: "center" },
   welcomeSub: { color: "#C7D9FF", textAlign: "center", marginTop: 6 },
   card: {

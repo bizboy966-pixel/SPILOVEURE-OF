@@ -21,11 +21,13 @@ export default function Root({ children }: PropsWithChildren) {
         <meta property="og:type" content="website" />
         <meta property="og:title" content="Spiloveure — Plateforme d'affiliation" />
         <meta property="og:description" content="Rejoignez Spiloveure et développez votre réseau d'affiliation grâce à un système binaire forcé à 12 niveaux." />
+        <meta property="og:image" content="/assets/assets/images/spiloveure-logo.png" />
         <meta property="og:locale" content="fr_FR" />
 
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Spiloveure — Plateforme d'affiliation" />
         <meta name="twitter:description" content="Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs." />
+        <meta name="twitter:image" content="/assets/assets/images/spiloveure-logo.png" />
 
         <ScrollViewStyleReset />
         <style

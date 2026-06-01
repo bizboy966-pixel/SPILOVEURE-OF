@@ -71,8 +71,8 @@ export default function Dashboard() {
           <View style={styles.headerRow}>
             <View style={styles.brandRow}>
               <Image
-                source={{ uri: "https://static.prod-images.emergentagent.com/jobs/b12b1b84-683b-4214-93da-3dadbb1ebcc9/images/6f73611a18525e5bbe4b26146875d9672e3abac247ab2b195b7b76dab1811770.png" }}
-                style={{ width: 32, height: 32 }} resizeMode="contain"
+                source={require("@/assets/images/spiloveure-logo.png")}
+                style={{ width: 40, height: 40 }} resizeMode="contain"
               />
               <View>
                 <Text style={styles.brand}>Spiloveure</Text>
