@@ -22,6 +22,13 @@ export default function Dashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Block access if the user has not activated their account yet (admins exempt).
+  useEffect(() => {
+    if (user && user.role !== "admin" && (user.max_level || 0) < 1) {
+      router.replace("/(app)/activation");
+    }
+  }, [user?.max_level, user?.role]);
+
   const load = async () => {
     try {
       const d = await api.get("/dashboard");
@@ -72,6 +79,18 @@ export default function Dashboard() {
                 <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
               </View>
             </View>
+            <TouchableOpacity
+              style={[styles.menuBtn, { marginRight: 8 }]}
+              onPress={onRefresh}
+              disabled={refreshing}
+              testID="dashboard-refresh-btn"
+            >
+              <Ionicons
+                name={refreshing ? "sync" : "refresh"}
+                size={20}
+                color="#fff"
+              />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
               <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
             </TouchableOpacity>

@@ -62,13 +62,27 @@ export default function ManageUser() {
     if (section === "tree") loadTree(treeLevel);
   }, [section, treeLevel]);
 
-  const doAction = async (payload: any, okMsg = "✅ Action effectuée") => {
+  const doAction = async (payload: any, okMsg = "✅ Action effectuée", confirmMsg?: string) => {
+    // Confirm on web via window.confirm (Alert.alert is silently a noop on web)
+    if (confirmMsg && typeof window !== "undefined" && typeof window.confirm === "function") {
+      const ok = window.confirm(confirmMsg);
+      if (!ok) return;
+    }
     try {
       await api.post(`/admin/users/${id}/action`, payload);
-      Alert.alert("Succès", okMsg);
+      if (typeof window !== "undefined" && typeof window.alert === "function") {
+        window.alert(okMsg);
+      } else {
+        Alert.alert("Succès", okMsg);
+      }
       await load();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Échec");
+      const msg = e?.detail || "Échec";
+      if (typeof window !== "undefined" && typeof window.alert === "function") {
+        window.alert("❌ " + msg);
+      } else {
+        Alert.alert("Erreur", msg);
+      }
     }
   };
 
@@ -158,10 +172,10 @@ export default function ManageUser() {
               label="🗑️ Supprimer définitivement"
               icon="trash"
               color={theme.colors.danger}
-              onPress={() => Alert.alert(
-                "Confirmer", "Supprimer définitivement ?",
-                [{ text: "Annuler" }, { text: "Supprimer", style: "destructive", onPress: async () => { await doAction({ action: "delete" }, "Compte supprimé"); router.back(); } }]
-              )}
+              onPress={async () => {
+                await doAction({ action: "delete" }, "Compte supprimé", "⚠️ Supprimer définitivement ce compte ? Cette action est irréversible.");
+                router.back();
+              }}
               testID="act-delete"
             />
           </Card>

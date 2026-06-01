@@ -42,11 +42,18 @@ async def lifespan(app: FastAPI):
     await db.users.create_index("id", unique=True)
     await db.users.create_index("email", unique=True)
     await db.users.create_index("username", unique=True)
+    await db.users.create_index("sponsor_id")
+    await db.users.create_index("status")
     await db.matrix_placements.create_index([("level", 1), ("parent_id", 1)])
     await db.matrix_placements.create_index([("user_id", 1), ("level", 1)], unique=True)
+    await db.matrix_placements.create_index([("parent_id", 1), ("is_spillover", 1)])
+    await db.matrix_placements.create_index("sponsor_id")
     await db.commissions.create_index("user_id")
     await db.withdrawals.create_index("user_id")
     await db.activations.create_index("user_id")
+    await db.payments.create_index("user_id")
+    await db.payments.create_index("reference")
+    await db.payments.create_index("transaction_id")
     # seed admin
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": admin_email})
@@ -376,9 +383,9 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     direct_count = await db.users.count_documents({"sponsor_id": user["id"]})
     direct_active = await db.users.count_documents({"sponsor_id": user["id"], "status": "active"})
-    spillover_count = await db.matrix_placements.count_documents({"sponsor_id": user["id"], "is_spillover": True})
+    spillover_count = await db.matrix_placements.count_documents({"parent_id": user["id"], "is_spillover": True})
     spillover_active_ids = await db.matrix_placements.distinct(
-        "user_id", {"sponsor_id": user["id"], "is_spillover": True}
+        "user_id", {"parent_id": user["id"], "is_spillover": True}
     )
     spillover_active = 0
     if spillover_active_ids:
