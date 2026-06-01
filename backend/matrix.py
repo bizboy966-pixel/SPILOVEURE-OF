@@ -66,15 +66,32 @@ async def place_in_matrix(db, user_id: str, sponsor_id: Optional[str], level: in
     return placement
 
 
-async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
-    """Credit commissions to sponsor (and possibly spillover host).
+async def _walk_up_sponsors(db, start_user_id: Optional[str], hops: int) -> Optional[str]:
+    """Walk up the direct-sponsor chain by `hops` hops. Returns the ancestor id or None."""
+    if not start_user_id or hops < 0:
+        return None
+    current = start_user_id
+    for _ in range(hops):
+        doc = await db.users.find_one({"id": current}, {"_id": 0, "sponsor_id": 1})
+        if not doc or not doc.get("sponsor_id"):
+            return None
+        current = doc["sponsor_id"]
+    return current
 
-    Direct (no spillover): sponsor gets 100% of commission_per_invite.
-    Spillover: sponsor 50%, spillover host (parent_id) 50%.
-    Each credit is split into upgrade_reserve_share + profit_share proportionally:
-      upgrade_share = commission * (upgrade_reserve / total_gain)
-      profit_share  = commission - upgrade_share
-    For level 12 (upgrade_reserve=0) all goes to profit.
+
+async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
+    """Credit level-N commission to the proper ancestor(s) up the sponsor chain.
+
+    Rule (per business spec):
+      - When user X activates level N, the ancestor exactly (N-1) hops further
+        above X's direct sponsor — i.e. N hops above X — receives the commission.
+      - That ancestor MUST have already activated level N themselves; otherwise
+        the commission is skipped (will never be paid retroactively — the user
+        must qualify at activation time).
+      - For spillover: split 50/50 between
+          * the level-N ancestor of the direct sponsor chain,
+          * the level-N ancestor of the spillover-parent chain.
+      - Each credit is split between upgrade_reserve and profit per level config.
     """
     if not sponsor_id:
         return []
@@ -84,15 +101,25 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
     commission = lv["commission_per_invite"]
     total_gain = lv["total_gain"] or 1
     upgrade_reserve = lv["upgrade_reserve"]
-    upgrade_ratio = upgrade_reserve / total_gain  # per-commission share that goes to reserve
+    upgrade_ratio = upgrade_reserve / total_gain
+
+    # Walk up (level - 1) more hops from direct sponsor → level-N ancestor.
+    direct_ancestor = await _walk_up_sponsors(db, sponsor_id, level - 1)
 
     credits = []
-    recipients = []
+    recipients: list[tuple[str, int, str]] = []
     if is_spillover and parent_id and parent_id != sponsor_id:
-        recipients.append((sponsor_id, commission // 2, "spillover_sponsor"))
-        recipients.append((parent_id, commission - commission // 2, "spillover_beneficiary"))
+        spillover_ancestor = await _walk_up_sponsors(db, parent_id, level - 1)
+        if direct_ancestor:
+            recipients.append((direct_ancestor, commission // 2, "spillover_sponsor"))
+        if spillover_ancestor and spillover_ancestor != direct_ancestor:
+            recipients.append((spillover_ancestor, commission - commission // 2, "spillover_beneficiary"))
+        elif direct_ancestor:
+            # if both chains converge to the same person, give the full commission
+            recipients[-1] = (direct_ancestor, commission, "spillover_sponsor")
     else:
-        recipients.append((sponsor_id, commission, "direct"))
+        if direct_ancestor:
+            recipients.append((direct_ancestor, commission, "direct"))
 
     for user_id, amount, kind in recipients:
         upgrade_share = int(round(amount * upgrade_ratio))
