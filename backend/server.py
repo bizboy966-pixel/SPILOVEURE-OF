@@ -364,6 +364,97 @@ async def team_details(
     return members
 
 
+@api.get("/team/tree")
+async def team_tree(request: Request, max_depth: int = 4, user=Depends(get_current_user)):
+    """Return the binary matrix tree (level 1 placements) rooted at the current user.
+
+    Walks down `matrix_placements` where level=1, parent_id chain starts from user.
+    Returns a nested structure: { user: {...}, left: ..., right: ..., children: [...] }.
+    Depth is capped by `max_depth` to keep payload small (default 4 → up to 30 nodes).
+    """
+    db = request.app.state.db
+
+    async def build(node_id: str, depth: int) -> Optional[dict]:
+        if depth > max_depth:
+            return None
+        kids = await db.matrix_placements.find(
+            {"level": 1, "parent_id": node_id}, {"_id": 0, "user_id": 1, "leg": 1, "is_spillover": 1},
+        ).to_list(2)
+        children = {}
+        for k in kids:
+            child_doc = await db.users.find_one(
+                {"id": k["user_id"]},
+                {"_id": 0, "id": 1, "username": 1, "status": 1, "max_level": 1, "created_at": 1},
+            )
+            if not child_doc:
+                continue
+            child_doc["is_spillover"] = bool(k.get("is_spillover"))
+            child_doc["children"] = await build(k["user_id"], depth + 1)
+            children[k.get("leg") or "left"] = child_doc
+        return children if children else None
+
+    root_user = {
+        "id": user["id"], "username": user.get("username"),
+        "status": user.get("status"), "max_level": user.get("max_level"),
+        "is_spillover": False, "is_self": True,
+        "children": await build(user["id"], 1),
+    }
+    return root_user
+
+
+@api.get("/team/level")
+async def team_level(level: int, request: Request, user=Depends(get_current_user)):
+    """Return all matrix-level-1 descendants at exactly tree-depth N below the user.
+
+    N1 = 2 max members, N2 = 4 max, N3 = 8 max, ... Nk = 2^k max.
+    Implements the binary forced matrix semantics: the placement chain via
+    `matrix_placements.level=1` defines positions in the binary tree.
+    """
+    db = request.app.state.db
+    if level < 1 or level > 12:
+        raise HTTPException(400, "Niveau hors limites (1..12)")
+
+    # BFS down the level-1 placement tree, collecting nodes at each depth.
+    current = [user["id"]]
+    for _ in range(level):
+        next_layer: list[str] = []
+        if not current:
+            break
+        kids = await db.matrix_placements.find(
+            {"level": 1, "parent_id": {"$in": current}},
+            {"_id": 0, "user_id": 1, "parent_id": 1, "leg": 1, "is_spillover": 1},
+        ).to_list(10000)
+        for k in kids:
+            next_layer.append(k["user_id"])
+        current = next_layer
+
+    if not current:
+        return []
+    docs = await db.users.find(
+        {"id": {"$in": current}},
+        {"_id": 0, "password_hash": 0},
+    ).to_list(10000)
+    by_id = {d["id"]: d for d in docs}
+    spill_map = {}
+    placements = await db.matrix_placements.find(
+        {"user_id": {"$in": current}, "level": 1},
+        {"_id": 0, "user_id": 1, "is_spillover": 1, "leg": 1},
+    ).to_list(10000)
+    for p in placements:
+        spill_map[p["user_id"]] = {"is_spillover": p.get("is_spillover"), "leg": p.get("leg")}
+    out = []
+    for uid in current:
+        u = by_id.get(uid)
+        if not u:
+            continue
+        s = spill_map.get(uid, {})
+        u["is_spillover"] = bool(s.get("is_spillover"))
+        u["leg"] = s.get("leg")
+        out.append(u)
+    return out
+
+
+
 @api.get("/team/direct")
 async def team_direct(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
