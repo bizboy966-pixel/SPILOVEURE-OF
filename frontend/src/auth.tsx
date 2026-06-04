@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { storage } from "@/src/utils/storage";
-import { api } from "@/src/api";
+import { api, setAuthToken } from "@/src/api";
 
 export type User = {
   id: string;
@@ -44,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me);
     } catch {
       setUser(null);
+      setAuthToken(null);
       await storage.secureRemove("auth_token");
     }
   }, []);
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       const tok = await storage.secureGet("auth_token", "");
       if (tok) {
+        setAuthToken(tok as string); // hydrate sync cache BEFORE first /auth/me
         await refresh();
       }
       setLoading(false);
@@ -64,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       { email, password },
       { auth: false }
     );
+    setAuthToken(r.access_token); // sync update BEFORE any subsequent request
     await storage.secureSet("auth_token", r.access_token);
     setUser(r.user);
   };
@@ -74,11 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       payload,
       { auth: false }
     );
+    setAuthToken(r.access_token);
     await storage.secureSet("auth_token", r.access_token);
     setUser(r.user);
   };
 
   const signOut = async () => {
+    setAuthToken(null);
     await storage.secureRemove("auth_token");
     setUser(null);
   };

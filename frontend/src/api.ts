@@ -2,6 +2,19 @@ import { storage } from "@/src/utils/storage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
+// In-memory token cache — set synchronously by signIn/signUp/AuthProvider on boot.
+// Eliminates the race condition where AsyncStorage (IndexedDB on web) hasn't
+// flushed the new token by the time the next request reads it.
+let _authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return _authToken;
+}
+
 export type ApiError = { detail?: string; status?: number };
 
 async function request<T = any>(
@@ -14,7 +27,16 @@ async function request<T = any>(
     ...(headers as any),
   };
   if (auth) {
-    const token = await storage.secureGet("auth_token", "");
+    // Prefer in-memory cache (set synchronously after login). Fall back to
+    // persistent storage on cold boot before AuthProvider has loaded.
+    let token = _authToken;
+    if (!token) {
+      const stored = await storage.secureGet("auth_token", "");
+      if (stored) {
+        token = stored as string;
+        _authToken = token; // hydrate cache
+      }
+    }
     if (token) h["Authorization"] = `Bearer ${token}`;
   }
   if (pwdConfirm) h["X-Password-Confirm"] = pwdConfirm;
