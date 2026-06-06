@@ -19,19 +19,33 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-02-01)
+## Implementation Status (à jour 2026-06-06)
 - ✅ Auth complet (register, login, change/confirm password, update profile)
 - ✅ Matrice binaire 12 niveaux + auto-upgrade en cascade
 - ✅ Activations manuelles (admin) + automatiques (AshTechPay)
 - ✅ Wallet + retraits (création, fee_percent/fee_flat, min/max, validation admin)
 - ✅ Tableau de bord (balance, total_profit, total_withdrawn, spillover_count, niveau courant)
-- ✅ **Logique commission distribute_commission** validée par tests (3/3) — N hops via sponsor chain + skip si pas qualifié + spillover 50/50 (`/app/backend/tests/test_commission_distribution.py`)
-- ✅ **Équipe directe** : arbre binaire visuel (gauche/droite, badges Spillover, profondeur 2/3/4) — `/app/frontend/app/(app)/team-direct.tsx`
-- ✅ **Détails d'équipe** : onglets N1..N12 par profondeur matrice (N1=2, N2=4, … N12=4096), barre de progression, format FR — `/app/frontend/app/(app)/team-details.tsx`
-- ✅ Endpoint `GET /api/team/level?level=N` (Query ge=1 le=12 → 422) + `/api/team/tree?max_depth=N`
-- ✅ Historique transactions unifié (activations + payments + withdrawals)
-- ✅ Admin panel : users (ban/unban/credit/debit/move_matrix/...), activations/withdrawals (pending/validated/rejected), settings (manual_payment, withdrawal fees, support_links)
-- ✅ Indexes MongoDB ajoutés
+- ✅ **Logique commission distribute_commission** (4/4 tests OK + 12/12 testing agent):
+    - chaîne linéaire: ancêtre N hops via sponsor reçoit la commission
+    - skip si ancêtre pas qualifié au niveau N
+    - **SPILLOVER (nouvelles règles)**: split 50/50 entre parrain direct et bénéficiaire matrice
+      * Parrain direct → 100% profit, 0 upgrade
+      * Bénéficiaire spillover → 50/50 profit/upgrade JUSQU'À ce que la réserve niveau N+1 soit pleine, puis 100% profit
+- ✅ **Paiement manuel restrict par pays** (NEW):
+    - Admin Réglages: grille de 12 pays avec checkboxes (allowed_countries)
+    - Lien de paiement modifiable
+    - POST /api/activations/manual-request : enregistre activation pending + retourne payment_url pour redirection
+    - Côté user: formulaire pays/opérateur/numéro/montant verrouillé → bouton PAYER → redirection
+    - Admin voit la demande dans Activations → En attente avec tous les champs
+- ✅ Équipe directe (arbre binaire visuel gauche/droite, badges Spillover, profondeur 2/3/4)
+- ✅ Détails d'équipe (onglets N1..N12 par profondeur matrice, capacité 2^k, barre de progression)
+- ✅ Endpoint `GET /api/team/level?level=N` (Query ge=1 le=12 → 422)
+- ✅ Historique transactions unifié
+- ✅ Admin panel complet (users, activations/withdrawals tri pending/validated/rejected, settings, IP serveur)
+- ✅ Logo Spiloveure intégré partout (login, register, dashboard, activation, icon, splash, favicon)
+- ✅ Fix race-condition auth (cache in-memory token avant écriture AsyncStorage)
+- ✅ backend/.env unquoted + .gitignore corrigé pour deployment
+- ✅ Indexes MongoDB
 
 ## API Key Endpoints
 - `POST /api/auth/login|register|change-password|confirm-password`

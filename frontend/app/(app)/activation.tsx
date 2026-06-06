@@ -31,6 +31,29 @@ const OPERATORS_BY_COUNTRY: Record<string, string[]> = {
   GN: ["MTN Mobile Money", "Orange Money"],
   GQ: ["Orange Money"],
   GW: ["Orange Money"],
+  GH: ["MTN Mobile Money", "Vodafone Cash"],
+  NG: ["Opay", "PalmPay"],
+};
+
+const COUNTRY_LABELS: Record<string, { flag: string; name: string }> = {
+  TG: { flag: "🇹🇬", name: "Togo" },
+  BJ: { flag: "🇧🇯", name: "Bénin" },
+  BF: { flag: "🇧🇫", name: "Burkina Faso" },
+  CI: { flag: "🇨🇮", name: "Côte d'Ivoire" },
+  ML: { flag: "🇲🇱", name: "Mali" },
+  SN: { flag: "🇸🇳", name: "Sénégal" },
+  NE: { flag: "🇳🇪", name: "Niger" },
+  CM: { flag: "🇨🇲", name: "Cameroun" },
+  GA: { flag: "🇬🇦", name: "Gabon" },
+  CG: { flag: "🇨🇬", name: "Congo" },
+  CF: { flag: "🇨🇫", name: "Centrafrique" },
+  TD: { flag: "🇹🇩", name: "Tchad" },
+  CD: { flag: "🇨🇩", name: "RD Congo" },
+  GN: { flag: "🇬🇳", name: "Guinée" },
+  GQ: { flag: "🇬🇶", name: "Guinée équatoriale" },
+  GW: { flag: "🇬🇼", name: "Guinée-Bissau" },
+  GH: { flag: "🇬🇭", name: "Ghana" },
+  NG: { flag: "🇳🇬", name: "Nigeria" },
 };
 
 type ManualSettings = {
@@ -400,16 +423,21 @@ export default function Activation() {
                   {(manualCfg.allowed_countries.length > 0
                     ? manualCfg.allowed_countries
                     : Object.keys(OPERATORS_BY_COUNTRY)
-                  ).map((c) => (
-                    <TouchableOpacity
-                      key={c}
-                      style={[styles.opChip, manualCountry === c && styles.opChipOn]}
-                      onPress={() => setManualCountry(c)}
-                      testID={`manual-country-${c}`}
-                    >
-                      <Text style={[styles.opText, manualCountry === c && { color: "#fff" }]}>{c}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  ).map((c) => {
+                    const label = COUNTRY_LABELS[c];
+                    return (
+                      <TouchableOpacity
+                        key={c}
+                        style={[styles.opChip, manualCountry === c && styles.opChipOn]}
+                        onPress={() => setManualCountry(c)}
+                        testID={`manual-country-${c}`}
+                      >
+                        <Text style={[styles.opText, manualCountry === c && { color: "#fff" }]}>
+                          {label ? `${label.flag} ${label.name}` : c}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 <Text style={styles.lblSmall}>Opérateur Mobile Money</Text>
