@@ -86,12 +86,25 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
       - When user X activates level N, the ancestor exactly (N-1) hops further
         above X's direct sponsor — i.e. N hops above X — receives the commission.
       - That ancestor MUST have already activated level N themselves; otherwise
-        the commission is skipped (will never be paid retroactively — the user
-        must qualify at activation time).
-      - For spillover: split 50/50 between
-          * the level-N ancestor of the direct sponsor chain,
-          * the level-N ancestor of the spillover-parent chain.
-      - Each credit is split between upgrade_reserve and profit per level config.
+        the commission is skipped (not paid retroactively).
+
+    Direct placement (no spillover):
+      - Full commission goes to the direct ancestor.
+      - Split: upgrade_reserve_ratio (per level) → balance_upgrade,
+               rest                            → balance_profit.
+
+    Spillover placement (parent_id != sponsor_id):
+      - Commission is split 50/50:
+          a) DIRECT-SPONSOR ANCESTOR (the level-N ancestor up the sponsor chain
+             from the new user's direct sponsor):
+             • Their 50% share goes **100% into balance_profit**.
+             • No portion goes to upgrade_reserve.
+          b) SPILLOVER BENEFICIARY (the level-N ancestor up the matrix chain
+             from the spillover parent):
+             • Their 50% share is split 50/50 between balance_profit and
+               balance_upgrade, UNTIL the beneficiary has fully funded the
+               price of their next level. Once that reserve is full (or they
+               are already at max level 12), 100% goes to balance_profit.
     """
     if not sponsor_id:
         return []
@@ -101,35 +114,59 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
     commission = lv["commission_per_invite"]
     total_gain = lv["total_gain"] or 1
     upgrade_reserve = lv["upgrade_reserve"]
-    upgrade_ratio = upgrade_reserve / total_gain
+    direct_upgrade_ratio = upgrade_reserve / total_gain
 
-    # Walk up (level - 1) more hops from direct sponsor → level-N ancestor.
     direct_ancestor = await _walk_up_sponsors(db, sponsor_id, level - 1)
 
     credits = []
-    recipients: list[tuple[str, int, str]] = []
-    if is_spillover and parent_id and parent_id != sponsor_id:
-        spillover_ancestor = await _walk_up_sponsors(db, parent_id, level - 1)
-        if direct_ancestor:
-            recipients.append((direct_ancestor, commission // 2, "spillover_sponsor"))
-        if spillover_ancestor and spillover_ancestor != direct_ancestor:
-            recipients.append((spillover_ancestor, commission - commission // 2, "spillover_beneficiary"))
-        elif direct_ancestor:
-            # if both chains converge to the same person, give the full commission
-            recipients[-1] = (direct_ancestor, commission, "spillover_sponsor")
-    else:
-        if direct_ancestor:
-            recipients.append((direct_ancestor, commission, "direct"))
+    is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
 
-    for user_id, amount, kind in recipients:
-        upgrade_share = int(round(amount * upgrade_ratio))
-        profit_share = amount - upgrade_share
-        # Only credit if the recipient has activated this level
-        recipient = await db.users.find_one({"id": user_id}, {"_id": 0, "max_level": 1})
+    if is_spill:
+        spillover_ancestor = await _walk_up_sponsors(db, parent_id, level - 1)
+        # Same person on both chains? give full commission, treat as direct.
+        if spillover_ancestor and direct_ancestor and spillover_ancestor == direct_ancestor:
+            recipients = [(direct_ancestor, commission, "direct", direct_upgrade_ratio, False)]
+        else:
+            half = commission // 2
+            other_half = commission - half
+            recipients = []
+            if direct_ancestor:
+                # Direct sponsor share — 100% profit, NO upgrade reserve.
+                recipients.append((direct_ancestor, half, "spillover_sponsor", 0.0, False))
+            if spillover_ancestor:
+                # Beneficiary share — 50/50 dynamic (capped to next-level price).
+                recipients.append((spillover_ancestor, other_half, "spillover_beneficiary", 0.5, True))
+    else:
+        recipients = []
+        if direct_ancestor:
+            recipients.append((direct_ancestor, commission, "direct", direct_upgrade_ratio, False))
+
+    for user_id, amount, kind, upgrade_ratio, cap_to_next_level in recipients:
+        recipient = await db.users.find_one(
+            {"id": user_id}, {"_id": 0, "max_level": 1, "balance_upgrade": 1},
+        )
         if not recipient or recipient.get("max_level", 0) < level:
-            # they don't qualify for level-N commissions; skip (pending validation rule)
             log.info(f"Recipient {user_id} not at level {level}, commission skipped")
             continue
+
+        if upgrade_ratio <= 0:
+            upgrade_share = 0
+        else:
+            upgrade_share = int(round(amount * upgrade_ratio))
+
+        if cap_to_next_level and upgrade_share > 0:
+            # Stop feeding the reserve once next-level price is funded.
+            current_max = recipient.get("max_level", 0)
+            current_upgrade = recipient.get("balance_upgrade", 0) or 0
+            if current_max >= 12:
+                upgrade_share = 0
+            else:
+                next_price = LEVELS_BY_NUM[current_max + 1]["price"]
+                remaining = max(0, next_price - current_upgrade)
+                upgrade_share = min(upgrade_share, remaining)
+
+        profit_share = amount - upgrade_share
+
         commission_doc = {
             "user_id": user_id, "from_user_id": new_user_id,
             "level": level, "kind": kind,
@@ -166,8 +203,7 @@ async def try_auto_upgrade(db, user_id: str) -> Optional[int]:
     # check current level matrix fill: at least invites_required filled at current level
     if cur >= 1:
         cur_lv = LEVELS_BY_NUM[cur]
-        downline_count = await db.matrix_placements.count_documents({"level": cur, "parent_id": user_id})
-        # use BFS-aware count: count all descendants under user_id at level=cur
+        # BFS-aware count of all descendants under user_id at level=cur
         descendants = await _count_descendants(db, user_id, cur)
         if descendants < cur_lv["invites_required"]:
             return None

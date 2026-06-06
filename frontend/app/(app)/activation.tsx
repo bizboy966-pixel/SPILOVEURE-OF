@@ -40,6 +40,7 @@ type ManualSettings = {
   instructions: string;
   phone_to_pay: string;
   operator_name: string;
+  allowed_countries: string[];
 };
 
 export default function Activation() {
@@ -58,6 +59,12 @@ export default function Activation() {
   const [showManual, setShowManual] = useState(false);
   const [manualCfg, setManualCfg] = useState<ManualSettings | null>(null);
 
+  // Manual payment form (mirrors the secure flow but redirects out)
+  const [manualCountry, setManualCountry] = useState<string>("");
+  const [manualOperator, setManualOperator] = useState<string>("");
+  const [manualPhone, setManualPhone] = useState<string>("");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -72,7 +79,15 @@ export default function Activation() {
     setPayerName(user?.username || "");
     setPayerPhone(user?.phone || "");
     setCountry(user?.country || "TG");
+    setManualCountry(user?.country || "TG");
+    setManualPhone(user?.phone || "");
   }, [user?.username, user?.phone, user?.country]);
+
+  // Default manual operator to first operator of selected country
+  useEffect(() => {
+    const ops = OPERATORS_BY_COUNTRY[manualCountry] || [];
+    setManualOperator((cur) => (ops.includes(cur) ? cur : ops[0] || ""));
+  }, [manualCountry]);
 
   useEffect(() => {
     const ops = OPERATORS_BY_COUNTRY[country] || [];
@@ -151,18 +166,61 @@ export default function Activation() {
     }
   };
 
-  const openManualLink = async () => {
-    if (!manualCfg?.payment_url) return;
+  const submitManualPayment = async () => {
+    if (!manualCountry || !manualOperator || manualPhone.trim().length < 8) {
+      Alert.alert(
+        "Champs requis",
+        "Pays, opérateur et numéro Mobile Money sont obligatoires.",
+      );
+      return;
+    }
+    setManualSubmitting(true);
     try {
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        window.open(manualCfg.payment_url, "_blank");
-      } else {
-        await Linking.openURL(manualCfg.payment_url);
+      const resp = await api.post<{
+        ok: boolean;
+        activation_id: string;
+        payment_url: string;
+        already_pending?: boolean;
+      }>("/activations/manual-request", {
+        country: manualCountry,
+        operator: manualOperator,
+        phone: manualPhone.trim(),
+      });
+
+      const url = resp.payment_url || manualCfg?.payment_url || "";
+      const message = resp.already_pending
+        ? "Une demande de paiement manuel est déjà en attente. Vous allez être redirigé pour finaliser votre paiement."
+        : "Demande de paiement manuel enregistrée. Vous allez être redirigé pour payer.";
+
+      if (!url) {
+        Alert.alert("Lien de paiement manquant", "Contactez l'administrateur. Demande enregistrée.");
+        return;
       }
-    } catch {
-      Alert.alert("Impossible d'ouvrir le lien", manualCfg.payment_url);
+
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        // Inform briefly then redirect in the same tab.
+        try { window.alert(message); } catch {}
+        window.location.href = url;
+      } else {
+        Alert.alert("Redirection", message, [
+          { text: "Ouvrir", onPress: () => Linking.openURL(url) },
+        ]);
+      }
+    } catch (e: any) {
+      Alert.alert(
+        "Demande impossible",
+        e?.detail || "Le paiement manuel n'est pas disponible pour le moment.",
+      );
+    } finally {
+      setManualSubmitting(false);
     }
   };
+
+  const manualAvailable =
+    !!manualCfg?.enabled &&
+    Array.isArray(manualCfg?.allowed_countries) &&
+    (manualCfg!.allowed_countries.length === 0 ||
+      manualCfg!.allowed_countries.includes(manualCountry || user?.country || "TG"));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -311,7 +369,7 @@ export default function Activation() {
           </View>
         </Card>
 
-        {manualCfg?.enabled && (
+        {manualCfg?.enabled && manualAvailable && (
           <>
             <TouchableOpacity
               style={styles.altLink}
@@ -337,31 +395,67 @@ export default function Activation() {
                   </Text>
                 ) : null}
 
-                {(manualCfg.phone_to_pay || manualCfg.operator_name) && (
-                  <View style={styles.amountBox}>
-                    {manualCfg.operator_name ? (
-                      <Row label="Opérateur" value={manualCfg.operator_name} icon="phone-portrait" />
-                    ) : null}
-                    {manualCfg.phone_to_pay ? (
-                      <Row label="Numéro à payer" value={manualCfg.phone_to_pay} icon="call" />
-                    ) : null}
-                  </View>
-                )}
+                <Text style={styles.lblSmall}>Pays</Text>
+                <View style={styles.opGrid}>
+                  {(manualCfg.allowed_countries.length > 0
+                    ? manualCfg.allowed_countries
+                    : Object.keys(OPERATORS_BY_COUNTRY)
+                  ).map((c) => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[styles.opChip, manualCountry === c && styles.opChipOn]}
+                      onPress={() => setManualCountry(c)}
+                      testID={`manual-country-${c}`}
+                    >
+                      <Text style={[styles.opText, manualCountry === c && { color: "#fff" }]}>{c}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                {manualCfg.payment_url ? (
-                  <View style={{ marginTop: 12 }}>
-                    <Button
-                      title="OUVRIR LE LIEN DE PAIEMENT"
-                      icon={<Ionicons name="open" size={18} color="#fff" />}
-                      onPress={openManualLink}
-                      testID="manual-open-link"
-                    />
-                  </View>
-                ) : null}
+                <Text style={styles.lblSmall}>Opérateur Mobile Money</Text>
+                <View style={styles.opGrid}>
+                  {(OPERATORS_BY_COUNTRY[manualCountry] || []).map((op) => (
+                    <TouchableOpacity
+                      key={op}
+                      style={[styles.opChip, manualOperator === op && styles.opChipOn]}
+                      onPress={() => setManualOperator(op)}
+                      testID={`manual-operator-${op}`}
+                    >
+                      <Text style={[styles.opText, manualOperator === op && { color: "#fff" }]}>{op}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                <Text style={[styles.hint, { marginTop: 10 }]}>
-                  Après votre paiement, contactez l'administrateur via le panel community pour validation.
-                </Text>
+                <Text style={styles.lblSmall}>Numéro de téléphone (Mobile Money)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={manualPhone}
+                  onChangeText={setManualPhone}
+                  placeholder="Ex: 22890000000"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  keyboardType="phone-pad"
+                  testID="manual-phone"
+                />
+
+                <View style={[styles.amountBox, { marginTop: 12 }]}>
+                  <Text style={styles.amountLabel}>Montant à payer</Text>
+                  <Text style={styles.amount}>{formatFCFA(amount)}</Text>
+                  <Text style={styles.amountHint}>Montant fixé — non modifiable</Text>
+                </View>
+
+                <View style={{ marginTop: 14 }}>
+                  <Button
+                    title={`PAYER ${formatFCFA(amount)}`}
+                    icon={<Ionicons name="card" size={18} color="#fff" />}
+                    onPress={submitManualPayment}
+                    loading={manualSubmitting}
+                    disabled={manualSubmitting || !manualCountry || !manualOperator || manualPhone.trim().length < 8}
+                    testID="manual-pay-submit"
+                  />
+                  <Text style={[styles.hint, { marginTop: 10 }]}>
+                    Après votre clic, votre demande sera enregistrée dans l'admin panel puis vous serez redirigé vers le lien de paiement.
+                  </Text>
+                </View>
               </Card>
             )}
           </>

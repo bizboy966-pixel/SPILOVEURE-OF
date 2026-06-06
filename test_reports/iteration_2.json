@@ -1,0 +1,44 @@
+{
+  "summary": "Validated 2 new SPILIVERE features: (1) Manual payment with per-country gating + auto-record activation flow and (2) Spillover commission new rules (direct 100% profit / beneficiary 50/50 capped at next level price). Backend: 12/12 NEW tests PASS (8 manual-payment + 4 commission scenarios) plus 36/36 regression team-endpoint tests PASS. Frontend: admin /Réglages shows 12-country checkbox grid with TG/BJ/BF pre-checked (DB state). User /activation (TG user) correctly displays manual-payment section with country picker limited to {TG, BJ, BF}, operator picker, phone input and PAYER 2 500 FCFA button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/activations/manual-request", "issue": "When manual payment is disabled OR country not allowed, returns 400 with generic message. Functional but consider distinct error codes (e.g. 'disabled' vs 'country_not_allowed') for clearer UX-side handling."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/activation manual payment card", "issues": ["Country picker uses raw 2-letter codes (TG/BJ/BF) — consider showing the flag emoji + full name to match the admin Réglages page which already does this nicely (e.g. 'TG Togo')."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_manual_payment_flow.py",
+    "/app/backend/tests/test_commission_distribution.py",
+    "/app/test_reports/pytest/manual_payment.xml"
+  ],
+  "action_items": [
+    "(Optional) On /activation manual payment card, show country names + flags instead of raw 2-letter codes (improves consistency with admin Réglages).",
+    "(Optional) Split 'manual not available' 400 errors into distinct error codes so frontend can show user-specific message (disabled vs country_not_allowed).",
+    "Note: /app/backend/tests/test_spilivere_api.py uses obsolete admin creds (admin@spiloveure.com); 5 tests error at setup. Unrelated to this iteration. Can be updated to read ADMIN_EMAIL/ADMIN_PASSWORD from env."
+  ],
+  "critical_code_review_comments": [
+    "server.py /api/activations/manual-request correctly enforces enabled + country whitelist + max_level<1 + idempotency on duplicate pending. Activation document includes payer_country, operator, payment_phone, amount=2500 — admin sees all needed fields.",
+    "server.py PUT /api/admin/settings/manual-payment correctly normalizes country codes to uppercase + strip + filters empties. Confirmed by automated test.",
+    "matrix.py distribute_commission new spillover rules: direct sponsor → 100% profit (no upgrade reserve); spillover beneficiary → 50/50 capped at next-level price (100% profit when reserve full or user at max_level=12). All 4 scenarios pass.",
+    "Frontend /activation correctly filters allowed_countries from /api/settings/manual-payment public endpoint and hides the section when user country not in allowlist (by exclusion of country in picker)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_manual_payment_flow.py (NEW — 8 tests, all pass)"
+  ],
+  "success_rate": {
+    "backend": "100% on this iteration (12/12 new + 36/36 regression team-endpoints); 5 unrelated legacy spilivere_api tests skipped due to obsolete creds",
+    "frontend": "100% — admin Réglages country grid renders + saves, user /activation manual section displays correctly with country gating"
+  },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006 (confirmed working). Test users created on-the-fly via /api/auth/register and cleaned up via admin delete action.",
+  "seed_data_creation": "Tests momentarily mutate app_settings.manual_payment in the live DB (toggle enabled, allowed_countries). Final test test_zz_restore_default_settings restores: {enabled:true, payment_url:'https://pay.example.com', allowed_countries:['TG','BJ','BF']}.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://spiloveure-deploy.preview.emergentagent.com. New endpoints validated: GET /api/settings/manual-payment (public, includes allowed_countries), PUT /api/admin/settings/manual-payment (persists allowed_countries with uppercase normalization), POST /api/activations/manual-request (auth user; enforces enabled + country whitelist + max_level<1; returns {ok, activation_id, payment_url, amount, currency, already_pending?}). For Playwright user registration use page.evaluate fetch (the test pod is sometimes WAF-blocked on direct external HTTP). Manual payment country picker uses raw 2-letter codes — minor UX nit. Admin Réglages page is at the 'Réglages' tab on / once logged-in as admin."
+}

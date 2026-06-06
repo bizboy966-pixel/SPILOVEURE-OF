@@ -54,6 +54,7 @@ export default function AdminHome() {
   const [mpPaymentUrl, setMpPaymentUrl] = useState("");
   const [mpPhone, setMpPhone] = useState("");
   const [mpOperator, setMpOperator] = useState("");
+  const [mpAllowedCountries, setMpAllowedCountries] = useState<string[]>([]);
   const [mpSaving, setMpSaving] = useState(false);
 
   // Withdrawal fee settings
@@ -93,6 +94,7 @@ export default function AdminHome() {
         setMpPaymentUrl(cfg.payment_url || "");
         setMpPhone(cfg.phone_to_pay || "");
         setMpOperator(cfg.operator_name || "");
+        setMpAllowedCountries(Array.isArray(cfg.allowed_countries) ? cfg.allowed_countries : []);
 
         const wd = await api.get<any>("/admin/settings/withdrawal");
         setWdEnabled(wd.enabled !== false);
@@ -358,6 +360,7 @@ export default function AdminHome() {
                   <KvRow k="Niveau" v={`Niveau ${a.level}`} />
                   <KvRow k="E-mail" v={a.email} />
                   <KvRow k="Mode de paiement" v={a.payment_method?.replace("_", " ") || "—"} />
+                  {a.payer_country ? <KvRow k="Pays" v={a.payer_country} /> : null}
                   {a.operator ? <KvRow k="Opérateur" v={a.operator} /> : null}
                   <KvRow k="Numéro paiement" v={a.payment_phone || "—"} />
                   <KvRow k="Montant" v={formatFCFA(a.amount)} />
@@ -574,6 +577,52 @@ export default function AdminHome() {
                 keyboardType="url"
                 testID="mp-payment-url"
               />
+
+              <Text style={[styles.lbl, { marginTop: 8 }]}>Pays autorisés pour le paiement manuel</Text>
+              <Text style={styles.helperTxt}>
+                Cochez les pays où les utilisateurs verront cette méthode de paiement. Si aucun pays n'est coché, le paiement manuel reste désactivé pour tous.
+              </Text>
+              <View style={styles.countryGrid}>
+                {[
+                  { code: "TG", name: "Togo", flag: "🇹🇬" },
+                  { code: "BJ", name: "Bénin", flag: "🇧🇯" },
+                  { code: "CI", name: "Côte d'Ivoire", flag: "🇨🇮" },
+                  { code: "BF", name: "Burkina Faso", flag: "🇧🇫" },
+                  { code: "SN", name: "Sénégal", flag: "🇸🇳" },
+                  { code: "ML", name: "Mali", flag: "🇲🇱" },
+                  { code: "NE", name: "Niger", flag: "🇳🇪" },
+                  { code: "CM", name: "Cameroun", flag: "🇨🇲" },
+                  { code: "GH", name: "Ghana", flag: "🇬🇭" },
+                  { code: "GN", name: "Guinée", flag: "🇬🇳" },
+                  { code: "NG", name: "Nigeria", flag: "🇳🇬" },
+                  { code: "GW", name: "Guinée-Bissau", flag: "🇬🇼" },
+                ].map((c) => {
+                  const on = mpAllowedCountries.includes(c.code);
+                  return (
+                    <TouchableOpacity
+                      key={c.code}
+                      style={[styles.countryChip, on && styles.countryChipOn]}
+                      onPress={() => {
+                        setMpAllowedCountries((prev) =>
+                          prev.includes(c.code)
+                            ? prev.filter((x) => x !== c.code)
+                            : [...prev, c.code],
+                        );
+                      }}
+                      testID={`mp-country-${c.code}`}
+                    >
+                      <Ionicons
+                        name={on ? "checkbox" : "square-outline"}
+                        size={18}
+                        color={on ? "#fff" : theme.colors.textSecondary}
+                      />
+                      <Text style={[styles.countryChipTxt, on && { color: "#fff" }]}>
+                        {c.flag} {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               <Text style={styles.lbl}>Instructions</Text>
               <TextInput
                 style={styles.textarea}
@@ -616,6 +665,7 @@ export default function AdminHome() {
                       payment_url: mpPaymentUrl,
                       phone_to_pay: mpPhone,
                       operator_name: mpOperator,
+                      allowed_countries: mpAllowedCountries,
                     });
                     Alert.alert("Configuration sauvegardée", "Les utilisateurs verront immédiatement les changements.");
                   } catch (e: any) {
@@ -953,4 +1003,14 @@ const styles = StyleSheet.create({
   subTabLbl: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   subTabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, minWidth: 20, alignItems: "center" },
   subTabBadgeT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 10 },
+
+  countryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  countryChip: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: theme.colors.surfaceSecondary,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  countryChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  countryChipTxt: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 13 },
 });

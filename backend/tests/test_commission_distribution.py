@@ -128,7 +128,7 @@ async def run_tests():
     lv3 = LEVELS_BY_NUM[3]
     expected_commission = lv3["commission_per_invite"]
     print(f"  Level 3 commission_per_invite = {expected_commission} FCFA")
-    print(f"  After D activates L3:")
+    print("  After D activates L3:")
     print(f"    A (3 hops up, target): commission_direct={a_after['commission_direct']}, profit={a_after['balance_profit']}, upgrade={a_after['balance_upgrade']}, earned={a_after['total_earned']}")
     print(f"    B (2 hops up):         commission_direct={b_after['commission_direct']}")
     print(f"    C (1 hop up, sponsor): commission_direct={c_after['commission_direct']}")
@@ -182,15 +182,19 @@ async def run_tests():
     assert a_after["commission_direct"] == 0, f"A is only at L{a_after['max_level']} → commission should be skipped"
     print("  ✅ PASS: Commission skipped when ancestor not qualified")
 
-    # ===== Scenario 3: Spillover 50/50 split =====
-    # admin -> A -> B (B sponsored by A)
-    # admin -> X -> Y (Y sponsored by X)
-    # Z sponsored by B, but parent_id is Y (placed via spillover).
-    # When Z activates L1, commission_per_invite must split 50/50 between
-    # sponsor-chain ancestor of B (=A or admin via 0 hops) and matrix-chain
-    # ancestor of Y. For L1, "N=1 hops above sponsor" = sponsor itself.
-    # So 50/50 between B (direct sponsor) and Y (matrix parent).
-    print("\n--- Scenario 3: Spillover 50/50 split (Level 1) ---")
+    # ===== Scenario 3: Spillover commission rules =====
+    # Per business spec:
+    #   - Direct-sponsor ancestor: 50% of commission, 100% to balance_profit
+    #     (no upgrade reserve share).
+    #   - Spillover-beneficiary ancestor: 50% of commission, split 50/50 between
+    #     balance_profit and balance_upgrade, BUT only until the beneficiary's
+    #     next-level price is fully funded. Once funded, 100% goes to profit.
+    #
+    # Setup for L1 spillover:
+    #   admin -> A -> B  (B sponsored by A)
+    #   admin -> X -> Y  (Y sponsored by X)
+    #   Z sponsored by B, but placed via spillover under Y in the matrix.
+    print("\n--- Scenario 3: Spillover 50/50 with new direct/beneficiary rules (Level 1) ---")
     await _reset_db(db)
 
     admin_id = await _make_user(db, "admin", None, max_level=12)
@@ -208,42 +212,71 @@ async def run_tests():
     y_id = await _make_user(db, "Y", x_id, 0)
     z_id = await _make_user(db, "Z", b_id, 0)  # Z's sponsor is B
 
-    # Activate L1 for everyone except Z
     for uid in [a_id, b_id, x_id, y_id]:
         await db.users.update_one({"id": uid}, {"$set": {"balance_upgrade": 100000}})
         await activate_level(db, uid, 1, source="test")
 
-    # Reset commissions and force Z to be a spillover under Y (not B)
-    # Simulate spillover by directly calling distribute_commission with parent_id != sponsor_id
     await db.commissions.delete_many({})
     await db.users.update_many({}, {"$set": {
-        "balance_profit": 0, "commission_direct": 0, "commission_spillover": 0,
-        "total_earned": 0, "earnings_per_level": {},
+        "balance_profit": 0, "balance_upgrade": 0, "commission_direct": 0,
+        "commission_spillover": 0, "total_earned": 0, "earnings_per_level": {},
     }})
 
-    # For Level 1 testing: N=1, hops = level-1 = 0. So:
-    #   direct_ancestor = walk_up(sponsor_id=B, hops=0) = B
-    #   spillover_ancestor = walk_up(parent_id=Y, hops=0) = Y
-    # Both should split 50/50.
     lv1 = LEVELS_BY_NUM[1]
-    commission = lv1["commission_per_invite"]
-    half = commission // 2
+    commission = lv1["commission_per_invite"]  # 2000
+    half = commission // 2                      # 1000
+    other_half = commission - half              # 1000
+    next_lv_price = LEVELS_BY_NUM[2]["price"]   # 1000
 
+    # Call distribute_commission with spillover flag
     await distribute_commission(
         db, new_user_id=z_id, sponsor_id=b_id, parent_id=y_id,
         level=1, is_spillover=True,
     )
 
-    b_after = await db.users.find_one({"id": b_id}, {"_id": 0, "balance_profit": 1, "commission_direct": 1, "commission_spillover": 1, "total_earned": 1})
-    y_after = await db.users.find_one({"id": y_id}, {"_id": 0, "balance_profit": 1, "commission_direct": 1, "commission_spillover": 1, "total_earned": 1})
+    b_after = await db.users.find_one({"id": b_id}, {"_id": 0, "balance_profit": 1, "balance_upgrade": 1, "total_earned": 1})
+    y_after = await db.users.find_one({"id": y_id}, {"_id": 0, "balance_profit": 1, "balance_upgrade": 1, "total_earned": 1})
 
-    print(f"  Level 1 commission = {commission}, expected each = {half}")
-    print(f"  B (direct sponsor):    earned={b_after['total_earned']}, direct={b_after['commission_direct']}, spillover={b_after['commission_spillover']}")
-    print(f"  Y (matrix parent):     earned={y_after['total_earned']}, direct={y_after['commission_direct']}, spillover={y_after['commission_spillover']}")
+    print(f"  Commission L1 = {commission}, half = {half}, L2 price = {next_lv_price}")
+    print(f"  B (direct sponsor):   profit={b_after['balance_profit']}, upgrade={b_after['balance_upgrade']}, earned={b_after['total_earned']}")
+    print(f"  Y (spillover benef):  profit={y_after['balance_profit']}, upgrade={y_after['balance_upgrade']}, earned={y_after['total_earned']}")
 
-    assert b_after["total_earned"] == half, f"B should get {half}, got {b_after['total_earned']}"
-    assert y_after["total_earned"] == commission - half, f"Y should get {commission - half}, got {y_after['total_earned']}"
-    print("  ✅ PASS: Spillover commission split 50/50 between sponsor-chain and matrix-chain ancestors")
+    # Direct sponsor: 100% profit, no upgrade
+    assert b_after["balance_profit"] == half, f"B profit should be {half}, got {b_after['balance_profit']}"
+    assert b_after["balance_upgrade"] == 0, f"B upgrade should be 0, got {b_after['balance_upgrade']}"
+    assert b_after["total_earned"] == half
+
+    # Beneficiary: 50/50 but capped to next-level price
+    # half = 1000, expected upgrade share = round(1000*0.5)=500, but capped to L2 price (1000) — so full 500
+    expected_y_upgrade = min(round(other_half * 0.5), next_lv_price)
+    expected_y_profit = other_half - expected_y_upgrade
+    assert y_after["balance_upgrade"] == expected_y_upgrade, f"Y upgrade should be {expected_y_upgrade}, got {y_after['balance_upgrade']}"
+    assert y_after["balance_profit"] == expected_y_profit, f"Y profit should be {expected_y_profit}, got {y_after['balance_profit']}"
+    print("  ✅ PASS: Direct sponsor → 100% profit; Beneficiary → 50/50 profit/upgrade (uncapped)")
+
+    # ===== Scenario 4: Spillover beneficiary already has full L2 reserve =====
+    # Pre-fund Y's upgrade balance to exactly L2 price; next spillover must give Y 100% profit.
+    print("\n--- Scenario 4: Spillover beneficiary's next-level reserve already full ---")
+    await db.users.update_one({"id": y_id}, {"$set": {
+        "balance_upgrade": next_lv_price,  # already fully funded
+        "balance_profit": 0, "total_earned": 0,
+    }})
+    await db.users.update_one({"id": b_id}, {"$set": {
+        "balance_profit": 0, "total_earned": 0,
+    }})
+    await db.commissions.delete_many({})
+
+    # Z2 = a new spillover under Y
+    z2_id = await _make_user(db, "Z2", b_id, 0)
+    await distribute_commission(
+        db, new_user_id=z2_id, sponsor_id=b_id, parent_id=y_id,
+        level=1, is_spillover=True,
+    )
+    y2 = await db.users.find_one({"id": y_id}, {"_id": 0, "balance_profit": 1, "balance_upgrade": 1})
+    print(f"  Y after (reserve full): profit={y2['balance_profit']}, upgrade={y2['balance_upgrade']}")
+    assert y2["balance_upgrade"] == next_lv_price, "Y upgrade should NOT increase past L2 price"
+    assert y2["balance_profit"] == other_half, f"Y profit should now be full {other_half}, got {y2['balance_profit']}"
+    print("  ✅ PASS: When reserve already funded, beneficiary gets 100% in profit")
 
     print("\n" + "=" * 70)
     print("ALL TESTS PASSED ✅")

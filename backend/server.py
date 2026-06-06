@@ -930,6 +930,7 @@ class ManualPaymentSettings(BaseModel):
     instructions: Optional[str] = None
     phone_to_pay: Optional[str] = None
     operator_name: Optional[str] = None
+    allowed_countries: List[str] = Field(default_factory=list)
 
 
 @api.get("/settings/manual-payment")
@@ -945,6 +946,71 @@ async def get_manual_payment(request: Request):
         "instructions": doc.get("instructions") or "",
         "phone_to_pay": doc.get("phone_to_pay") or "",
         "operator_name": doc.get("operator_name") or "",
+        "allowed_countries": doc.get("allowed_countries") or [],
+    }
+
+
+class ManualActivationIn(BaseModel):
+    country: str
+    operator: str
+    phone: str
+
+
+@api.post("/activations/manual-request")
+async def create_manual_activation(
+    data: ManualActivationIn, request: Request, user=Depends(get_current_user),
+):
+    """Record a manual activation request and return the configured payment URL.
+
+    The user gets redirected client-side AFTER this call succeeds. The admin
+    sees the pending activation immediately and can validate it once the user
+    actually pays via the external link.
+    """
+    db = request.app.state.db
+    cfg = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    if not cfg.get("enabled"):
+        raise HTTPException(400, "Le paiement manuel n'est pas activé.")
+    allowed = cfg.get("allowed_countries") or []
+    if allowed and data.country not in allowed:
+        raise HTTPException(400, "Le paiement manuel n'est pas disponible dans votre pays.")
+    if user.get("max_level", 0) >= 1:
+        raise HTTPException(400, "Votre niveau 1 est déjà activé.")
+
+    # Avoid duplicate pending manual requests for the same user.
+    existing = await db.activations.find_one({
+        "user_id": user["id"], "level": 1, "status": "pending", "payment_method": "manual",
+    })
+    if existing:
+        return {
+            "ok": True,
+            "activation_id": existing["id"],
+            "payment_url": cfg.get("payment_url") or "",
+            "already_pending": True,
+        }
+
+    act_id = str(uuid.uuid4())
+    amount = LEVELS_BY_NUM[1]["price"]
+    now = datetime.now(timezone.utc)
+    await db.activations.insert_one({
+        "id": act_id,
+        "user_id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "level": 1,
+        "amount": amount,
+        "payment_method": "manual",
+        "operator": data.operator,
+        "payment_phone": data.phone,
+        "payer_country": data.country,
+        "status": "pending",
+        "created_at": now,
+    })
+    return {
+        "ok": True,
+        "activation_id": act_id,
+        "payment_url": cfg.get("payment_url") or "",
+        "amount": amount,
+        "currency": "FCFA",
     }
 
 
@@ -1483,6 +1549,7 @@ async def admin_get_manual_payment(request: Request):
         "instructions": doc.get("instructions") or "",
         "phone_to_pay": doc.get("phone_to_pay") or "",
         "operator_name": doc.get("operator_name") or "",
+        "allowed_countries": doc.get("allowed_countries") or [],
         "updated_at": doc.get("updated_at"),
         "updated_by": doc.get("updated_by"),
     }
@@ -1500,6 +1567,7 @@ async def admin_update_manual_payment(
         "instructions": (data.instructions or "").strip(),
         "phone_to_pay": (data.phone_to_pay or "").strip(),
         "operator_name": (data.operator_name or "").strip(),
+        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
         "updated_at": datetime.now(timezone.utc),
         "updated_by": admin.get("username"),
     }
