@@ -18,6 +18,7 @@ import { useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { SideMenu } from "@/src/components/SideMenu";
 
 const ORANGE = "#FF7A00";
 const ORANGE_DARK = "#E26A00";
@@ -73,6 +74,7 @@ export default function Services() {
     trading_enabled: false,
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -145,13 +147,27 @@ export default function Services() {
               <Ionicons name="person" size={16} color="#fff" />
               <Text style={styles.profileTopLabel}>VOTRE PROFIL</Text>
             </View>
-            <TouchableOpacity
-              style={styles.profileLinkBtn}
-              onPress={() => router.push("/(app)/profile" as any)}
-              testID="profile-link-btn"
-            >
-              <Ionicons name="link-outline" size={18} color={ORANGE} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TouchableOpacity
+                style={styles.profileLinkBtn}
+                onPress={async () => {
+                  setRefreshing(true);
+                  await load();
+                  await refresh();
+                  setRefreshing(false);
+                }}
+                testID="services-refresh-btn"
+              >
+                <Ionicons name="refresh" size={18} color={ORANGE} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.profileLinkBtn}
+                onPress={() => setMenuOpen(true)}
+                testID="services-menu-btn"
+              >
+                <Ionicons name="ellipsis-vertical" size={18} color={ORANGE} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.profileBody}>
@@ -274,6 +290,8 @@ export default function Services() {
           </View>
         </View>
       </ScrollView>
+
+      <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
     </SafeAreaView>
   );
 }
