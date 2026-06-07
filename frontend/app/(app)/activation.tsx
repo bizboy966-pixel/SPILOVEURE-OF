@@ -88,6 +88,10 @@ export default function Activation() {
   const [manualPhone, setManualPhone] = useState<string>("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
 
+  // Global on/off switches for payment methods (admin-controlled).
+  const [secureEnabled, setSecureEnabled] = useState(false);
+  const [manualEnabled, setManualEnabled] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -97,6 +101,13 @@ export default function Activation() {
       try {
         const m = await api.get<ManualSettings>("/settings/manual-payment", { auth: false });
         setManualCfg(m);
+      } catch {}
+      try {
+        const flags = await api.get<{ secure_enabled: boolean; manual_enabled: boolean }>(
+          "/settings/payments", { auth: false },
+        );
+        setSecureEnabled(!!flags.secure_enabled);
+        setManualEnabled(!!flags.manual_enabled);
       } catch {}
     })();
     setPayerName(user?.username || "");
@@ -287,6 +298,26 @@ export default function Activation() {
           </View>
         </Card>
 
+        {/* No payment method available — block activation */}
+        {!secureEnabled && !manualEnabled && (
+          <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
+            <View style={{ alignItems: "center", padding: 16 }}>
+              <Ionicons name="construct" size={42} color={theme.colors.warning} />
+              <Text style={[styles.section, { marginTop: 8, textAlign: "center" }]}>
+                Aucun moyen de paiement disponible actuellement
+              </Text>
+              <Text style={[styles.helper, { textAlign: "center", marginTop: 6 }]}>
+                Les méthodes de paiement sont temporairement désactivées par l'administrateur.{"\n"}
+                Veuillez réessayer plus tard.
+              </Text>
+              <Text style={[styles.hint, { textAlign: "center", marginTop: 10 }]}>
+                💡 Vous pouvez vérifier régulièrement cette page ou nous contacter via le support.
+              </Text>
+            </View>
+          </Card>
+        )}
+
+        {secureEnabled && (
         <Card style={{ marginTop: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View style={styles.mfBadge}>
@@ -391,8 +422,9 @@ export default function Activation() {
             </Text>
           </View>
         </Card>
+        )}
 
-        {manualCfg?.enabled && manualAvailable && (
+        {manualEnabled && manualCfg?.enabled && manualAvailable && (
           <>
             <TouchableOpacity
               style={styles.altLink}

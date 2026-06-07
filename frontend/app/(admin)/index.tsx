@@ -48,14 +48,17 @@ export default function AdminHome() {
   const [wdFilter, setWdFilter] = useState<"pending" | "validated" | "rejected">("pending");
 
   // Manual payment settings
-  const [mpEnabled, setMpEnabled] = useState(false);
-  const [mpTitle, setMpTitle] = useState("Paiement manuel");
+  const [mpEnabled, setMpEnabled] = useState(false);  const [mpTitle, setMpTitle] = useState("Paiement manuel");
   const [mpInstructions, setMpInstructions] = useState("");
   const [mpPaymentUrl, setMpPaymentUrl] = useState("");
   const [mpPhone, setMpPhone] = useState("");
   const [mpOperator, setMpOperator] = useState("");
   const [mpAllowedCountries, setMpAllowedCountries] = useState<string[]>([]);
   const [mpSaving, setMpSaving] = useState(false);
+
+  // Secure payment (AshTechPay) on/off toggle
+  const [spEnabled, setSpEnabled] = useState(false);
+  const [spSaving, setSpSaving] = useState(false);
 
   // Withdrawal fee settings
   const [wdEnabled, setWdEnabled] = useState(true);
@@ -95,6 +98,9 @@ export default function AdminHome() {
         setMpPhone(cfg.phone_to_pay || "");
         setMpOperator(cfg.operator_name || "");
         setMpAllowedCountries(Array.isArray(cfg.allowed_countries) ? cfg.allowed_countries : []);
+
+        const sp = await api.get<any>("/admin/settings/secure-payment");
+        setSpEnabled(!!sp.enabled);
 
         const wd = await api.get<any>("/admin/settings/withdrawal");
         setWdEnabled(wd.enabled !== false);
@@ -554,6 +560,48 @@ export default function AdminHome() {
         {tab === "payment" && (
           <>
             <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="shield-checkmark" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Paiement sécurisé Mobile Money (AshTechPay)</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Active ou désactive le paiement Mobile Money automatique côté utilisateur. Lorsqu'il est désactivé, le bloc de paiement n'apparaît plus sur la page d'activation.
+              </Text>
+              <TouchableOpacity
+                style={[styles.toggleRow, spEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setSpEnabled((v) => !v)}
+                testID="sp-toggle-enabled"
+              >
+                <Ionicons
+                  name={spEnabled ? "checkmark-circle" : "close-circle-outline"}
+                  size={20}
+                  color={spEnabled ? "#fff" : theme.colors.textSecondary}
+                />
+                <Text style={[styles.toggleTxt, spEnabled && { color: "#fff" }]}>
+                  {spEnabled ? "Activé — paiement Mobile Money disponible" : "Désactivé — paiement Mobile Money masqué"}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ marginTop: 12 }}>
+                <Button
+                  title={spSaving ? "Enregistrement..." : "Enregistrer le paiement sécurisé"}
+                  icon={<Ionicons name="save" size={16} color="#fff" />}
+                  loading={spSaving}
+                  disabled={spSaving}
+                  onPress={async () => {
+                    setSpSaving(true);
+                    try {
+                      await api.put("/admin/settings/secure-payment", { enabled: spEnabled });
+                      if (typeof window !== "undefined") window.alert("Paramètre paiement sécurisé enregistré ✅");
+                    } catch (e: any) {
+                      if (typeof window !== "undefined") window.alert(e?.detail || "Erreur lors de l'enregistrement");
+                    } finally { setSpSaving(false); }
+                  }}
+                  testID="sp-save-btn"
+                />
+              </View>
+            </Card>
+
+            <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Ionicons name="card" size={22} color={theme.colors.primary} />
                 <Text style={styles.section}>Configuration paiement manuel</Text>

@@ -715,6 +715,10 @@ class InitiatePaymentIn(BaseModel):
 async def secure_initiate(data: InitiatePaymentIn, request: Request, user=Depends(get_current_user)):
     """Initiate a secure Mobile Money payment for level activation."""
     db = request.app.state.db
+    # Block initiation when admin has disabled the secure payment method.
+    sp_cfg = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
+    if not sp_cfg.get("enabled", False):
+        raise HTTPException(status_code=400, detail="Le paiement sécurisé est désactivé.")
     level = data.level
     lv = LEVELS_BY_NUM.get(level)
     if not lv:
@@ -921,6 +925,22 @@ async def secure_verify(ref: str, request: Request, user=Depends(get_current_use
     return {"reference": ref, "status": new_status, "provider_raw": resp}
 
 
+@api.get("/settings/payments")
+async def get_payment_methods_status(request: Request):
+    """Returns which payment methods are currently enabled.
+
+    Both flags default to `false` (no method available). The admin must
+    explicitly enable a method via Réglages.
+    """
+    db = request.app.state.db
+    secure_doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
+    manual_doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    return {
+        "secure_enabled": bool(secure_doc.get("enabled", False)),
+        "manual_enabled": bool(manual_doc.get("enabled", False)),
+    }
+
+
 # ============ APP SETTINGS (manual payment instructions) ============
 
 class ManualPaymentSettings(BaseModel):
@@ -931,6 +951,10 @@ class ManualPaymentSettings(BaseModel):
     phone_to_pay: Optional[str] = None
     operator_name: Optional[str] = None
     allowed_countries: List[str] = Field(default_factory=list)
+
+
+class SecurePaymentSettings(BaseModel):
+    enabled: bool = False
 
 
 @api.get("/settings/manual-payment")
@@ -1579,6 +1603,33 @@ async def admin_update_manual_payment(
 
 
 # --- Withdrawal settings ---
+
+@admin_router.get("/settings/secure-payment")
+async def admin_get_secure_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/secure-payment")
+async def admin_update_secure_payment(
+    data: SecurePaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "secure_pay"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
 
 @admin_router.get("/settings/withdrawal")
 async def admin_get_withdrawal_settings(request: Request):
