@@ -81,6 +81,13 @@ export default function Dashboard() {
             </View>
             <TouchableOpacity
               style={[styles.menuBtn, { marginRight: 8 }]}
+              onPress={() => router.push("/(app)/services")}
+              testID="dashboard-services-btn"
+            >
+              <Ionicons name="apps" size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.menuBtn, { marginRight: 8 }]}
               onPress={onRefresh}
               disabled={refreshing}
               testID="dashboard-refresh-btn"
