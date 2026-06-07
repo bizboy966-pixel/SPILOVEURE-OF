@@ -217,6 +217,23 @@ export default function AdminHome() {
               <StatCard icon="arrow-down-circle" color={theme.colors.danger} label="Total retraits" value={formatFCFA(stats.total_withdrawals_amount)} small />
             </View>
 
+            <TouchableOpacity
+              style={styles.contentMgmtCta}
+              onPress={() => router.push("/(admin)/content" as any)}
+              testID="admin-open-content-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="library" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>Gestion des contenus</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Formations • E-Books • Apps Premium • Trading
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
             <Card style={{ marginTop: 14 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#0EA5E922" }}>
@@ -1013,4 +1030,18 @@ const styles = StyleSheet.create({
   },
   countryChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   countryChipTxt: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 13 },
+
+  contentMgmtCta: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    marginTop: 12, padding: 14, borderRadius: 16,
+    backgroundColor: "#FF7A00",
+    ...theme.shadow.card,
+  },
+  contentMgmtIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  contentMgmtTitle: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  contentMgmtSub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
 });

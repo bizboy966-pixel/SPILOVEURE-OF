@@ -1653,3 +1653,12 @@ async def admin_update_support_links(
 
 api.include_router(admin_router)
 app.include_router(api)
+
+# Digital content (formations, ebooks, premium apps, trading) — registered separately
+# with their own /api prefixes (public_router) and /api/admin prefix (admin_router).
+from digital_content import (  # noqa: E402
+    public_router as dc_public_router,
+    admin_router as dc_admin_router,
+)
+app.include_router(dc_public_router)
+app.include_router(dc_admin_router)

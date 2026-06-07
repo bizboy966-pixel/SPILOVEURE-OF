@@ -17,7 +17,7 @@ export default function Index() {
     } else if (user.status === "pending" || user.max_level === 0) {
       router.replace("/(app)/activation");
     } else {
-      router.replace("/(app)/dashboard");
+      router.replace("/(app)/services");
     }
   }, [user, loading, router]);
 
