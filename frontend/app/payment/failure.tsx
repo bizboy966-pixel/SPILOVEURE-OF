@@ -27,9 +27,9 @@ export default function PaymentFailure() {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.btn, { backgroundColor: "transparent", marginTop: 10 }]}
-          onPress={() => router.replace("/(app)/dashboard")}
+          onPress={() => router.replace("/(app)/services")}
         >
-          <Text style={[styles.btnText, { color: theme.colors.textSecondary }]}>Retour au tableau de bord</Text>
+          <Text style={[styles.btnText, { color: theme.colors.textSecondary }]}>Retour à l'accueil</Text>
         </TouchableOpacity>
       </View>
     </View>

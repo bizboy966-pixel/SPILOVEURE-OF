@@ -9,7 +9,7 @@ export default function AdminLayout() {
   useEffect(() => {
     if (loading) return;
     if (!user) router.replace("/(auth)/login");
-    else if (user.role !== "admin") router.replace("/(app)/dashboard");
+    else if (user.role !== "admin") router.replace("/(app)/services");
   }, [user, loading, router]);
 
   return <Stack screenOptions={{ headerShown: false }} />;

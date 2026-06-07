@@ -127,10 +127,10 @@ export default function PaymentSuccess() {
         <View style={{ height: 24 }} />
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => router.replace("/(app)/dashboard")}
-          testID="payment-success-go-dashboard"
+          onPress={() => router.replace("/(app)/services")}
+          testID="payment-success-go-home"
         >
-          <Text style={styles.btnText}>Retour au tableau de bord</Text>
+          <Text style={styles.btnText}>Accéder à mon espace</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

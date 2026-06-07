@@ -20,7 +20,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
       window.location.reload();
     } else {
       // On native: re-push current route to force a refresh
-      setTimeout(() => router.replace(router.canGoBack() ? "/(app)/dashboard" : "/(app)/dashboard"), 50);
+      setTimeout(() => router.replace("/(app)/services"), 50);
     }
   };
 
