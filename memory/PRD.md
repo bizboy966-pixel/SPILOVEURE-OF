@@ -19,32 +19,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-06)
-- ✅ Auth complet (register, login, change/confirm password, update profile)
+## Implementation Status (à jour 2026-06-07)
+- ✅ Auth complet + cache token in-memory (fix race-condition login 401)
 - ✅ Matrice binaire 12 niveaux + auto-upgrade en cascade
 - ✅ Activations manuelles (admin) + automatiques (AshTechPay)
-- ✅ Wallet + retraits (création, fee_percent/fee_flat, min/max, validation admin)
-- ✅ Tableau de bord (balance, total_profit, total_withdrawn, spillover_count, niveau courant)
-- ✅ **Logique commission distribute_commission** (4/4 tests OK + 12/12 testing agent):
-    - chaîne linéaire: ancêtre N hops via sponsor reçoit la commission
-    - skip si ancêtre pas qualifié au niveau N
-    - **SPILLOVER (nouvelles règles)**: split 50/50 entre parrain direct et bénéficiaire matrice
-      * Parrain direct → 100% profit, 0 upgrade
-      * Bénéficiaire spillover → 50/50 profit/upgrade JUSQU'À ce que la réserve niveau N+1 soit pleine, puis 100% profit
-- ✅ **Paiement manuel restrict par pays** (NEW):
-    - Admin Réglages: grille de 12 pays avec checkboxes (allowed_countries)
-    - Lien de paiement modifiable
-    - POST /api/activations/manual-request : enregistre activation pending + retourne payment_url pour redirection
-    - Côté user: formulaire pays/opérateur/numéro/montant verrouillé → bouton PAYER → redirection
-    - Admin voit la demande dans Activations → En attente avec tous les champs
-- ✅ Équipe directe (arbre binaire visuel gauche/droite, badges Spillover, profondeur 2/3/4)
-- ✅ Détails d'équipe (onglets N1..N12 par profondeur matrice, capacité 2^k, barre de progression)
-- ✅ Endpoint `GET /api/team/level?level=N` (Query ge=1 le=12 → 422)
-- ✅ Historique transactions unifié
-- ✅ Admin panel complet (users, activations/withdrawals tri pending/validated/rejected, settings, IP serveur)
+- ✅ Wallet + retraits
+- ✅ Tableau de bord financier complet
+- ✅ Logique commission (4/4 tests + 12/12 testing agent)
+- ✅ Paiement manuel restrict par pays + flow d'enregistrement automatique
+- ✅ Équipe directe (arbre binaire visuel) + Détails d'équipe (tabs N1..N12)
+- ✅ Historique transactions unifié, Admin panel complet
 - ✅ Logo Spiloveure intégré partout (login, register, dashboard, activation, icon, splash, favicon)
-- ✅ Fix race-condition auth (cache in-memory token avant écriture AsyncStorage)
-- ✅ backend/.env unquoted + .gitignore corrigé pour deployment
+- ✅ backend/.env unquoted + .gitignore corrigé
+- ✅ **Nouvelle page d'accueil `/services` après login** (post-activation):
+    - Profile card (avatar initiales colorées 2 lettres ou avatar_url, username, statut, niveau)
+    - 4 tiles services orange (Formation, E-Book, App Premium, Trading) + badge "Bientôt"
+    - Hero bleu "Nos services supplémentaires" → bouton DÉCOUVRIR NOS SERVICES → /dashboard
+    - Section présentation avec mission
+- ✅ **4 modules digital_content** (URLs externes):
+    - GET/POST/PUT/DELETE /api/admin/formations|ebooks|premium-apps
+    - PUT /api/admin/settings/trading (telegram_url + enabled + label + description)
+    - Public endpoints filtrent enabled=true uniquement
+    - PUT /api/users/me/avatar (avatar_url)
+- ✅ **Pages user** /formations, /ebooks, /premium-apps, /trading
+- ✅ **Page admin** `/(admin)/content` avec 4 onglets CRUD + bouton orange "Gestion des contenus" sur dashboard admin
+- ✅ Auto-availability : section apparaît dès qu'admin ajoute du contenu enabled ; sinon EmptySoon "🚧 Bientôt disponible"
 - ✅ Indexes MongoDB
 
 ## API Key Endpoints

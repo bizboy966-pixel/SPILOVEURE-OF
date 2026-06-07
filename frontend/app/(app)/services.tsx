@@ -31,8 +31,15 @@ function avatarColor(name: string) {
 }
 
 function getInitials(name: string) {
-  const parts = (name || "?").trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() || "").join("") || "?";
+  const clean = (name || "?").trim();
+  // If multi-word (e.g. "John Doe") → first letter of first 2 words
+  const parts = clean.split(/[\s_\-.]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  // Single word: take first 2 alphanumeric chars
+  const m = clean.match(/[A-Za-zÀ-ÿ0-9]/g) || ["?"];
+  return (m[0] + (m[1] || "")).toUpperCase();
 }
 
 type ServiceTile = {

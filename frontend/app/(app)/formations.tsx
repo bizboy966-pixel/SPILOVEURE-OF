@@ -95,27 +95,31 @@ export default function FormationsScreen() {
           }
           renderItem={({ item }) => (
             <View style={styles.card} testID={`formation-card-${item.id}`}>
-              {item.image_url ? (
-                <Image source={{ uri: item.image_url }} style={styles.cover} resizeMode="cover" />
-              ) : (
-                <View style={[styles.cover, styles.coverPlaceholder]}>
-                  <Ionicons name="school" size={42} color={theme.colors.primary} />
+              <View style={styles.cardTop}>
+                {item.image_url ? (
+                  <Image source={{ uri: item.image_url }} style={styles.cover} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.cover, styles.coverPlaceholder]}>
+                    <Ionicons name="school" size={28} color={theme.colors.primary} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  {item.category ? (
+                    <Text style={styles.category}>{item.category.toUpperCase()}</Text>
+                  ) : null}
+                  <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+                  {item.description ? (
+                    <Text style={styles.cardBody} numberOfLines={open === item.id ? undefined : 2}>
+                      {item.description}
+                    </Text>
+                  ) : null}
+                  {item.description && item.description.length > 90 ? (
+                    <TouchableOpacity onPress={() => setOpen(open === item.id ? null : item.id)}>
+                      <Text style={styles.more}>{open === item.id ? "Voir moins" : "Voir plus"}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-              )}
-              {item.category ? (
-                <Text style={styles.category}>{item.category.toUpperCase()}</Text>
-              ) : null}
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              {item.description ? (
-                <Text style={styles.cardBody} numberOfLines={open === item.id ? undefined : 3}>
-                  {item.description}
-                </Text>
-              ) : null}
-              {item.description && item.description.length > 140 ? (
-                <TouchableOpacity onPress={() => setOpen(open === item.id ? null : item.id)}>
-                  <Text style={styles.more}>{open === item.id ? "Voir moins" : "Voir plus"}</Text>
-                </TouchableOpacity>
-              ) : null}
+              </View>
 
               <View style={styles.actions}>
                 {item.video_url ? (
@@ -160,12 +164,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.border,
     ...theme.shadow.card,
   },
-  cover: { width: "100%", height: 150, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
+  cardTop: { flexDirection: "row", gap: 12 },
+  cover: { width: 96, height: 96, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
-  category: { color: theme.colors.primary, fontWeight: "800", fontSize: 10, marginTop: 8, letterSpacing: 0.8 },
-  cardTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16, marginTop: 4 },
-  cardBody: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 4 },
-  more: { color: theme.colors.primary, fontWeight: "700", marginTop: 4, fontSize: 12 },
+  category: { color: theme.colors.primary, fontWeight: "800", fontSize: 10, letterSpacing: 0.8 },
+  cardTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 15, marginTop: 2, lineHeight: 18 },
+  cardBody: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  more: { color: theme.colors.primary, fontWeight: "700", marginTop: 4, fontSize: 11 },
   actions: { flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" },
   chip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, backgroundColor: theme.colors.primary },
   chipTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
