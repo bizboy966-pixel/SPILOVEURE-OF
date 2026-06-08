@@ -183,15 +183,16 @@ export default function Activation() {
         return;
       }
 
-      if (resp.flow === "wave" && resp.wave_url) {
+      if ((resp.flow === "wave" || resp.flow === "redirect") && resp.wave_url) {
+        // WestPay (RobotPay) hosted checkout — redirect the user out.
         setWaveUrl(resp.wave_url);
         if (Platform.OS === "web" && typeof window !== "undefined") {
-          window.open(resp.wave_url, "_blank");
+          // Same-tab redirect so the user comes back via the success URL.
+          window.location.href = resp.wave_url;
         } else {
           Linking.openURL(resp.wave_url);
+          router.replace({ pathname: "/payment/success", params: { ref: resp.order_id } });
         }
-        // Redirect to success page for polling
-        router.replace({ pathname: "/payment/success", params: { ref: resp.order_id } });
         return;
       }
 

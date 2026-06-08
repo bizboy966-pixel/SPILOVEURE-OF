@@ -1,39 +1,54 @@
 """Secure payment gateway integration.
 
-Provider: AshTechPay (https://ashtechpay.top/docs/api).
-This module is intentionally named `secure_pay` so that the provider name
-is not exposed via filenames, route names or front-end strings.
+Provider: WestPay (RobotPay) — https://westpay.cfd
+Flow: hosted-page redirection + signed webhook callback. No direct API call
+is needed from our backend to initiate a payment — we simply build a redirect
+URL pointing to the provider's hosted checkout page.
 
-Base URL: https://ashtechpay.top
-Auth   : `Authorization: Bearer <API_KEY>` (server-side only).
-
-This module exposes:
-- initiate_collect()       : POST /v1/collect to start a Mobile Money payment.
-- get_transaction_status() : GET /v1/transaction/:id to reconcile a payment.
-- normalize_status()       : map provider statuses to canonical values.
+The provider sends back an HMAC-SHA256 signed webhook to our backend when the
+payment is confirmed.
 
 Environment variables (set in /app/backend/.env):
-- SECURE_PAY_BASE_URL   : default https://ashtechpay.top
-- SECURE_PAY_API_KEY    : Bearer token issued by the provider.
-- SITE_URL              : public site URL used for notify_url.
+- WESTPAY_BASE_URL       : default http://westpay.cfd
+- WESTPAY_SLUG           : merchant slug (e.g. "spiloveure")
+- WESTPAY_WEBHOOK_SECRET : shared secret used to verify webhook HMAC signature
+- SITE_URL               : public site URL used for the redirect-back URL
 """
 from __future__ import annotations
 
+import hmac
+import hashlib
+import json
 import logging
 import os
 from typing import Any, Optional
-
-import httpx
+from urllib.parse import urlencode
 
 log = logging.getLogger("secure_pay")
 
-BASE_URL = os.environ.get("SECURE_PAY_BASE_URL", "https://ashtechpay.top").rstrip("/")
-API_KEY = os.environ.get("SECURE_PAY_API_KEY", "")
+BASE_URL = os.environ.get("WESTPAY_BASE_URL", "http://westpay.cfd").rstrip("/")
+SLUG = os.environ.get("WESTPAY_SLUG", "spiloveure")
+WEBHOOK_SECRET = os.environ.get("WESTPAY_WEBHOOK_SECRET", "")
 SITE_URL = os.environ.get("SITE_URL", "https://spiloveure.com").rstrip("/")
 
 
+# Map ISO country code → WestPay country name (used in `country` query param).
+COUNTRY_NAME_BY_CODE = {
+    "TG": "Togo",
+    "BJ": "Benin",
+    "BF": "Burkina Faso",
+    "CI": "Cote d'Ivoire",
+    "ML": "Mali",
+    "SN": "Senegal",
+    "CG": "Congo Brazzaville",
+    "CD": "Congo RDC",
+    "GA": "Gabon",
+    "CM": "Cameroun",
+}
+
+
 class SecurePayError(Exception):
-    """Raised when the payment gateway rejects a request or returns an error."""
+    """Raised on payment-gateway-related errors."""
 
     def __init__(self, message: str, *, code: Optional[str] = None, ussd_code: Optional[str] = None):
         super().__init__(message)
@@ -41,33 +56,62 @@ class SecurePayError(Exception):
         self.ussd_code = ussd_code
 
 
-# ---------------------------------------------------------------------------
-# Public URLs
-# ---------------------------------------------------------------------------
 def webhook_url() -> str:
     return f"{SITE_URL}/api/payments/secure/webhook"
 
 
-# ---------------------------------------------------------------------------
-# Status normalisation
-# ---------------------------------------------------------------------------
 def normalize_status(raw: Optional[str], event: Optional[str] = None) -> str:
-    """Translate provider status / event into our canonical status.
-
-    Provider statuses: pending | success | failed (+ webhook events:
-    payment.completed / payment.failed). Returns: pending | paid | failed.
-    """
+    """Map provider statuses / events into canonical pending|paid|failed."""
     s = (raw or "").lower().strip()
     e = (event or "").lower().strip()
-    if s in {"success", "completed"} or e == "payment.completed":
+    if s in {"success", "completed", "paid", "confirmed"} or e in {"payment.confirmed", "payment.completed"}:
         return "paid"
-    if s in {"failed", "failure", "expired", "cancelled"} or e == "payment.failed":
+    if s in {"failed", "failure", "expired", "cancelled", "rejected"} or e in {"payment.failed", "payment.rejected"}:
         return "failed"
     return "pending"
 
 
+def build_redirect_url(
+    *,
+    amount: float,
+    country_code: str,
+    reference: str,
+) -> str:
+    """Build the WestPay hosted-checkout URL the user must be redirected to.
+
+    The redirect-back URL embeds the internal reference so we can match the
+    transaction once the user returns.
+    """
+    redirect_back = f"{SITE_URL}/payment/success?ref={reference}"
+    params = {
+        "merchant": SLUG,
+        "amount": int(round(float(amount))),
+        "country": COUNTRY_NAME_BY_CODE.get(country_code.upper(), country_code),
+        "ref": reference,
+        "redirect": redirect_back,
+    }
+    return f"{BASE_URL}/pay?{urlencode(params)}"
+
+
+def verify_webhook_signature(raw_body: bytes, signature_header: str) -> bool:
+    """Validate the HMAC-SHA256 signature WestPay attaches to webhook payloads."""
+    if not WEBHOOK_SECRET or not signature_header:
+        return False
+    try:
+        expected = hmac.new(
+            WEBHOOK_SECRET.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature_header.strip())
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
-# /v1/collect — initiate Mobile Money payment
+# Legacy-compatible adapters (kept so the rest of the backend keeps compiling).
+# WestPay uses a hosted redirection flow, so initiate_collect now returns a
+# {wave_url, flow:"redirect"} payload instead of issuing an HTTP call.
 # ---------------------------------------------------------------------------
 async def initiate_collect(
     *,
@@ -80,66 +124,64 @@ async def initiate_collect(
     otp: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> dict[str, Any]:
-    key = api_key or API_KEY
-    if not key:
-        raise SecurePayError("Payment gateway is not configured (missing API key)")
-
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-    body: dict[str, Any] = {
-        "amount": amount,
-        "currency": currency,
-        "phone": phone,
-        "operator": operator,
-        "country_code": country_code,
+    redirect_url = build_redirect_url(
+        amount=amount, country_code=country_code, reference=reference,
+    )
+    return {
+        "ok": True,
+        "flow": "redirect",
+        "redirect_url": redirect_url,
+        "wave_url": redirect_url,  # legacy field name kept for the FE
+        "transaction_id": reference,
         "reference": reference,
-        "notify_url": webhook_url(),
+        "currency": currency,
+        "amount": amount,
+        "status": "pending",
     }
-    if otp:
-        body["otp"] = otp
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            r = await client.post(f"{BASE_URL}/v1/collect", headers=headers, json=body)
-        except httpx.RequestError as exc:
-            log.exception("secure_pay network error")
-            raise SecurePayError(f"Network error: {exc.__class__.__name__}") from exc
-
-    try:
-        data = r.json()
-    except Exception as exc:
-        raise SecurePayError(f"Invalid JSON response (HTTP {r.status_code})") from exc
-
-    # OTP required: provider returns 400 with structured payload
-    if r.status_code == 400 and data.get("error") == "otp_required":
-        raise SecurePayError(
-            data.get("message") or "OTP requis",
-            code="otp_required",
-            ussd_code=data.get("ussd_code"),
-        )
-
-    if r.status_code not in (200, 201, 202):
-        raise SecurePayError(data.get("message") or f"HTTP {r.status_code}", code=data.get("error"))
-
-    return data
 
 
-# ---------------------------------------------------------------------------
-# /v1/transaction/:id — status check
-# ---------------------------------------------------------------------------
 async def get_transaction_status(transaction_id: str, api_key: Optional[str] = None) -> dict[str, Any]:
-    key = api_key or API_KEY
-    if not key:
-        raise SecurePayError("Payment gateway is not configured (missing API key)")
-    headers = {"Authorization": f"Bearer {key}"}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        try:
-            r = await client.get(f"{BASE_URL}/v1/transaction/{transaction_id}", headers=headers)
-        except httpx.RequestError as exc:
-            raise SecurePayError(f"Network error: {exc.__class__.__name__}") from exc
-    try:
-        return r.json()
-    except Exception as exc:
-        raise SecurePayError("Invalid JSON from gateway") from exc
+    """No public endpoint for transaction lookup in WestPay's redirect flow.
+
+    Status is delivered exclusively via the signed webhook + the redirect-back
+    URL (?status=success). Return an empty dict so the caller treats it as
+    "still pending — wait for webhook".
+    """
+    return {"status": "pending"}
+
+
+def parse_webhook_event(payload: dict) -> dict:
+    """Extract canonical fields from a WestPay webhook body.
+
+    WestPay webhook body example:
+      {
+        "event": "payment.confirmed",
+        "txId": "OP-abc123",
+        "amount": 2500,
+        "currency": "XOF",
+        "payer": "+22890123456",
+        "country": "Togo",
+        "merchantSlug": "spiloveure",
+        "provider": "mobile",
+        "timestamp": "2026-03-01T10:30:00.000Z",
+        "ref": "SPV-XXXXX"        // (echoed back from our redirect URL)
+      }
+    """
+    event = (payload.get("event") or "").lower()
+    return {
+        "event": event,
+        "reference": payload.get("ref") or payload.get("reference") or payload.get("txId"),
+        "transaction_id": payload.get("txId") or payload.get("transaction_id"),
+        "status": normalize_status(None, event),
+        "amount": payload.get("amount"),
+        "currency": payload.get("currency"),
+        "payer": payload.get("payer"),
+        "country": payload.get("country"),
+        "merchant_slug": payload.get("merchantSlug") or payload.get("merchant_slug"),
+        "provider": payload.get("provider"),
+        "raw": payload,
+    }
+
+
+# Quiet unused-import warning in environments without json usage
+_ = json

@@ -885,29 +885,38 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
 
 @api.post("/payments/secure/webhook")
 async def secure_webhook(request: Request):
-    """Receive asynchronous payment events. Keyed by `reference`/`transaction_id`."""
+    """Receive WestPay (RobotPay) signed webhook. Verifies HMAC-SHA256."""
     db = request.app.state.db
+    raw = await request.body()
+    sig = request.headers.get("X-RobotPay-Signature") or request.headers.get("x-robotpay-signature") or ""
+    event_header = request.headers.get("X-RobotPay-Event") or request.headers.get("x-robotpay-event") or ""
+
+    # Verify HMAC signature (only enforced when WEBHOOK_SECRET is configured)
+    if secure_pay.WEBHOOK_SECRET and not secure_pay.verify_webhook_signature(raw, sig):
+        log.warning("secure webhook: invalid HMAC signature")
+        raise HTTPException(status_code=401, detail="invalid_signature")
+
     try:
         payload = await request.json()
     except Exception:
         log.exception("secure webhook invalid JSON body")
         return {"received": True, "error": "invalid_json"}
 
-    ref = payload.get("reference")
+    parsed = secure_pay.parse_webhook_event(payload)
+    ref = parsed.get("reference")
     if not ref:
-        # fallback: try to find by transaction_id
-        tx_id = payload.get("transaction_id")
+        tx_id = parsed.get("transaction_id")
         if tx_id:
             doc = await db.payments.find_one({"transaction_id": tx_id}, {"reference": 1})
             ref = doc.get("reference") if doc else None
     if not ref:
         return {"received": True, "error": "missing_reference"}
 
-    event = payload.get("event") or ""
-    raw_status = payload.get("status") or ""
+    event = parsed.get("event") or event_header
+    raw_status = parsed.get("status") or ""
 
     new_status = await _process_payment_event(
-        db, ref=ref, raw_status=raw_status, event=event, payload=payload, source="webhook",
+        db, ref=ref, raw_status=raw_status, event=event, payload=parsed, source="webhook",
     )
     return {"received": True, "status": new_status}
 
