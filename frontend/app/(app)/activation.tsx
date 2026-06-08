@@ -90,7 +90,17 @@ export default function Activation() {
 
   // Global on/off switches for payment methods (admin-controlled).
   const [secureEnabled, setSecureEnabled] = useState(false);
+  const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
   const [manualEnabled, setManualEnabled] = useState(false);
+  const [cryptoEnabled, setCryptoEnabled] = useState(false);
+  const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
+
+  // Active payment method (user choice)
+  const [paymentMode, setPaymentMode] = useState<"auto" | "manual" | "crypto" | null>(null);
+
+  // Crypto form state
+  const [cryptoTxHash, setCryptoTxHash] = useState("");
+  const [cryptoSubmitting, setCryptoSubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -103,11 +113,18 @@ export default function Activation() {
         setManualCfg(m);
       } catch {}
       try {
-        const flags = await api.get<{ secure_enabled: boolean; manual_enabled: boolean }>(
-          "/settings/payments", { auth: false },
-        );
+        const flags = await api.get<{
+          secure_enabled: boolean;
+          secure_allowed_countries: string[];
+          manual_enabled: boolean;
+          crypto_enabled: boolean;
+          crypto?: any;
+        }>("/settings/payments", { auth: false });
         setSecureEnabled(!!flags.secure_enabled);
+        setSecureAllowed(flags.secure_allowed_countries || []);
         setManualEnabled(!!flags.manual_enabled);
+        setCryptoEnabled(!!flags.crypto_enabled);
+        setCryptoCfg(flags.crypto || null);
       } catch {}
     })();
     setPayerName(user?.username || "");
@@ -299,7 +316,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureEnabled && !manualEnabled && (
+        {!secureEnabled && !manualEnabled && !cryptoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -317,7 +334,77 @@ export default function Activation() {
           </Card>
         )}
 
-        {secureEnabled && (
+        {/* Payment mode selector — 3 cards */}
+        {(secureEnabled || manualEnabled || cryptoEnabled) && (
+          <Card style={{ marginTop: 12 }}>
+            <Text style={styles.section}>Choisir un mode de paiement</Text>
+            <View style={styles.modesCol}>
+              {secureEnabled && (() => {
+                const userCountry = (user?.country || "TG").toUpperCase();
+                const allowed = secureAllowed.length === 0 || secureAllowed.includes(userCountry);
+                return (
+                  <TouchableOpacity
+                    style={[styles.modeCard, paymentMode === "auto" && styles.modeCardOn, !allowed && styles.modeCardOff]}
+                    onPress={() => allowed && setPaymentMode("auto")}
+                    disabled={!allowed}
+                    testID="mode-auto"
+                  >
+                    <View style={styles.modeIcon}><Ionicons name="flash" size={22} color="#fff" /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modeTitle}>1️⃣ Paiement Automatique</Text>
+                      <Text style={styles.modeBody}>
+                        {allowed
+                          ? "Mobile Money instantané — Niveau 1 activé immédiatement."
+                          : `Disponible uniquement pour : ${secureAllowed.join(", ")}.`}
+                      </Text>
+                    </View>
+                    {paymentMode === "auto" ? (
+                      <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
+                    ) : !allowed ? (
+                      <Ionicons name="lock-closed" size={22} color={theme.colors.textSecondary} />
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })()}
+
+              {manualEnabled && manualAvailable && (
+                <TouchableOpacity
+                  style={[styles.modeCard, paymentMode === "manual" && styles.modeCardOn]}
+                  onPress={() => setPaymentMode("manual")}
+                  testID="mode-manual"
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: "#10B981" }]}><Ionicons name="card" size={22} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modeTitle}>2️⃣ Paiement Manuel Mobile Money</Text>
+                    <Text style={styles.modeBody}>
+                      Soumettez votre paiement Mobile Money. Validation par l'admin sous 24h.
+                    </Text>
+                  </View>
+                  {paymentMode === "manual" ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} /> : null}
+                </TouchableOpacity>
+              )}
+
+              {cryptoEnabled && (
+                <TouchableOpacity
+                  style={[styles.modeCard, paymentMode === "crypto" && styles.modeCardOn]}
+                  onPress={() => setPaymentMode("crypto")}
+                  testID="mode-crypto"
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: "#F59E0B" }]}><Ionicons name="logo-bitcoin" size={22} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modeTitle}>3️⃣ Paiement Manuel Crypto (USDT BEP20)</Text>
+                    <Text style={styles.modeBody}>
+                      Envoyez {cryptoCfg?.amount_usdt || 5} USDT (BEP20) puis collez le hash TXID.
+                    </Text>
+                  </View>
+                  {paymentMode === "crypto" ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} /> : null}
+                </TouchableOpacity>
+              )}
+            </View>
+          </Card>
+        )}
+
+        {paymentMode === "auto" && secureEnabled && (
         <Card style={{ marginTop: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View style={styles.mfBadge}>
@@ -424,24 +511,9 @@ export default function Activation() {
         </Card>
         )}
 
-        {manualEnabled && manualCfg?.enabled && manualAvailable && (
+        {paymentMode === "manual" && manualEnabled && manualCfg?.enabled && manualAvailable && (
           <>
-            <TouchableOpacity
-              style={styles.altLink}
-              onPress={() => setShowManual((s) => !s)}
-              testID="toggle-manual-flow"
-            >
-              <Ionicons
-                name={showManual ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={theme.colors.textSecondary}
-              />
-              <Text style={styles.altLinkText}>
-                {showManual ? "Masquer" : `Autre méthode : ${manualCfg.title || "Paiement manuel"}`}
-              </Text>
-            </TouchableOpacity>
-
-            {showManual && (
+            {true && (
               <Card style={{ marginTop: 12 }}>
                 <Text style={styles.section}>{manualCfg.title || "Paiement manuel"}</Text>
                 {manualCfg.instructions ? (
@@ -519,6 +591,95 @@ export default function Activation() {
               </Card>
             )}
           </>
+        )}
+
+        {paymentMode === "crypto" && cryptoEnabled && cryptoCfg && (
+          <Card style={{ marginTop: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
+              <Text style={styles.section}>Paiement Manuel Crypto</Text>
+            </View>
+            {cryptoCfg.instructions ? (
+              <Text style={[styles.helper, { whiteSpace: "pre-wrap" as any }]}>
+                {cryptoCfg.instructions}
+              </Text>
+            ) : null}
+
+            <View style={styles.amountBox}>
+              <Text style={styles.amountLabel}>Réseau</Text>
+              <Text style={[styles.rowVal, { fontSize: 16 }]}>{cryptoCfg.network}</Text>
+              <Text style={[styles.amountLabel, { marginTop: 10 }]}>Adresse wallet</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text selectable style={[styles.rowVal, { flex: 1, fontFamily: "monospace", fontSize: 12 }]}>
+                  {cryptoCfg.wallet_address}
+                </Text>
+                <TouchableOpacity
+                  style={styles.copyBtn}
+                  onPress={() => {
+                    if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+                      (navigator as any).clipboard.writeText(cryptoCfg.wallet_address);
+                      if (typeof window !== "undefined") window.alert("Adresse copiée ✅");
+                    }
+                  }}
+                  testID="crypto-copy-wallet"
+                >
+                  <Ionicons name="copy" size={16} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.amountLabel, { marginTop: 10 }]}>Montant à envoyer</Text>
+              <Text style={styles.amount}>{cryptoCfg.amount_usdt} USDT</Text>
+              <Text style={styles.amountHint}>Montant fixé — équivalent à 2 500 FCFA</Text>
+            </View>
+
+            <Text style={styles.lblSmall}>Hash de transaction (TXID)</Text>
+            <TextInput
+              style={styles.input}
+              value={cryptoTxHash}
+              onChangeText={setCryptoTxHash}
+              placeholder="0x..."
+              placeholderTextColor={theme.colors.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="crypto-tx-hash"
+            />
+            <Text style={styles.hint}>Collez ici le hash de votre transaction USDT BEP20 après l'envoi.</Text>
+
+            <View style={{ marginTop: 14 }}>
+              <Button
+                title={`SOUMETTRE LA TRANSACTION (${cryptoCfg.amount_usdt} USDT)`}
+                icon={<Ionicons name="logo-bitcoin" size={18} color="#fff" />}
+                onPress={async () => {
+                  if (cryptoTxHash.trim().length < 8) {
+                    Alert.alert("Hash invalide", "Le hash TXID est trop court. Vérifiez votre transaction.");
+                    return;
+                  }
+                  setCryptoSubmitting(true);
+                  try {
+                    await api.post<{ ok: boolean }>("/activations/crypto-request", {
+                      country: user?.country || "TG",
+                      tx_hash: cryptoTxHash.trim(),
+                    });
+                    if (typeof window !== "undefined") {
+                      window.alert("Demande enregistrée ✅ L'administrateur va vérifier votre transaction. Vous serez activé sous 24h.");
+                    } else {
+                      Alert.alert("Demande enregistrée", "L'administrateur va vérifier votre transaction.");
+                    }
+                    setCryptoTxHash("");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Soumission impossible.");
+                  } finally {
+                    setCryptoSubmitting(false);
+                  }
+                }}
+                loading={cryptoSubmitting}
+                disabled={cryptoSubmitting || cryptoTxHash.trim().length < 8}
+                testID="crypto-submit"
+              />
+              <Text style={[styles.hint, { marginTop: 10 }]}>
+                Après vérification du hash par l'administrateur, votre compte sera activé.
+              </Text>
+            </View>
+          </Card>
         )}
 
         <Card style={{ marginTop: 12 }}>
@@ -599,4 +760,21 @@ const styles = StyleSheet.create({
   stepNT: { color: "#fff", fontWeight: "800" },
   stepLbl: { fontWeight: "700", color: theme.colors.textPrimary },
   stepDesc: { color: theme.colors.textSecondary, fontSize: 12 },
+
+  modesCol: { gap: 8, marginTop: 8 },
+  modeCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary,
+    borderWidth: 2, borderColor: "transparent",
+  },
+  modeCardOn: { borderColor: theme.colors.primary, backgroundColor: "#EFF6FF" },
+  modeCardOff: { opacity: 0.5 },
+  modeIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  modeTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
+  modeBody: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2, lineHeight: 15 },
+  copyBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.primary },
 });

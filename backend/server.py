@@ -719,6 +719,13 @@ async def secure_initiate(data: InitiatePaymentIn, request: Request, user=Depend
     sp_cfg = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
     if not sp_cfg.get("enabled", False):
         raise HTTPException(status_code=400, detail="Le paiement sécurisé est désactivé.")
+    allowed = sp_cfg.get("allowed_countries") or []
+    if allowed and data.country_code not in allowed:
+        raise HTTPException(status_code=400, detail="Le paiement automatique n'est pas disponible dans votre pays.")
+    country_keys = sp_cfg.get("country_keys") or {}
+    country_api_key = country_keys.get(data.country_code)
+    if not country_api_key:
+        raise HTTPException(status_code=400, detail=f"Aucune clé API configurée pour {data.country_code}.")
     level = data.level
     lv = LEVELS_BY_NUM.get(level)
     if not lv:
@@ -780,6 +787,7 @@ async def secure_initiate(data: InitiatePaymentIn, request: Request, user=Depend
             country_code=data.country_code,
             reference=reference,
             otp=data.otp,
+            api_key=country_api_key,
         )
     except secure_pay.SecurePayError as exc:
         if exc.code == "otp_required":
@@ -927,17 +935,26 @@ async def secure_verify(ref: str, request: Request, user=Depends(get_current_use
 
 @api.get("/settings/payments")
 async def get_payment_methods_status(request: Request):
-    """Returns which payment methods are currently enabled.
+    """Returns which payment methods are currently enabled, plus extra metadata for the client.
 
-    Both flags default to `false` (no method available). The admin must
+    All flags default to `false` (no method available). The admin must
     explicitly enable a method via Réglages.
     """
     db = request.app.state.db
     secure_doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
     manual_doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    crypto_doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
     return {
         "secure_enabled": bool(secure_doc.get("enabled", False)),
+        "secure_allowed_countries": secure_doc.get("allowed_countries") or [],
         "manual_enabled": bool(manual_doc.get("enabled", False)),
+        "crypto_enabled": bool(crypto_doc.get("enabled", False)),
+        "crypto": {
+            "network": crypto_doc.get("network") or "USDT BEP20",
+            "wallet_address": crypto_doc.get("wallet_address") or "",
+            "amount_usdt": crypto_doc.get("amount_usdt") or 5.0,
+            "instructions": crypto_doc.get("instructions") or "",
+        } if crypto_doc.get("enabled") else None,
     }
 
 
@@ -955,6 +972,16 @@ class ManualPaymentSettings(BaseModel):
 
 class SecurePaymentSettings(BaseModel):
     enabled: bool = False
+    allowed_countries: List[str] = Field(default_factory=list)
+    country_keys: dict = Field(default_factory=dict)  # {"TG": "TGO-...", "BJ": "BEN-..."}
+
+
+class CryptoPaymentSettings(BaseModel):
+    enabled: bool = False
+    network: Optional[str] = "USDT BEP20"
+    wallet_address: Optional[str] = ""
+    amount_usdt: Optional[float] = 5.0
+    instructions: Optional[str] = ""
 
 
 @api.get("/settings/manual-payment")
@@ -978,6 +1005,11 @@ class ManualActivationIn(BaseModel):
     country: str
     operator: str
     phone: str
+
+
+class CryptoActivationIn(BaseModel):
+    country: Optional[str] = ""
+    tx_hash: str
 
 
 @api.post("/activations/manual-request")
@@ -1035,6 +1067,54 @@ async def create_manual_activation(
         "payment_url": cfg.get("payment_url") or "",
         "amount": amount,
         "currency": "FCFA",
+    }
+
+
+@api.post("/activations/crypto-request")
+async def create_crypto_activation(
+    data: CryptoActivationIn, request: Request, user=Depends(get_current_user),
+):
+    """Record a crypto (USDT BEP20) activation request awaiting admin validation."""
+    db = request.app.state.db
+    cfg = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
+    if not cfg.get("enabled"):
+        raise HTTPException(400, "Le paiement crypto est désactivé.")
+    if user.get("max_level", 0) >= 1:
+        raise HTTPException(400, "Votre niveau 1 est déjà activé.")
+    tx_hash = (data.tx_hash or "").strip()
+    if len(tx_hash) < 8:
+        raise HTTPException(400, "Hash de transaction invalide.")
+
+    existing = await db.activations.find_one({
+        "user_id": user["id"], "level": 1, "status": "pending", "payment_method": "crypto",
+    })
+    if existing:
+        return {"ok": True, "activation_id": existing["id"], "already_pending": True}
+
+    act_id = str(uuid.uuid4())
+    amount = LEVELS_BY_NUM[1]["price"]
+    amount_usdt = float(cfg.get("amount_usdt") or 5)
+    now = datetime.now(timezone.utc)
+    await db.activations.insert_one({
+        "id": act_id,
+        "user_id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "level": 1,
+        "amount": amount,
+        "amount_usdt": amount_usdt,
+        "network": cfg.get("network") or "USDT BEP20",
+        "payment_method": "crypto",
+        "tx_hash": tx_hash,
+        "payer_country": data.country or user.get("country"),
+        "status": "pending",
+        "created_at": now,
+    })
+    return {
+        "ok": True,
+        "activation_id": act_id,
+        "amount_usdt": amount_usdt,
+        "network": cfg.get("network") or "USDT BEP20",
     }
 
 
@@ -1610,6 +1690,8 @@ async def admin_get_secure_payment(request: Request):
     doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
     return {
         "enabled": bool(doc.get("enabled", False)),
+        "allowed_countries": doc.get("allowed_countries") or [],
+        "country_keys": doc.get("country_keys") or {},
         "updated_at": doc.get("updated_at"),
         "updated_by": doc.get("updated_by"),
     }
@@ -1622,11 +1704,48 @@ async def admin_update_secure_payment(
     db = request.app.state.db
     payload = {
         "enabled": bool(data.enabled),
+        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
+        "country_keys": {k.strip().upper(): v.strip() for k, v in (data.country_keys or {}).items() if v and v.strip()},
         "updated_at": datetime.now(timezone.utc),
         "updated_by": admin.get("username"),
     }
     await db.app_settings.update_one(
         {"_id": "secure_pay"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+@admin_router.get("/settings/crypto-payment")
+async def admin_get_crypto_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "network": doc.get("network") or "USDT BEP20",
+        "wallet_address": doc.get("wallet_address") or "",
+        "amount_usdt": doc.get("amount_usdt") or 5.0,
+        "instructions": doc.get("instructions") or "",
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/crypto-payment")
+async def admin_update_crypto_payment(
+    data: CryptoPaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "network": (data.network or "USDT BEP20").strip(),
+        "wallet_address": (data.wallet_address or "").strip(),
+        "amount_usdt": float(data.amount_usdt or 5.0),
+        "instructions": (data.instructions or "").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "crypto_payment"}, {"$set": payload}, upsert=True,
     )
     return {"ok": True, "settings": payload}
 

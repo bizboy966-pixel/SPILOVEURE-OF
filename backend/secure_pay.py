@@ -78,12 +78,14 @@ async def initiate_collect(
     country_code: str,
     reference: str,
     otp: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict[str, Any]:
-    if not API_KEY:
+    key = api_key or API_KEY
+    if not key:
         raise SecurePayError("Payment gateway is not configured (missing API key)")
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {
@@ -127,10 +129,11 @@ async def initiate_collect(
 # ---------------------------------------------------------------------------
 # /v1/transaction/:id — status check
 # ---------------------------------------------------------------------------
-async def get_transaction_status(transaction_id: str) -> dict[str, Any]:
-    if not API_KEY:
+async def get_transaction_status(transaction_id: str, api_key: Optional[str] = None) -> dict[str, Any]:
+    key = api_key or API_KEY
+    if not key:
         raise SecurePayError("Payment gateway is not configured (missing API key)")
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+    headers = {"Authorization": f"Bearer {key}"}
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
             r = await client.get(f"{BASE_URL}/v1/transaction/{transaction_id}", headers=headers)
