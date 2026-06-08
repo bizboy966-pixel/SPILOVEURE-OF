@@ -60,6 +60,9 @@ export default function AdminHome() {
   const [spEnabled, setSpEnabled] = useState(false);
   const [spSaving, setSpSaving] = useState(false);
 
+  // Country catalog loaded from /api/config (drives the allowed-countries grid)
+  const [cfgCountries, setCfgCountries] = useState<{ code: string; name: string; flag: string }[]>([]);
+
   // Withdrawal fee settings
   const [wdEnabled, setWdEnabled] = useState(true);
   const [wdFeePercent, setWdFeePercent] = useState("0");
@@ -90,6 +93,10 @@ export default function AdminHome() {
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
       if (tab === "payment") {
+        try {
+          const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
+          if (Array.isArray(conf?.countries)) setCfgCountries(conf.countries as any);
+        } catch {}
         const cfg = await api.get<any>("/admin/settings/manual-payment");
         setMpEnabled(!!cfg.enabled);
         setMpTitle(cfg.title || "Paiement manuel");
@@ -648,20 +655,12 @@ export default function AdminHome() {
                 Cochez les pays où les utilisateurs verront cette méthode de paiement. Si aucun pays n'est coché, le paiement manuel reste désactivé pour tous.
               </Text>
               <View style={styles.countryGrid}>
-                {[
+                {(cfgCountries.length > 0 ? cfgCountries : [
                   { code: "TG", name: "Togo", flag: "🇹🇬" },
                   { code: "BJ", name: "Bénin", flag: "🇧🇯" },
                   { code: "CI", name: "Côte d'Ivoire", flag: "🇨🇮" },
                   { code: "BF", name: "Burkina Faso", flag: "🇧🇫" },
-                  { code: "SN", name: "Sénégal", flag: "🇸🇳" },
-                  { code: "ML", name: "Mali", flag: "🇲🇱" },
-                  { code: "NE", name: "Niger", flag: "🇳🇪" },
-                  { code: "CM", name: "Cameroun", flag: "🇨🇲" },
-                  { code: "GH", name: "Ghana", flag: "🇬🇭" },
-                  { code: "GN", name: "Guinée", flag: "🇬🇳" },
-                  { code: "NG", name: "Nigeria", flag: "🇳🇬" },
-                  { code: "GW", name: "Guinée-Bissau", flag: "🇬🇼" },
-                ].map((c) => {
+                ]).map((c) => {
                   const on = mpAllowedCountries.includes(c.code);
                   return (
                     <TouchableOpacity

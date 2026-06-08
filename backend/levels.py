@@ -53,6 +53,7 @@ LEVELS = [
 LEVELS_BY_NUM = {lv["level"]: lv for lv in LEVELS}
 
 COUNTRIES = [
+    # === Afrique de l'Ouest francophone (existants — Mobile Money supporté) ===
     {"code": "BJ", "name": "Bénin", "dial": "+229", "flag": "🇧🇯"},
     {"code": "BF", "name": "Burkina Faso", "dial": "+226", "flag": "🇧🇫"},
     {"code": "CI", "name": "Côte d'Ivoire", "dial": "+225", "flag": "🇨🇮"},
@@ -65,6 +66,62 @@ COUNTRIES = [
     {"code": "SN", "name": "Sénégal", "dial": "+221", "flag": "🇸🇳"},
     {"code": "TG", "name": "Togo", "dial": "+228", "flag": "🇹🇬"},
     {"code": "CM", "name": "Cameroun", "dial": "+237", "flag": "🇨🇲"},
+    # === Afrique Centrale / Australe ===
+    {"code": "CD", "name": "RD Congo", "dial": "+243", "flag": "🇨🇩"},
+    {"code": "CG", "name": "Congo-Brazzaville", "dial": "+242", "flag": "🇨🇬"},
+    {"code": "GA", "name": "Gabon", "dial": "+241", "flag": "🇬🇦"},
+    {"code": "CF", "name": "Centrafrique", "dial": "+236", "flag": "🇨🇫"},
+    {"code": "TD", "name": "Tchad", "dial": "+235", "flag": "🇹🇩"},
+    {"code": "AO", "name": "Angola", "dial": "+244", "flag": "🇦🇴"},
+    {"code": "MZ", "name": "Mozambique", "dial": "+258", "flag": "🇲🇿"},
+    # === Afrique de l'Est ===
+    {"code": "KE", "name": "Kenya", "dial": "+254", "flag": "🇰🇪"},
+    {"code": "UG", "name": "Ouganda", "dial": "+256", "flag": "🇺🇬"},
+    {"code": "RW", "name": "Rwanda", "dial": "+250", "flag": "🇷🇼"},
+    {"code": "TZ", "name": "Tanzanie", "dial": "+255", "flag": "🇹🇿"},
+    # === Afrique du Nord & Sud ===
+    {"code": "EG", "name": "Égypte", "dial": "+20", "flag": "🇪🇬"},
+    {"code": "ZA", "name": "Afrique du Sud", "dial": "+27", "flag": "🇿🇦"},
+    {"code": "MR", "name": "Mauritanie", "dial": "+222", "flag": "🇲🇷"},
+    # === Autres Afrique ===
+    {"code": "LR", "name": "Libéria", "dial": "+231", "flag": "🇱🇷"},
+    {"code": "SL", "name": "Sierra Leone", "dial": "+232", "flag": "🇸🇱"},
+    {"code": "GM", "name": "Gambie", "dial": "+220", "flag": "🇬🇲"},
+    {"code": "BW", "name": "Botswana", "dial": "+267", "flag": "🇧🇼"},
+    {"code": "NA", "name": "Namibie", "dial": "+264", "flag": "🇳🇦"},
+    {"code": "ZM", "name": "Zambie", "dial": "+260", "flag": "🇿🇲"},
+    {"code": "ZW", "name": "Zimbabwe", "dial": "+263", "flag": "🇿🇼"},
+    {"code": "MG", "name": "Madagascar", "dial": "+261", "flag": "🇲🇬"},
+    {"code": "MU", "name": "Maurice", "dial": "+230", "flag": "🇲🇺"},
+    # === Europe ===
+    {"code": "FR", "name": "France", "dial": "+33", "flag": "🇫🇷"},
+    {"code": "BE", "name": "Belgique", "dial": "+32", "flag": "🇧🇪"},
+    {"code": "CH", "name": "Suisse", "dial": "+41", "flag": "🇨🇭"},
+    {"code": "DE", "name": "Allemagne", "dial": "+49", "flag": "🇩🇪"},
+    {"code": "IT", "name": "Italie", "dial": "+39", "flag": "🇮🇹"},
+    {"code": "ES", "name": "Espagne", "dial": "+34", "flag": "🇪🇸"},
+    {"code": "PT", "name": "Portugal", "dial": "+351", "flag": "🇵🇹"},
+    {"code": "GB", "name": "Royaume-Uni", "dial": "+44", "flag": "🇬🇧"},
+    {"code": "NL", "name": "Pays-Bas", "dial": "+31", "flag": "🇳🇱"},
+    # === Amériques ===
+    {"code": "CA", "name": "Canada", "dial": "+1", "flag": "🇨🇦"},
+    {"code": "US", "name": "États-Unis", "dial": "+1", "flag": "🇺🇸"},
+    {"code": "BR", "name": "Brésil", "dial": "+55", "flag": "🇧🇷"},
+    {"code": "MX", "name": "Mexique", "dial": "+52", "flag": "🇲🇽"},
+    # === Moyen-Orient ===
+    {"code": "AE", "name": "Émirats Arabes Unis", "dial": "+971", "flag": "🇦🇪"},
+    {"code": "QA", "name": "Qatar", "dial": "+974", "flag": "🇶🇦"},
+    {"code": "SA", "name": "Arabie Saoudite", "dial": "+966", "flag": "🇸🇦"},
+    # === Asie ===
+    {"code": "IN", "name": "Inde", "dial": "+91", "flag": "🇮🇳"},
+    {"code": "PK", "name": "Pakistan", "dial": "+92", "flag": "🇵🇰"},
+    {"code": "BD", "name": "Bangladesh", "dial": "+880", "flag": "🇧🇩"},
+    {"code": "MY", "name": "Malaisie", "dial": "+60", "flag": "🇲🇾"},
+    {"code": "SG", "name": "Singapour", "dial": "+65", "flag": "🇸🇬"},
+    {"code": "PH", "name": "Philippines", "dial": "+63", "flag": "🇵🇭"},
+    # === Océanie ===
+    {"code": "AU", "name": "Australie", "dial": "+61", "flag": "🇦🇺"},
+    {"code": "NZ", "name": "Nouvelle-Zélande", "dial": "+64", "flag": "🇳🇿"},
 ]
 
 OPERATORS_BY_COUNTRY = {
