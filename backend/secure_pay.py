@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 
 log = logging.getLogger("secure_pay")
 
-BASE_URL = os.environ.get("WESTPAY_BASE_URL", "http://westpay.cfd").rstrip("/")
+BASE_URL = os.environ.get("WESTPAY_BASE_URL", "https://westpay.cfd").rstrip("/")
 SLUG = os.environ.get("WESTPAY_SLUG", "spiloveure")
 WEBHOOK_SECRET = os.environ.get("WESTPAY_WEBHOOK_SECRET", "")
 SITE_URL = os.environ.get("SITE_URL", "https://spiloveure.com").rstrip("/")

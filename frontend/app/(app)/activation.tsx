@@ -235,8 +235,17 @@ export default function Activation() {
         // WestPay (RobotPay) hosted checkout — redirect the user out.
         setWaveUrl(resp.wave_url);
         if (Platform.OS === "web" && typeof window !== "undefined") {
-          // Same-tab redirect so the user comes back via the success URL.
-          window.location.href = resp.wave_url;
+          // Belt-and-braces redirect: try same-tab first, fall back to new tab.
+          try {
+            window.location.assign(resp.wave_url);
+          } catch {}
+          setTimeout(() => {
+            try {
+              if (window.location.href.indexOf("westpay") === -1) {
+                window.open(resp.wave_url, "_blank");
+              }
+            } catch {}
+          }, 600);
         } else {
           Linking.openURL(resp.wave_url);
           router.replace({ pathname: "/payment/success", params: { ref: resp.order_id } });
