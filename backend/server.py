@@ -903,6 +903,7 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
     return new_status
 
 
+@api.post("/webhook")
 @api.post("/payments/secure/webhook")
 async def secure_webhook(request: Request):
     """Receive WestPay (RobotPay) signed webhook. Verifies HMAC-SHA256."""
