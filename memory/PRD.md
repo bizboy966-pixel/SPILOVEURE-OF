@@ -19,7 +19,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-07)
+## Implementation Status (à jour 2026-06-09)
+### 2026-06-09 — 3 correctifs validés (testing agent iteration_4: 17/17 PASS)
+- ✅ Auto-upgrade en cascade fixé : boucle `for _ in range(12)` dans `distribute_commission` (matrix.py l.190-198), passe N→N+1→… tant que balance_upgrade suffit et matrice remplie
+- ✅ Hash TXID crypto visible dans Admin Panel : section dédiée + bouton copier (admin/index.tsx l.413-430, testID `admin-copy-tx-{id}`)
+- ✅ Wallet UI dynamique Mobile Money ↔ Crypto USDT BEP20 : 2 modes commutables (testID `wallet-method-mobile`/`wallet-method-crypto`), `WalletIn` étendu (method, network, wallet_address), `/api/wallet` valide & nettoie champs de l'autre méthode, `/api/withdrawals` propage `method/network/wallet_address` en DB pour vue admin
+
+### Historique
 - ✅ Auth complet + cache token in-memory (fix race-condition login 401)
 - ✅ Matrice binaire 12 niveaux + auto-upgrade en cascade
 - ✅ Activations manuelles (admin) + automatiques (AshTechPay)
@@ -65,12 +71,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emma91972006`.
 
 ## Roadmap / Backlog
-- **P1** : Restaurer `admin.max_level=12` en prod (actuellement 2 — bloque tests commissions L3+ en environnement live).
-- **P1** : Tests e2e complets sur staging (parrainage → registration → activation L1 → spillover → L2 → retrait).
+- **P1** : Test E2E du flux de paiement automatique WestPay (RobotPay) avec clés pays réelles.
+- **P1** : Test E2E complet du flux dépôt + retrait Crypto USDT BEP20 (admin valide → user reçoit).
+- **P1** : Restaurer `admin.max_level=12` en prod (actuellement 2 — bloque tests commissions L3+).
 - **P2** : Notifications (email/push) sur validations admin.
 - **P2** : Déploiement public sur `*.emergent.host` + DNS `spiloveure.com`.
-- **P2** : Webhooks AshTechPay validés en environnement de production réel.
 - **P3** : Localisation EN + autres langues.
+- **P3** : (Optionnel) Harmoniser le label admin "Réglages" ↔ "Paramètres" si exigence stricte.
 
 ## Known caveats
 - Metro tourne en `CI=1` mode (pas de watch). Un changement de code peut nécessiter `supervisorctl restart frontend` pour purger le cache de bundle SSR.
