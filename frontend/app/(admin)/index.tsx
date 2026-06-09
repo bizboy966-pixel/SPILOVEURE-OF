@@ -60,6 +60,14 @@ export default function AdminHome() {
   const [spEnabled, setSpEnabled] = useState(false);
   const [spSaving, setSpSaving] = useState(false);
 
+  // Crypto payment (USDT BEP20) settings
+  const [cryptoEnabled, setCryptoEnabled] = useState(false);
+  const [cryptoNetwork, setCryptoNetwork] = useState("USDT BEP20");
+  const [cryptoWallet, setCryptoWallet] = useState("");
+  const [cryptoAmount, setCryptoAmount] = useState("5");
+  const [cryptoInstructions, setCryptoInstructions] = useState("");
+  const [cryptoSaving, setCryptoSaving] = useState(false);
+
   // Country catalog loaded from /api/config (drives the allowed-countries grid)
   const [cfgCountries, setCfgCountries] = useState<{ code: string; name: string; flag: string }[]>([]);
 
@@ -108,6 +116,13 @@ export default function AdminHome() {
 
         const sp = await api.get<any>("/admin/settings/secure-payment");
         setSpEnabled(!!sp.enabled);
+
+        const cp = await api.get<any>("/admin/settings/crypto-payment");
+        setCryptoEnabled(!!cp.enabled);
+        setCryptoNetwork(cp.network || "USDT BEP20");
+        setCryptoWallet(cp.wallet_address || "");
+        setCryptoAmount(String(cp.amount_usdt ?? 5));
+        setCryptoInstructions(cp.instructions || "");
 
         const wd = await api.get<any>("/admin/settings/withdrawal");
         setWdEnabled(wd.enabled !== false);
@@ -604,6 +619,87 @@ export default function AdminHome() {
                     } finally { setSpSaving(false); }
                   }}
                   testID="sp-save-btn"
+                />
+              </View>
+            </Card>
+
+            <Card style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
+                <Text style={styles.section}>Paiement manuel Crypto (USDT BEP20)</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                L'utilisateur envoie l'équivalent du montant d'activation en USDT (réseau BEP20)
+                à l'adresse wallet ci-dessous, puis colle le hash de transaction (TXID). L'admin valide manuellement.
+              </Text>
+              <TouchableOpacity
+                style={[styles.toggleRow, cryptoEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setCryptoEnabled((v) => !v)}
+                testID="crypto-toggle-enabled"
+              >
+                <Ionicons
+                  name={cryptoEnabled ? "checkmark-circle" : "close-circle-outline"}
+                  size={20}
+                  color={cryptoEnabled ? "#fff" : theme.colors.textSecondary}
+                />
+                <Text style={[styles.toggleTxt, cryptoEnabled && { color: "#fff" }]}>
+                  {cryptoEnabled ? "Activé — paiement crypto disponible" : "Désactivé — paiement crypto masqué"}
+                </Text>
+              </TouchableOpacity>
+
+              <Input
+                label="Réseau"
+                value={cryptoNetwork}
+                onChangeText={setCryptoNetwork}
+                placeholder="USDT BEP20"
+                testID="crypto-network"
+              />
+              <Input
+                label="Adresse wallet"
+                value={cryptoWallet}
+                onChangeText={setCryptoWallet}
+                placeholder="0x..."
+                autoCapitalize="none"
+                testID="crypto-wallet"
+              />
+              <Input
+                label="Montant à envoyer (USDT)"
+                value={cryptoAmount}
+                onChangeText={setCryptoAmount}
+                placeholder="5"
+                keyboardType="decimal-pad"
+                testID="crypto-amount"
+              />
+              <Input
+                label="Instructions affichées à l'utilisateur"
+                value={cryptoInstructions}
+                onChangeText={setCryptoInstructions}
+                placeholder="Envoyez 5 USDT (BEP20)..."
+                multiline
+                testID="crypto-instructions"
+              />
+              <View style={{ marginTop: 12 }}>
+                <Button
+                  title={cryptoSaving ? "Enregistrement..." : "Enregistrer la configuration crypto"}
+                  icon={<Ionicons name="save" size={16} color="#fff" />}
+                  loading={cryptoSaving}
+                  disabled={cryptoSaving}
+                  onPress={async () => {
+                    setCryptoSaving(true);
+                    try {
+                      await api.put("/admin/settings/crypto-payment", {
+                        enabled: cryptoEnabled,
+                        network: cryptoNetwork.trim(),
+                        wallet_address: cryptoWallet.trim(),
+                        amount_usdt: parseFloat(cryptoAmount) || 5,
+                        instructions: cryptoInstructions,
+                      });
+                      if (typeof window !== "undefined") window.alert("Configuration crypto enregistrée ✅");
+                    } catch (e: any) {
+                      if (typeof window !== "undefined") window.alert(e?.detail || "Erreur lors de l'enregistrement");
+                    } finally { setCryptoSaving(false); }
+                  }}
+                  testID="crypto-save-btn"
                 />
               </View>
             </Card>
