@@ -513,10 +513,28 @@ async def get_wallet(request: Request, user=Depends(get_current_user)):
 @api.post("/wallet")
 async def save_wallet(data: WalletIn, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    method = (data.method or "mobile").lower()
+    if method not in {"mobile", "crypto"}:
+        raise HTTPException(400, "Mode de retrait invalide.")
+    if not data.country or not data.full_name:
+        raise HTTPException(400, "Pays et nom du titulaire requis.")
+    if method == "mobile":
+        if not (data.operator and data.phone):
+            raise HTTPException(400, "Opérateur et numéro de téléphone requis.")
+    else:  # crypto
+        if not (data.wallet_address and len(data.wallet_address.strip()) >= 12):
+            raise HTTPException(400, "Adresse wallet invalide.")
     doc = {
         "user_id": user["id"],
-        "country": data.country, "operator": data.operator,
-        "phone": data.phone, "full_name": data.full_name,
+        "country": data.country,
+        "full_name": data.full_name,
+        "method": method,
+        # Mobile Money fields (kept for backward compat — empty when crypto)
+        "operator": (data.operator or "") if method == "mobile" else "",
+        "phone": (data.phone or "") if method == "mobile" else "",
+        # Crypto fields (empty when mobile)
+        "network": (data.network or "USDT BEP20") if method == "crypto" else "",
+        "wallet_address": (data.wallet_address or "").strip() if method == "crypto" else "",
         "updated_at": datetime.now(timezone.utc),
     }
     await db.wallets.update_one({"user_id": user["id"]}, {"$set": doc}, upsert=True)
@@ -556,7 +574,9 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         "id": wd_id, "user_id": user["id"], "username": user["username"],
         "amount": data.amount, "fee": fee, "net_payout": net,
         "status": "pending",
-        "operator": wallet["operator"], "phone": wallet["phone"],
+        "method": wallet.get("method") or ("crypto" if wallet.get("wallet_address") else "mobile"),
+        "operator": wallet.get("operator", ""), "phone": wallet.get("phone", ""),
+        "network": wallet.get("network", ""), "wallet_address": wallet.get("wallet_address", ""),
         "full_name": wallet["full_name"], "country": wallet["country"],
         "created_at": datetime.now(timezone.utc),
     })

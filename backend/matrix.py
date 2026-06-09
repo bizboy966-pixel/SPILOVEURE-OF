@@ -186,6 +186,17 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         )
         credits.append(commission_doc)
 
+        # Trigger auto-upgrade cascade if the recipient now has enough reserve.
+        try:
+            # Loop in case multiple levels can be activated back-to-back.
+            for _ in range(12):
+                upgraded_to = await try_auto_upgrade(db, user_id)
+                if not upgraded_to:
+                    break
+                log.info(f"Auto-upgrade: user {user_id} → level {upgraded_to}")
+        except Exception as e:
+            log.exception(f"try_auto_upgrade failed for {user_id}: {e}")
+
     return credits
 
 

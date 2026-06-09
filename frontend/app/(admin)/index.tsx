@@ -408,6 +408,26 @@ export default function AdminHome() {
                   {a.payer_country ? <KvRow k="Pays" v={a.payer_country} /> : null}
                   {a.operator ? <KvRow k="Opérateur" v={a.operator} /> : null}
                   <KvRow k="Numéro paiement" v={a.payment_phone || "—"} />
+                  {a.network ? <KvRow k="Réseau crypto" v={a.network} /> : null}
+                  {a.amount_usdt ? <KvRow k="Montant USDT" v={`${a.amount_usdt} USDT`} /> : null}
+                  {a.tx_hash ? (
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>Hash TXID (cliquer pour copier)</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+                            (navigator as any).clipboard.writeText(a.tx_hash);
+                            if (typeof window !== "undefined") window.alert("Hash copié ✅");
+                          }
+                        }}
+                        testID={`admin-copy-tx-${a.id}`}
+                      >
+                        <Text selectable style={{ color: theme.colors.primary, fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
+                          {a.tx_hash}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                   <KvRow k="Montant" v={formatFCFA(a.amount)} />
                   <KvRow k="Date/Heure" v={formatDateTime(a.created_at)} />
                   {a.transaction_ref ? <KvRow k="Réf. transaction" v={a.transaction_ref} /> : null}
@@ -478,8 +498,33 @@ export default function AdminHome() {
                   {w.fee != null ? <KvRow k="Frais de retrait" v={formatFCFA(w.fee)} /> : null}
                   {w.net_payout != null ? <KvRow k="Montant net" v={formatFCFA(w.net_payout)} /> : null}
                   <KvRow k="Bénéficiaire" v={w.full_name || "—"} />
-                  <KvRow k="Opérateur" v={w.operator || "—"} />
-                  <KvRow k="Numéro" v={w.phone || "—"} />
+                  {w.method === "crypto" ? (
+                    <>
+                      <KvRow k="Mode de retrait" v="Crypto USDT BEP20" />
+                      <KvRow k="Réseau" v={w.network || "USDT BEP20"} />
+                      {w.wallet_address ? (
+                        <View style={{ marginTop: 4 }}>
+                          <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>Adresse wallet (cliquer pour copier)</Text>
+                          <TouchableOpacity onPress={() => {
+                            if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+                              (navigator as any).clipboard.writeText(w.wallet_address);
+                              if (typeof window !== "undefined") window.alert("Adresse copiée ✅");
+                            }
+                          }}>
+                            <Text selectable style={{ color: theme.colors.primary, fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
+                              {w.wallet_address}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <KvRow k="Mode de retrait" v="Mobile Money" />
+                      <KvRow k="Opérateur" v={w.operator || "—"} />
+                      <KvRow k="Numéro" v={w.phone || "—"} />
+                    </>
+                  )}
                   <KvRow k="Pays" v={w.country || "—"} />
                   <KvRow k="Date" v={formatDateTime(w.created_at)} />
                   {w.validated_at ? <KvRow k="Validé le" v={formatDateTime(w.validated_at)} /> : null}

@@ -47,9 +47,14 @@ class ActivationRequestIn(BaseModel):
 
 class WalletIn(BaseModel):
     country: str
-    operator: str
-    phone: str
     full_name: str
+    method: Optional[str] = "mobile"  # "mobile" | "crypto"
+    # Mobile Money fields
+    operator: Optional[str] = ""
+    phone: Optional[str] = ""
+    # Crypto fields
+    network: Optional[str] = "USDT BEP20"
+    wallet_address: Optional[str] = ""
 
 
 class WithdrawalIn(BaseModel):
