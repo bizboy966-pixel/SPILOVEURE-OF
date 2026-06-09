@@ -56,7 +56,7 @@ export default function AdminHome() {
   const [mpAllowedCountries, setMpAllowedCountries] = useState<string[]>([]);
   const [mpSaving, setMpSaving] = useState(false);
 
-  // Secure payment (AshTechPay) on/off toggle
+  // Secure payment (WestPay) on/off toggle
   const [spEnabled, setSpEnabled] = useState(false);
   const [spSaving, setSpSaving] = useState(false);
 
@@ -569,7 +569,7 @@ export default function AdminHome() {
             <Card>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Ionicons name="shield-checkmark" size={22} color={theme.colors.primary} />
-                <Text style={styles.section}>Paiement sécurisé Mobile Money (AshTechPay)</Text>
+                <Text style={styles.section}>Paiement sécurisé Mobile Money (WestPay)</Text>
               </View>
               <Text style={styles.helperTxt}>
                 Active ou désactive le paiement Mobile Money automatique côté utilisateur. Lorsqu'il est désactivé, le bloc de paiement n'apparaît plus sur la page d'activation.

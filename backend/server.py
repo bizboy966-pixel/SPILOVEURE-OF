@@ -601,7 +601,7 @@ async def my_transactions(request: Request, user=Depends(get_current_user)):
             },
         })
 
-    # Automatic payments (AshTechPay flow)
+    # Automatic payments (WestPay flow)
     async for p in db.payments.find({"user_id": user["id"]}, {"_id": 0, "events": 0, "last_provider_payload": 0}).sort("created_at", -1):
         out.append({
             "type": "payment",
