@@ -30,7 +30,9 @@ export default function AdminHome() {
   const [users, setUsers] = useState<any[]>([]);
   const [usersQ, setUsersQ] = useState("");
   const [activations, setActivations] = useState<any[]>([]);
+  const [actQ, setActQ] = useState("");
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [wdQ, setWdQ] = useState("");
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [channels, setChannels] = useState<any[]>([]);
 
@@ -203,12 +205,28 @@ export default function AdminHome() {
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="shield-checkmark" size={22} color="#fff" />
-              <Text style={styles.title}>Panel Admin Spiloveure</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+            <TouchableOpacity
+              onPress={() => {
+                if (tab !== "dashboard") { setTab("dashboard"); return; }
+                try {
+                  // @ts-ignore canGoBack exists in expo-router web
+                  if (router.canGoBack && router.canGoBack()) router.back();
+                  else router.replace("/services" as any);
+                } catch { router.replace("/services" as any); }
+              }}
+              style={styles.backBtn}
+              testID="admin-back-btn"
+            >
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="shield-checkmark" size={22} color="#fff" />
+                <Text style={styles.title}>Panel Admin Spiloveure</Text>
+              </View>
+              <Text style={styles.sub}>Connecté en tant que {user?.username}</Text>
             </View>
-            <Text style={styles.sub}>Connecté en tant que {user?.username}</Text>
           </View>
           <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
             <Ionicons name="log-out-outline" size={20} color="#fff" />
@@ -376,6 +394,24 @@ export default function AdminHome() {
 
         {tab === "activations" && (
           <>
+            <View style={styles.searchRow}>
+              <View style={styles.searchBox}>
+                <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+                <TextInput
+                  placeholder="Rechercher: nom, ID, téléphone, référence..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={styles.searchI}
+                  value={actQ}
+                  onChangeText={setActQ}
+                  testID="admin-activations-search"
+                />
+                {actQ ? (
+                  <TouchableOpacity onPress={() => setActQ("")} testID="admin-activations-search-clear">
+                    <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
             <SubTabs
               tabs={[
                 { key: "pending", label: "En attente", color: theme.colors.warning, count: activations.filter((a) => a.status === "pending").length },
@@ -387,13 +423,23 @@ export default function AdminHome() {
               testIdPrefix="activations-filter"
             />
             {(() => {
+              const q = actQ.trim().toLowerCase();
               const filtered = activations.filter((a) => {
-                if (actFilter === "pending") return a.status === "pending";
-                if (actFilter === "validated") return a.status === "validated" || a.status === "active";
-                return a.status === "rejected";
+                const statusOk = actFilter === "pending"
+                  ? a.status === "pending"
+                  : actFilter === "validated"
+                    ? (a.status === "validated" || a.status === "active")
+                    : a.status === "rejected";
+                if (!statusOk) return false;
+                if (!q) return true;
+                const haystack = [
+                  a.username, a.email, a.user_id, a.id,
+                  a.payment_phone, a.transaction_ref, a.tx_hash, a.operator, a.payer_country,
+                ].filter(Boolean).join(" ").toLowerCase();
+                return haystack.includes(q);
               });
               if (filtered.length === 0) {
-                return <Card><Text style={styles.empty}>Aucune activation {actFilter === "pending" ? "en attente" : actFilter === "validated" ? "validée" : "rejetée"}.</Text></Card>;
+                return <Card><Text style={styles.empty}>{q ? `Aucun résultat pour "${actQ}".` : `Aucune activation ${actFilter === "pending" ? "en attente" : actFilter === "validated" ? "validée" : "rejetée"}.`}</Text></Card>;
               }
               return filtered.map((a) => (
               <Card key={a.id} style={{ marginBottom: 8 }}>
@@ -468,6 +514,24 @@ export default function AdminHome() {
 
         {tab === "withdrawals" && (
           <>
+            <View style={styles.searchRow}>
+              <View style={styles.searchBox}>
+                <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+                <TextInput
+                  placeholder="Rechercher: nom, ID, téléphone, référence..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={styles.searchI}
+                  value={wdQ}
+                  onChangeText={setWdQ}
+                  testID="admin-withdrawals-search"
+                />
+                {wdQ ? (
+                  <TouchableOpacity onPress={() => setWdQ("")} testID="admin-withdrawals-search-clear">
+                    <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
             <SubTabs
               tabs={[
                 { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending").length },
@@ -479,13 +543,23 @@ export default function AdminHome() {
               testIdPrefix="withdrawals-filter"
             />
             {(() => {
+              const q = wdQ.trim().toLowerCase();
               const filtered = withdrawals.filter((w) => {
-                if (wdFilter === "pending") return w.status === "pending";
-                if (wdFilter === "validated") return w.status === "validated" || w.status === "completed";
-                return w.status === "rejected";
+                const statusOk = wdFilter === "pending"
+                  ? w.status === "pending"
+                  : wdFilter === "validated"
+                    ? (w.status === "validated" || w.status === "completed")
+                    : w.status === "rejected";
+                if (!statusOk) return false;
+                if (!q) return true;
+                const haystack = [
+                  w.username, w.user_id, w.id, w.full_name,
+                  w.phone, w.wallet_address, w.operator, w.country,
+                ].filter(Boolean).join(" ").toLowerCase();
+                return haystack.includes(q);
               });
               if (filtered.length === 0) {
-                return <Card><Text style={styles.empty}>Aucun retrait {wdFilter === "pending" ? "en attente" : wdFilter === "validated" ? "validé" : "rejeté"}.</Text></Card>;
+                return <Card><Text style={styles.empty}>{q ? `Aucun résultat pour "${wdQ}".` : `Aucun retrait ${wdFilter === "pending" ? "en attente" : wdFilter === "validated" ? "validé" : "rejeté"}.`}</Text></Card>;
               }
               return filtered.map((w) => (
               <Card key={w.id} style={{ marginBottom: 8 }}>
@@ -1151,6 +1225,7 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 20, fontWeight: "800" },
   sub: { color: "#C7D9FF", fontSize: 12, marginTop: 2 },
   logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   tabs: { padding: 12, gap: 6 },
   tab: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border },
   tabOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
