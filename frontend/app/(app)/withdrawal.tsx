@@ -22,8 +22,9 @@ export default function Withdrawal() {
   const [history, setHistory] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean }>({
+  const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean; allowed_days?: number[]; open_time?: string; close_time?: string; timezone?: string }>({
     fee_percent: 0, fee_flat: 0, min_amount: 0, max_amount: null, enabled: true,
+    allowed_days: [0,1,2,3,4,5,6], open_time: "07:00", close_time: "20:00", timezone: "Africa/Lome",
   });
 
   const load = async () => {
@@ -41,6 +42,29 @@ export default function Withdrawal() {
   const amt = parseInt(amount, 10) || 0;
   const feePreview = Math.min(amt, Math.round(amt * (wdSettings.fee_percent / 100) + wdSettings.fee_flat));
   const netPreview = Math.max(0, amt - feePreview);
+
+  // Withdrawal window helpers (Africa/Lome — UTC+0)
+  const DAY_NAMES_FULL = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+  const allowedDays = wdSettings.allowed_days || [0,1,2,3,4,5,6];
+  const openTime = wdSettings.open_time || "07:00";
+  const closeTime = wdSettings.close_time || "20:00";
+  const prettyDays = (() => {
+    if (allowedDays.length === 7) return "Lundi à Dimanche";
+    return [...allowedDays].sort().map((i) => DAY_NAMES_FULL[i]).join(", ");
+  })();
+  const now = new Date();
+  const lomeNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000); // shift to UTC (Lome = UTC+0)
+  const weekday = (lomeNow.getUTCDay() + 6) % 7; // 0=Mon..6=Sun
+  const curMin = lomeNow.getUTCHours() * 60 + lomeNow.getUTCMinutes();
+  const parseHM = (s: string) => {
+    const [h, m] = s.split(":").map((x) => parseInt(x, 10) || 0);
+    return h * 60 + m;
+  };
+  const openMin = parseHM(openTime);
+  const closeMin = parseHM(closeTime);
+  const dayOk = allowedDays.includes(weekday);
+  const timeOk = openMin <= closeMin ? (curMin >= openMin && curMin < closeMin) : (curMin >= openMin || curMin < closeMin);
+  const windowOpen = wdSettings.enabled !== false && dayOk && timeOk;
 
   const submit = async (token: string) => {
     if (!amt || amt <= 0) return Alert.alert("Erreur", "Montant invalide.");
@@ -96,6 +120,31 @@ export default function Withdrawal() {
             </Card>
 
             <Card style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Ionicons name="time-outline" size={18} color={theme.colors.primary} />
+                <Text style={styles.section}>💳 Horaires de retrait</Text>
+              </View>
+              <View style={styles.scheduleRow}>
+                <Ionicons name="calendar-outline" size={14} color={theme.colors.textSecondary} />
+                <Text style={styles.scheduleTxt}>📅 {prettyDays}</Text>
+              </View>
+              <View style={styles.scheduleRow}>
+                <Ionicons name="time-outline" size={14} color={theme.colors.textSecondary} />
+                <Text style={styles.scheduleTxt}>🕒 {openTime} - {closeTime} (Africa/Lomé)</Text>
+              </View>
+              <View style={[styles.statusPill, windowOpen ? styles.statusOpen : styles.statusClosed]} testID="wd-window-status">
+                <Ionicons
+                  name={windowOpen ? "checkmark-circle" : "lock-closed"}
+                  size={14}
+                  color={windowOpen ? "#10B981" : theme.colors.danger}
+                />
+                <Text style={[styles.statusTxt, { color: windowOpen ? "#10B981" : theme.colors.danger }]}>
+                  {windowOpen ? "Retraits ouverts actuellement" : "Retraits actuellement fermés"}
+                </Text>
+              </View>
+            </Card>
+
+            <Card style={{ marginTop: 12 }}>
               <Text style={styles.section}>Montant à retirer (FCFA)</Text>
               <Input icon="cash-outline" placeholder="Ex: 50000" value={amount} onChangeText={setAmount} keyboardType="numeric" testID="wd-amount" />
               <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
@@ -132,10 +181,30 @@ export default function Withdrawal() {
                 </View>
               )}
 
+              {!windowOpen && (
+                <View style={styles.closedBanner} testID="wd-closed-banner">
+                  <Text style={styles.closedTitle}>🚫 Retrait actuellement indisponible.</Text>
+                  <Text style={styles.closedBody}>Les retraits sont autorisés :</Text>
+                  <Text style={styles.closedBody}>📅 {prettyDays}</Text>
+                  <Text style={styles.closedBody}>🕒 De {openTime} à {closeTime}</Text>
+                  <Text style={[styles.closedBody, { marginTop: 6, fontStyle: "italic" }]}>
+                    Veuillez réessayer pendant les heures d'ouverture. Merci de votre compréhension. 🙏
+                  </Text>
+                </View>
+              )}
+
               <Button
-                title="SOUMETTRE LE RETRAIT"
-                icon={<Ionicons name="arrow-up-circle" size={18} color="#fff" />}
-                onPress={() => setShowPwd(true)}
+                title={windowOpen ? "SOUMETTRE LE RETRAIT" : "RETRAITS FERMÉS"}
+                icon={<Ionicons name={windowOpen ? "arrow-up-circle" : "lock-closed"} size={18} color="#fff" />}
+                onPress={() => {
+                  if (!windowOpen) {
+                    if (typeof window !== "undefined") window.alert(`🚫 Retrait actuellement indisponible.\n\nLes retraits sont autorisés :\n📅 ${prettyDays}\n🕒 De ${openTime} à ${closeTime}\n\nMerci de votre compréhension. 🙏`);
+                    else Alert.alert("Retraits fermés", `Disponibles ${prettyDays} de ${openTime} à ${closeTime}.`);
+                    return;
+                  }
+                  setShowPwd(true);
+                }}
+                disabled={!windowOpen}
                 testID="wd-submit"
               />
             </Card>
@@ -203,4 +272,13 @@ const styles = StyleSheet.create({
   feeLbl: { color: theme.colors.textSecondary, fontSize: 12 },
   feeVal: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   feeTotal: { borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 6, paddingTop: 8 },
+  scheduleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 },
+  scheduleTxt: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "600" },
+  statusPill: { marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1 },
+  statusOpen: { backgroundColor: "#ECFDF5", borderColor: "#10B981" },
+  statusClosed: { backgroundColor: "#FEF2F2", borderColor: theme.colors.danger },
+  statusTxt: { fontWeight: "700", fontSize: 12 },
+  closedBanner: { padding: 12, borderRadius: 12, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger, marginBottom: 12 },
+  closedTitle: { color: theme.colors.danger, fontWeight: "800", fontSize: 14, marginBottom: 4 },
+  closedBody: { color: theme.colors.textPrimary, fontSize: 12, marginTop: 2 },
 });

@@ -556,6 +556,9 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     wd_settings = await _get_withdrawal_settings(db)
     if not wd_settings["enabled"]:
         raise HTTPException(403, "Les retraits sont actuellement désactivés.")
+    window_err = _check_withdrawal_window(wd_settings)
+    if window_err:
+        raise HTTPException(403, window_err)
     if wd_settings["min_amount"] and data.amount < wd_settings["min_amount"]:
         raise HTTPException(400, f"Montant minimum de retrait : {wd_settings['min_amount']:.0f} FCFA.")
     if wd_settings["max_amount"] and data.amount > wd_settings["max_amount"]:
@@ -1154,6 +1157,11 @@ class WithdrawalSettings(BaseModel):
     min_amount: float = Field(default=0, ge=0)            # minimum withdrawal amount
     max_amount: Optional[float] = Field(default=None, ge=0)
     enabled: bool = True
+    # Withdrawal time-window (Africa/Lome timezone)
+    allowed_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])  # 0=Mon ... 6=Sun
+    open_time: str = "07:00"   # HH:MM (24h)
+    close_time: str = "20:00"  # HH:MM (24h)
+    timezone: str = "Africa/Lome"
 
 
 class SupportLinks(BaseModel):
@@ -1170,13 +1178,68 @@ class SupportLinks(BaseModel):
 
 
 def _withdrawal_defaults(doc: dict) -> dict:
+    raw_days = doc.get("allowed_days")
+    if isinstance(raw_days, list):
+        allowed_days = [int(d) for d in raw_days if isinstance(d, (int, float, str)) and str(d).isdigit() and 0 <= int(d) <= 6]
+    else:
+        allowed_days = [0, 1, 2, 3, 4, 5, 6]
     return {
         "fee_percent": float(doc.get("fee_percent", 0) or 0),
         "fee_flat": float(doc.get("fee_flat", 0) or 0),
         "min_amount": float(doc.get("min_amount", 0) or 0),
         "max_amount": doc.get("max_amount"),
         "enabled": bool(doc.get("enabled", True)),
+        "allowed_days": allowed_days or [0, 1, 2, 3, 4, 5, 6],
+        "open_time": doc.get("open_time") or "07:00",
+        "close_time": doc.get("close_time") or "20:00",
+        "timezone": doc.get("timezone") or "Africa/Lome",
     }
+
+
+def _parse_hhmm(s: str) -> Optional[tuple[int, int]]:
+    try:
+        hh, mm = s.split(":")
+        h, m = int(hh), int(mm)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h, m
+    except Exception:
+        pass
+    return None
+
+
+def _check_withdrawal_window(settings: dict) -> Optional[str]:
+    """Return None if withdrawals are within the allowed window, else a user-facing FR error message."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(settings.get("timezone") or "Africa/Lome")
+    except Exception:
+        tz = timezone.utc
+    now = datetime.now(tz)
+    weekday = now.weekday()  # 0=Mon..6=Sun
+    allowed_days = settings.get("allowed_days") or [0, 1, 2, 3, 4, 5, 6]
+    open_t = _parse_hhmm(settings.get("open_time") or "07:00") or (7, 0)
+    close_t = _parse_hhmm(settings.get("close_time") or "20:00") or (20, 0)
+    day_labels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    pretty_days = ", ".join(day_labels[d] for d in sorted(set(int(d) for d in allowed_days))) or "Aucun jour"
+    pretty_open = f"{open_t[0]:02d}:{open_t[1]:02d}"
+    pretty_close = f"{close_t[0]:02d}:{close_t[1]:02d}"
+    if weekday not in allowed_days:
+        return (
+            f"🚫 Retrait actuellement indisponible.\n\n"
+            f"Les retraits sont autorisés :\n📅 {pretty_days}\n🕒 De {pretty_open} à {pretty_close}\n\n"
+            f"Veuillez réessayer pendant les heures d'ouverture des retraits.\nMerci de votre compréhension. 🙏"
+        )
+    cur_min = now.hour * 60 + now.minute
+    open_min = open_t[0] * 60 + open_t[1]
+    close_min = close_t[0] * 60 + close_t[1]
+    in_window = (open_min <= cur_min < close_min) if open_min <= close_min else (cur_min >= open_min or cur_min < close_min)
+    if not in_window:
+        return (
+            f"🚫 Retrait actuellement indisponible.\n\n"
+            f"Les retraits sont autorisés :\n📅 {pretty_days}\n🕒 De {pretty_open} à {pretty_close}\n\n"
+            f"Veuillez réessayer pendant les heures d'ouverture des retraits.\nMerci de votre compréhension. 🙏"
+        )
+    return None
 
 
 def _support_defaults(doc: dict) -> dict:
@@ -1801,6 +1864,10 @@ async def admin_update_withdrawal_settings(
         "min_amount": float(data.min_amount),
         "max_amount": float(data.max_amount) if data.max_amount is not None else None,
         "enabled": bool(data.enabled),
+        "allowed_days": sorted({int(d) for d in (data.allowed_days or []) if 0 <= int(d) <= 6}),
+        "open_time": data.open_time or "07:00",
+        "close_time": data.close_time or "20:00",
+        "timezone": data.timezone or "Africa/Lome",
         "updated_at": datetime.now(timezone.utc),
         "updated_by": admin.get("username"),
     }

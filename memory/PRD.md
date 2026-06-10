@@ -19,7 +19,12 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-09)
+## Implementation Status (à jour 2026-06-10)
+### 2026-06-10 — Plage horaire des retraits + Recherche admin
+- ✅ **Plage horaire des retraits** : admin configure jours (Lun-Dim) + heure d'ouverture/fermeture (HH:MM, fuseau Africa/Lomé). Backend bloque automatiquement les requêtes hors plage avec message FR détaillé. WithdrawalSettings étendu (allowed_days, open_time, close_time, timezone). UI utilisateur affiche "💳 Horaires de retrait" sur `/withdrawal` + bouton désactivé + bannière 🚫 si fermé.
+- ✅ **Recherche instantanée Admin** : barres de recherche dans Activations + Retraits (nom, ID, téléphone, référence, hash TXID, adresse wallet). Bouton ✖️ pour effacer.
+- ✅ **Bouton Retour ⬅️** dans l'en-tête Admin (revient au Dashboard si onglet ≠ dashboard, sinon back/services)
+
 ### 2026-06-09 — 3 correctifs validés (testing agent iteration_4: 17/17 PASS)
 - ✅ Auto-upgrade en cascade fixé : boucle `for _ in range(12)` dans `distribute_commission` (matrix.py l.190-198), passe N→N+1→… tant que balance_upgrade suffit et matrice remplie
 - ✅ Hash TXID crypto visible dans Admin Panel : section dédiée + bouton copier (admin/index.tsx l.413-430, testID `admin-copy-tx-{id}`)

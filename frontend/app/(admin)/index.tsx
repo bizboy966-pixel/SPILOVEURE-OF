@@ -79,6 +79,9 @@ export default function AdminHome() {
   const [wdFeeFlat, setWdFeeFlat] = useState("0");
   const [wdMinAmount, setWdMinAmount] = useState("0");
   const [wdMaxAmount, setWdMaxAmount] = useState("");
+  const [wdAllowedDays, setWdAllowedDays] = useState<number[]>([0,1,2,3,4,5,6]);
+  const [wdOpenTime, setWdOpenTime] = useState("07:00");
+  const [wdCloseTime, setWdCloseTime] = useState("20:00");
   const [wdSaving, setWdSaving] = useState(false);
 
   // Support / social links
@@ -1052,6 +1055,62 @@ export default function AdminHome() {
                 testID="wd-max-amount"
               />
 
+              <View style={{ height: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, marginBottom: 12 }} />
+
+              <Text style={[styles.lbl, { fontSize: 14, marginBottom: 8 }]}>📅 Jours autorisés pour les retraits</Text>
+              <View style={styles.daysRow}>
+                {[
+                  { idx: 0, label: "Lun" },
+                  { idx: 1, label: "Mar" },
+                  { idx: 2, label: "Mer" },
+                  { idx: 3, label: "Jeu" },
+                  { idx: 4, label: "Ven" },
+                  { idx: 5, label: "Sam" },
+                  { idx: 6, label: "Dim" },
+                ].map((d) => {
+                  const on = wdAllowedDays.includes(d.idx);
+                  return (
+                    <TouchableOpacity
+                      key={d.idx}
+                      style={[styles.dayChip, on && styles.dayChipOn]}
+                      onPress={() => setWdAllowedDays((prev) => on ? prev.filter((x) => x !== d.idx) : [...prev, d.idx].sort())}
+                      testID={`wd-day-${d.idx}`}
+                    >
+                      <Ionicons
+                        name={on ? "checkmark-circle" : "ellipse-outline"}
+                        size={14}
+                        color={on ? "#fff" : theme.colors.textSecondary}
+                      />
+                      <Text style={[styles.dayChipTxt, on && { color: "#fff" }]}>{d.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    label="🕖 Heure d'ouverture (HH:MM)"
+                    value={wdOpenTime}
+                    onChangeText={setWdOpenTime}
+                    placeholder="07:00"
+                    testID="wd-open-time"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    label="🕗 Heure de fermeture (HH:MM)"
+                    value={wdCloseTime}
+                    onChangeText={setWdCloseTime}
+                    placeholder="20:00"
+                    testID="wd-close-time"
+                  />
+                </View>
+              </View>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 8 }}>
+                Fuseau : Africa/Lomé (UTC+0). En dehors de la plage horaire, les retraits sont bloqués automatiquement.
+              </Text>
+
               <View style={styles.previewBox}>
                 <Text style={styles.previewTitle}>Exemple sur un retrait de 10 000 FCFA</Text>
                 {(() => {
@@ -1083,6 +1142,9 @@ export default function AdminHome() {
                       fee_flat: Number(wdFeeFlat || 0),
                       min_amount: Number(wdMinAmount || 0),
                       max_amount: wdMaxAmount ? Number(wdMaxAmount) : null,
+                      allowed_days: wdAllowedDays,
+                      open_time: wdOpenTime,
+                      close_time: wdCloseTime,
                     });
                     Alert.alert("✅ Sauvegardé", "Les frais de retrait sont appliqués immédiatement.");
                   } catch (e: any) {
@@ -1293,6 +1355,16 @@ const styles = StyleSheet.create({
   },
   countryChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   countryChipTxt: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 13 },
+
+  daysRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  dayChip: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 18,
+    backgroundColor: theme.colors.surfaceSecondary,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  dayChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  dayChipTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
 
   contentMgmtCta: {
     flexDirection: "row", alignItems: "center", gap: 12,
