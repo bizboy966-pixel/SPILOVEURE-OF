@@ -20,6 +20,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-11)
+### 2026-06-11 (suite 3) — Intégration SendavaPay (dépôt automatique)
+- ✅ Nouveau module `/app/backend/sendava_pay.py` : `create_payment`, `verify_payment`, `verify_webhook_signature` (HMAC-SHA256 hex avec support multi-format `sha256=…` et stripe-style `t=…,v1=…`), `parse_webhook_event`
+- ✅ Endpoints backend :
+  - `POST /api/payments/sendava/initiate` (user auth) — bloque RDC Congo, crée le paiement SendavaPay, retourne `payment_url`
+  - `POST /api/sendavapay-webhook` — HMAC sécurisé + persistance `webhook_logs` + activation idempotente
+  - `GET /api/sendavapay-webhook` — probe JSON (preuve backend)
+- ✅ `.env` : `SENDAVAPAY_BASE_URL`, `SENDAVAPAY_API_KEY`, `SENDAVAPAY_WEBHOOK_SECRET` (whsec_…)
+- ✅ Frontend `activation.tsx` : nouvelle carte 1️⃣ "Paiement Automatique (SendavaPay)" avec sélecteur pays (16 pays, RDC Congo exclu) + numéro de téléphone + bouton "PAYER MAINTENANT" → redirige sur l'URL SendavaPay
+- ✅ Tests E2E backend : RDC bloquée 400, payment created (URL réelle SendavaPay), webhook 401 sans signature, 200 + activation niveau avec signature valide, idempotence OK
+
 ### 2026-06-11 (suite 2) — Upload de médias depuis l'appareil admin
 - ✅ **Backend** : `POST /api/admin/uploads` (multipart) + static mount `/api/uploads/<file>` via FastAPI StaticFiles. Allowlist d'extensions (image, vidéo, audio, PDF, APK). Limite 100 MB. Audit dans `media_uploads` MongoDB.
 - ✅ **Composant `MediaUploader`** : bouton "Importer" + aperçu instantané (miniature image ou icône typée) + bouton "Effacer". Web-only via `<input type="file">`.

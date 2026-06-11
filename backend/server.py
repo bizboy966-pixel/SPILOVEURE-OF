@@ -715,6 +715,7 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 # ============ PAYMENTS (Secure Gateway) ============
 
 import secure_pay  # noqa: E402
+import sendava_pay  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 
@@ -2086,6 +2087,477 @@ async def admin_update_community_popup(
         {"_id": "community_popup"}, {"$set": payload}, upsert=True,
     )
     return {"ok": True, "settings": payload}
+
+
+
+@admin_router.get("/settings/manual-payment")
+async def admin_get_manual_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "payment_url": doc.get("payment_url") or "",
+        "title": doc.get("title") or "Paiement manuel",
+        "instructions": doc.get("instructions") or "",
+        "phone_to_pay": doc.get("phone_to_pay") or "",
+        "operator_name": doc.get("operator_name") or "",
+        "allowed_countries": doc.get("allowed_countries") or [],
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/manual-payment")
+async def admin_update_manual_payment(
+    data: ManualPaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": data.enabled,
+        "payment_url": (data.payment_url or "").strip(),
+        "title": (data.title or "Paiement manuel").strip(),
+        "instructions": (data.instructions or "").strip(),
+        "phone_to_pay": (data.phone_to_pay or "").strip(),
+        "operator_name": (data.operator_name or "").strip(),
+        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "manual_payment"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+
+# --- Withdrawal settings ---
+
+@admin_router.get("/webhook-logs")
+async def admin_webhook_logs(request: Request, limit: int = 50):
+    """Return the most recent webhook hits for debugging."""
+    db = request.app.state.db
+    cursor = db.webhook_logs.find({}, {"_id": 0}).sort("received_at", -1).limit(min(max(1, limit), 200))
+    out = []
+    async for d in cursor:
+        if isinstance(d.get("received_at"), datetime):
+            d["received_at"] = d["received_at"].isoformat()
+        out.append(d)
+    return {"items": out, "count": len(out)}
+
+
+@admin_router.get("/settings/secure-payment")
+async def admin_get_secure_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "allowed_countries": doc.get("allowed_countries") or [],
+        "country_keys": doc.get("country_keys") or {},
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/secure-payment")
+async def admin_update_secure_payment(
+    data: SecurePaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
+        "country_keys": {k.strip().upper(): v.strip() for k, v in (data.country_keys or {}).items() if v and v.strip()},
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "secure_pay"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+@admin_router.get("/settings/crypto-payment")
+async def admin_get_crypto_payment(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
+    return {
+        "enabled": bool(doc.get("enabled", False)),
+        "network": doc.get("network") or "USDT BEP20",
+        "wallet_address": doc.get("wallet_address") or "",
+        "amount_usdt": doc.get("amount_usdt") or 5.0,
+        "instructions": doc.get("instructions") or "",
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/crypto-payment")
+async def admin_update_crypto_payment(
+    data: CryptoPaymentSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "network": (data.network or "USDT BEP20").strip(),
+        "wallet_address": (data.wallet_address or "").strip(),
+        "amount_usdt": float(data.amount_usdt or 5.0),
+        "instructions": (data.instructions or "").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "crypto_payment"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+@admin_router.get("/settings/withdrawal")
+async def admin_get_withdrawal_settings(request: Request):
+    db = request.app.state.db
+    settings = await _get_withdrawal_settings(db)
+    raw = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
+    settings["updated_at"] = raw.get("updated_at")
+    settings["updated_by"] = raw.get("updated_by")
+    return settings
+
+
+@admin_router.put("/settings/withdrawal")
+async def admin_update_withdrawal_settings(
+    data: WithdrawalSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "fee_percent": float(data.fee_percent),
+        "fee_flat": float(data.fee_flat),
+        "min_amount": float(data.min_amount),
+        "max_amount": float(data.max_amount) if data.max_amount is not None else None,
+        "enabled": bool(data.enabled),
+        "allowed_days": sorted({int(d) for d in (data.allowed_days or []) if 0 <= int(d) <= 6}),
+        "open_time": data.open_time or "07:00",
+        "close_time": data.close_time or "20:00",
+        "timezone": data.timezone or "Africa/Lome",
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "withdrawal_settings"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+# --- Support / Social links ---
+
+@admin_router.get("/settings/support")
+async def admin_get_support_links(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "support_links"}, {"_id": 0}) or {}
+    out = _support_defaults(doc)
+    out["updated_at"] = doc.get("updated_at")
+    out["updated_by"] = doc.get("updated_by")
+    return out
+
+
+@admin_router.put("/settings/support")
+async def admin_update_support_links(
+    data: SupportLinks, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "telegram_url": (data.telegram_url or "").strip(),
+        "whatsapp_url": (data.whatsapp_url or "").strip(),
+        "facebook_url": (data.facebook_url or "").strip(),
+        "youtube_url": (data.youtube_url or "").strip(),
+        "instagram_url": (data.instagram_url or "").strip(),
+        "twitter_url": (data.twitter_url or "").strip(),
+        "discord_url": (data.discord_url or "").strip(),
+        "email": (data.email or "").strip(),
+        "phone": (data.phone or "").strip(),
+        "website_url": (data.website_url or "").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "support_links"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+# --- Community Popup ---
+
+@admin_router.get("/settings/community-popup")
+async def admin_get_community_popup(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "community_popup"}, {"_id": 0}) or {}
+    out = _community_popup_defaults(doc)
+    out["updated_at"] = doc.get("updated_at")
+    out["updated_by"] = doc.get("updated_by")
+    return out
+
+
+@admin_router.put("/settings/community-popup")
+async def admin_update_community_popup(
+    data: CommunityPopupSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "title": (data.title or "").strip(),
+        "description": (data.description or "").strip(),
+        "image_url": (data.image_url or "").strip(),
+        "telegram_url": (data.telegram_url or "").strip(),
+        "button_label": (data.button_label or "🚀 REJOINDRE MAINTENANT").strip(),
+        "auto_close_seconds": int(data.auto_close_seconds or 0),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "community_popup"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+# ============ SENDAVAPAY (Automatic Deposit) ============
+
+
+class SendavaInitiateIn(BaseModel):
+    level: int = Field(default=1, ge=1, le=12)
+    phone: Optional[str] = ""
+    country_code: str = Field(default="TG")
+
+
+@api.post("/payments/sendava/initiate")
+async def sendava_initiate(data: SendavaInitiateIn, request: Request, user=Depends(get_current_user)):
+    """Initiate a SendavaPay automatic deposit for level activation.
+
+    Excluded countries: RDC Congo (CD).
+    """
+    if not sendava_pay.is_configured():
+        raise HTTPException(503, "Le paiement automatique n'est pas configuré.")
+
+    country = (data.country_code or "TG").upper().strip()
+    if country in sendava_pay.EXCLUDED_COUNTRIES:
+        raise HTTPException(400, "Le paiement automatique n'est pas disponible pour ce pays.")
+
+    db = request.app.state.db
+    level = data.level
+    lv = LEVELS_BY_NUM.get(level)
+    if not lv:
+        raise HTTPException(400, "Niveau invalide")
+    if user.get("max_level", 0) >= level:
+        raise HTTPException(400, "Niveau déjà activé")
+    if level != user.get("max_level", 0) + 1:
+        raise HTTPException(400, "Vous devez activer les niveaux dans l'ordre")
+
+    existing = await db.payments.find_one(
+        {"user_id": user["id"], "level": level, "status": "pending", "provider": "sendavapay"},
+        {"_id": 0},
+    )
+    if existing and existing.get("payment_url"):
+        return {
+            "order_id": existing["reference"],
+            "payment_url": existing["payment_url"],
+            "status": "pending",
+            "amount": existing["amount"],
+            "currency": existing["currency"],
+            "reused": True,
+        }
+
+    reference = _new_order_id()
+    amount = float(lv["price"])
+    currency = "XOF" if country in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
+
+    doc = {
+        "reference": reference,
+        "provider": "sendavapay",
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "level": level,
+        "amount": amount,
+        "currency": currency,
+        "phone": data.phone or "",
+        "country_code": country,
+        "status": "pending",
+        "transaction_id": None,
+        "payment_url": None,
+        "events": [],
+        "last_provider_payload": None,
+        "activation_done": False,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.payments.insert_one(doc)
+
+    site = os.environ.get("SITE_URL", "").rstrip("/")
+    try:
+        resp = await sendava_pay.create_payment(
+            amount=amount,
+            currency=currency,
+            external_reference=reference,
+            description=f"Activation niveau {level} Spiloveure",
+            customer_name=user.get("full_name") or user.get("username") or "",
+            customer_email=user.get("email") or "",
+            customer_phone=data.phone or "",
+            return_url=f"{site}/services" if site else "",
+            cancel_url=f"{site}/activation" if site else "",
+        )
+    except Exception as exc:
+        log.exception("sendavapay create_payment failed: %s", exc)
+        await db.payments.update_one(
+            {"reference": reference},
+            {"$set": {"status": "failed", "last_provider_payload": {"error": str(exc)}}},
+        )
+        raise HTTPException(502, f"Échec d'initialisation du paiement : {exc}")
+
+    payment_url = resp.get("paymentUrl") or resp.get("payment_url") or ""
+    sendava_ref = resp.get("reference")
+    await db.payments.update_one(
+        {"reference": reference},
+        {
+            "$set": {
+                "transaction_id": sendava_ref,
+                "payment_url": payment_url,
+                "last_provider_payload": resp,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    return {
+        "order_id": reference,
+        "payment_url": payment_url,
+        "transaction_id": sendava_ref,
+        "status": "pending",
+        "amount": amount,
+        "currency": currency,
+        "reused": False,
+    }
+
+
+@api.get("/sendavapay-webhook")
+async def sendava_webhook_ping(request: Request):
+    """GET probe — opens this URL in a browser to confirm the route reaches
+    the FastAPI backend (returns JSON, not the Expo HTML shell)."""
+    return {
+        "ok": True,
+        "service": "spiloveure-webhook",
+        "provider": "sendavapay",
+        "method_hint": "POST signed JSON to this URL to deliver an event",
+        "configured": sendava_pay.is_configured(),
+    }
+
+
+@api.post("/sendavapay-webhook")
+async def sendava_webhook(request: Request):
+    """Receive a SendavaPay webhook, verify signature, activate user level.
+    Idempotent: skips if payment is already in a final state."""
+    db = request.app.state.db
+    raw = await request.body()
+
+    signature = sendava_pay.find_signature(dict(request.headers))
+    log_entry: dict = {
+        "received_at": datetime.now(timezone.utc),
+        "path": str(request.url.path),
+        "provider": "sendavapay",
+        "remote_addr": (request.client.host if request.client else None),
+        "headers": {
+            "signature_header_found": signature[:64] if signature else "",
+            "content-type": request.headers.get("content-type"),
+            "user-agent": request.headers.get("user-agent"),
+        },
+        "raw_body_preview": raw[:2000].decode("utf-8", errors="replace") if raw else "",
+        "body_size": len(raw or b""),
+        "status": "received",
+    }
+
+    if sendava_pay.WEBHOOK_SECRET and not sendava_pay.verify_webhook_signature(raw, signature):
+        log_entry["status"] = "rejected_invalid_signature"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
+        log.warning("sendavapay webhook: invalid signature")
+        raise HTTPException(401, "invalid_signature")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        log_entry["status"] = "rejected_invalid_json"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
+        return {"received": True, "error": "invalid_json"}
+
+    parsed = sendava_pay.parse_webhook_event(payload)
+    log_entry["parsed"] = {k: parsed.get(k) for k in ("event", "reference", "external_reference", "status", "amount", "currency")}
+
+    ext_ref = parsed.get("external_reference") or ""
+    if not ext_ref and parsed.get("reference"):
+        doc = await db.payments.find_one({"transaction_id": parsed["reference"]}, {"reference": 1})
+        ext_ref = (doc or {}).get("reference") or ""
+
+    if not ext_ref:
+        log_entry["status"] = "missing_reference"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
+        return {"received": True, "error": "missing_reference"}
+
+    if sendava_pay.is_terminal_success(parsed):
+        new_status_word = "paid"
+    elif sendava_pay.is_terminal_failed(parsed):
+        new_status_word = "failed"
+    else:
+        new_status_word = "pending"
+
+    payment = await db.payments.find_one({"reference": ext_ref}, {"_id": 0})
+    if not payment:
+        log_entry["status"] = "unknown_reference"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
+        return {"received": True, "error": "unknown_reference", "reference": ext_ref}
+
+    if payment.get("status") == new_status_word and new_status_word in ("paid", "failed"):
+        log_entry["status"] = "idempotent_skip"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
+        return {"received": True, "reference": ext_ref, "status": new_status_word}
+
+    await _record_payment_event(
+        db, ref=ext_ref, new_status=new_status_word, payload=parsed, source="sendavapay_webhook",
+    )
+
+    if new_status_word == "paid" and not payment.get("activation_done"):
+        try:
+            await activate_level(db, payment["user_id"], int(payment["level"]), source="sendavapay")
+            await db.payments.update_one(
+                {"reference": ext_ref},
+                {"$set": {"activation_done": True}},
+            )
+            log.info("sendavapay activation_done ref=%s user=%s level=%s",
+                     ext_ref, payment["user_id"], payment["level"])
+        except Exception as exc:
+            log.exception("sendavapay activate_level failed for ref=%s: %s", ext_ref, exc)
+            await db.payments.update_one(
+                {"reference": ext_ref},
+                {"$set": {"activation_error": str(exc)}},
+            )
+
+    log_entry["status"] = "processed"
+    log_entry["reference"] = ext_ref
+    log_entry["new_status"] = new_status_word
+    try:
+        await db.webhook_logs.insert_one(log_entry)
+    except Exception:
+        pass
+    return {"received": True, "reference": ext_ref, "status": new_status_word}
+
+
 
 
 

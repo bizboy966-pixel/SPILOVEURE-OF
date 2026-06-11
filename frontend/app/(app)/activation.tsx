@@ -141,13 +141,22 @@ export default function Activation() {
   // The backend code is preserved — only the user-facing button is hidden.
   const [secureEnabled, setSecureEnabled] = useState(false);
   const secureUIEnabled = false; // ← hard switch to hide WestPay tab
+  const sendavaEnabled = true;   // ← SendavaPay automatic deposit (replaces WestPay)
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
+
+  // Country list excluded by SendavaPay merchant policy
+  const SENDAVA_EXCLUDED = ["CD"];
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
 
   // Active payment method (user choice)
-  const [paymentMode, setPaymentMode] = useState<"auto" | "manual" | "crypto" | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"auto" | "sendava" | "manual" | "crypto" | null>(null);
+
+  // SendavaPay flow
+  const [sendavaCountry, setSendavaCountry] = useState("TG");
+  const [sendavaPhone, setSendavaPhone] = useState("");
+  const [sendavaSubmitting, setSendavaSubmitting] = useState(false);
 
   // Crypto form state
   const [cryptoTxHash, setCryptoTxHash] = useState("");
@@ -377,7 +386,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureUIEnabled && !manualEnabled && !cryptoEnabled && (
+        {!secureUIEnabled && !sendavaEnabled && !manualEnabled && !cryptoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -396,10 +405,31 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || manualEnabled || cryptoEnabled) && (
+        {(secureUIEnabled || sendavaEnabled || manualEnabled || cryptoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
             <View style={styles.modesCol}>
+              {sendavaEnabled && (
+                <TouchableOpacity
+                  style={[styles.modeCard, paymentMode === "sendava" && styles.modeCardOn]}
+                  onPress={() => setPaymentMode("sendava")}
+                  testID="mode-sendava"
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: theme.colors.primary }]}>
+                    <Ionicons name="flash" size={22} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modeTitle}>1️⃣ Paiement Automatique (SendavaPay)</Text>
+                    <Text style={styles.modeBody}>
+                      Mobile Money instantané — Activation immédiate dès paiement confirmé. (Indisponible en RDC Congo)
+                    </Text>
+                  </View>
+                  {paymentMode === "sendava" ? (
+                    <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
+                  ) : null}
+                </TouchableOpacity>
+              )}
+
               {secureUIEnabled && (() => {
                 const userCountry = (user?.country || "TG").toUpperCase();
                 const allowed = secureAllowed.length === 0 || secureAllowed.includes(userCountry);
@@ -461,6 +491,87 @@ export default function Activation() {
                   {paymentMode === "crypto" ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} /> : null}
                 </TouchableOpacity>
               )}
+            </View>
+          </Card>
+        )}
+
+        {paymentMode === "sendava" && sendavaEnabled && (
+          <Card style={{ marginTop: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={styles.mfBadge}>
+                <Ionicons name="flash" size={14} color="#fff" />
+                <Text style={styles.mfBadgeText}>INSTANTANÉ</Text>
+              </View>
+              <Text style={styles.section}>Paiement Automatique SendavaPay</Text>
+            </View>
+            <Text style={styles.helper}>
+              Vous serez redirigé vers SendavaPay pour finaliser le paiement Mobile Money.
+              Le niveau est activé automatiquement dès confirmation.
+            </Text>
+
+            <View style={{ marginTop: 12 }}>
+              <Text style={styles.lblSmall}>Pays</Text>
+              <View style={styles.opGrid}>
+                {Object.keys(OPERATORS_BY_COUNTRY)
+                  .filter((c) => !SENDAVA_EXCLUDED.includes(c))
+                  .map((c) => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[styles.opChip, sendavaCountry === c && styles.opChipOn]}
+                      onPress={() => setSendavaCountry(c)}
+                      testID={`sendava-country-${c}`}
+                    >
+                      <Text style={[styles.opText, sendavaCountry === c && { color: "#fff" }]}>{c}</Text>
+                    </TouchableOpacity>
+                  ))}
+              </View>
+
+              <Text style={styles.lblSmall}>Numéro Mobile Money (facultatif — pré-remplit le formulaire SendavaPay)</Text>
+              <TextInput
+                style={styles.input}
+                value={sendavaPhone}
+                onChangeText={setSendavaPhone}
+                placeholder="Ex: +228 90 00 00 00"
+                placeholderTextColor={theme.colors.textSecondary}
+                keyboardType="phone-pad"
+                testID="sendava-phone"
+              />
+
+              <Text style={[styles.hint, { marginTop: 6 }]}>
+                🇨🇩 La RDC Congo n'est pas prise en charge par SendavaPay. Utilisez le paiement manuel.
+              </Text>
+
+              <View style={{ marginTop: 14 }}>
+                <Button
+                  title={sendavaSubmitting ? "REDIRECTION…" : "PAYER MAINTENANT"}
+                  icon={<Ionicons name="open-outline" size={18} color="#fff" />}
+                  loading={sendavaSubmitting}
+                  disabled={sendavaSubmitting}
+                  onPress={async () => {
+                    setSendavaSubmitting(true);
+                    try {
+                      const targetLevel = (user?.max_level || 0) + 1;
+                      const res = await api.post<{ payment_url: string; order_id: string }>("/payments/sendava/initiate", {
+                        level: targetLevel,
+                        phone: sendavaPhone || "",
+                        country_code: sendavaCountry || "TG",
+                      });
+                      if (res?.payment_url) {
+                        if (typeof window !== "undefined") {
+                          window.location.href = res.payment_url;
+                        }
+                      } else {
+                        Alert.alert("Erreur", "URL de paiement manquante");
+                      }
+                    } catch (e: any) {
+                      Alert.alert("Erreur", e?.detail || "Impossible de démarrer le paiement.");
+                    } finally {
+                      setSendavaSubmitting(false);
+                    }
+                  }}
+                  testID="sendava-submit"
+                />
+              </View>
             </View>
           </Card>
         )}
