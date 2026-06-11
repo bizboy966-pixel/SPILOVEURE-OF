@@ -419,9 +419,9 @@ export default function Activation() {
                     <Ionicons name="flash" size={22} color="#fff" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.modeTitle}>1️⃣ Paiement Automatique (SendavaPay)</Text>
+                    <Text style={styles.modeTitle}>1️⃣ Paiement Automatique</Text>
                     <Text style={styles.modeBody}>
-                      Mobile Money instantané — Activation immédiate dès paiement confirmé. (Indisponible en RDC Congo)
+                      Mobile Money instantané — Activation immédiate dès paiement confirmé.
                     </Text>
                   </View>
                   {paymentMode === "sendava" ? (
@@ -502,10 +502,10 @@ export default function Activation() {
                 <Ionicons name="flash" size={14} color="#fff" />
                 <Text style={styles.mfBadgeText}>INSTANTANÉ</Text>
               </View>
-              <Text style={styles.section}>Paiement Automatique SendavaPay</Text>
+              <Text style={styles.section}>Paiement Automatique</Text>
             </View>
             <Text style={styles.helper}>
-              Vous serez redirigé vers SendavaPay pour finaliser le paiement Mobile Money.
+              Vous serez redirigé vers la passerelle sécurisée pour finaliser le paiement Mobile Money.
               Le niveau est activé automatiquement dès confirmation.
             </Text>
 
@@ -556,12 +556,27 @@ export default function Activation() {
                         phone: sendavaPhone || "",
                         country_code: sendavaCountry || "TG",
                       });
-                      if (res?.payment_url) {
-                        if (typeof window !== "undefined") {
-                          window.location.href = res.payment_url;
-                        }
+                      const url = (res?.payment_url || "").trim();
+                      if (!url || !/^https?:\/\//i.test(url)) {
+                        Alert.alert(
+                          "Erreur",
+                          "URL de paiement invalide reçue du serveur. Veuillez réessayer ou utiliser le paiement manuel.",
+                        );
+                        return;
+                      }
+                      if (Platform.OS === "web" && typeof window !== "undefined") {
+                        // Use _blank to keep the user on Spiloveure if they cancel
+                        window.open(url, "_blank");
+                        Alert.alert(
+                          "Paiement en cours",
+                          "Un nouvel onglet s'est ouvert pour finaliser votre paiement. Une fois payé, votre niveau sera activé automatiquement.",
+                        );
                       } else {
-                        Alert.alert("Erreur", "URL de paiement manquante");
+                        try {
+                          await Linking.openURL(url);
+                        } catch {
+                          Alert.alert("Erreur", "Impossible d'ouvrir la page de paiement.");
+                        }
                       }
                     } catch (e: any) {
                       Alert.alert("Erreur", e?.detail || "Impossible de démarrer le paiement.");
