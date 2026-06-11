@@ -86,7 +86,37 @@ export const api = {
   patch: <T = any>(p: string, body?: any, opts: any = {}) =>
     request<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined, ...opts }),
   delete: <T = any>(p: string, opts: any = {}) => request<T>(p, { method: "DELETE", ...opts }),
+  /** Upload a single file via multipart/form-data. */
+  upload: async <T = any>(p: string, file: File | Blob, fieldName: string = "file"): Promise<T> => {
+    const fd = new FormData();
+    // @ts-ignore — File on web also has .name
+    fd.append(fieldName, file, (file as any).name || "upload");
+    let token = _authToken;
+    if (!token) {
+      const stored = await storage.secureGet("auth_token", "");
+      if (stored) { token = stored as string; _authToken = token; }
+    }
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${BASE}/api${p}`, { method: "POST", headers, body: fd as any });
+    const text = await res.text();
+    let data: any = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const err: ApiError = { detail: (data && (data.detail || data.msg)) || `Upload failed (${res.status})`, status: res.status };
+      throw err;
+    }
+    return data as T;
+  },
 };
+
+/** Resolve a server URL: relative /api/uploads/... → absolute; absolute → unchanged. */
+export function resolveMediaUrl(url: string | undefined | null): string {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/api/")) return `${BASE}${url}`;
+  return url;
+}
 
 function translateField(loc: string): string {
   const map: Record<string, string> = {

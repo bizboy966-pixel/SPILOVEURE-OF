@@ -9,12 +9,26 @@ from pathlib import Path
 from typing import Optional, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, status, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+
+# Upload directory — created on first import
+UPLOADS_DIR = ROOT_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Whitelisted file extensions per type (lowercase)
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}
+ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
+ALLOWED_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".aac"}
+ALLOWED_DOC_EXT = {".pdf"}
+ALLOWED_APP_EXT = {".apk"}
+ALLOWED_UPLOAD_EXT = ALLOWED_IMAGE_EXT | ALLOWED_VIDEO_EXT | ALLOWED_AUDIO_EXT | ALLOWED_DOC_EXT | ALLOWED_APP_EXT
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 from auth import (  # noqa: E402
     hash_password, verify_password, create_access_token, create_pwd_confirm_token,
@@ -104,6 +118,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="SPILIVERE API")
+
+# Serve uploaded admin media at /api/uploads/<file>
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,

@@ -14,8 +14,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { api } from "@/src/api";
+import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
+import { MediaUploader } from "@/src/components/MediaUploader";
 
 type SectionKey = "formations" | "ebooks" | "premium" | "trading";
 
@@ -219,7 +220,7 @@ function FormationsCrud() {
           <View key={it.id} style={styles.itemCard}>
             <View style={{ flexDirection: "row", gap: 10 }}>
               {it.image_url ? (
-                <Image source={{ uri: it.image_url }} style={styles.thumb} />
+                <Image source={{ uri: resolveMediaUrl(it.image_url) }} style={styles.thumb} />
               ) : (
                 <View style={[styles.thumb, styles.thumbPh]}><Ionicons name="school" size={24} color={theme.colors.primary} /></View>
               )}
@@ -262,9 +263,13 @@ function FormationsCrud() {
           <Field label="Description" value={editing.description} onChangeText={(v) => setEditing({ ...editing, description: v })} multiline testID="formation-desc" />
           <Field label="Catégorie" value={editing.category} onChangeText={(v) => setEditing({ ...editing, category: v })} placeholder="Ex: Trading, Marketing..." />
           <Field label="Image de couverture (URL)" value={editing.image_url} onChangeText={(v) => setEditing({ ...editing, image_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="image" url={editing.image_url} onChange={(u) => setEditing({ ...editing, image_url: u })} testID="formation-image-upload" />
           <Field label="Vidéo (URL YouTube ou autre)" value={editing.video_url} onChangeText={(v) => setEditing({ ...editing, video_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="video" url={editing.video_url} onChange={(u) => setEditing({ ...editing, video_url: u })} testID="formation-video-upload" />
           <Field label="PDF (URL)" value={editing.pdf_url} onChangeText={(v) => setEditing({ ...editing, pdf_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="pdf" url={editing.pdf_url} onChange={(u) => setEditing({ ...editing, pdf_url: u })} testID="formation-pdf-upload" />
           <Field label="Audio (URL)" value={editing.audio_url} onChangeText={(v) => setEditing({ ...editing, audio_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="audio" url={editing.audio_url} onChange={(u) => setEditing({ ...editing, audio_url: u })} testID="formation-audio-upload" />
           <EnabledRow value={editing.enabled} onChange={(v) => setEditing({ ...editing, enabled: v })} />
           <View style={styles.formActions}>
             <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={() => { setOpen(false); setEditing(null); }}>
@@ -365,7 +370,9 @@ function EbooksCrud() {
           <Field label="Titre" value={editing.title} onChangeText={(v) => setEditing({ ...editing, title: v })} testID="ebook-title" />
           <Field label="Description" value={editing.description} onChangeText={(v) => setEditing({ ...editing, description: v })} multiline />
           <Field label="Image (URL)" value={editing.image_url} onChangeText={(v) => setEditing({ ...editing, image_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="image" url={editing.image_url} onChange={(u) => setEditing({ ...editing, image_url: u })} testID="ebook-image-upload" />
           <Field label="Fichier PDF (URL)" value={editing.pdf_url} onChangeText={(v) => setEditing({ ...editing, pdf_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="pdf" url={editing.pdf_url} onChange={(u) => setEditing({ ...editing, pdf_url: u })} testID="ebook-pdf-upload" />
           <EnabledRow value={editing.enabled} onChange={(v) => setEditing({ ...editing, enabled: v })} />
           <View style={styles.formActions}>
             <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={() => { setOpen(false); setEditing(null); }}><Text style={styles.btnGhostTxt}>Annuler</Text></TouchableOpacity>
@@ -434,7 +441,7 @@ function PremiumAppsCrud() {
         : items.map((it) => (
           <View key={it.id} style={styles.itemCard}>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              {it.image_url ? <Image source={{ uri: it.image_url }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbPh]}><Ionicons name="diamond" size={24} color={theme.colors.primary} /></View>}
+              {it.image_url ? <Image source={{ uri: resolveMediaUrl(it.image_url) }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbPh]}><Ionicons name="diamond" size={24} color={theme.colors.primary} /></View>}
               <View style={{ flex: 1 }}>
                 <View style={styles.titleRow}>
                   <Text style={styles.itemTitle}>{it.name}</Text>
@@ -469,7 +476,9 @@ function PremiumAppsCrud() {
           <Field label="Description" value={editing.description} onChangeText={(v) => setEditing({ ...editing, description: v })} multiline />
           <Field label="Version" value={editing.version} onChangeText={(v) => setEditing({ ...editing, version: v })} placeholder="Ex: 1.0.0" />
           <Field label="Image (URL)" value={editing.image_url} onChangeText={(v) => setEditing({ ...editing, image_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="image" url={editing.image_url} onChange={(u) => setEditing({ ...editing, image_url: u })} testID="app-image-upload" />
           <Field label="Fichier APK (URL)" value={editing.apk_url} onChangeText={(v) => setEditing({ ...editing, apk_url: v })} placeholder="https://..." keyboardType="url" />
+          <MediaUploader kind="apk" url={editing.apk_url} onChange={(u) => setEditing({ ...editing, apk_url: u })} testID="app-apk-upload" />
           <Field label="Lien de téléchargement alternatif" value={editing.download_url} onChangeText={(v) => setEditing({ ...editing, download_url: v })} placeholder="https://..." keyboardType="url" />
           <EnabledRow value={editing.enabled} onChange={(v) => setEditing({ ...editing, enabled: v })} />
           <View style={styles.formActions}>

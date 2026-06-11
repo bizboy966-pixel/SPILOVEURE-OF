@@ -8,18 +8,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { api } from "@/src/api";
+import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
 import { EmptySoon } from "@/src/components/EmptySoon";
 
 type Ebook = { id: string; title: string; description?: string; image_url?: string; pdf_url?: string };
 
 async function openUrl(url: string) {
-  if (!url) return;
+  const u = resolveMediaUrl(url);
+  if (!u) return;
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.open(url, "_blank");
+    window.open(u, "_blank");
   } else {
-    try { await Linking.openURL(url); } catch {}
+    try { await Linking.openURL(u); } catch {}
   }
 }
 
@@ -65,7 +66,7 @@ export default function EbooksScreen() {
             <View style={styles.card} testID={`ebook-card-${item.id}`}>
               <View style={{ flexDirection: "row", gap: 12 }}>
                 {item.image_url ? (
-                  <Image source={{ uri: item.image_url }} style={styles.cover} resizeMode="cover" />
+                  <Image source={{ uri: resolveMediaUrl(item.image_url) }} style={styles.cover} resizeMode="cover" />
                 ) : (
                   <View style={[styles.cover, styles.coverPlaceholder]}>
                     <Ionicons name="book" size={32} color={theme.colors.primary} />

@@ -20,6 +20,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-11)
+### 2026-06-11 (suite 2) — Upload de médias depuis l'appareil admin
+- ✅ **Backend** : `POST /api/admin/uploads` (multipart) + static mount `/api/uploads/<file>` via FastAPI StaticFiles. Allowlist d'extensions (image, vidéo, audio, PDF, APK). Limite 100 MB. Audit dans `media_uploads` MongoDB.
+- ✅ **Composant `MediaUploader`** : bouton "Importer" + aperçu instantané (miniature image ou icône typée) + bouton "Effacer". Web-only via `<input type="file">`.
+- ✅ **Admin Panel /content** : Formations (image, vidéo, PDF, audio), E-Books (image, PDF), Apps Premium (logo, APK) — chaque champ URL conserve aussi sa saisie manuelle (lien externe).
+- ✅ **Helper `resolveMediaUrl`** : convertit les URL relatives `/api/uploads/...` en absolues avec le `EXPO_PUBLIC_BACKEND_URL`. Appliqué côté admin (thumbs) et user (Formations, E-Books, Premium Apps).
+- ✅ Test E2E : upload PNG 64×64 → URL retournée + image affichée + URL persistée + servable via CDN backend.
+
 ### 2026-06-11 (suite) — Webhook WestPay sécurisé + auditable
 - ✅ **Nouvel alias `/api/westpay-webhook`** (POST + GET) en plus de `/api/webhook` et `/api/payments/secure/webhook`. GET retourne JSON pour prouver le routage backend.
 - ✅ **Log MongoDB `webhook_logs`** : chaque hit (body, headers, IP, signature, statut traitement) persisté pour audit.

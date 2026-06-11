@@ -1,22 +1,114 @@
 """Digital content modules: formations, e-books, premium apps, trading link.
 
 All admin endpoints require admin role. Public endpoints filter to enabled
-items only. Storage is URL-based (external CDN / Google Drive / etc.) — no
-file upload to the server itself.
+items only. Storage is URL-based (external CDN / Google Drive / etc.) — admins
+can also upload files directly via POST /api/admin/uploads which returns a
+relative URL like /api/uploads/<uuid>.<ext> served by FastAPI StaticFiles.
 """
 from __future__ import annotations
 import uuid
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
 
 
+ROOT_DIR = Path(__file__).parent
+UPLOADS_DIR = ROOT_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}
+ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
+ALLOWED_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".aac"}
+ALLOWED_DOC_EXT = {".pdf"}
+ALLOWED_APP_EXT = {".apk"}
+ALLOWED_UPLOAD_EXT = (
+    ALLOWED_IMAGE_EXT | ALLOWED_VIDEO_EXT | ALLOWED_AUDIO_EXT
+    | ALLOWED_DOC_EXT | ALLOWED_APP_EXT
+)
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
 public_router = APIRouter(prefix="/api", tags=["digital_content"])
 admin_router = APIRouter(prefix="/api/admin", tags=["digital_content_admin"])
+
+
+@admin_router.post("/uploads")
+async def admin_upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    admin=Depends(require_admin),
+):
+    """Receive a single file from the admin and persist it on disk.
+
+    Returns `{"url": "/api/uploads/<uuid>.<ext>", "filename", "size", "content_type"}`.
+    The frontend then stores this URL inside the relevant content field
+    (image_url, video_url, pdf_url, audio_url, apk_url, …).
+    """
+    raw_name = file.filename or "upload"
+    _, ext = os.path.splitext(raw_name.lower())
+    if not ext or ext not in ALLOWED_UPLOAD_EXT:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Extension non autorisée. Formats acceptés : "
+                + ", ".join(sorted(ALLOWED_UPLOAD_EXT))
+            ),
+        )
+
+    # Read & enforce size limit by streaming chunks
+    out_name = f"{uuid.uuid4().hex}{ext}"
+    out_path = UPLOADS_DIR / out_name
+    total = 0
+    try:
+        with out_path.open("wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 MB chunks
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    f.close()
+                    out_path.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        out_path.unlink(missing_ok=True)
+        raise HTTPException(500, f"Échec d'upload: {e}")
+
+    # Persist a thin row in MongoDB so admins can audit uploads
+    db = request.app.state.db
+    record = {
+        "id": str(uuid.uuid4()),
+        "filename": raw_name,
+        "stored_as": out_name,
+        "url": f"/api/uploads/{out_name}",
+        "size": total,
+        "content_type": file.content_type or "",
+        "uploaded_by": admin.get("username"),
+        "uploaded_at": datetime.now(timezone.utc),
+    }
+    try:
+        await db.media_uploads.insert_one(dict(record))
+    except Exception:
+        pass
+
+    return {
+        "url": record["url"],
+        "filename": raw_name,
+        "size": total,
+        "content_type": record["content_type"],
+    }
 
 
 # ---------------------------------------------------------------------------

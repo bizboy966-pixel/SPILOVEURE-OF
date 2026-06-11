@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { api } from "@/src/api";
+import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
 import { EmptySoon } from "@/src/components/EmptySoon";
 
@@ -32,12 +32,13 @@ type Formation = {
 };
 
 async function openUrl(url: string) {
-  if (!url) return;
+  const u = resolveMediaUrl(url);
+  if (!u) return;
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.open(url, "_blank");
+    window.open(u, "_blank");
   } else {
     try {
-      await Linking.openURL(url);
+      await Linking.openURL(u);
     } catch {}
   }
 }
@@ -97,7 +98,7 @@ export default function FormationsScreen() {
             <View style={styles.card} testID={`formation-card-${item.id}`}>
               <View style={styles.cardTop}>
                 {item.image_url ? (
-                  <Image source={{ uri: item.image_url }} style={styles.cover} resizeMode="cover" />
+                  <Image source={{ uri: resolveMediaUrl(item.image_url) }} style={styles.cover} resizeMode="cover" />
                 ) : (
                   <View style={[styles.cover, styles.coverPlaceholder]}>
                     <Ionicons name="school" size={28} color={theme.colors.primary} />

@@ -8,7 +8,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { api } from "@/src/api";
+import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
 import { EmptySoon } from "@/src/components/EmptySoon";
 
@@ -18,11 +18,12 @@ type App = {
 };
 
 async function openUrl(url: string) {
-  if (!url) return;
+  const u = resolveMediaUrl(url);
+  if (!u) return;
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.open(url, "_blank");
+    window.open(u, "_blank");
   } else {
-    try { await Linking.openURL(url); } catch {}
+    try { await Linking.openURL(u); } catch {}
   }
 }
 
@@ -70,7 +71,7 @@ export default function PremiumAppsScreen() {
               <View style={styles.card} testID={`app-card-${item.id}`}>
                 <View style={{ flexDirection: "row", gap: 12 }}>
                   {item.image_url ? (
-                    <Image source={{ uri: item.image_url }} style={styles.icon} resizeMode="cover" />
+                    <Image source={{ uri: resolveMediaUrl(item.image_url) }} style={styles.icon} resizeMode="cover" />
                   ) : (
                     <View style={[styles.icon, styles.iconPlaceholder]}>
                       <Ionicons name="diamond" size={28} color={theme.colors.primary} />
