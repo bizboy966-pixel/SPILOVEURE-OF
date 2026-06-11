@@ -906,27 +906,87 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
     return new_status
 
 
+@api.get("/webhook")
+@api.get("/payments/secure/webhook")
+@api.get("/westpay-webhook")
+async def secure_webhook_ping(request: Request):
+    """Lightweight GET probe so admins can verify the route is hitting the
+    backend (FastAPI) and not the frontend (Expo static HTML).
+
+    Open in a browser:
+      https://spiloveure.com/api/westpay-webhook
+    A JSON response means the route is correctly wired.
+    """
+    return {
+        "ok": True,
+        "service": "spiloveure-webhook",
+        "provider": "westpay",
+        "method_hint": "Use POST with WestPay JSON payload + HMAC header to deliver an event",
+        "configured_secret": bool(secure_pay.WEBHOOK_SECRET),
+    }
+
+
 @api.post("/webhook")
 @api.post("/payments/secure/webhook")
+@api.post("/westpay-webhook")
 async def secure_webhook(request: Request):
-    """Receive WestPay (RobotPay) signed webhook. Verifies HMAC-SHA256."""
+    """Receive WestPay (RobotPay) signed webhook. Verifies HMAC-SHA256.
+
+    Aliases (all wired to this same handler):
+      - POST /api/webhook
+      - POST /api/payments/secure/webhook
+      - POST /api/westpay-webhook   ← recommended in WestPay dashboard
+
+    Every incoming request is persisted to `webhook_logs` so admins can audit.
+    Idempotency is enforced inside `_process_payment_event` (no duplicate
+    activation if WestPay re-sends the same `payment.confirmed`).
+    """
     db = request.app.state.db
     raw = await request.body()
     sig = request.headers.get("X-RobotPay-Signature") or request.headers.get("x-robotpay-signature") or ""
     event_header = request.headers.get("X-RobotPay-Event") or request.headers.get("x-robotpay-event") or ""
 
-    # Verify HMAC signature (only enforced when WEBHOOK_SECRET is configured)
+    # ---- 1. Always persist the incoming hit for traceability -------------
+    log_entry = {
+        "received_at": datetime.now(timezone.utc),
+        "path": str(request.url.path),
+        "remote_addr": (request.client.host if request.client else None),
+        "headers": {
+            "x-robotpay-signature": sig,
+            "x-robotpay-event": event_header,
+            "content-type": request.headers.get("content-type"),
+            "user-agent": request.headers.get("user-agent"),
+        },
+        "raw_body_preview": raw[:2000].decode("utf-8", errors="replace") if raw else "",
+        "body_size": len(raw or b""),
+        "status": "received",
+    }
+
+    # ---- 2. Verify HMAC signature (only enforced when WEBHOOK_SECRET set)
     if secure_pay.WEBHOOK_SECRET and not secure_pay.verify_webhook_signature(raw, sig):
+        log_entry["status"] = "rejected_invalid_signature"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
         log.warning("secure webhook: invalid HMAC signature")
         raise HTTPException(status_code=401, detail="invalid_signature")
 
+    # ---- 3. Parse JSON body -----------------------------------------------
     try:
         payload = await request.json()
     except Exception:
+        log_entry["status"] = "rejected_invalid_json"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
         log.exception("secure webhook invalid JSON body")
         return {"received": True, "error": "invalid_json"}
 
     parsed = secure_pay.parse_webhook_event(payload)
+    log_entry["parsed"] = {k: parsed.get(k) for k in ("event", "reference", "transaction_id", "amount", "currency", "provider")}
+
     ref = parsed.get("reference")
     if not ref:
         tx_id = parsed.get("transaction_id")
@@ -934,6 +994,11 @@ async def secure_webhook(request: Request):
             doc = await db.payments.find_one({"transaction_id": tx_id}, {"reference": 1})
             ref = doc.get("reference") if doc else None
     if not ref:
+        log_entry["status"] = "missing_reference"
+        try:
+            await db.webhook_logs.insert_one(log_entry)
+        except Exception:
+            pass
         return {"received": True, "error": "missing_reference"}
 
     event = parsed.get("event") or event_header
@@ -942,7 +1007,14 @@ async def secure_webhook(request: Request):
     new_status = await _process_payment_event(
         db, ref=ref, raw_status=raw_status, event=event, payload=parsed, source="webhook",
     )
-    return {"received": True, "status": new_status}
+    log_entry["reference"] = ref
+    log_entry["new_status"] = new_status
+    log_entry["status"] = "processed"
+    try:
+        await db.webhook_logs.insert_one(log_entry)
+    except Exception:
+        pass
+    return {"received": True, "reference": ref, "status": new_status}
 
 
 @api.post("/payments/secure/verify/{ref}")
@@ -1814,6 +1886,19 @@ async def admin_update_manual_payment(
 
 
 # --- Withdrawal settings ---
+
+@admin_router.get("/webhook-logs")
+async def admin_webhook_logs(request: Request, limit: int = 50):
+    """Return the most recent webhook hits for debugging."""
+    db = request.app.state.db
+    cursor = db.webhook_logs.find({}, {"_id": 0}).sort("received_at", -1).limit(min(max(1, limit), 200))
+    out = []
+    async for d in cursor:
+        if isinstance(d.get("received_at"), datetime):
+            d["received_at"] = d["received_at"].isoformat()
+        out.append(d)
+    return {"items": out, "count": len(out)}
+
 
 @admin_router.get("/settings/secure-payment")
 async def admin_get_secure_payment(request: Request):

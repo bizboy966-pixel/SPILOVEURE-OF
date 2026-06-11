@@ -20,6 +20,15 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-11)
+### 2026-06-11 (suite) — Webhook WestPay sécurisé + auditable
+- ✅ **Nouvel alias `/api/westpay-webhook`** (POST + GET) en plus de `/api/webhook` et `/api/payments/secure/webhook`. GET retourne JSON pour prouver le routage backend.
+- ✅ **Log MongoDB `webhook_logs`** : chaque hit (body, headers, IP, signature, statut traitement) persisté pour audit.
+- ✅ **Endpoint admin `/api/admin/webhook-logs`** pour consulter les 50 derniers webhooks.
+- ✅ **Sécurité HMAC-SHA256** déjà en place via `WESTPAY_WEBHOOK_SECRET`. Rejet 401 si signature invalide.
+- ✅ **Idempotence** : `_process_payment_event` ignore les ré-envois (statut final paid/failed inchangé).
+- ✅ **Activation auto** : à `payment.confirmed`, `activate_level()` est appelé une seule fois (`activation_done=true`).
+- ⚠️ **Le webhook actuel reçu par l'utilisateur retourne HTML** → URL configurée chez WestPay est INCORRECTE. À corriger côté dashboard WestPay.
+
 ### 2026-06-11 — Popup Communauté + FAB Service Client
 - ✅ **Popup Communauté Officielle** : modal centré qui s'affiche automatiquement après login utilisateur. Logo, bannière image, titre, description, bouton CTA "🚀 REJOINDRE MAINTENANT" → ouvre Telegram. Countdown auto-close + bouton ✕. Vu 1×/session (sessionStorage).
 - ✅ **FAB Service Client** : bulle ronde bleue (gradient + icône casque) bottom-right, visible sur toutes les pages `(app)`. Click ouvre menu vertical avec WhatsApp / Telegram / Email (n'affiche que les canaux configurés). Animation slide + fade.
