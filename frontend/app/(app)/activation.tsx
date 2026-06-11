@@ -137,7 +137,10 @@ export default function Activation() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
 
   // Global on/off switches for payment methods (admin-controlled).
+  // ⚠️ WestPay (automatic) is temporarily disabled at the UI level.
+  // The backend code is preserved — only the user-facing button is hidden.
   const [secureEnabled, setSecureEnabled] = useState(false);
+  const secureUIEnabled = false; // ← hard switch to hide WestPay tab
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
@@ -374,7 +377,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureEnabled && !manualEnabled && !cryptoEnabled && (
+        {!secureUIEnabled && !manualEnabled && !cryptoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -393,11 +396,11 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureEnabled || manualEnabled || cryptoEnabled) && (
+        {(secureUIEnabled || manualEnabled || cryptoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
             <View style={styles.modesCol}>
-              {secureEnabled && (() => {
+              {secureUIEnabled && (() => {
                 const userCountry = (user?.country || "TG").toUpperCase();
                 const allowed = secureAllowed.length === 0 || secureAllowed.includes(userCountry);
                 return (
@@ -462,7 +465,7 @@ export default function Activation() {
           </Card>
         )}
 
-        {paymentMode === "auto" && secureEnabled && (
+        {paymentMode === "auto" && secureUIEnabled && (
         <Card style={{ marginTop: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View style={styles.mfBadge}>
