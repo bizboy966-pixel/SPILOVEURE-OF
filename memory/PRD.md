@@ -19,7 +19,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-10)
+## Implementation Status (à jour 2026-06-11)
+### 2026-06-11 — Popup Communauté + FAB Service Client
+- ✅ **Popup Communauté Officielle** : modal centré qui s'affiche automatiquement après login utilisateur. Logo, bannière image, titre, description, bouton CTA "🚀 REJOINDRE MAINTENANT" → ouvre Telegram. Countdown auto-close + bouton ✕. Vu 1×/session (sessionStorage).
+- ✅ **FAB Service Client** : bulle ronde bleue (gradient + icône casque) bottom-right, visible sur toutes les pages `(app)`. Click ouvre menu vertical avec WhatsApp / Telegram / Email (n'affiche que les canaux configurés). Animation slide + fade.
+- ✅ **Admin Panel** : section "📢 Popup Communauté Officielle" (toggle, titre, description, image, telegram, libellé bouton, durée). Réutilise les champs support_links existants pour le FAB.
+- ✅ Backend endpoints `/api/settings/community-popup` (public GET) + `/api/admin/settings/community-popup` (GET/PUT)
+
 ### 2026-06-10 — Plage horaire des retraits + Recherche admin
 - ✅ **Plage horaire des retraits** : admin configure jours (Lun-Dim) + heure d'ouverture/fermeture (HH:MM, fuseau Africa/Lomé). Backend bloque automatiquement les requêtes hors plage avec message FR détaillé. WithdrawalSettings étendu (allowed_days, open_time, close_time, timezone). UI utilisateur affiche "💳 Horaires de retrait" sur `/withdrawal` + bouton désactivé + bannière 🚫 si fermé.
 - ✅ **Recherche instantanée Admin** : barres de recherche dans Activations + Retraits (nom, ID, téléphone, référence, hash TXID, adresse wallet). Bouton ✖️ pour effacer.

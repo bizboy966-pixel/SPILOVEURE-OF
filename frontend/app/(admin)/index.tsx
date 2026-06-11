@@ -97,6 +97,16 @@ export default function AdminHome() {
   const [supWebsite, setSupWebsite] = useState("");
   const [supSaving, setSupSaving] = useState(false);
 
+  // Community popup
+  const [cpEnabled, setCpEnabled] = useState(true);
+  const [cpTitle, setCpTitle] = useState("📢 COMMUNAUTÉ OFFICIELLE SPILOVEURE");
+  const [cpDesc, setCpDesc] = useState("");
+  const [cpImage, setCpImage] = useState("");
+  const [cpTelegram, setCpTelegram] = useState("");
+  const [cpButton, setCpButton] = useState("🚀 REJOINDRE MAINTENANT");
+  const [cpSeconds, setCpSeconds] = useState("5");
+  const [cpSaving, setCpSaving] = useState(false);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") setStats(await api.get("/admin/stats"));
@@ -147,6 +157,15 @@ export default function AdminHome() {
         setSupEmail(sup.email || "");
         setSupPhone(sup.phone || "");
         setSupWebsite(sup.website_url || "");
+
+        const cpop = await api.get<any>("/admin/settings/community-popup");
+        setCpEnabled(cpop.enabled !== false);
+        setCpTitle(cpop.title || "📢 COMMUNAUTÉ OFFICIELLE SPILOVEURE");
+        setCpDesc(cpop.description || "");
+        setCpImage(cpop.image_url || "");
+        setCpTelegram(cpop.telegram_url || "");
+        setCpButton(cpop.button_label || "🚀 REJOINDRE MAINTENANT");
+        setCpSeconds(String(cpop.auto_close_seconds ?? 5));
       }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
@@ -1207,6 +1226,98 @@ export default function AdminHome() {
                   }
                 }}
                 testID="sup-save"
+              />
+            </Card>
+
+            <Card style={{ marginTop: 12 }} testID="admin-community-popup-card">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Ionicons name="megaphone" size={18} color={theme.colors.primary} />
+                <Text style={styles.h3}>📢 Popup Communauté Officielle</Text>
+              </View>
+              <Text style={styles.help}>
+                Affiché automatiquement au centre de l'écran juste après la connexion utilisateur.
+                Se ferme tout seul après {cpSeconds || 0}s ou via le bouton ✕.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.toggleRow, cpEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setCpEnabled(!cpEnabled)}
+                testID="cp-enabled"
+              >
+                <Ionicons name={cpEnabled ? "checkmark-circle" : "close-circle"} size={18} color="#fff" />
+                <Text style={styles.toggleTxt}>
+                  {cpEnabled ? "Activé — popup visible après connexion" : "Désactivé — aucun popup"}
+                </Text>
+              </TouchableOpacity>
+
+              <Input label="Titre" value={cpTitle} onChangeText={setCpTitle} placeholder="📢 COMMUNAUTÉ OFFICIELLE SPILOVEURE" testID="cp-title" />
+              <Input
+                label="Description"
+                value={cpDesc}
+                onChangeText={setCpDesc}
+                placeholder="Texte affiché sous le titre…"
+                multiline
+                numberOfLines={3}
+                style={{ minHeight: 70, textAlignVertical: "top" }}
+                testID="cp-desc"
+              />
+              <Input
+                label="Image / Bannière (URL)"
+                value={cpImage}
+                onChangeText={setCpImage}
+                placeholder="https://… (optionnel)"
+                autoCapitalize="none"
+                testID="cp-image"
+              />
+              <Input
+                label="Lien Telegram"
+                value={cpTelegram}
+                onChangeText={setCpTelegram}
+                placeholder="https://t.me/spiloveure_officiel"
+                autoCapitalize="none"
+                testID="cp-telegram"
+              />
+              <Input
+                label="Libellé du bouton"
+                value={cpButton}
+                onChangeText={setCpButton}
+                placeholder="🚀 REJOINDRE MAINTENANT"
+                testID="cp-button"
+              />
+              <Input
+                label="Durée d'affichage (secondes) — 0 = pas de fermeture auto"
+                value={cpSeconds}
+                onChangeText={setCpSeconds}
+                placeholder="5"
+                keyboardType="numeric"
+                testID="cp-seconds"
+              />
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LE POPUP"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={cpSaving}
+                onPress={async () => {
+                  setCpSaving(true);
+                  try {
+                    await api.put("/admin/settings/community-popup", {
+                      enabled: cpEnabled,
+                      title: cpTitle,
+                      description: cpDesc,
+                      image_url: cpImage,
+                      telegram_url: cpTelegram,
+                      button_label: cpButton,
+                      auto_close_seconds: Math.max(0, Math.min(60, Number(cpSeconds) || 0)),
+                    });
+                    if (typeof window !== "undefined") window.alert("Popup Communauté enregistré ✅");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setCpSaving(false);
+                  }
+                }}
+                testID="cp-save"
               />
             </Card>
           </>

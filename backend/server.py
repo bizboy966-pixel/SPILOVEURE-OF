@@ -1177,6 +1177,20 @@ class SupportLinks(BaseModel):
     website_url: Optional[str] = None
 
 
+class CommunityPopupSettings(BaseModel):
+    enabled: bool = True
+    title: str = "📢 COMMUNAUTÉ OFFICIELLE SPILOVEURE"
+    description: str = (
+        "Rejoignez notre communauté officielle pour recevoir les annonces, "
+        "suivre les nouvelles formations, découvrir les nouveaux produits digitaux "
+        "et ne manquer aucune opportunité."
+    )
+    image_url: Optional[str] = None
+    telegram_url: Optional[str] = None
+    button_label: str = "🚀 REJOINDRE MAINTENANT"
+    auto_close_seconds: int = Field(default=5, ge=0, le=60)
+
+
 def _withdrawal_defaults(doc: dict) -> dict:
     raw_days = doc.get("allowed_days")
     if isinstance(raw_days, list):
@@ -1257,6 +1271,22 @@ def _support_defaults(doc: dict) -> dict:
     }
 
 
+def _community_popup_defaults(doc: dict) -> dict:
+    return {
+        "enabled": bool(doc.get("enabled", True)),
+        "title": doc.get("title") or "📢 COMMUNAUTÉ OFFICIELLE SPILOVEURE",
+        "description": doc.get("description") or (
+            "Rejoignez notre communauté officielle pour recevoir les annonces, "
+            "suivre les nouvelles formations, découvrir les nouveaux produits digitaux "
+            "et ne manquer aucune opportunité."
+        ),
+        "image_url": doc.get("image_url") or "",
+        "telegram_url": doc.get("telegram_url") or "",
+        "button_label": doc.get("button_label") or "🚀 REJOINDRE MAINTENANT",
+        "auto_close_seconds": int(doc.get("auto_close_seconds") or 5),
+    }
+
+
 async def _get_withdrawal_settings(db) -> dict:
     doc = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
     return _withdrawal_defaults(doc)
@@ -1285,6 +1315,14 @@ async def get_support_links(request: Request):
     db = request.app.state.db
     doc = await db.app_settings.find_one({"_id": "support_links"}, {"_id": 0}) or {}
     return _support_defaults(doc)
+
+
+@api.get("/settings/community-popup")
+async def get_community_popup(request: Request):
+    """Public read of community popup config (shown after login)."""
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "community_popup"}, {"_id": 0}) or {}
+    return _community_popup_defaults(doc)
 
 
 
@@ -1910,6 +1948,40 @@ async def admin_update_support_links(
     }
     await db.app_settings.update_one(
         {"_id": "support_links"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
+
+
+# --- Community Popup ---
+
+@admin_router.get("/settings/community-popup")
+async def admin_get_community_popup(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "community_popup"}, {"_id": 0}) or {}
+    out = _community_popup_defaults(doc)
+    out["updated_at"] = doc.get("updated_at")
+    out["updated_by"] = doc.get("updated_by")
+    return out
+
+
+@admin_router.put("/settings/community-popup")
+async def admin_update_community_popup(
+    data: CommunityPopupSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "title": (data.title or "").strip(),
+        "description": (data.description or "").strip(),
+        "image_url": (data.image_url or "").strip(),
+        "telegram_url": (data.telegram_url or "").strip(),
+        "button_label": (data.button_label or "🚀 REJOINDRE MAINTENANT").strip(),
+        "auto_close_seconds": int(data.auto_close_seconds or 0),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "community_popup"}, {"$set": payload}, upsert=True,
     )
     return {"ok": True, "settings": payload}
 
