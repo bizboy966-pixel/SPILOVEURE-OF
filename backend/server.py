@@ -2434,6 +2434,7 @@ async def sendava_initiate(data: SendavaInitiateIn, request: Request, user=Depen
 
 
 @api.get("/sendavapay-webhook")
+@api.get("/webhooks")
 async def sendava_webhook_ping(request: Request):
     """GET probe — opens this URL in a browser to confirm the route reaches
     the FastAPI backend (returns JSON, not the Expo HTML shell)."""
@@ -2447,6 +2448,7 @@ async def sendava_webhook_ping(request: Request):
 
 
 @api.post("/sendavapay-webhook")
+@api.post("/webhooks")
 async def sendava_webhook(request: Request):
     """Receive a SendavaPay webhook, verify signature, activate user level.
     Idempotent: skips if payment is already in a final state."""
