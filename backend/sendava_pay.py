@@ -100,23 +100,9 @@ async def create_payment(
         body = r.json()
     if not isinstance(body, dict) or not body.get("success"):
         raise ValueError(f"SendavaPay create-payment failed: {body}")
-    data = body.get("data") or {}
-
-    # Normalise the payment URL — SendavaPay sometimes returns the internal
-    # API form `/pay/api/pay_xxx` whereas the user-facing checkout page lives
-    # at `/pay/pay_xxx`. Rewrite when we detect that pattern.
-    raw_url = data.get("paymentUrl") or data.get("payment_url") or ""
-    if raw_url:
-        fixed = raw_url.replace("/pay/api/", "/pay/")
-        if fixed != raw_url:
-            data["paymentUrl"] = fixed
-        # Fallback: if a `reference` is present and the URL still looks wrong,
-        # rebuild it from the reference using the documented public route.
-        ref = data.get("reference")
-        if ref and "/pay/" not in data.get("paymentUrl", ""):
-            data["paymentUrl"] = f"https://sendavapay.com/pay/{ref}"
-
-    return data
+    # Return SendavaPay's payment URL exactly as provided — the public
+    # checkout page lives at `/pay/api/pay_xxx` per their dashboard config.
+    return body.get("data") or {}
 
 
 async def verify_payment(reference: str) -> dict[str, Any]:
