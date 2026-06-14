@@ -144,8 +144,10 @@ export default function Activation() {
   const sendavaEnabled = true;   // ← SendavaPay automatic deposit (replaces WestPay)
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
 
-  // Country list excluded by SendavaPay merchant policy
+  // Country list excluded by the automatic gateway merchant policy
   const SENDAVA_EXCLUDED = ["CD"];
+  // WestPay-supported countries (per official v2 docs)
+  const WESTPAY_COUNTRIES = ["TG", "BJ", "BF", "CI", "SN", "ML", "CM", "CG", "GA"];
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
@@ -512,7 +514,7 @@ export default function Activation() {
             <View style={{ marginTop: 12 }}>
               <Text style={styles.lblSmall}>Pays</Text>
               <View style={styles.opGrid}>
-                {Object.keys(OPERATORS_BY_COUNTRY)
+                {WESTPAY_COUNTRIES
                   .filter((c) => !SENDAVA_EXCLUDED.includes(c))
                   .map((c) => (
                     <TouchableOpacity
@@ -551,7 +553,7 @@ export default function Activation() {
                     setSendavaSubmitting(true);
                     try {
                       const targetLevel = (user?.max_level || 0) + 1;
-                      const res = await api.post<{ payment_url: string; order_id: string }>("/payments/sendava/initiate", {
+                      const res = await api.post<{ payment_url: string; order_id: string }>("/payments/westpay/initiate", {
                         level: targetLevel,
                         phone: sendavaPhone || "",
                         country_code: sendavaCountry || "TG",

@@ -33,6 +33,7 @@ SITE_URL = os.environ.get("SITE_URL", "https://spiloveure.com").rstrip("/")
 
 
 # Map ISO country code → WestPay country name (used in `country` query param).
+# Per merchant request: RDC Congo (CD) is EXCLUDED.
 COUNTRY_NAME_BY_CODE = {
     "TG": "Togo",
     "BJ": "Benin",
@@ -41,10 +42,12 @@ COUNTRY_NAME_BY_CODE = {
     "ML": "Mali",
     "SN": "Senegal",
     "CG": "Congo Brazzaville",
-    "CD": "Congo RDC",
     "GA": "Gabon",
     "CM": "Cameroun",
 }
+
+# Countries excluded from the automatic deposit flow.
+EXCLUDED_COUNTRIES = {"CD"}
 
 
 class SecurePayError(Exception):

@@ -924,6 +924,93 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
     return new_status
 
 
+# ============ WESTPAY (Hosted-Page Automatic Deposit) ============
+
+
+class WestpayInitiateIn(BaseModel):
+    level: int = Field(default=1, ge=1, le=12)
+    phone: Optional[str] = ""
+    country_code: str = Field(default="TG")
+
+
+@api.post("/payments/westpay/initiate")
+async def westpay_initiate(data: WestpayInitiateIn, request: Request, user=Depends(get_current_user)):
+    """Initiate a WestPay (RobotPay) automatic Mobile Money deposit.
+
+    Returns `payment_url` pointing to the WestPay hosted checkout page.
+    Excluded countries: RDC Congo (CD).
+    """
+    if not secure_pay.WEBHOOK_SECRET:
+        raise HTTPException(503, "Le paiement automatique n'est pas configuré.")
+
+    country = (data.country_code or "TG").upper().strip()
+    if country in getattr(secure_pay, "EXCLUDED_COUNTRIES", {"CD"}):
+        raise HTTPException(400, "Le paiement automatique n'est pas disponible pour ce pays.")
+    if country not in secure_pay.COUNTRY_NAME_BY_CODE:
+        raise HTTPException(400, f"Pays non supporté: {country}")
+
+    db = request.app.state.db
+    level = data.level
+    lv = LEVELS_BY_NUM.get(level)
+    if not lv:
+        raise HTTPException(400, "Niveau invalide")
+    if user.get("max_level", 0) >= level:
+        raise HTTPException(400, "Niveau déjà activé")
+    if level != user.get("max_level", 0) + 1:
+        raise HTTPException(400, "Vous devez activer les niveaux dans l'ordre")
+
+    existing = await db.payments.find_one(
+        {"user_id": user["id"], "level": level, "status": "pending", "provider": "westpay"},
+        {"_id": 0},
+    )
+    if existing and existing.get("payment_url"):
+        return {
+            "order_id": existing["reference"],
+            "payment_url": existing["payment_url"],
+            "status": "pending",
+            "amount": existing["amount"],
+            "currency": existing["currency"],
+            "reused": True,
+        }
+
+    reference = _new_order_id()
+    amount = float(lv["price"])
+    currency = "XOF" if country in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
+
+    payment_url = secure_pay.build_redirect_url(
+        amount=amount, country_code=country, reference=reference,
+    )
+
+    await db.payments.insert_one({
+        "reference": reference,
+        "provider": "westpay",
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "level": level,
+        "amount": amount,
+        "currency": currency,
+        "phone": data.phone or "",
+        "country_code": country,
+        "status": "pending",
+        "transaction_id": None,
+        "payment_url": payment_url,
+        "events": [],
+        "last_provider_payload": None,
+        "activation_done": False,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    })
+
+    return {
+        "order_id": reference,
+        "payment_url": payment_url,
+        "status": "pending",
+        "amount": amount,
+        "currency": currency,
+        "reused": False,
+    }
+
+
 @api.get("/webhook")
 @api.get("/payments/secure/webhook")
 @api.get("/westpay-webhook")
