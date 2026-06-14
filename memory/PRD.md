@@ -19,7 +19,14 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-11)
+## Implementation Status (à jour 2026-06-14)
+### 2026-06-14 — Missions Rémunérées Phase 2 (retraits par portefeuille + admin)
+- ✅ **User /missions** : 5 cartes de portefeuilles (YouTube / TikTok / Instagram / Facebook / Questionnaire) avec bouton « Retirer » désactivé si solde 0. Modal de retrait propre à chaque portefeuille (`mission-withdraw-modal`) avec contrôle de solde immédiat. Onglet « Historique » : liste des demandes de retrait (statut En attente / Validé / Rejeté) + missions validées.
+- ✅ **Admin /(admin)/missions** : refonte en 3 onglets — `Missions` (CRUD + recherche + MediaUploader vidéo intégré au formulaire), `Retraits` (filtres pending/validated/rejected/toutes + actions ✓/✗ inline), `Stats` (totaux + ventilation par type).
+- ✅ **Backend** : endpoints publics `/api/me/mission-wallets|mission-withdrawals|mission-history` et admin `/api/admin/mission-withdrawals[?status=]` + `/api/admin/mission-withdrawals/{id}/action` (validate/reject). Rejet → remboursement automatique du portefeuille. Validate → conservation des fonds réservés. Idempotence (double action → 400).
+- ✅ **Sécurité concurrence** : update atomique conditionnel (`$gte` + `modified_count`) pour la décrémentation du solde → pas de race-condition sur requêtes simultanées.
+- ✅ **Tests** : `/app/backend/tests/test_mission_withdrawals.py` 19/19 PASS (testing_agent_v3_fork iteration_5). UI admin validée e2e via Playwright. UI user code-reviewed (pas de user non-admin seedé).
+
 ### 2026-06-11 (suite 3) — Intégration SendavaPay (dépôt automatique)
 - ✅ Nouveau module `/app/backend/sendava_pay.py` : `create_payment`, `verify_payment`, `verify_webhook_signature` (HMAC-SHA256 hex avec support multi-format `sha256=…` et stripe-style `t=…,v1=…`), `parse_webhook_event`
 - ✅ Endpoints backend :

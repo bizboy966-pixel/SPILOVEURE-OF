@@ -171,12 +171,15 @@ async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request
         raise HTTPException(400, f"Portefeuille invalide. Autorisés: {MISSION_TYPES}")
     db = request.app.state.db
     bal_field = BALANCE_FIELD[body.wallet]
-    u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
-    bal = float(u.get(bal_field) or 0)
-    if body.amount > bal:
+    # Atomic conditional decrement — avoids read-then-write race on concurrent requests.
+    r = await db.users.update_one(
+        {"id": user["id"], bal_field: {"$gte": float(body.amount)}},
+        {"$inc": {bal_field: -float(body.amount)}},
+    )
+    if r.modified_count == 0:
+        u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
+        bal = float(u.get(bal_field) or 0)
         raise HTTPException(400, f"Solde insuffisant ({bal:.0f} FCFA disponibles).")
-    # Reserve the funds immediately
-    await db.users.update_one({"id": user["id"]}, {"$inc": {bal_field: -body.amount}})
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
