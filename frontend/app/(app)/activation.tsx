@@ -141,24 +141,37 @@ export default function Activation() {
   // The backend code is preserved — only the user-facing button is hidden.
   const [secureEnabled, setSecureEnabled] = useState(false);
   const secureUIEnabled = false; // ← hard switch to hide WestPay tab
-  const sendavaEnabled = true;   // ← SendavaPay automatic deposit (replaces WestPay)
+  const westpayEnabled = true;   // ← WestPay automatic deposit
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
 
   // Country list excluded by the automatic gateway merchant policy
-  const SENDAVA_EXCLUDED = ["CD"];
+  const WESTPAY_EXCLUDED = ["CD"];
   // WestPay-supported countries (per official v2 docs)
   const WESTPAY_COUNTRIES = ["TG", "BJ", "BF", "CI", "SN", "ML", "CM", "CG", "GA"];
+  // Map phone prefix → ISO country code (auto-detection)
+  const PHONE_PREFIX_TO_COUNTRY: Record<string, string> = {
+    "228": "TG", "229": "BJ", "226": "BF", "225": "CI",
+    "221": "SN", "223": "ML", "237": "CM", "242": "CG", "241": "GA",
+  };
+  function detectCountryFromPhone(raw: string): string | null {
+    const digits = (raw || "").replace(/\D/g, "");
+    if (!digits) return null;
+    for (const [pfx, cc] of Object.entries(PHONE_PREFIX_TO_COUNTRY)) {
+      if (digits.startsWith(pfx)) return cc;
+    }
+    return null;
+  }
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
 
   // Active payment method (user choice)
-  const [paymentMode, setPaymentMode] = useState<"auto" | "sendava" | "manual" | "crypto" | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"westpay" | "manual" | "crypto" | null>(null);
 
-  // SendavaPay flow
-  const [sendavaCountry, setSendavaCountry] = useState("TG");
-  const [sendavaPhone, setSendavaPhone] = useState("");
-  const [sendavaSubmitting, setSendavaSubmitting] = useState(false);
+  // WestPay flow
+  const [westpayCountry, setWestpayCountry] = useState("TG");
+  const [westpayPhone, setWestpayPhone] = useState("");
+  const [westpaySubmitting, setWestpaySubmitting] = useState(false);
 
   // Crypto form state
   const [cryptoTxHash, setCryptoTxHash] = useState("");
@@ -388,7 +401,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureUIEnabled && !sendavaEnabled && !manualEnabled && !cryptoEnabled && (
+        {!secureUIEnabled && !westpayEnabled && !manualEnabled && !cryptoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -407,15 +420,15 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || sendavaEnabled || manualEnabled || cryptoEnabled) && (
+        {(secureUIEnabled || westpayEnabled || manualEnabled || cryptoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
             <View style={styles.modesCol}>
-              {sendavaEnabled && (
+              {westpayEnabled && (
                 <TouchableOpacity
-                  style={[styles.modeCard, paymentMode === "sendava" && styles.modeCardOn]}
-                  onPress={() => setPaymentMode("sendava")}
-                  testID="mode-sendava"
+                  style={[styles.modeCard, paymentMode === "westpay" && styles.modeCardOn]}
+                  onPress={() => setPaymentMode("westpay")}
+                  testID="mode-westpay"
                 >
                   <View style={[styles.modeIcon, { backgroundColor: theme.colors.primary }]}>
                     <Ionicons name="flash" size={22} color="#fff" />
@@ -426,7 +439,7 @@ export default function Activation() {
                       Mobile Money instantané — Activation immédiate dès paiement confirmé.
                     </Text>
                   </View>
-                  {paymentMode === "sendava" ? (
+                  {paymentMode === "westpay" ? (
                     <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
                   ) : null}
                 </TouchableOpacity>
@@ -497,7 +510,7 @@ export default function Activation() {
           </Card>
         )}
 
-        {paymentMode === "sendava" && sendavaEnabled && (
+        {paymentMode === "westpay" && westpayEnabled && (
           <Card style={{ marginTop: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <View style={styles.mfBadge}>
@@ -515,48 +528,54 @@ export default function Activation() {
               <Text style={styles.lblSmall}>Pays</Text>
               <View style={styles.opGrid}>
                 {WESTPAY_COUNTRIES
-                  .filter((c) => !SENDAVA_EXCLUDED.includes(c))
+                  .filter((c) => !WESTPAY_EXCLUDED.includes(c))
                   .map((c) => (
                     <TouchableOpacity
                       key={c}
-                      style={[styles.opChip, sendavaCountry === c && styles.opChipOn]}
-                      onPress={() => setSendavaCountry(c)}
-                      testID={`sendava-country-${c}`}
+                      style={[styles.opChip, westpayCountry === c && styles.opChipOn]}
+                      onPress={() => setWestpayCountry(c)}
+                      testID={`westpay-country-${c}`}
                     >
-                      <Text style={[styles.opText, sendavaCountry === c && { color: "#fff" }]}>{c}</Text>
+                      <Text style={[styles.opText, westpayCountry === c && { color: "#fff" }]}>{c}</Text>
                     </TouchableOpacity>
                   ))}
               </View>
 
-              <Text style={styles.lblSmall}>Numéro Mobile Money (facultatif — pré-remplit le formulaire SendavaPay)</Text>
+              <Text style={styles.lblSmall}>Numéro Mobile Money (le pays est détecté automatiquement)</Text>
               <TextInput
                 style={styles.input}
-                value={sendavaPhone}
-                onChangeText={setSendavaPhone}
+                value={westpayPhone}
+                onChangeText={(v) => {
+                  setWestpayPhone(v);
+                  const cc = detectCountryFromPhone(v);
+                  if (cc && WESTPAY_COUNTRIES.includes(cc) && !WESTPAY_EXCLUDED.includes(cc)) {
+                    setWestpayCountry(cc);
+                  }
+                }}
                 placeholder="Ex: +228 90 00 00 00"
                 placeholderTextColor={theme.colors.textSecondary}
                 keyboardType="phone-pad"
-                testID="sendava-phone"
+                testID="westpay-phone"
               />
 
               <Text style={[styles.hint, { marginTop: 6 }]}>
-                🇨🇩 La RDC Congo n'est pas prise en charge par SendavaPay. Utilisez le paiement manuel.
+                🇨🇩 Service indisponible en RDC Congo. Utilisez le paiement manuel.
               </Text>
 
               <View style={{ marginTop: 14 }}>
                 <Button
-                  title={sendavaSubmitting ? "REDIRECTION…" : "PAYER MAINTENANT"}
+                  title={westpaySubmitting ? "REDIRECTION…" : "PAYER MAINTENANT"}
                   icon={<Ionicons name="open-outline" size={18} color="#fff" />}
-                  loading={sendavaSubmitting}
-                  disabled={sendavaSubmitting}
+                  loading={westpaySubmitting}
+                  disabled={westpaySubmitting}
                   onPress={async () => {
-                    setSendavaSubmitting(true);
+                    setWestpaySubmitting(true);
                     try {
                       const targetLevel = (user?.max_level || 0) + 1;
                       const res = await api.post<{ payment_url: string; order_id: string }>("/payments/westpay/initiate", {
                         level: targetLevel,
-                        phone: sendavaPhone || "",
-                        country_code: sendavaCountry || "TG",
+                        phone: westpayPhone || "",
+                        country_code: westpayCountry || "TG",
                       });
                       const url = (res?.payment_url || "").trim();
                       if (!url || !/^https?:\/\//i.test(url)) {
@@ -583,10 +602,10 @@ export default function Activation() {
                     } catch (e: any) {
                       Alert.alert("Erreur", e?.detail || "Impossible de démarrer le paiement.");
                     } finally {
-                      setSendavaSubmitting(false);
+                      setWestpaySubmitting(false);
                     }
                   }}
-                  testID="sendava-submit"
+                  testID="westpay-submit"
                 />
               </View>
             </View>
