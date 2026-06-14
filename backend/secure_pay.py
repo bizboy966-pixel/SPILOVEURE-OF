@@ -85,7 +85,7 @@ def build_redirect_url(
     The redirect-back URL embeds the internal reference so we can match the
     transaction once the user returns.
     """
-    redirect_back = f"{SITE_URL}/payment/success?ref={reference}"
+    redirect_back = f"{SITE_URL}/services?ref={reference}"
     params = {
         "merchant": SLUG,
         "amount": int(round(float(amount))),

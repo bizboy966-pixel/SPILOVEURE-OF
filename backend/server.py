@@ -921,6 +921,44 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
                 {"$set": {"activation_error": str(exc)}},
             )
 
+
+@api.get("/payments/{reference}/status")
+async def user_payment_status(reference: str, request: Request, user=Depends(get_current_user)):
+    """User-facing status check + auto-activation on return from gateway.
+
+    Called by the frontend `/services?ref=…` redirect handler. If the
+    payment is `paid` but activation hasn't run yet (e.g. webhook delay or
+    initial bug), this endpoint forces the activation now so the user
+    doesn't have to wait or contact support.
+    """
+    db = request.app.state.db
+    p = await db.payments.find_one({"reference": reference}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Paiement introuvable")
+    if p.get("user_id") != user.get("id"):
+        raise HTTPException(403, "Ce paiement n'appartient pas à votre compte")
+    out = {
+        "reference": reference,
+        "status": p.get("status"),
+        "level": p.get("level"),
+        "activation_done": bool(p.get("activation_done")),
+        "amount": p.get("amount"),
+        "currency": p.get("currency"),
+    }
+    if p.get("status") == "paid" and not p.get("activation_done"):
+        try:
+            await activate_level(db, p["user_id"], int(p["level"]), source="gateway_return")
+            await db.payments.update_one(
+                {"reference": reference},
+                {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
+            )
+            out["activation_done"] = True
+            out["activated_now"] = True
+        except Exception as exc:
+            out["activation_error"] = str(exc)
+    return out
+
+
     return new_status
 
 

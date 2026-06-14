@@ -96,6 +96,43 @@ export default function Services() {
   useEffect(() => {
     load();
     refresh();
+
+    // Handle gateway redirect: /services?ref=SPV-… → verify + auto-activate
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const ref = url.searchParams.get("ref");
+    if (!ref) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const poll = async () => {
+      while (!cancelled && attempts < 10) {
+        attempts += 1;
+        try {
+          const r = await api.get<any>(`/payments/${encodeURIComponent(ref)}/status`);
+          if (r?.status === "paid") {
+            await refresh();
+            if (typeof window !== "undefined") {
+              if (r.activated_now) {
+                window.alert(`✅ Paiement confirmé — niveau ${r.level} activé !`);
+              } else if (r.activation_done) {
+                window.alert(`✅ Paiement déjà traité — niveau ${r.level} actif`);
+              }
+              // Clean ?ref= from the URL
+              window.history.replaceState({}, "", url.pathname);
+            }
+            return;
+          }
+        } catch {
+          // 404 / 403 → stop silently
+          return;
+        }
+        // Wait 3s before retry (max 10 attempts ≈ 30s)
+        await new Promise((res) => setTimeout(res, 3000));
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
   }, [load, refresh]);
 
   const initials = useMemo(() => getInitials(user?.username || "?"), [user?.username]);
