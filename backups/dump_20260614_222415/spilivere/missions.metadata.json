@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"87b18490e4f3469fb44a84fbe2439e99","collectionName":"missions","type":"collection"}
