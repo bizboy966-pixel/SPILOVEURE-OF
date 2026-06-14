@@ -140,8 +140,8 @@ export default function Activation() {
   // ⚠️ WestPay (automatic) is temporarily disabled at the UI level.
   // The backend code is preserved — only the user-facing button is hidden.
   const [secureEnabled, setSecureEnabled] = useState(false);
-  const secureUIEnabled = false; // ← hard switch to hide WestPay tab
-  const westpayEnabled = true;   // ← WestPay automatic deposit
+  const secureUIEnabled = false; // ← hard switch to hide legacy WestPay form
+  const [westpayEnabled, setWestpayEnabled] = useState(true);   // ← runtime kill-switch (admin-controlled)
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
 
   // Country list excluded by the automatic gateway merchant policy
@@ -200,6 +200,10 @@ export default function Activation() {
         setManualEnabled(!!flags.manual_enabled);
         setCryptoEnabled(!!flags.crypto_enabled);
         setCryptoCfg(flags.crypto || null);
+      } catch {}
+      try {
+        const wp = await api.get<{ enabled: boolean }>("/settings/westpay", { auth: false });
+        setWestpayEnabled(wp?.enabled !== false);
       } catch {}
     })();
     setPayerName(user?.username || "");

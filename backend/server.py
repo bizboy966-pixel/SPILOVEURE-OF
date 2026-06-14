@@ -924,6 +924,10 @@ async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, p
     return new_status
 
 
+class WestpayAutoSettings(BaseModel):
+    enabled: bool = True
+
+
 # ============ WESTPAY (Hosted-Page Automatic Deposit) ============
 
 
@@ -943,13 +947,17 @@ async def westpay_initiate(data: WestpayInitiateIn, request: Request, user=Depen
     if not secure_pay.WEBHOOK_SECRET:
         raise HTTPException(503, "Le paiement automatique n'est pas configuré.")
 
+    db = request.app.state.db
+    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
+    if cfg.get("enabled") is False:
+        raise HTTPException(403, "Le paiement automatique est temporairement désactivé.")
+
     country = (data.country_code or "TG").upper().strip()
     if country in getattr(secure_pay, "EXCLUDED_COUNTRIES", {"CD"}):
         raise HTTPException(400, "Le paiement automatique n'est pas disponible pour ce pays.")
     if country not in secure_pay.COUNTRY_NAME_BY_CODE:
         raise HTTPException(400, f"Pays non supporté: {country}")
 
-    db = request.app.state.db
     level = data.level
     lv = LEVELS_BY_NUM.get(level)
     if not lv:
@@ -2232,6 +2240,35 @@ async def admin_webhook_logs(request: Request, limit: int = 50):
     return {"items": out, "count": len(out)}
 
 
+@admin_router.get("/settings/westpay")
+async def admin_get_westpay_settings(request: Request):
+    db = request.app.state.db
+    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
+    return {
+        "enabled": cfg.get("enabled") is not False,
+        "updated_at": cfg.get("updated_at"),
+        "updated_by": cfg.get("updated_by"),
+    }
+
+
+@admin_router.put("/settings/westpay")
+async def admin_update_westpay_settings(
+    data: WestpayAutoSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    payload = {
+        "enabled": bool(data.enabled),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "westpay_auto"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "enabled": payload["enabled"]}
+
+
+
+
 @admin_router.get("/settings/secure-payment")
 async def admin_get_secure_payment(request: Request):
     db = request.app.state.db
@@ -2518,6 +2555,14 @@ async def sendava_initiate(data: SendavaInitiateIn, request: Request, user=Depen
         "currency": currency,
         "reused": False,
     }
+
+
+@api.get("/settings/westpay")
+async def get_westpay_public_settings(request: Request):
+    """Public read — used by the frontend to show/hide the auto-payment button."""
+    db = request.app.state.db
+    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
+    return {"enabled": cfg.get("enabled") is not False}  # default True
 
 
 @api.get("/sendavapay-webhook")

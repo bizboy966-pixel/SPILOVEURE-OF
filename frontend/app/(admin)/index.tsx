@@ -107,6 +107,10 @@ export default function AdminHome() {
   const [cpSeconds, setCpSeconds] = useState("5");
   const [cpSaving, setCpSaving] = useState(false);
 
+  // WestPay (automatic) kill-switch
+  const [wpEnabled, setWpEnabled] = useState(true);
+  const [wpSaving, setWpSaving] = useState(false);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") setStats(await api.get("/admin/stats"));
@@ -166,6 +170,11 @@ export default function AdminHome() {
         setCpTelegram(cpop.telegram_url || "");
         setCpButton(cpop.button_label || "🚀 REJOINDRE MAINTENANT");
         setCpSeconds(String(cpop.auto_close_seconds ?? 5));
+
+        try {
+          const wp = await api.get<any>("/admin/settings/westpay");
+          setWpEnabled(wp.enabled !== false);
+        } catch {}
       }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
@@ -1226,6 +1235,48 @@ export default function AdminHome() {
                   }
                 }}
                 testID="sup-save"
+              />
+            </Card>
+
+            <Card style={{ marginTop: 12 }} testID="admin-westpay-card">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Ionicons name="flash" size={18} color={theme.colors.primary} />
+                <Text style={styles.h3}>⚡ Paiement Automatique</Text>
+              </View>
+              <Text style={styles.help}>
+                Active ou désactive instantanément le bouton "Paiement Automatique" sur la page
+                d'activation pour TOUS les utilisateurs. Idéal en cas d'incident de la passerelle :
+                les utilisateurs basculent sur Mobile Money manuel ou Crypto.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.toggleRow, wpEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setWpEnabled(!wpEnabled)}
+                testID="wp-enabled-toggle"
+              >
+                <Ionicons name={wpEnabled ? "checkmark-circle" : "close-circle"} size={18} color="#fff" />
+                <Text style={styles.toggleTxt}>
+                  {wpEnabled ? "✅ Activé — bouton visible pour les utilisateurs" : "🚫 Désactivé — bouton masqué"}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LE STATUT"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={wpSaving}
+                onPress={async () => {
+                  setWpSaving(true);
+                  try {
+                    await api.put("/admin/settings/westpay", { enabled: wpEnabled });
+                    if (typeof window !== "undefined") window.alert("Statut Paiement Automatique enregistré ✅");
+                  } catch (e: any) {
+                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setWpSaving(false);
+                  }
+                }}
+                testID="wp-save"
               />
             </Card>
 
