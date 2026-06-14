@@ -20,6 +20,11 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-14)
+### 2026-06-14 (correctif critique) — Débit de la réserve sur upgrade manuel admin
+- 🐛 **Bug corrigé** : quand un admin activait manuellement un niveau supérieur via `/api/admin/users/{id}/action` (`source="admin_manual"`), le `balance_upgrade` n'était PAS débité. L'utilisateur avait gagné un niveau gratuitement. Le débit ne se faisait QUE pour `source="auto_upgrade"`.
+- ✅ **Fix dans `matrix.py::activate_level`** : `admin_manual` débite désormais la réserve si elle est suffisante. Si insuffisante, le niveau s'active quand même (admin override) avec un warning loggé. Les sources paiement externe (`secure_pay`, `gateway_return`, `sendavapay`, `manual_reprocess`, `admin_validate` pour Mobile Money manuel) continuent de NE PAS débiter (paiement réglé hors-bande).
+- ✅ **Tests** : `/app/backend/tests/test_manual_upgrade_debit.py` 9/9 PASS — admin_manual avec réserve suffisante débite, avec réserve insuffisante n'active pas mais override admin OK, 5 sources externes ne débitent pas, regression auto_upgrade intacte (débite + raise si insuffisant).
+
 ### 2026-06-14 (suite) — Audit & Correction Plateforme (admin)
 - ✅ **Backend `/api/admin/audit`** : GET (rapport read-only — stats + summary + severity + issues), GET `/user/{username}` (deep audit case-insensitive sans password_hash), POST `/recompute?dry_run=bool&clean_orphan_placements=bool&trigger_pending_upgrades=bool&restore_admin_placements=bool` (idempotent, ne touche JAMAIS aux soldes `balance_profit`/`balance_upgrade`).
 - ✅ **Détection** : niveaux hors bornes, placements manquants/au-delà max, soldes négatifs, auto-upgrades en attente, sponsors orphelins, montants commission incorrects, mismatch upgrade+profit vs amount, mismatch compteurs (`commission_direct/spillover`, `total_earned`, `earnings_per_level`), placements orphelins, doublons, racines matrice multiples, activations payées non appliquées, soldes missions négatifs.

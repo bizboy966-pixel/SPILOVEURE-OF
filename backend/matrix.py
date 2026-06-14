@@ -251,18 +251,30 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
         raise ValueError("Vous devez activer les niveaux dans l'ordre")
     lv = LEVELS_BY_NUM[level]
     sponsor_id = user.get("sponsor_id")
-    # Deduct from balance_upgrade ONLY when the activation is paid from the
-    # internal reserve (cascade auto-upgrade). External payments (WestPay,
-    # SendavaPay, manual Mobile Money / Crypto validated by admin) settle the
-    # price out-of-band and must NOT touch the reserve — otherwise users can
-    # never activate level >= 2 via an external deposit.
-    if level >= 2 and source == "auto_upgrade":
+    # Deduct from balance_upgrade when the activation is paid from the
+    # internal reserve. Two sources qualify:
+    #   - "auto_upgrade" — cascade triggered automatically when reserve is full.
+    #   - "admin_manual" — admin forces the level via /api/admin/users/{id}/action.
+    #     This is the manual fallback when auto-upgrade fails to trigger. The
+    #     reserve was built up specifically to fund this level, so it MUST be
+    #     consumed even though the admin pushed the button.
+    # External payments (WestPay / SendavaPay / manual Mobile Money / Crypto
+    # validated by admin) settle out-of-band and must NOT touch the reserve.
+    if level >= 2 and source in ("auto_upgrade", "admin_manual"):
         if user.get("balance_upgrade", 0) < lv["price"]:
-            raise ValueError("Réserve de mise à niveau insuffisante")
-        await db.users.update_one(
-            {"id": user_id}, {"$inc": {"balance_upgrade": -lv["price"]}},
-        )
-
+            if source == "auto_upgrade":
+                # Auto-upgrade is a strict precondition — bail out cleanly.
+                raise ValueError("Réserve de mise à niveau insuffisante")
+            # admin_manual: log the gap but proceed (admin is responsible).
+            log.warning(
+                f"admin_manual activate_level user={user_id} level={level}: "
+                f"balance_upgrade={user.get('balance_upgrade', 0)} < price={lv['price']} "
+                f"→ activating without debiting (admin override)"
+            )
+        else:
+            await db.users.update_one(
+                {"id": user_id}, {"$inc": {"balance_upgrade": -lv["price"]}},
+            )
     placement = await place_in_matrix(db, user_id, sponsor_id, level)
     await db.users.update_one(
         {"id": user_id},
