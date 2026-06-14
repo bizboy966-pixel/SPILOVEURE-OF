@@ -2240,6 +2240,29 @@ async def admin_webhook_logs(request: Request, limit: int = 50):
     return {"items": out, "count": len(out)}
 
 
+@admin_router.get("/payments/stuck")
+async def admin_stuck_payments(request: Request, limit: int = 50):
+    """List payments that are paid but failed to activate the user level.
+    Used by the admin dashboard to surface and re-process bug-stranded
+    transactions in one click."""
+    db = request.app.state.db
+    cursor = db.payments.find(
+        {"status": "paid", "activation_done": {"$ne": True}},
+        {
+            "_id": 0,
+            "reference": 1, "provider": 1, "user_id": 1, "username": 1,
+            "level": 1, "amount": 1, "currency": 1, "phone": 1,
+            "country_code": 1, "created_at": 1, "activation_error": 1,
+        },
+    ).sort("created_at", -1).limit(min(max(1, limit), 200))
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+        items.append(d)
+    return {"items": items, "count": len(items)}
+
+
 @admin_router.post("/payments/{reference}/reprocess")
 async def admin_reprocess_payment(reference: str, request: Request, admin=Depends(require_admin)):
     """Force-activate a paid payment whose activation step failed.
