@@ -1,0 +1,43 @@
+{
+  "summary": "Phase 2 Missions (5 isolated wallets + withdrawal flow + admin manage). Backend: 19/19 pytest assertions PASS in /app/backend/tests/test_mission_withdrawals.py covering wallet listing, withdrawal create/balance-decrement, insufficient/invalid wallet/amount validation, admin list+filter, validate-keeps-reserved, reject-refunds, idempotent double-action, 404/400 edge cases, stats endpoint, mission CRUD, and auth gating. Frontend: Admin UI fully verified end-to-end via Playwright — 3 tabs (Missions / Retraits / Stats) all render with correct testIDs (admin-missions-tab-missions|withdrawals|stats). Stats tab shows total_missions=1, active=1, completions=0, active_users=0, total_rewards=0 with per-type breakdown for all 5 wallets. Retraits tab renders filter chips (En attente/Validées/Rejetées/Toutes) and empty-state correctly. Add mission form opens with all required fields: m-title, m-desc, m-type-*, m-upload-pick (MediaUploader 'Importer une vidéo'), m-url, m-duration, m-reward, m-q, m-ans, m-exp, m-active, m-save, m-cancel.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/me/mission-withdrawals", "issue": "Balance decrement is not atomic (read-then-write). Concurrent requests could race past balance check. Low-traffic acceptable but consider conditional update: db.users.update_one({'id': uid, bal_field: {'$gte': amount}}, {'$inc': {bal_field: -amount}}) and check modified_count."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "User /missions page tested as admin", "issue": "Admin user is routed to (admin)/missions group, so the user-side wallet cards (testID wallet-{type}, wallet-{type}-withdraw, WithdrawModal) could NOT be directly e2e-tested under the admin account. Code review of /app/frontend/app/(app)/missions.tsx confirms 5 wallet cards, disabled-when-zero logic, WithdrawModal with testIDs mission-withdraw-modal/amount/submit/cancel are all correctly implemented. Needs a non-admin seeded user to validate UI end-to-end.", "affected_selectors": ["wallet-youtube","wallet-youtube-withdraw","mission-withdraw-modal","mission-withdraw-amount","mission-withdraw-submit","tab-history"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mission_withdrawals.py",
+    "/app/test_reports/pytest/mission_withdrawals.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Make /api/me/mission-withdrawals atomic via conditional $inc to avoid the read-then-write race.",
+    "(Optional) Seed a non-admin test user (e.g. tester@example.com) and pre-credit balance_youtube so future testing agents can validate the user-side WithdrawModal flow end-to-end without depending on a real registration that requires sponsor approval.",
+    "Confirm with product that admin landing on /missions intentionally shows admin UI (it does, via Expo Router group precedence). If admin should also see the user wallets, expose a switcher."
+  ],
+  "critical_code_review_comments": [
+    "backend/missions.py POST /me/mission-withdrawals — race condition (read-then-write balance). Recommend atomic conditional update.",
+    "backend/missions.py admin_mission_withdrawal_action — Correctly guards w.status != 'pending' so double-validate/double-reject return 400. Refund on reject uses $inc back to bal_field — verified working at API level (bal_before = bal_after).",
+    "backend/missions.py admin_create_mission — Stores `created_by = who.get('username')`; spec OK. Note: doc returned to client is the dict before mongo insert; safe (no _id leak).",
+    "frontend (admin)/missions.tsx — Both MediaUploader and m-url TextInput write to the same `editing.url`, providing two equivalent ways to set the link (per spec). Clean.",
+    "frontend (app)/missions.tsx — WithdrawModal correctly disables submit when balance<=0 and shows the warning message. Wallet cards remain rendered even when window_open=false (verified by reading load() which fetches wallets/withdrawals/history independently of windowOpen).",
+    "Both pages handle errors with `e?.detail` from api wrapper and surface via window.alert (web) or Alert.alert (native) — consistent UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_mission_withdrawals.py (NEW — 19 tests, all PASS)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% admin UI (all 3 tabs, MediaUploader, mission form). User-side UI: code-reviewed only, not e2e (no test user available)."},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006 — working. No seeded non-admin user exists.",
+  "seed_data_creation": "Tests create+reject ephemeral mission_withdrawals on admin's own youtube wallet (start ≈3000 FCFA, fully restored after each test class via reject-refund). Mission CRUD test creates+deletes TEST_MISSION_PHASE2 within the same test (no leftover). No mutation to seeded mission 'Regarder une démo YouTube'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://spiloveure-deploy.preview.emergentagent.com. Admin /missions is intercepted by (admin)/missions.tsx (Expo Router group precedence) — admin cannot visually see the user-side 5-wallet UI without role-switching code. To e2e test the user WithdrawModal flow, create a non-admin user, pre-credit balance_youtube via Mongo or admin-credit endpoint, login as that user, then navigate /missions. All backend endpoints validated and working. Mission window currently CLOSED outside Mon-Fri 08-16 Africa/Lome — wallets and withdrawal flow remain functional when closed (verified in code; backend wallet endpoint always returns balances regardless of window_open).",
+  "rca of the issue": "N/A — no critical bugs found. All Phase 2 acceptance criteria validated: backend withdrawal flow, balance decrement on request, refund on reject, no refund on validate, idempotency, stats endpoint shape, admin CRUD, MediaUploader+m-url wired to editing.url, 3 admin tabs."
+}

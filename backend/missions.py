@@ -147,6 +147,62 @@ async def my_mission_wallets(request: Request, user=Depends(get_current_user)):
     return {"window_open": _window_open_now(), "total": total, "wallets": wallets}
 
 
+@public.get("/me/mission-history")
+async def my_mission_history(request: Request, limit: int = 50, user=Depends(get_current_user)):
+    db = request.app.state.db
+    cur = db.mission_completions.find({"user_id": user["id"]}, {"_id": 0}).sort("completed_at", -1).limit(min(max(1, limit), 200))
+    out = []
+    async for d in cur:
+        if isinstance(d.get("completed_at"), datetime):
+            d["completed_at"] = d["completed_at"].isoformat()
+        out.append(d)
+    return {"items": out}
+
+
+class MissionWithdrawalIn(BaseModel):
+    wallet: str = Field(min_length=1)  # one of MISSION_TYPES
+    amount: float = Field(ge=1)
+
+
+@public.post("/me/mission-withdrawals")
+async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request, user=Depends(get_current_user)):
+    """Submit a withdrawal request from ONE specific mission wallet."""
+    if body.wallet not in MISSION_TYPES:
+        raise HTTPException(400, f"Portefeuille invalide. Autorisés: {MISSION_TYPES}")
+    db = request.app.state.db
+    bal_field = BALANCE_FIELD[body.wallet]
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
+    bal = float(u.get(bal_field) or 0)
+    if body.amount > bal:
+        raise HTTPException(400, f"Solde insuffisant ({bal:.0f} FCFA disponibles).")
+    # Reserve the funds immediately
+    await db.users.update_one({"id": user["id"]}, {"$inc": {bal_field: -body.amount}})
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "wallet": body.wallet,
+        "amount": float(body.amount),
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.mission_withdrawals.insert_one(dict(doc))
+    doc["created_at"] = doc["created_at"].isoformat()
+    return {"ok": True, "withdrawal": doc}
+
+
+@public.get("/me/mission-withdrawals")
+async def my_mission_withdrawals(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    cur = db.mission_withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(50)
+    out = []
+    async for d in cur:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+        out.append(d)
+    return {"items": out}
+
+
 # ============ ADMIN ============
 
 @admin.get("/missions")
@@ -226,3 +282,39 @@ async def admin_mission_stats(request: Request, _=Depends(require_admin)):
         "total_rewards": total_rewards,
         "by_type": by_type,
     }
+
+
+@admin.get("/mission-withdrawals")
+async def admin_list_mission_withdrawals(request: Request, status: str = "", _=Depends(require_admin)):
+    db = request.app.state.db
+    filt = {"status": status} if status else {}
+    cur = db.mission_withdrawals.find(filt, {"_id": 0}).sort("created_at", -1).limit(200)
+    out = []
+    async for d in cur:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+        out.append(d)
+    return {"items": out}
+
+
+@admin.post("/mission-withdrawals/{wid}/action")
+async def admin_mission_withdrawal_action(wid: str, body: dict, request: Request, who=Depends(require_admin)):
+    """body: { action: 'validate' | 'reject' }"""
+    action = (body or {}).get("action")
+    if action not in ("validate", "reject"):
+        raise HTTPException(400, "action invalide")
+    db = request.app.state.db
+    w = await db.mission_withdrawals.find_one({"id": wid}, {"_id": 0})
+    if not w:
+        raise HTTPException(404, "Demande introuvable")
+    if w.get("status") != "pending":
+        raise HTTPException(400, f"Déjà traitée (statut: {w.get('status')})")
+    new_status = "validated" if action == "validate" else "rejected"
+    upd = {"status": new_status, "decided_at": datetime.now(timezone.utc), "decided_by": who.get("username")}
+    if action == "reject":
+        # Refund the wallet
+        bal_field = BALANCE_FIELD.get(w["wallet"])
+        if bal_field:
+            await db.users.update_one({"id": w["user_id"]}, {"$inc": {bal_field: float(w["amount"])}})
+    await db.mission_withdrawals.update_one({"id": wid}, {"$set": upd})
+    return {"ok": True, "status": new_status}

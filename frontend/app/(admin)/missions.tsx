@@ -1,5 +1,10 @@
 /**
- * Admin — Manage paid missions. CRUD + search.
+ * Admin — Manage paid missions.
+ *
+ * Tabs:
+ *   1) Missions   — CRUD, with MediaUploader for the video URL field.
+ *   2) Retraits   — pending mission-withdrawal requests (validate / reject).
+ *   3) Statistiques — totals + per-type breakdown.
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from "react-native";
@@ -9,26 +14,41 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { MediaUploader } from "@/src/components/MediaUploader";
 
 const TYPES = ["youtube", "tiktok", "instagram", "facebook", "questionnaire"];
+const TYPE_LABEL: Record<string, string> = {
+  youtube: "📺 YouTube",
+  tiktok: "🎵 TikTok",
+  instagram: "📸 Instagram",
+  facebook: "📘 Facebook",
+  questionnaire: "📝 Questionnaire",
+};
+
+type Tab = "missions" | "withdrawals" | "stats";
 
 export default function AdminMissions() {
   const router = useRouter();
+  const [tab, setTab] = useState<Tab>("missions");
   const [items, setItems] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [stats, setStats] = useState<any>(null);
   const [editing, setEditing] = useState<any | null>(null);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [wdFilter, setWdFilter] = useState<"" | "pending" | "validated" | "rejected">("pending");
 
   const load = useCallback(async () => {
     try {
-      const [list, s] = await Promise.all([
+      const [list, s, w] = await Promise.all([
         api.get<any[]>(`/admin/missions${q ? `?q=${encodeURIComponent(q)}` : ""}`),
         api.get<any>("/admin/missions/stats"),
+        api.get<any>(`/admin/mission-withdrawals${wdFilter ? `?status=${wdFilter}` : ""}`),
       ]);
       setItems(list || []);
       setStats(s);
+      setWithdrawals(w.items || []);
     } catch {}
-  }, [q]);
+  }, [q, wdFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -63,6 +83,18 @@ export default function AdminMissions() {
     }
   };
 
+  const decide = async (w: any, action: "validate" | "reject") => {
+    const label = action === "validate" ? "Valider" : "Rejeter";
+    if (typeof window !== "undefined" && !window.confirm(`${label} le retrait de ${Math.round(w.amount)} FCFA (${TYPE_LABEL[w.wallet] || w.wallet}) pour ${w.username || w.user_id} ?`)) return;
+    try {
+      await api.post(`/admin/mission-withdrawals/${w.id}/action`, { action });
+      await load();
+      if (typeof window !== "undefined") window.alert(`✅ Retrait ${action === "validate" ? "validé" : "rejeté"}`);
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.detail || "Échec");
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
@@ -70,98 +102,215 @@ export default function AdminMissions() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.hTitle}>🎥 Gestion des Missions</Text>
-        <TouchableOpacity
-          onPress={() => setEditing({ type: "youtube", duration_seconds: 60, reward: 50, active: true })}
-          testID="add-mission-btn"
-        >
-          <Ionicons name="add-circle" size={26} color="#fff" />
-        </TouchableOpacity>
+        {tab === "missions" ? (
+          <TouchableOpacity
+            onPress={() => setEditing({ type: "youtube", duration_seconds: 60, reward: 50, active: true })}
+            testID="add-mission-btn"
+          >
+            <Ionicons name="add-circle" size={26} color="#fff" />
+          </TouchableOpacity>
+        ) : <View style={{ width: 26 }} />}
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 80 }}>
-        {stats ? (
-          <View style={styles.statsRow}>
-            <View style={styles.stat}><Text style={styles.statN}>{stats.total_missions}</Text><Text style={styles.statL}>Missions</Text></View>
-            <View style={styles.stat}><Text style={styles.statN}>{stats.completions}</Text><Text style={styles.statL}>Validées</Text></View>
-            <View style={styles.stat}><Text style={styles.statN}>{stats.active_users}</Text><Text style={styles.statL}>Utilisateurs</Text></View>
-            <View style={styles.stat}><Text style={[styles.statN, { color: theme.colors.success }]}>{Math.round(stats.total_rewards)}</Text><Text style={styles.statL}>FCFA versés</Text></View>
-          </View>
-        ) : null}
-
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={14} color={theme.colors.textSecondary} />
-          <TextInput
-            placeholder="Rechercher (titre, ID, type)…"
-            placeholderTextColor={theme.colors.textSecondary}
-            style={styles.searchI}
-            value={q}
-            onChangeText={setQ}
-            testID="missions-search"
-          />
-        </View>
-
-        {items.length === 0 ? <Text style={styles.empty}>Aucune mission.</Text> : items.map((m) => (
-          <View key={m.id} style={styles.row} testID={`mission-row-${m.id}`}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{m.title}</Text>
-              <Text style={styles.meta}>{m.type.toUpperCase()} • {m.duration_seconds}s • +{Math.round(m.reward)} FCFA {m.active ? "" : "• 🚫 désactivée"}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(m)} testID={`edit-${m.id}`}>
-              <Ionicons name="pencil" size={14} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.delBtn} onPress={() => del(m)} testID={`del-${m.id}`}>
-              <Ionicons name="trash" size={14} color="#fff" />
-            </TouchableOpacity>
-          </View>
+      {/* Tabs */}
+      <View style={styles.tabRow}>
+        {(["missions", "withdrawals", "stats"] as Tab[]).map((t) => (
+          <TouchableOpacity
+            key={t}
+            style={[styles.tab, tab === t && styles.tabOn]}
+            onPress={() => setTab(t)}
+            testID={`admin-missions-tab-${t}`}
+          >
+            <Text style={[styles.tabTxt, tab === t && { color: "#fff" }]}>
+              {t === "missions" ? "🎬 Missions" : t === "withdrawals" ? `💸 Retraits${withdrawals.length ? ` (${withdrawals.length})` : ""}` : "📊 Stats"}
+            </Text>
+          </TouchableOpacity>
         ))}
+      </View>
 
-        {editing ? (
-          <View style={styles.formCard} testID="mission-form">
-            <Text style={styles.formTitle}>{editing.id ? "Modifier" : "Nouvelle mission"}</Text>
-            <Text style={styles.lbl}>Titre</Text>
-            <TextInput style={styles.input} value={editing.title || ""} onChangeText={(v) => setEditing({ ...editing, title: v })} testID="m-title" />
-            <Text style={styles.lbl}>Description</Text>
-            <TextInput style={[styles.input, { minHeight: 60 }]} multiline value={editing.description || ""} onChangeText={(v) => setEditing({ ...editing, description: v })} testID="m-desc" />
-            <Text style={styles.lbl}>Type</Text>
-            <View style={styles.typeRow}>
-              {TYPES.map((t) => (
-                <TouchableOpacity key={t} style={[styles.tchip, editing.type === t && styles.tchipOn]} onPress={() => setEditing({ ...editing, type: t })} testID={`m-type-${t}`}>
-                  <Text style={[styles.tchipTxt, editing.type === t && { color: "#fff" }]}>{t}</Text>
+      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 80 }}>
+        {tab === "missions" && (
+          <>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={14} color={theme.colors.textSecondary} />
+              <TextInput
+                placeholder="Rechercher (titre, ID, type)…"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.searchI}
+                value={q}
+                onChangeText={setQ}
+                testID="missions-search"
+              />
+              {q.length > 0 && (
+                <TouchableOpacity onPress={() => setQ("")}>
+                  <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {items.length === 0 ? <Text style={styles.empty}>Aucune mission.</Text> : items.map((m) => (
+              <View key={m.id} style={styles.row} testID={`mission-row-${m.id}`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>{m.title}</Text>
+                  <Text style={styles.meta}>
+                    {(TYPE_LABEL[m.type] || m.type.toUpperCase())} • {m.duration_seconds}s • +{Math.round(m.reward)} FCFA{m.active ? "" : " • 🚫 désactivée"}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(m)} testID={`edit-${m.id}`}>
+                  <Ionicons name="pencil" size={14} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.delBtn} onPress={() => del(m)} testID={`del-${m.id}`}>
+                  <Ionicons name="trash" size={14} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            {editing ? (
+              <View style={styles.formCard} testID="mission-form">
+                <Text style={styles.formTitle}>{editing.id ? "Modifier" : "Nouvelle mission"}</Text>
+                <Text style={styles.lbl}>Titre</Text>
+                <TextInput style={styles.input} value={editing.title || ""} onChangeText={(v) => setEditing({ ...editing, title: v })} testID="m-title" />
+                <Text style={styles.lbl}>Description</Text>
+                <TextInput style={[styles.input, { minHeight: 60 }]} multiline value={editing.description || ""} onChangeText={(v) => setEditing({ ...editing, description: v })} testID="m-desc" />
+                <Text style={styles.lbl}>Type</Text>
+                <View style={styles.typeRow}>
+                  {TYPES.map((t) => (
+                    <TouchableOpacity key={t} style={[styles.tchip, editing.type === t && styles.tchipOn]} onPress={() => setEditing({ ...editing, type: t })} testID={`m-type-${t}`}>
+                      <Text style={[styles.tchipTxt, editing.type === t && { color: "#fff" }]}>{TYPE_LABEL[t] || t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.lbl}>Vidéo / Lien</Text>
+                <Text style={styles.help}>
+                  Vous pouvez importer une vidéo depuis votre appareil OU coller un lien externe (YouTube, TikTok, Instagram, Facebook).
+                </Text>
+                <MediaUploader
+                  kind="video"
+                  url={editing.url || ""}
+                  onChange={(v) => setEditing({ ...editing, url: v })}
+                  testID="m-upload"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={editing.url || ""}
+                  onChangeText={(v) => setEditing({ ...editing, url: v })}
+                  placeholder="https://… ou /api/uploads/…"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  testID="m-url"
+                />
+
+                <Text style={styles.lbl}>Durée minimum (secondes)</Text>
+                <TextInput style={styles.input} keyboardType="numeric" value={String(editing.duration_seconds ?? "")} onChangeText={(v) => setEditing({ ...editing, duration_seconds: v })} testID="m-duration" />
+                <Text style={styles.lbl}>Récompense (FCFA)</Text>
+                <TextInput style={styles.input} keyboardType="numeric" value={String(editing.reward ?? "")} onChangeText={(v) => setEditing({ ...editing, reward: v })} testID="m-reward" />
+                <Text style={styles.lbl}>Question de vérification (optionnel)</Text>
+                <TextInput style={styles.input} value={editing.question || ""} onChangeText={(v) => setEditing({ ...editing, question: v })} testID="m-q" />
+                <Text style={styles.lbl}>Réponse correcte (insensible à la casse)</Text>
+                <TextInput style={styles.input} value={editing.correct_answer || ""} onChangeText={(v) => setEditing({ ...editing, correct_answer: v })} testID="m-ans" />
+                <Text style={styles.lbl}>Date d'expiration ISO (optionnel)</Text>
+                <TextInput style={styles.input} value={editing.expires_at || ""} onChangeText={(v) => setEditing({ ...editing, expires_at: v })} placeholder="2026-12-31T23:59:59Z" placeholderTextColor={theme.colors.textSecondary} testID="m-exp" />
+
+                <TouchableOpacity
+                  style={[styles.toggleRow, editing.active !== false ? styles.togOn : styles.togOff]}
+                  onPress={() => setEditing({ ...editing, active: !(editing.active !== false) })}
+                  testID="m-active"
+                >
+                  <Ionicons name={editing.active !== false ? "checkmark-circle" : "close-circle"} size={16} color="#fff" />
+                  <Text style={styles.togTxt}>{editing.active !== false ? "Active" : "Désactivée"}</Text>
+                </TouchableOpacity>
+
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                  <TouchableOpacity style={[styles.btn, { backgroundColor: theme.colors.success }]} onPress={save} testID="m-save">
+                    <Text style={styles.btnTxt}>💾 Enregistrer</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.btn, { backgroundColor: theme.colors.surfaceSecondary }]} onPress={() => setEditing(null)} testID="m-cancel">
+                    <Text style={[styles.btnTxt, { color: theme.colors.textPrimary }]}>Annuler</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+          </>
+        )}
+
+        {tab === "withdrawals" && (
+          <>
+            <View style={styles.filterRow}>
+              {(["pending", "validated", "rejected", ""] as const).map((f) => (
+                <TouchableOpacity
+                  key={f || "all"}
+                  style={[styles.fchip, wdFilter === f && styles.fchipOn]}
+                  onPress={() => setWdFilter(f)}
+                  testID={`mwd-filter-${f || "all"}`}
+                >
+                  <Text style={[styles.fchipTxt, wdFilter === f && { color: "#fff" }]}>
+                    {f === "" ? "Toutes" : f === "pending" ? "En attente" : f === "validated" ? "Validées" : "Rejetées"}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.lbl}>URL (YouTube / TikTok / Instagram / Facebook ou /api/uploads/...)</Text>
-            <TextInput style={styles.input} value={editing.url || ""} onChangeText={(v) => setEditing({ ...editing, url: v })} testID="m-url" />
-            <Text style={styles.lbl}>Durée minimum (secondes)</Text>
-            <TextInput style={styles.input} keyboardType="numeric" value={String(editing.duration_seconds || 0)} onChangeText={(v) => setEditing({ ...editing, duration_seconds: v })} testID="m-duration" />
-            <Text style={styles.lbl}>Récompense (FCFA)</Text>
-            <TextInput style={styles.input} keyboardType="numeric" value={String(editing.reward || 0)} onChangeText={(v) => setEditing({ ...editing, reward: v })} testID="m-reward" />
-            <Text style={styles.lbl}>Question de vérification (optionnel)</Text>
-            <TextInput style={styles.input} value={editing.question || ""} onChangeText={(v) => setEditing({ ...editing, question: v })} testID="m-q" />
-            <Text style={styles.lbl}>Réponse correcte (insensible à la casse)</Text>
-            <TextInput style={styles.input} value={editing.correct_answer || ""} onChangeText={(v) => setEditing({ ...editing, correct_answer: v })} testID="m-ans" />
-            <Text style={styles.lbl}>Date d'expiration ISO (optionnel)</Text>
-            <TextInput style={styles.input} value={editing.expires_at || ""} onChangeText={(v) => setEditing({ ...editing, expires_at: v })} placeholder="2026-12-31T23:59:59Z" placeholderTextColor={theme.colors.textSecondary} testID="m-exp" />
 
-            <TouchableOpacity
-              style={[styles.toggleRow, editing.active !== false ? styles.togOn : styles.togOff]}
-              onPress={() => setEditing({ ...editing, active: !(editing.active !== false) })}
-              testID="m-active"
-            >
-              <Ionicons name={editing.active !== false ? "checkmark-circle" : "close-circle"} size={16} color="#fff" />
-              <Text style={styles.togTxt}>{editing.active !== false ? "Active" : "Désactivée"}</Text>
-            </TouchableOpacity>
+            {withdrawals.length === 0 ? (
+              <Text style={styles.empty}>Aucune demande de retrait.</Text>
+            ) : withdrawals.map((w: any) => (
+              <View key={w.id} style={styles.wdRow} testID={`mwd-row-${w.id}`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>{w.username || w.user_id}</Text>
+                  <Text style={styles.meta}>
+                    {TYPE_LABEL[w.wallet] || w.wallet} • {new Date(w.created_at).toLocaleString("fr-FR")}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={styles.amt}>{Math.round(w.amount)} FCFA</Text>
+                  <View style={[styles.badge, w.status === "pending" ? styles.bgPending : w.status === "validated" ? styles.bgValid : styles.bgRejected]}>
+                    <Text style={styles.badgeTxt}>{w.status === "pending" ? "En attente" : w.status === "validated" ? "Validé" : "Rejeté"}</Text>
+                  </View>
+                </View>
+                {w.status === "pending" && (
+                  <View style={{ flexDirection: "column", gap: 6, marginLeft: 6 }}>
+                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => decide(w, "validate")} testID={`mwd-validate-${w.id}`}>
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.danger }]} onPress={() => decide(w, "reject")} testID={`mwd-reject-${w.id}`}>
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </>
+        )}
 
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: theme.colors.success }]} onPress={save} testID="m-save">
-                <Text style={styles.btnTxt}>💾 Enregistrer</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: theme.colors.surfaceSecondary }]} onPress={() => setEditing(null)} testID="m-cancel">
-                <Text style={[styles.btnTxt, { color: theme.colors.textPrimary }]}>Annuler</Text>
-              </TouchableOpacity>
+        {tab === "stats" && stats && (
+          <>
+            <View style={styles.statsRow}>
+              <View style={styles.stat}><Text style={styles.statN}>{stats.total_missions}</Text><Text style={styles.statL}>Missions</Text></View>
+              <View style={styles.stat}><Text style={styles.statN}>{stats.active_missions}</Text><Text style={styles.statL}>Actives</Text></View>
+              <View style={styles.stat}><Text style={styles.statN}>{stats.completions}</Text><Text style={styles.statL}>Validées</Text></View>
             </View>
-          </View>
-        ) : null}
+            <View style={styles.statsRow}>
+              <View style={styles.stat}><Text style={styles.statN}>{stats.active_users}</Text><Text style={styles.statL}>Utilisateurs actifs</Text></View>
+              <View style={[styles.stat, { flex: 2 }]}>
+                <Text style={[styles.statN, { color: theme.colors.success }]}>{Math.round(stats.total_rewards)} FCFA</Text>
+                <Text style={styles.statL}>Total versé</Text>
+              </View>
+            </View>
+
+            <Text style={[styles.formTitle, { marginTop: 14 }]}>📊 Récompenses par type</Text>
+            {TYPES.map((t) => {
+              const row = (stats.by_type || {})[t] || { rewards: 0, count: 0 };
+              return (
+                <View key={t} style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.title}>{TYPE_LABEL[t]}</Text>
+                    <Text style={styles.meta}>{row.count} validation(s)</Text>
+                  </View>
+                  <Text style={[styles.amt, { color: theme.colors.success }]}>{Math.round(row.rewards)} FCFA</Text>
+                </View>
+              );
+            })}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -170,7 +319,11 @@ export default function AdminMissions() {
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12 },
   hTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  statsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  tabRow: { flexDirection: "row", gap: 6, padding: 10, paddingBottom: 0 },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 18, backgroundColor: theme.colors.surfaceSecondary, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border },
+  tabOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  tabTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   stat: { flex: 1, padding: 10, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" },
   statN: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16 },
   statL: { color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 },
@@ -180,11 +333,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
   title: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 },
   meta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
+  amt: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 13 },
   editBtn: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary },
   delBtn: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.danger },
   formCard: { marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   formTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14, marginBottom: 8 },
   lbl: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "600", marginTop: 8, marginBottom: 3 },
+  help: { color: theme.colors.textSecondary, fontSize: 11, marginBottom: 6, fontStyle: "italic" },
   input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, color: theme.colors.textPrimary, backgroundColor: theme.colors.background },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   tchip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
@@ -196,4 +351,15 @@ const styles = StyleSheet.create({
   togTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
   btn: { flex: 1, paddingVertical: 11, borderRadius: 18, alignItems: "center" },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  fchip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  fchipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  fchipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
+  wdRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  badge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  badgeTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  bgPending: { backgroundColor: theme.colors.warning },
+  bgValid: { backgroundColor: theme.colors.success },
+  bgRejected: { backgroundColor: theme.colors.danger },
+  actBtn: { padding: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
 });
