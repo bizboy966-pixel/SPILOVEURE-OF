@@ -20,20 +20,19 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-14)
+### 2026-06-14 (correctif missions + cleanup audit)
+- 🐛 **Bug corrigé — Enregistrer une mission ne fonctionnait pas** : sur la page Admin → Gestion des Missions, le formulaire de création échouait silencieusement. Cause racine : (a) `Alert.alert()` de React Native ne fonctionne pas sur Web, donc les erreurs Pydantic (422) étaient invisibles ; (b) les champs `duration_seconds` et `reward` vides envoyaient `""` au backend, échouant `int_parsing`.
+- ✅ **Fix dans `/(admin)/missions.tsx`** : validation frontend (titre obligatoire, durée 0-3600, récompense ≥ 0), coercion stricte avec `parseInt`/`parseFloat` + `Number.isFinite`, et toutes les notifications passent par `window.alert` (visible sur Web) avec fallback `Alert.alert` natif.
+- ✅ **Cleanup — Page Audit supprimée** : suppression du panneau Audit & Correction (était une mauvaise interprétation de la demande utilisateur). Fichiers supprimés : `audit_admin.py`, `audit.py`, `tests/test_audit.py`, `frontend/app/(admin)/audit.tsx`. Bouton `admin-open-audit` retiré du dashboard admin. Routes `/api/admin/audit*` désormais 404.
+- ✅ **Tests** : 8/8 PASS backend (iteration_7) + Playwright E2E confirmé pour les 3 cas (titre vide, formulaire valide, durée vide).
+
 ### 2026-06-14 (correctif critique) — Débit de la réserve sur upgrade manuel utilisateur
 - 🐛 **Bug corrigé** : quand l'utilisateur cliquait « Activer Niveau N » depuis `/matrices` (endpoint `/api/activations/request` → `activate_level(source="manual")`), le niveau s'activait MAIS `balance_upgrade` n'était PAS débité. La réserve constituée pour cet upgrade restait dans le compte.
 - ✅ **Fix dans `matrix.py::activate_level`** : la liste des sources qui consomment la réserve est élargie à `("auto_upgrade", "manual", "admin_manual")`. Sources strictes (raise si insuffisant) : `auto_upgrade` + `manual`. Source permissive (admin override) : `admin_manual`. Sources externes (`secure_pay`, `gateway_return`, `sendavapay`, `manual_reprocess`, `admin_validate`) continuent de ne PAS toucher la réserve.
 - ✅ **Tests** : `/app/backend/tests/test_manual_upgrade_debit.py` 11/11 PASS (ajout de 2 cas user manual). E2E HTTP : user avec `balance_upgrade=1000, max_level=1` → après `POST /api/activations/request {level:2}` → `balance_upgrade=0, max_level=2`.
 
-### 2026-06-14 (suite) — Audit & Correction Plateforme (admin)
-- ✅ **Backend `/api/admin/audit`** : GET (rapport read-only — stats + summary + severity + issues), GET `/user/{username}` (deep audit case-insensitive sans password_hash), POST `/recompute?dry_run=bool&clean_orphan_placements=bool&trigger_pending_upgrades=bool&restore_admin_placements=bool` (idempotent, ne touche JAMAIS aux soldes `balance_profit`/`balance_upgrade`).
-- ✅ **Détection** : niveaux hors bornes, placements manquants/au-delà max, soldes négatifs, auto-upgrades en attente, sponsors orphelins, montants commission incorrects, mismatch upgrade+profit vs amount, mismatch compteurs (`commission_direct/spillover`, `total_earned`, `earnings_per_level`), placements orphelins, doublons, racines matrice multiples, activations payées non appliquées, soldes missions négatifs.
-- ✅ **Correction sécurisée** : recalcul des compteurs à partir de `commissions`, suppression placements orphelins, déclenchement auto-upgrades en attente (`try_auto_upgrade` cascadé), restauration placements admin manquants (1..max_level).
-- ✅ **Admin UI `/(admin)/audit`** : 3 onglets — Vue d'ensemble (stats, distribution par niveau, anomalies par catégorie avec sévérité 🔴🟠🟡), Recalcul (options + dry-run + apply avec confirmation), Utilisateur (recherche par username avec affichage soldes, commissions par niveau, filleuls directs, descendants par niveau, analyse upgrade en attente).
-- ✅ **Application preview** : admin `total_earned` 12000→6000, `earnings_per_level["1"]` 12000→6000 (vrai total des 4 commissions), 2 placements orphelins (vestige ancien admin supprimé) nettoyés, placements admin L1/L2 restaurés. Final : 0 anomalies.
-- ✅ **Backup automatique** : `/app/backups/dump_20260614_222415` (mongodump complet pré-correction).
-- ✅ **Tests** : `/app/backend/tests/test_audit.py` 10/10 PASS (iteration_6) — auth gating, structure, case-insensitive, 404, dry-run, no-op apply, immutabilité des soldes vérifiée.
-- ⚠️ **Production** : l'outil est conçu pour être utilisé sur `spiloveure.com` après redéploiement. Aucun accès direct DB requis — l'admin lance l'audit + recalcul depuis le panneau.
+### 2026-06-14 (suite) — [SUPPRIMÉ] Audit & Correction Plateforme
+- ❌ Le panneau d'audit ajouté précédemment a été retiré le 2026-06-14 sur demande de l'utilisateur (mauvaise interprétation : l'utilisateur voulait juste que les bugs soient corrigés, pas un outil dédié dans l'admin panel). Voir bloc « cleanup audit » ci-dessus.
 
 ### 2026-06-14 — Missions Rémunérées Phase 2 (retraits par portefeuille + admin)
 - ✅ **User /missions** : 5 cartes de portefeuilles (YouTube / TikTok / Instagram / Facebook / Questionnaire) avec bouton « Retirer » désactivé si solde 0. Modal de retrait propre à chaque portefeuille (`mission-withdraw-modal`) avec contrôle de solde immédiat. Onglet « Historique » : liste des demandes de retrait (statut En attente / Validé / Rejeté) + missions validées.
