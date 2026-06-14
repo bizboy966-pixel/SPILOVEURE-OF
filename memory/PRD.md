@@ -20,6 +20,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-14)
+### 2026-06-14 (suite) — Audit & Correction Plateforme (admin)
+- ✅ **Backend `/api/admin/audit`** : GET (rapport read-only — stats + summary + severity + issues), GET `/user/{username}` (deep audit case-insensitive sans password_hash), POST `/recompute?dry_run=bool&clean_orphan_placements=bool&trigger_pending_upgrades=bool&restore_admin_placements=bool` (idempotent, ne touche JAMAIS aux soldes `balance_profit`/`balance_upgrade`).
+- ✅ **Détection** : niveaux hors bornes, placements manquants/au-delà max, soldes négatifs, auto-upgrades en attente, sponsors orphelins, montants commission incorrects, mismatch upgrade+profit vs amount, mismatch compteurs (`commission_direct/spillover`, `total_earned`, `earnings_per_level`), placements orphelins, doublons, racines matrice multiples, activations payées non appliquées, soldes missions négatifs.
+- ✅ **Correction sécurisée** : recalcul des compteurs à partir de `commissions`, suppression placements orphelins, déclenchement auto-upgrades en attente (`try_auto_upgrade` cascadé), restauration placements admin manquants (1..max_level).
+- ✅ **Admin UI `/(admin)/audit`** : 3 onglets — Vue d'ensemble (stats, distribution par niveau, anomalies par catégorie avec sévérité 🔴🟠🟡), Recalcul (options + dry-run + apply avec confirmation), Utilisateur (recherche par username avec affichage soldes, commissions par niveau, filleuls directs, descendants par niveau, analyse upgrade en attente).
+- ✅ **Application preview** : admin `total_earned` 12000→6000, `earnings_per_level["1"]` 12000→6000 (vrai total des 4 commissions), 2 placements orphelins (vestige ancien admin supprimé) nettoyés, placements admin L1/L2 restaurés. Final : 0 anomalies.
+- ✅ **Backup automatique** : `/app/backups/dump_20260614_222415` (mongodump complet pré-correction).
+- ✅ **Tests** : `/app/backend/tests/test_audit.py` 10/10 PASS (iteration_6) — auth gating, structure, case-insensitive, 404, dry-run, no-op apply, immutabilité des soldes vérifiée.
+- ⚠️ **Production** : l'outil est conçu pour être utilisé sur `spiloveure.com` après redéploiement. Aucun accès direct DB requis — l'admin lance l'audit + recalcul depuis le panneau.
+
 ### 2026-06-14 — Missions Rémunérées Phase 2 (retraits par portefeuille + admin)
 - ✅ **User /missions** : 5 cartes de portefeuilles (YouTube / TikTok / Instagram / Facebook / Questionnaire) avec bouton « Retirer » désactivé si solde 0. Modal de retrait propre à chaque portefeuille (`mission-withdraw-modal`) avec contrôle de solde immédiat. Onglet « Historique » : liste des demandes de retrait (statut En attente / Validé / Rejeté) + missions validées.
 - ✅ **Admin /(admin)/missions** : refonte en 3 onglets — `Missions` (CRUD + recherche + MediaUploader vidéo intégré au formulaire), `Retraits` (filtres pending/validated/rejected/toutes + actions ✓/✗ inline), `Stats` (totaux + ventilation par type).

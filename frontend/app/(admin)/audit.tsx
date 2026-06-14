@@ -390,7 +390,12 @@ function UserTab({ username, setUsername, lookup, loading, report, error }: any)
       </View>
 
       {loading ? <ActivityIndicator color={theme.colors.primary} /> : null}
-      {error ? <Text style={styles.err}>{error}</Text> : null}
+      {error ? (
+        <View style={styles.errBanner} testID="audit-user-error">
+          <Ionicons name="alert-circle" size={16} color={theme.colors.danger} />
+          <Text style={styles.errBannerTxt}>{error}</Text>
+        </View>
+      ) : null}
 
       {report ? (
         <>
@@ -551,6 +556,8 @@ const styles = StyleSheet.create({
   searchI: { flex: 1, color: theme.colors.textPrimary, fontSize: 13 },
   searchBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.primary },
   err: { color: theme.colors.danger, fontWeight: "700", marginTop: 6 },
+  errBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10, backgroundColor: theme.colors.dangerBg, borderLeftWidth: 4, borderLeftColor: theme.colors.danger, marginVertical: 8 },
+  errBannerTxt: { color: theme.colors.danger, fontWeight: "700", fontSize: 12, flex: 1 },
   userCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10 },
   userName: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16 },
   userEmail: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 },

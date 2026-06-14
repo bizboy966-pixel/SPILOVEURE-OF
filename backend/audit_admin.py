@@ -346,9 +346,7 @@ async def recompute(
     """
     db = request.app.state.db
     from datetime import datetime, timezone as _tz
-    plan: dict = {"counter_updates": [], "orphan_placements_deleted": [], "upgrades_triggered": [], "admin_placements_restored": []}
-
-    # --- 1) Recompute counters ---
+    plan: dict = {"counter_updates": [], "orphan_placements_deleted": [], "upgrades_triggered": [], "admin_placements_restored": []}    # --- 1) Recompute counters ---
     users = await db.users.find({}, {"_id": 0}).to_list(100000)
     commissions = await db.commissions.find({}, {"_id": 0}).to_list(100000)
     direct_credit: dict = defaultdict(float)
@@ -461,7 +459,6 @@ async def recompute(
                     "user": _u(admin), "level": lvl,
                 })
                 if not dry_run:
-                    from datetime import datetime, timezone as _tz
                     await db.matrix_placements.insert_one({
                         "user_id": admin_id, "level": lvl,
                         "parent_id": None, "leg": None,
@@ -477,7 +474,3 @@ async def recompute(
         "admin_placements_restored": len(plan["admin_placements_restored"]),
     }
     return plan
-
-
-async def _restore_admin_placements_unused():
-    pass
