@@ -2240,6 +2240,36 @@ async def admin_webhook_logs(request: Request, limit: int = 50):
     return {"items": out, "count": len(out)}
 
 
+@admin_router.post("/payments/{reference}/reprocess")
+async def admin_reprocess_payment(reference: str, request: Request, admin=Depends(require_admin)):
+    """Force-activate a paid payment whose activation step failed.
+
+    Useful when the webhook arrived (status=paid) but `activate_level`
+    raised an exception — see `activation_error` field on the payment.
+    """
+    db = request.app.state.db
+    p = await db.payments.find_one({"reference": reference}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Paiement introuvable")
+    if p.get("status") != "paid":
+        raise HTTPException(400, f"Le paiement n'est pas en statut paid (actuel: {p.get('status')})")
+    if p.get("activation_done"):
+        return {"ok": True, "already_activated": True, "level": p.get("level")}
+    try:
+        await activate_level(db, p["user_id"], int(p["level"]), source="manual_reprocess")
+        await db.payments.update_one(
+            {"reference": reference},
+            {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
+        )
+        return {"ok": True, "level": p["level"], "user_id": p["user_id"]}
+    except Exception as exc:
+        await db.payments.update_one(
+            {"reference": reference},
+            {"$set": {"activation_error": str(exc)}},
+        )
+        raise HTTPException(500, f"Activation échouée: {exc}")
+
+
 @admin_router.get("/settings/westpay")
 async def admin_get_westpay_settings(request: Request):
     db = request.app.state.db

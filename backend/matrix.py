@@ -251,8 +251,12 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
         raise ValueError("Vous devez activer les niveaux dans l'ordre")
     lv = LEVELS_BY_NUM[level]
     sponsor_id = user.get("sponsor_id")
-    # For level >= 2, deduct from balance_upgrade
-    if level >= 2:
+    # Deduct from balance_upgrade ONLY when the activation is paid from the
+    # internal reserve (cascade auto-upgrade). External payments (WestPay,
+    # SendavaPay, manual Mobile Money / Crypto validated by admin) settle the
+    # price out-of-band and must NOT touch the reserve — otherwise users can
+    # never activate level >= 2 via an external deposit.
+    if level >= 2 and source == "auto_upgrade":
         if user.get("balance_upgrade", 0) < lv["price"]:
             raise ValueError("Réserve de mise à niveau insuffisante")
         await db.users.update_one(
