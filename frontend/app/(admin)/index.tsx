@@ -321,6 +321,23 @@ export default function AdminHome() {
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.success }]}
+              onPress={() => router.push("/(admin)/missions" as any)}
+              testID="admin-open-missions-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="videocam" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>🎥 Gestion des Missions</Text>
+                <Text style={styles.contentMgmtSub}>
+                  YouTube • TikTok • Instagram • Facebook • Questionnaires
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
             {stuck.length > 0 && (
               <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>

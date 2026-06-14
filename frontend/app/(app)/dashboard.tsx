@@ -19,6 +19,7 @@ export default function Dashboard() {
   const { user, refresh } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
+  const [missionWallets, setMissionWallets] = useState<any>({ wallets: [], total: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -33,6 +34,10 @@ export default function Dashboard() {
     try {
       const d = await api.get("/dashboard");
       setStats(d);
+      try {
+        const mw = await api.get<any>("/me/mission-wallets");
+        setMissionWallets(mw);
+      } catch {}
     } catch (e: any) {
       console.log("dashboard error", e);
     }
@@ -196,6 +201,40 @@ export default function Dashboard() {
               <Text style={styles.detailLabel}>🔒 Réserve mise à niveau</Text>
               <Text style={[styles.detailValue, { color: theme.colors.warning }]}>{formatFCFA(stats?.balance_upgrade)}</Text>
             </View>
+          </View>
+        </Card>
+
+        {/* Mission wallets — 5 portefeuilles séparés */}
+        <Card style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="videocam" size={18} color={theme.colors.primary} />
+              <Text style={styles.sectionTitle}>🎥 Mes Revenus de Missions</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => router.push("/(app)/missions" as any)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              testID="dashboard-go-missions"
+            >
+              <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 12 }}>Voir missions</Text>
+              <Ionicons name="chevron-forward" size={14} color={theme.colors.primary} />
+            </TouchableOpacity>
+          </View>
+          {(missionWallets.wallets || []).map((w: any) => {
+            const labels: any = { youtube: "📺 YouTube", tiktok: "🎵 TikTok", instagram: "📸 Instagram", facebook: "📘 Facebook", questionnaire: "📝 Questionnaires" };
+            return (
+              <View key={w.type} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <View>
+                  <Text style={{ color: theme.colors.textPrimary, fontWeight: "600", fontSize: 13 }}>{labels[w.type] || w.type}</Text>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 }}>{w.completed} tâches</Text>
+                </View>
+                <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 14 }}>{formatFCFA(w.balance)}</Text>
+              </View>
+            );
+          })}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 8, marginTop: 4 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: "800" }}>💰 Total Missions</Text>
+            <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 16 }}>{formatFCFA(missionWallets.total || 0)}</Text>
           </View>
         </Card>
 

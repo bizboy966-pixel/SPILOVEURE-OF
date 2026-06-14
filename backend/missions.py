@@ -1,0 +1,228 @@
+"""Paid Missions module — completely isolated from MLM commissions.
+
+5 separate wallets (`balance_youtube`, `balance_tiktok`, `balance_instagram`,
+`balance_facebook`, `balance_questionnaire`) live directly on the `users`
+document. Existing MLM balances (`balance_profit`, `balance_upgrade`) are
+NEVER touched by mission completions.
+
+Time-window: missions are publicly accessible only on Mon-Fri 08:00-16:00
+Africa/Lomé (UTC+0). Outside that window the GET /api/missions endpoint
+returns an empty list with a `window_open=False` flag.
+"""
+from __future__ import annotations
+import uuid
+from datetime import datetime, timezone
+from typing import Optional, List
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from auth import get_current_user, require_admin
+
+# 5 mission types — each maps 1-to-1 to a user balance field.
+MISSION_TYPES = ["youtube", "tiktok", "instagram", "facebook", "questionnaire"]
+BALANCE_FIELD = {t: f"balance_{t}" for t in MISSION_TYPES}
+COMPLETED_FIELD = {t: f"completed_{t}" for t in MISSION_TYPES}
+
+# Allowed days (0=Mon … 6=Sun) and time window — admin-configurable later.
+ALLOWED_DAYS = [0, 1, 2, 3, 4]  # Mon-Fri
+OPEN_HM = (8, 0)
+CLOSE_HM = (16, 0)
+
+
+def _window_open_now() -> bool:
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Africa/Lome")
+    except Exception:
+        tz = timezone.utc
+    now = datetime.now(tz)
+    if now.weekday() not in ALLOWED_DAYS:
+        return False
+    cur = now.hour * 60 + now.minute
+    return OPEN_HM[0] * 60 + OPEN_HM[1] <= cur < CLOSE_HM[0] * 60 + CLOSE_HM[1]
+
+
+class MissionIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    type: str  # one of MISSION_TYPES
+    url: str = ""                       # YouTube/TikTok/IG/FB link OR local upload URL
+    duration_seconds: int = Field(default=60, ge=0, le=3600)
+    reward: float = Field(default=50, ge=0)
+    question: str = ""                  # optional verification question
+    correct_answer: str = ""            # optional — case-insensitive compare
+    expires_at: Optional[str] = None    # ISO datetime
+    active: bool = True
+
+
+public = APIRouter(prefix="/api", tags=["missions"])
+admin = APIRouter(prefix="/api/admin", tags=["missions_admin"])
+
+
+@public.get("/missions")
+async def list_missions(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    open_now = _window_open_now()
+    if not open_now:
+        return {
+            "window_open": False,
+            "message": "🚫 Missions actuellement indisponibles.\n📅 Disponibles du lundi au vendredi entre 08h00 et 16h00.",
+            "items": [],
+        }
+    cur = db.missions.find({"active": True}, {"_id": 0}).sort("created_at", -1)
+    items = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async for m in cur:
+        if m.get("expires_at") and m["expires_at"] < now_iso:
+            continue
+        # Mark as already completed by this user
+        done = await db.mission_completions.find_one(
+            {"user_id": user["id"], "mission_id": m["id"]}, {"_id": 1}
+        )
+        m["completed_by_user"] = bool(done)
+        items.append(m)
+    return {"window_open": True, "items": items}
+
+
+@public.post("/missions/{mission_id}/complete")
+async def complete_mission(mission_id: str, body: dict, request: Request, user=Depends(get_current_user)):
+    """Body: { watched_seconds: int, answer: str }. Idempotent — one reward per (user, mission)."""
+    db = request.app.state.db
+    if not _window_open_now():
+        raise HTTPException(403, "Missions disponibles du lundi au vendredi entre 08h00 et 16h00.")
+    m = await db.missions.find_one({"id": mission_id, "active": True}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Mission introuvable ou désactivée")
+    if m.get("expires_at") and m["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(410, "Mission expirée")
+    # Anti-fraud: must watch at least the configured duration
+    watched = int(body.get("watched_seconds") or 0)
+    if watched < int(m.get("duration_seconds") or 0):
+        raise HTTPException(400, f"Veuillez visionner la vidéo entièrement (au moins {m.get('duration_seconds')}s).")
+    # Verification question
+    if m.get("question") and m.get("correct_answer"):
+        ans = str(body.get("answer") or "").strip().lower()
+        if ans != str(m["correct_answer"]).strip().lower():
+            raise HTTPException(400, "Réponse incorrecte. Réessayez après avoir bien regardé la vidéo.")
+    # Idempotency
+    existing = await db.mission_completions.find_one(
+        {"user_id": user["id"], "mission_id": mission_id}, {"_id": 1}
+    )
+    if existing:
+        raise HTTPException(409, "Mission déjà validée — récompense déjà créditée.")
+    mtype = m["type"]
+    if mtype not in MISSION_TYPES:
+        raise HTTPException(400, "Type de mission invalide")
+    reward = float(m.get("reward") or 0)
+    bal_field = BALANCE_FIELD[mtype]
+    cnt_field = COMPLETED_FIELD[mtype]
+    await db.mission_completions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "mission_id": mission_id,
+        "mission_type": mtype,
+        "reward": reward,
+        "completed_at": datetime.now(timezone.utc),
+    })
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$inc": {bal_field: reward, cnt_field: 1, "balance_missions_total": reward}},
+    )
+    return {"ok": True, "reward": reward, "wallet": mtype}
+
+
+@public.get("/me/mission-wallets")
+async def my_mission_wallets(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
+    wallets = []
+    total = 0.0
+    for t in MISSION_TYPES:
+        bal = float(u.get(BALANCE_FIELD[t]) or 0)
+        cnt = int(u.get(COMPLETED_FIELD[t]) or 0)
+        total += bal
+        wallets.append({"type": t, "balance": bal, "completed": cnt})
+    return {"window_open": _window_open_now(), "total": total, "wallets": wallets}
+
+
+# ============ ADMIN ============
+
+@admin.get("/missions")
+async def admin_list_missions(request: Request, q: str = "", _=Depends(require_admin)):
+    db = request.app.state.db
+    filt: dict = {}
+    if q:
+        filt = {"$or": [
+            {"title": {"$regex": q, "$options": "i"}},
+            {"id": {"$regex": q, "$options": "i"}},
+            {"type": {"$regex": q, "$options": "i"}},
+        ]}
+    cur = db.missions.find(filt, {"_id": 0}).sort("created_at", -1).limit(200)
+    out = []
+    async for d in cur:
+        out.append(d)
+    return out
+
+
+@admin.post("/missions")
+async def admin_create_mission(body: MissionIn, request: Request, who=Depends(require_admin)):
+    if body.type not in MISSION_TYPES:
+        raise HTTPException(400, f"Type invalide. Autorisés: {MISSION_TYPES}")
+    db = request.app.state.db
+    doc = body.dict()
+    doc["id"] = str(uuid.uuid4())
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["created_by"] = who.get("username")
+    await db.missions.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@admin.put("/missions/{mission_id}")
+async def admin_update_mission(mission_id: str, body: MissionIn, request: Request, _=Depends(require_admin)):
+    if body.type not in MISSION_TYPES:
+        raise HTTPException(400, f"Type invalide. Autorisés: {MISSION_TYPES}")
+    db = request.app.state.db
+    upd = body.dict()
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.missions.update_one({"id": mission_id}, {"$set": upd})
+    if not r.matched_count:
+        raise HTTPException(404, "Mission introuvable")
+    doc = await db.missions.find_one({"id": mission_id}, {"_id": 0})
+    return doc
+
+
+@admin.delete("/missions/{mission_id}")
+async def admin_delete_mission(mission_id: str, request: Request, _=Depends(require_admin)):
+    db = request.app.state.db
+    r = await db.missions.delete_one({"id": mission_id})
+    if not r.deleted_count:
+        raise HTTPException(404, "Mission introuvable")
+    return {"ok": True}
+
+
+@admin.get("/missions/stats")
+async def admin_mission_stats(request: Request, _=Depends(require_admin)):
+    db = request.app.state.db
+    total = await db.missions.count_documents({})
+    active = await db.missions.count_documents({"active": True})
+    done = await db.mission_completions.count_documents({})
+    agg = db.mission_completions.aggregate([
+        {"$group": {"_id": "$mission_type", "rewards": {"$sum": "$reward"}, "count": {"$sum": 1}}}
+    ])
+    by_type = {}
+    total_rewards = 0.0
+    async for row in agg:
+        by_type[row["_id"]] = {"rewards": float(row["rewards"]), "count": int(row["count"])}
+        total_rewards += float(row["rewards"])
+    active_users = len(await db.mission_completions.distinct("user_id"))
+    return {
+        "total_missions": total,
+        "active_missions": active,
+        "completions": done,
+        "active_users": active_users,
+        "total_rewards": total_rewards,
+        "by_type": by_type,
+    }

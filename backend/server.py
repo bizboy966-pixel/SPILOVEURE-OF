@@ -2800,3 +2800,8 @@ from digital_content import (  # noqa: E402
 )
 app.include_router(dc_public_router)
 app.include_router(dc_admin_router)
+
+# Paid Missions module — isolated wallets, no impact on MLM commissions.
+from missions import public as missions_public, admin as missions_admin  # noqa: E402
+app.include_router(missions_public)
+app.include_router(missions_admin)
