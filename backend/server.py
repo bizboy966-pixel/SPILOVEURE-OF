@@ -2805,3 +2805,7 @@ app.include_router(dc_admin_router)
 from missions import public as missions_public, admin as missions_admin  # noqa: E402
 app.include_router(missions_public)
 app.include_router(missions_admin)
+
+# Platform audit & recompute — read-only report + safe idempotent fixer.
+from audit_admin import router as audit_router  # noqa: E402
+app.include_router(audit_router)
