@@ -79,6 +79,36 @@ def test_admin_manual_debits_reserve_when_sufficient(db, admin_id):
         _cleanup(db, uid)
 
 
+def test_user_manual_upgrade_debits_reserve(db, admin_id):
+    """USER clicks 'Activer Niveau N' from /matrices → source='manual' → reserve MUST be debited.
+
+    This was the bug reported by the user: manual user-initiated upgrade was
+    activating the level WITHOUT debiting balance_upgrade.
+    """
+    uid = _make_user(db, admin_id, balance_upgrade=1000)
+    try:
+        _run(activate_level(db, uid, 2, source="manual"))
+        u = _run(db.users.find_one({"id": uid}, {"_id": 0}))
+        assert u["balance_upgrade"] == 0, f"user manual upgrade must debit reserve, got {u['balance_upgrade']}"
+        assert u["max_level"] == 2
+    finally:
+        _cleanup(db, uid)
+
+
+def test_user_manual_upgrade_insufficient_reserve_raises(db, admin_id):
+    """USER manual upgrade with reserve<price MUST raise (no free upgrade)."""
+    uid = _make_user(db, admin_id, balance_upgrade=500)
+    try:
+        with pytest.raises(ValueError, match="Réserve"):
+            _run(activate_level(db, uid, 2, source="manual"))
+        u = _run(db.users.find_one({"id": uid}, {"_id": 0}))
+        # level NOT activated, reserve untouched
+        assert u["max_level"] == 1
+        assert u["balance_upgrade"] == 500
+    finally:
+        _cleanup(db, uid)
+
+
 @pytest.mark.parametrize("src", ["secure_pay", "gateway_return", "sendavapay", "manual_reprocess", "admin_validate"])
 def test_external_payment_does_not_debit_reserve(db, admin_id, src):
     """External payment sources MUST keep reserve intact."""
