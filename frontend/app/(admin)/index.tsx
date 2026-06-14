@@ -338,23 +338,6 @@ export default function AdminHome() {
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.danger }]}
-              onPress={() => router.push("/(admin)/audit" as any)}
-              testID="admin-open-audit"
-            >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="shield-checkmark" size={24} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.contentMgmtTitle}>🔍 Audit & Correction Plateforme</Text>
-                <Text style={styles.contentMgmtSub}>
-                  Niveaux • Commissions • Upgrades • Matrice • Recalcul sécurisé
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
-            </TouchableOpacity>
-
             {stuck.length > 0 && (
               <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>

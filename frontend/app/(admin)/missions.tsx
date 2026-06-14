@@ -53,17 +53,33 @@ export default function AdminMissions() {
   useEffect(() => { load(); }, [load]);
 
   const save = async () => {
+    // Frontend validation
+    const title = String(editing.title || "").trim();
+    if (!title) {
+      if (typeof window !== "undefined") window.alert("❌ Le titre est obligatoire");
+      return;
+    }
+    const duration = parseInt(String(editing.duration_seconds), 10);
+    if (!Number.isFinite(duration) || duration < 0 || duration > 3600) {
+      if (typeof window !== "undefined") window.alert("❌ Durée invalide (0 à 3600 secondes)");
+      return;
+    }
+    const reward = parseFloat(String(editing.reward));
+    if (!Number.isFinite(reward) || reward < 0) {
+      if (typeof window !== "undefined") window.alert("❌ Récompense invalide");
+      return;
+    }
     try {
       const body = {
-        title: editing.title || "",
-        description: editing.description || "",
+        title,
+        description: String(editing.description || ""),
         type: editing.type || "youtube",
-        url: editing.url || "",
-        duration_seconds: Number(editing.duration_seconds) || 60,
-        reward: Number(editing.reward) || 50,
-        question: editing.question || "",
-        correct_answer: editing.correct_answer || "",
-        expires_at: editing.expires_at || null,
+        url: String(editing.url || ""),
+        duration_seconds: duration,
+        reward,
+        question: String(editing.question || ""),
+        correct_answer: String(editing.correct_answer || ""),
+        expires_at: editing.expires_at ? String(editing.expires_at) : null,
         active: editing.active !== false,
       };
       if (editing.id) await api.put(`/admin/missions/${editing.id}`, body);
@@ -72,14 +88,20 @@ export default function AdminMissions() {
       await load();
       if (typeof window !== "undefined") window.alert("✅ Mission enregistrée");
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Échec");
+      const msg = e?.detail
+        ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail))
+        : "Échec de l'enregistrement";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+      else Alert.alert("Erreur", msg);
     }
   };
 
   const del = async (m: any) => {
     if (typeof window !== "undefined" && !window.confirm(`Supprimer "${m.title}" ?`)) return;
     try { await api.delete(`/admin/missions/${m.id}`); await load(); } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Échec");
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+      else Alert.alert("Erreur", msg);
     }
   };
 
@@ -91,7 +113,9 @@ export default function AdminMissions() {
       await load();
       if (typeof window !== "undefined") window.alert(`✅ Retrait ${action === "validate" ? "validé" : "rejeté"}`);
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Échec");
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+      else Alert.alert("Erreur", msg);
     }
   };
 
