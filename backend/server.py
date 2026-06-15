@@ -1917,6 +1917,18 @@ async def admin_reprocess_payment(reference: str, request: Request, admin=Depend
         raise HTTPException(400, f"Le paiement n'est pas en statut paid (actuel: {p.get('status')})")
     if p.get("activation_done"):
         return {"ok": True, "already_activated": True, "level": p.get("level")}
+    # If the underlying user is already at-or-above this level, just mark the
+    # payment as activated without calling activate_level again (which would
+    # raise "Vous devez activer les niveaux dans l'ordre"). This handles the
+    # case where a previous activation succeeded but the activation_done flag
+    # was not set due to a downstream error.
+    u = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1}) or {}
+    if int(u.get("max_level") or 0) >= int(p["level"]):
+        await db.payments.update_one(
+            {"reference": reference},
+            {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
+        )
+        return {"ok": True, "already_activated": True, "level": p["level"], "reconciled": True}
     try:
         await activate_level(db, p["user_id"], int(p["level"]), source="manual_reprocess")
         await db.payments.update_one(

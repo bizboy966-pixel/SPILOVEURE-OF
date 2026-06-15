@@ -20,6 +20,12 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — Page admin "Paiements SendavaPay" + idempotence reprocess
+- ✅ **Backend `GET /api/admin/payments`** : liste paginée avec filtres (`status`, `stuck_only`, `q` recherche par référence/username/transaction_id). Retourne `{items, count, counts:{total,pending,paid,failed,stuck}}` pour les badges UI.
+- ✅ **Frontend `/(admin)/payments.tsx`** : grille de stats (5 compteurs), 5 chips de filtre, barre de recherche temps réel, cards par paiement avec badge de statut, bouton "🚨 FORCER L'ACTIVATION" sur les paiements bloqués, lien "Ouvrir la page de paiement" pour les pendants. Bouton d'accès `admin-open-payments-mgmt` ajouté au dashboard admin.
+- 🐛 **Bug corrigé — idempotence** : `place_in_matrix` lève désormais une placement existante au lieu de raise `E11000 duplicate key`. Le endpoint `reprocess` détecte aussi le cas où `user.max_level >= payment.level` (activation déjà faite ailleurs) et reconcilie le flag `activation_done=true` sans relancer `activate_level`.
+- ✅ **Tests** : 36/36 PASS (2 nouveaux dans `test_reprocess_idempotency.py` : placement idempotent + reprocess reconciliation).
+
 ### 2026-06-15 — Migration totale vers SendavaPay (suppression WestPay / SecurePay)
 - 🎯 **Objectif** : remplacer toutes les passerelles automatiques (WestPay, SecurePay) par la nouvelle intégration SendavaPay avec les credentials fournis par l'utilisateur.
 - ✅ **Backend — suppressions** :

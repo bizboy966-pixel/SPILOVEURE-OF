@@ -14,7 +14,18 @@ async def place_in_matrix(db, user_id: str, sponsor_id: Optional[str], level: in
 
     Strategy: try sponsor first; if both legs full at that level, BFS through descendants.
     The matrix is stored in collection `matrix_placements` keyed by (user_id, level).
+
+    Idempotent: if a placement already exists for (user_id, level) it is returned as-is
+    instead of raising a duplicate-key error. This makes retries (admin reprocess of a
+    stuck payment) safe.
     """
+    existing = await db.matrix_placements.find_one(
+        {"user_id": user_id, "level": level}, {"_id": 0},
+    )
+    if existing:
+        log.info(f"place_in_matrix idempotent: placement already exists for {user_id} L{level}")
+        return existing
+
     if not sponsor_id:
         # admin or first user with no sponsor
         placement = {
