@@ -19,7 +19,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-14)
+## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — Outil d'audit & correction rétroactive des réserves d'upgrade (production-ready)
+- 🎯 **Objectif** : permettre la correction rétroactive des utilisateurs déjà impactés par le bug "manual upgrade ne débite pas la réserve" (qui a sévi avant le fix du 14/06).
+- ✅ **Module backend** `/app/backend/upgrade_audit.py` :
+  - Calcul d'écart par user : `balance_upgrade_attendu = Σ(commissions.upgrade_share) − Σ(prix niveaux 2..max_level)`. Si écart > 1 FCFA → sur-crédité.
+  - Détection des utilisateurs bloqués (réserve suffisante + matrice remplie mais non upgradés).
+  - Correction : débit atomique conditionnel (`$gte` + `$inc`) + `try_auto_upgrade` cascadé. Persistance dans `upgrade_audit_log`.
+- ✅ **3 endpoints admin-only (sans UI, appelables via curl/Postman)** :
+  - `GET /api/admin/upgrade-audit` → rapport read-only (JSON)
+  - `POST /api/admin/upgrade-audit/apply?dry_run=true|false&fix_over_credited=&trigger_stuck=` → simulation puis application
+  - `GET /api/admin/upgrade-audit/log?limit=200` → historique des corrections appliquées
+- ✅ **Guide opérationnel production** : `/app/memory/UPGRADE_AUDIT_PROD_GUIDE.md` — workflow étape-par-étape avec curl, pour exécution sur `spiloveure.com` après redéploiement.
+- ✅ **Validation E2E preview** :
+  - Cas sur-crédité (7000 FCFA réserve, max_level=3 avec 7 commissions = upgrade_share 7000) → détecté + débité de 3000 → balance final 4000 ✅
+  - Cas bloqué (1000 réserve, matrice remplie au L1, niveau L1) → détecté + auto-upgradé vers L2, réserve 0 ✅
+  - Audit final : 0 anomalies ✅
+- ✅ **Tests** : 15/15 PASS (`test_upgrade_audit.py` 4 nouveaux + `test_manual_upgrade_debit.py` 11 régression).
+- ✅ **Backup automatique** : `/app/backups/dump_20260615_080632`.
+- 🔒 **Garanties** : `balance_profit`, `commission_*`, `commissions[]`, `activations[]` ne sont JAMAIS modifiés. Seul `balance_upgrade` est ajusté + `max_level` augmenté via `try_auto_upgrade`. Toute action est journalisée.
+
 ### 2026-06-14 (correctif missions + cleanup audit)
 - 🐛 **Bug corrigé — Enregistrer une mission ne fonctionnait pas** : sur la page Admin → Gestion des Missions, le formulaire de création échouait silencieusement. Cause racine : (a) `Alert.alert()` de React Native ne fonctionne pas sur Web, donc les erreurs Pydantic (422) étaient invisibles ; (b) les champs `duration_seconds` et `reward` vides envoyaient `""` au backend, échouant `int_parsing`.
 - ✅ **Fix dans `/(admin)/missions.tsx`** : validation frontend (titre obligatoire, durée 0-3600, récompense ≥ 0), coercion stricte avec `parseInt`/`parseFloat` + `Number.isFinite`, et toutes les notifications passent par `window.alert` (visible sur Web) avec fallback `Alert.alert` natif.

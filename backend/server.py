@@ -2805,3 +2805,7 @@ app.include_router(dc_admin_router)
 from missions import public as missions_public, admin as missions_admin  # noqa: E402
 app.include_router(missions_public)
 app.include_router(missions_admin)
+
+# One-shot upgrade reserve audit (admin-only, no UI).
+from upgrade_audit import router as upgrade_audit_router  # noqa: E402
+app.include_router(upgrade_audit_router)
