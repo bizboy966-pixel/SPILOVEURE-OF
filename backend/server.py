@@ -1855,6 +1855,53 @@ async def admin_stuck_payments(request: Request, limit: int = 50):
     return {"items": items, "count": len(items)}
 
 
+@admin_router.get("/payments")
+async def admin_list_payments(
+    request: Request,
+    status_filter: Optional[str] = Query(None, alias="status",
+        description="Filter by status: pending, paid, failed"),
+    stuck_only: bool = Query(False, description="Show only paid+not-activated"),
+    q: Optional[str] = Query(None, description="Search reference/username/transaction_id"),
+    limit: int = 100,
+):
+    """List all payments (SendavaPay) with optional filters for the admin UI."""
+    db = request.app.state.db
+    flt: dict = {}
+    if stuck_only:
+        flt["status"] = "paid"
+        flt["activation_done"] = {"$ne": True}
+    elif status_filter:
+        flt["status"] = status_filter
+    if q:
+        flt["$or"] = [
+            {"reference": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+            {"transaction_id": {"$regex": q, "$options": "i"}},
+        ]
+
+    cursor = db.payments.find(flt, {
+        "_id": 0, "reference": 1, "provider": 1, "user_id": 1, "username": 1,
+        "level": 1, "amount": 1, "currency": 1, "phone": 1, "country_code": 1,
+        "status": 1, "activation_done": 1, "activation_error": 1,
+        "transaction_id": 1, "payment_url": 1, "created_at": 1, "updated_at": 1,
+    }).sort("created_at", -1).limit(min(max(1, limit), 500))
+    items = []
+    async for d in cursor:
+        for k in ("created_at", "updated_at"):
+            if isinstance(d.get(k), datetime):
+                d[k] = d[k].isoformat()
+        items.append(d)
+    # Aggregate counts for the badge UI
+    counts = {
+        "total": await db.payments.count_documents({}),
+        "pending": await db.payments.count_documents({"status": "pending"}),
+        "paid": await db.payments.count_documents({"status": "paid"}),
+        "failed": await db.payments.count_documents({"status": "failed"}),
+        "stuck": await db.payments.count_documents({"status": "paid", "activation_done": {"$ne": True}}),
+    }
+    return {"items": items, "count": len(items), "counts": counts}
+
+
 @admin_router.post("/payments/{reference}/reprocess")
 async def admin_reprocess_payment(reference: str, request: Request, admin=Depends(require_admin)):
     """Force-activate a paid payment whose activation step failed.

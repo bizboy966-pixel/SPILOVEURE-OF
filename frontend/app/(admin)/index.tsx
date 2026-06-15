@@ -322,6 +322,23 @@ export default function AdminHome() {
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.warning }]}
+              onPress={() => router.push("/(admin)/payments" as any)}
+              testID="admin-open-payments-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="card" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>💳 Paiements SendavaPay</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Tous les paiements • Bloqués • Forcer l'activation
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
             {stuck.length > 0 && (
               <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
