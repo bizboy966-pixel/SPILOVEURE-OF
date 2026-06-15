@@ -20,6 +20,23 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — Migration totale vers SendavaPay (suppression WestPay / SecurePay)
+- 🎯 **Objectif** : remplacer toutes les passerelles automatiques (WestPay, SecurePay) par la nouvelle intégration SendavaPay avec les credentials fournis par l'utilisateur.
+- ✅ **Backend — suppressions** :
+  - Fichier `secure_pay.py` supprimé.
+  - 515 lignes retirées de `server.py` : routes `/payments/secure/initiate`, `/payments/secure/status`, `/payments/secure/webhook`, `/payments/secure/verify/{ref}`, `/payments/westpay/initiate`, `/westpay-webhook`, `/settings/westpay` (public), admin `/settings/secure-payment`, admin `/settings/westpay`, classes `InitiatePaymentIn`/`WestpayAutoSettings`/`SecurePaymentSettings`/`WestpayInitiateIn`, fonctions `_process_payment_event`. Conservés : `_new_order_id`, `_record_payment_event`, `/payments/{ref}/status` (utilisés par SendavaPay).
+  - `.env` : retiré `WESTPAY_*` (8 clés) et `SECURE_PAY_*` (2 clés).
+- ✅ **Backend — nouvelles credentials SendavaPay** : `SENDAVAPAY_API_KEY=pk_live_4RPwLobC1oMuOXdEmlo0DoPk7plpL9wt`, `SENDAVAPAY_WEBHOOK_SECRET=whsec_7d1cd59d560fc9e4cb38b1b3ee9a873fbe682c45fa948807`, `SENDAVAPAY_SUCCESS_URL=https://spiloveure.com/services`.
+- ✅ **Backend — schéma `/api/settings/payments` mis à jour** : retourne `{sendava_enabled, sendava_excluded_countries, manual_enabled, crypto_enabled, crypto?}`. Plus de `secure_*` / `westpay_*`.
+- ✅ **Frontend `/activation.tsx`** : `paymentMode` union passée de `westpay|manual|crypto` à `sendava|manual|crypto`. Tous les `westpay*` state/JSX/testIDs renommés `sendava*` (testIDs : `mode-sendava`, `sendava-country-{CC}`, `sendava-phone`, `sendava-submit`). L'appel POST cible `/payments/sendava/initiate`. L'appel obsolète à `/settings/westpay` est retiré.
+- ✅ **Frontend `/(admin)/index.tsx`** : retrait du card `Paiement sécurisé Mobile Money (WestPay)` (avec `sp-toggle-enabled`/`sp-save-btn`), retrait du card `admin-westpay-card` (avec `wp-enabled-toggle`/`wp-save`), retrait des appels `/admin/settings/secure-payment` et `/admin/settings/westpay` dans `load()`, retrait des states `spEnabled/spSaving/wpEnabled/wpSaving`.
+- ✅ **E2E validé** :
+  - `POST /api/payments/sendava/initiate` retourne une URL réelle `https://sendavapay.com/pay/api/pay_...` (testé contre l'API SendavaPay en sandbox/prod).
+  - Webhook HMAC-SHA256 : signature invalide → 401, signature valide → 200 + dispatch.
+  - Toutes les anciennes routes `/payments/secure/*`, `/payments/westpay/*`, `/settings/westpay`, admin secure/westpay → 404.
+  - 34/34 tests pytest PASS (régression complète OK).
+- ⚠️ **Action côté SendavaPay dashboard** : l'utilisateur a configuré le webhook URL à `https://spiloveure.com/webhooks/sendavapay`, mais le k8s ingress ne route que `/api/*` vers le backend. **L'utilisateur doit changer le webhook URL dans son dashboard SendavaPay vers `https://spiloveure.com/api/sendavapay-webhook`** (ou alternativement `https://spiloveure.com/api/webhooks`, les deux fonctionnent).
+
 ### 2026-06-15 — Outil d'audit & correction rétroactive des réserves d'upgrade (production-ready)
 - 🎯 **Objectif** : permettre la correction rétroactive des utilisateurs déjà impactés par le bug "manual upgrade ne débite pas la réserve" (qui a sévi avant le fix du 14/06).
 - ✅ **Module backend** `/app/backend/upgrade_audit.py` :

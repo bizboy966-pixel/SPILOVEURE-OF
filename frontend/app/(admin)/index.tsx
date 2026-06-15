@@ -58,10 +58,6 @@ export default function AdminHome() {
   const [mpAllowedCountries, setMpAllowedCountries] = useState<string[]>([]);
   const [mpSaving, setMpSaving] = useState(false);
 
-  // Secure payment (WestPay) on/off toggle
-  const [spEnabled, setSpEnabled] = useState(false);
-  const [spSaving, setSpSaving] = useState(false);
-
   // Crypto payment (USDT BEP20) settings
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
   const [cryptoNetwork, setCryptoNetwork] = useState("USDT BEP20");
@@ -107,10 +103,6 @@ export default function AdminHome() {
   const [cpSeconds, setCpSeconds] = useState("5");
   const [cpSaving, setCpSaving] = useState(false);
 
-  // WestPay (automatic) kill-switch
-  const [wpEnabled, setWpEnabled] = useState(true);
-  const [wpSaving, setWpSaving] = useState(false);
-
   // Stuck payments (paid but failed to activate)
   const [stuck, setStuck] = useState<any[]>([]);
   const [stuckReprocessing, setStuckReprocessing] = useState<string | null>(null);
@@ -142,9 +134,6 @@ export default function AdminHome() {
         setMpPhone(cfg.phone_to_pay || "");
         setMpOperator(cfg.operator_name || "");
         setMpAllowedCountries(Array.isArray(cfg.allowed_countries) ? cfg.allowed_countries : []);
-
-        const sp = await api.get<any>("/admin/settings/secure-payment");
-        setSpEnabled(!!sp.enabled);
 
         const cp = await api.get<any>("/admin/settings/crypto-payment");
         setCryptoEnabled(!!cp.enabled);
@@ -180,11 +169,6 @@ export default function AdminHome() {
         setCpTelegram(cpop.telegram_url || "");
         setCpButton(cpop.button_label || "🚀 REJOINDRE MAINTENANT");
         setCpSeconds(String(cpop.auto_close_seconds ?? 5));
-
-        try {
-          const wp = await api.get<any>("/admin/settings/westpay");
-          setWpEnabled(wp.enabled !== false);
-        } catch {}
       }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
@@ -810,48 +794,6 @@ export default function AdminHome() {
 
         {tab === "payment" && (
           <>
-            <Card>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="shield-checkmark" size={22} color={theme.colors.primary} />
-                <Text style={styles.section}>Paiement sécurisé Mobile Money (WestPay)</Text>
-              </View>
-              <Text style={styles.helperTxt}>
-                Active ou désactive le paiement Mobile Money automatique côté utilisateur. Lorsqu'il est désactivé, le bloc de paiement n'apparaît plus sur la page d'activation.
-              </Text>
-              <TouchableOpacity
-                style={[styles.toggleRow, spEnabled ? styles.toggleOn : styles.toggleOff]}
-                onPress={() => setSpEnabled((v) => !v)}
-                testID="sp-toggle-enabled"
-              >
-                <Ionicons
-                  name={spEnabled ? "checkmark-circle" : "close-circle-outline"}
-                  size={20}
-                  color={spEnabled ? "#fff" : theme.colors.textSecondary}
-                />
-                <Text style={[styles.toggleTxt, spEnabled && { color: "#fff" }]}>
-                  {spEnabled ? "Activé — paiement Mobile Money disponible" : "Désactivé — paiement Mobile Money masqué"}
-                </Text>
-              </TouchableOpacity>
-              <View style={{ marginTop: 12 }}>
-                <Button
-                  title={spSaving ? "Enregistrement..." : "Enregistrer le paiement sécurisé"}
-                  icon={<Ionicons name="save" size={16} color="#fff" />}
-                  loading={spSaving}
-                  disabled={spSaving}
-                  onPress={async () => {
-                    setSpSaving(true);
-                    try {
-                      await api.put("/admin/settings/secure-payment", { enabled: spEnabled });
-                      if (typeof window !== "undefined") window.alert("Paramètre paiement sécurisé enregistré ✅");
-                    } catch (e: any) {
-                      if (typeof window !== "undefined") window.alert(e?.detail || "Erreur lors de l'enregistrement");
-                    } finally { setSpSaving(false); }
-                  }}
-                  testID="sp-save-btn"
-                />
-              </View>
-            </Card>
-
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
@@ -1314,48 +1256,6 @@ export default function AdminHome() {
                   }
                 }}
                 testID="sup-save"
-              />
-            </Card>
-
-            <Card style={{ marginTop: 12 }} testID="admin-westpay-card">
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <Ionicons name="flash" size={18} color={theme.colors.primary} />
-                <Text style={styles.h3}>⚡ Paiement Automatique</Text>
-              </View>
-              <Text style={styles.help}>
-                Active ou désactive instantanément le bouton "Paiement Automatique" sur la page
-                d'activation pour TOUS les utilisateurs. Idéal en cas d'incident de la passerelle :
-                les utilisateurs basculent sur Mobile Money manuel ou Crypto.
-              </Text>
-
-              <TouchableOpacity
-                style={[styles.toggleRow, wpEnabled ? styles.toggleOn : styles.toggleOff]}
-                onPress={() => setWpEnabled(!wpEnabled)}
-                testID="wp-enabled-toggle"
-              >
-                <Ionicons name={wpEnabled ? "checkmark-circle" : "close-circle"} size={18} color="#fff" />
-                <Text style={styles.toggleTxt}>
-                  {wpEnabled ? "✅ Activé — bouton visible pour les utilisateurs" : "🚫 Désactivé — bouton masqué"}
-                </Text>
-              </TouchableOpacity>
-
-              <View style={{ height: 8 }} />
-              <Button
-                title="ENREGISTRER LE STATUT"
-                icon={<Ionicons name="save" size={18} color="#fff" />}
-                loading={wpSaving}
-                onPress={async () => {
-                  setWpSaving(true);
-                  try {
-                    await api.put("/admin/settings/westpay", { enabled: wpEnabled });
-                    if (typeof window !== "undefined") window.alert("Statut Paiement Automatique enregistré ✅");
-                  } catch (e: any) {
-                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
-                  } finally {
-                    setWpSaving(false);
-                  }
-                }}
-                testID="wp-save"
               />
             </Card>
 
