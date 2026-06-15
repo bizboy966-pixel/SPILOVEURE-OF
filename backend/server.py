@@ -714,7 +714,6 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 
 # ============ PAYMENTS (Secure Gateway) ============
 
-import secure_pay  # noqa: E402
 import sendava_pay  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
@@ -742,184 +741,6 @@ async def _record_payment_event(db, *, ref: str, new_status: str, payload: dict,
             },
         },
     )
-
-
-class InitiatePaymentIn(BaseModel):
-    level: int = Field(default=1, ge=1, le=12)
-    phone: str
-    operator: str
-    country_code: str = Field(default="TG")
-    otp: Optional[str] = None
-
-
-@api.post("/payments/secure/initiate")
-async def secure_initiate(data: InitiatePaymentIn, request: Request, user=Depends(get_current_user)):
-    """Initiate a secure Mobile Money payment for level activation."""
-    db = request.app.state.db
-    # Block initiation when admin has disabled the secure payment method.
-    sp_cfg = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
-    if not sp_cfg.get("enabled", False):
-        raise HTTPException(status_code=400, detail="Le paiement sécurisé est désactivé.")
-    allowed = sp_cfg.get("allowed_countries") or []
-    if allowed and data.country_code not in allowed:
-        raise HTTPException(status_code=400, detail="Le paiement automatique n'est pas disponible dans votre pays.")
-    country_keys = sp_cfg.get("country_keys") or {}
-    country_api_key = country_keys.get(data.country_code)
-    if not country_api_key:
-        raise HTTPException(status_code=400, detail=f"Aucune clé API configurée pour {data.country_code}.")
-    level = data.level
-    lv = LEVELS_BY_NUM.get(level)
-    if not lv:
-        raise HTTPException(status_code=400, detail="Niveau invalide")
-    if user.get("max_level", 0) >= level:
-        raise HTTPException(status_code=400, detail="Niveau déjà activé")
-    if level != user.get("max_level", 0) + 1:
-        raise HTTPException(status_code=400, detail="Vous devez activer les niveaux dans l'ordre")
-
-    # Reuse a pending payment to avoid double-charges
-    existing = await db.payments.find_one(
-        {"user_id": user["id"], "level": level, "status": "pending"},
-        {"_id": 0},
-    )
-    if existing and existing.get("transaction_id"):
-        return {
-            "order_id": existing["reference"],
-            "transaction_id": existing["transaction_id"],
-            "status": "pending",
-            "amount": existing["amount"],
-            "currency": existing["currency"],
-            "flow": existing.get("flow") or "ussd_push",
-            "wave_url": existing.get("wave_url"),
-            "reused": True,
-        }
-
-    reference = _new_order_id()
-    amount = float(lv["price"])
-    currency = "XOF" if data.country_code in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
-
-    doc = {
-        "reference": reference,
-        "user_id": user["id"],
-        "username": user.get("username"),
-        "level": level,
-        "amount": amount,
-        "currency": currency,
-        "phone": data.phone,
-        "operator": data.operator,
-        "country_code": data.country_code,
-        "status": "pending",
-        "transaction_id": None,
-        "wave_url": None,
-        "flow": None,
-        "events": [],
-        "last_provider_payload": None,
-        "activation_done": False,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    }
-    await db.payments.insert_one(doc)
-
-    try:
-        resp = await secure_pay.initiate_collect(
-            amount=amount,
-            currency=currency,
-            phone=data.phone,
-            operator=data.operator,
-            country_code=data.country_code,
-            reference=reference,
-            otp=data.otp,
-            api_key=country_api_key,
-        )
-    except secure_pay.SecurePayError as exc:
-        if exc.code == "otp_required":
-            # Keep payment as pending — frontend will re-submit with otp
-            await db.payments.update_one(
-                {"reference": reference},
-                {"$set": {"otp_required": True, "ussd_code": exc.ussd_code, "last_provider_payload": {"otp_required": True, "ussd_code": exc.ussd_code}}},
-            )
-            return {
-                "order_id": reference,
-                "status": "otp_required",
-                "ussd_code": exc.ussd_code,
-                "message": str(exc),
-                "amount": amount,
-                "currency": currency,
-            }
-        await db.payments.update_one(
-            {"reference": reference},
-            {"$set": {"status": "failed", "last_provider_payload": {"error": str(exc)}}},
-        )
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    transaction_id = resp.get("transaction_id")
-    flow = resp.get("flow") or "ussd_push"
-    wave_url = resp.get("wave_url")
-    await db.payments.update_one(
-        {"reference": reference},
-        {
-            "$set": {
-                "transaction_id": transaction_id,
-                "flow": flow,
-                "wave_url": wave_url,
-                "last_provider_payload": resp,
-                "updated_at": datetime.now(timezone.utc),
-            }
-        },
-    )
-
-    return {
-        "order_id": reference,
-        "transaction_id": transaction_id,
-        "status": "pending",
-        "amount": amount,
-        "currency": currency,
-        "flow": flow,
-        "wave_url": wave_url,
-        "reused": False,
-    }
-
-
-@api.get("/payments/secure/status")
-async def secure_status(ref: str, request: Request, user=Depends(get_current_user)):
-    """Return the local status of a payment (used by frontend polling)."""
-    db = request.app.state.db
-    doc = await db.payments.find_one(
-        {"reference": ref, "user_id": user["id"]},
-        {"_id": 0, "events": 0, "last_provider_payload": 0},
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Paiement introuvable")
-    return doc
-
-
-async def _process_payment_event(db, *, ref: str, raw_status: str, event: str, payload: dict, source: str) -> str:
-    payment = await db.payments.find_one({"reference": ref}, {"_id": 0})
-    if not payment:
-        log.warning("payment event for unknown reference=%s (source=%s)", ref, source)
-        return "unknown_reference"
-
-    new_status = secure_pay.normalize_status(raw_status, event)
-
-    # Idempotence: if already in a final state and unchanged, skip.
-    if payment.get("status") == new_status and new_status in ("paid", "failed"):
-        return new_status
-
-    await _record_payment_event(db, ref=ref, new_status=new_status, payload=payload, source=source)
-
-    if new_status == "paid" and not payment.get("activation_done"):
-        try:
-            await activate_level(db, payment["user_id"], int(payment["level"]), source="secure_pay")
-            await db.payments.update_one(
-                {"reference": ref},
-                {"$set": {"activation_done": True}},
-            )
-            log.info("activation_done ref=%s user=%s level=%s", ref, payment["user_id"], payment["level"])
-        except Exception as exc:
-            log.exception("activate_level failed for ref=%s: %s", ref, exc)
-            await db.payments.update_one(
-                {"reference": ref},
-                {"$set": {"activation_error": str(exc)}},
-            )
 
 
 @api.get("/payments/{reference}/status")
@@ -959,250 +780,20 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
     return out
 
 
-    return new_status
-
-
-class WestpayAutoSettings(BaseModel):
-    enabled: bool = True
-
-
-# ============ WESTPAY (Hosted-Page Automatic Deposit) ============
-
-
-class WestpayInitiateIn(BaseModel):
-    level: int = Field(default=1, ge=1, le=12)
-    phone: Optional[str] = ""
-    country_code: str = Field(default="TG")
-
-
-@api.post("/payments/westpay/initiate")
-async def westpay_initiate(data: WestpayInitiateIn, request: Request, user=Depends(get_current_user)):
-    """Initiate a WestPay (RobotPay) automatic Mobile Money deposit.
-
-    Returns `payment_url` pointing to the WestPay hosted checkout page.
-    Excluded countries: RDC Congo (CD).
-    """
-    if not secure_pay.WEBHOOK_SECRET:
-        raise HTTPException(503, "Le paiement automatique n'est pas configuré.")
-
-    db = request.app.state.db
-    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
-    if cfg.get("enabled") is False:
-        raise HTTPException(403, "Le paiement automatique est temporairement désactivé.")
-
-    country = (data.country_code or "TG").upper().strip()
-    if country in getattr(secure_pay, "EXCLUDED_COUNTRIES", {"CD"}):
-        raise HTTPException(400, "Le paiement automatique n'est pas disponible pour ce pays.")
-    if country not in secure_pay.COUNTRY_NAME_BY_CODE:
-        raise HTTPException(400, f"Pays non supporté: {country}")
-
-    level = data.level
-    lv = LEVELS_BY_NUM.get(level)
-    if not lv:
-        raise HTTPException(400, "Niveau invalide")
-    if user.get("max_level", 0) >= level:
-        raise HTTPException(400, "Niveau déjà activé")
-    if level != user.get("max_level", 0) + 1:
-        raise HTTPException(400, "Vous devez activer les niveaux dans l'ordre")
-
-    existing = await db.payments.find_one(
-        {"user_id": user["id"], "level": level, "status": "pending", "provider": "westpay"},
-        {"_id": 0},
-    )
-    if existing and existing.get("payment_url"):
-        return {
-            "order_id": existing["reference"],
-            "payment_url": existing["payment_url"],
-            "status": "pending",
-            "amount": existing["amount"],
-            "currency": existing["currency"],
-            "reused": True,
-        }
-
-    reference = _new_order_id()
-    amount = float(lv["price"])
-    currency = "XOF" if country in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
-
-    payment_url = secure_pay.build_redirect_url(
-        amount=amount, country_code=country, reference=reference,
-    )
-
-    await db.payments.insert_one({
-        "reference": reference,
-        "provider": "westpay",
-        "user_id": user["id"],
-        "username": user.get("username"),
-        "level": level,
-        "amount": amount,
-        "currency": currency,
-        "phone": data.phone or "",
-        "country_code": country,
-        "status": "pending",
-        "transaction_id": None,
-        "payment_url": payment_url,
-        "events": [],
-        "last_provider_payload": None,
-        "activation_done": False,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    })
-
-    return {
-        "order_id": reference,
-        "payment_url": payment_url,
-        "status": "pending",
-        "amount": amount,
-        "currency": currency,
-        "reused": False,
-    }
-
-
-@api.get("/webhook")
-@api.get("/payments/secure/webhook")
-@api.get("/westpay-webhook")
-async def secure_webhook_ping(request: Request):
-    """Lightweight GET probe so admins can verify the route is hitting the
-    backend (FastAPI) and not the frontend (Expo static HTML).
-
-    Open in a browser:
-      https://spiloveure.com/api/westpay-webhook
-    A JSON response means the route is correctly wired.
-    """
-    return {
-        "ok": True,
-        "service": "spiloveure-webhook",
-        "provider": "westpay",
-        "method_hint": "Use POST with WestPay JSON payload + HMAC header to deliver an event",
-        "configured_secret": bool(secure_pay.WEBHOOK_SECRET),
-    }
-
-
-@api.post("/webhook")
-@api.post("/payments/secure/webhook")
-@api.post("/westpay-webhook")
-async def secure_webhook(request: Request):
-    """Receive WestPay (RobotPay) signed webhook. Verifies HMAC-SHA256.
-
-    Aliases (all wired to this same handler):
-      - POST /api/webhook
-      - POST /api/payments/secure/webhook
-      - POST /api/westpay-webhook   ← recommended in WestPay dashboard
-
-    Every incoming request is persisted to `webhook_logs` so admins can audit.
-    Idempotency is enforced inside `_process_payment_event` (no duplicate
-    activation if WestPay re-sends the same `payment.confirmed`).
-    """
-    db = request.app.state.db
-    raw = await request.body()
-    sig = request.headers.get("X-RobotPay-Signature") or request.headers.get("x-robotpay-signature") or ""
-    event_header = request.headers.get("X-RobotPay-Event") or request.headers.get("x-robotpay-event") or ""
-
-    # ---- 1. Always persist the incoming hit for traceability -------------
-    log_entry = {
-        "received_at": datetime.now(timezone.utc),
-        "path": str(request.url.path),
-        "remote_addr": (request.client.host if request.client else None),
-        "headers": {
-            "x-robotpay-signature": sig,
-            "x-robotpay-event": event_header,
-            "content-type": request.headers.get("content-type"),
-            "user-agent": request.headers.get("user-agent"),
-        },
-        "raw_body_preview": raw[:2000].decode("utf-8", errors="replace") if raw else "",
-        "body_size": len(raw or b""),
-        "status": "received",
-    }
-
-    # ---- 2. Verify HMAC signature (only enforced when WEBHOOK_SECRET set)
-    if secure_pay.WEBHOOK_SECRET and not secure_pay.verify_webhook_signature(raw, sig):
-        log_entry["status"] = "rejected_invalid_signature"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        log.warning("secure webhook: invalid HMAC signature")
-        raise HTTPException(status_code=401, detail="invalid_signature")
-
-    # ---- 3. Parse JSON body -----------------------------------------------
-    try:
-        payload = await request.json()
-    except Exception:
-        log_entry["status"] = "rejected_invalid_json"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        log.exception("secure webhook invalid JSON body")
-        return {"received": True, "error": "invalid_json"}
-
-    parsed = secure_pay.parse_webhook_event(payload)
-    log_entry["parsed"] = {k: parsed.get(k) for k in ("event", "reference", "transaction_id", "amount", "currency", "provider")}
-
-    ref = parsed.get("reference")
-    if not ref:
-        tx_id = parsed.get("transaction_id")
-        if tx_id:
-            doc = await db.payments.find_one({"transaction_id": tx_id}, {"reference": 1})
-            ref = doc.get("reference") if doc else None
-    if not ref:
-        log_entry["status"] = "missing_reference"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        return {"received": True, "error": "missing_reference"}
-
-    event = parsed.get("event") or event_header
-    raw_status = parsed.get("status") or ""
-
-    new_status = await _process_payment_event(
-        db, ref=ref, raw_status=raw_status, event=event, payload=parsed, source="webhook",
-    )
-    log_entry["reference"] = ref
-    log_entry["new_status"] = new_status
-    log_entry["status"] = "processed"
-    try:
-        await db.webhook_logs.insert_one(log_entry)
-    except Exception:
-        pass
-    return {"received": True, "reference": ref, "status": new_status}
-
-
-@api.post("/payments/secure/verify/{ref}")
-async def secure_verify(ref: str, request: Request, user=Depends(get_current_user)):
-    """Reconcile a payment by querying the provider directly. Owner-only."""
-    db = request.app.state.db
-    doc = await db.payments.find_one({"reference": ref, "user_id": user["id"]}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Paiement introuvable")
-    if not doc.get("transaction_id"):
-        raise HTTPException(status_code=400, detail="Aucun identifiant de transaction")
-
-    try:
-        resp = await secure_pay.get_transaction_status(doc["transaction_id"])
-    except secure_pay.SecurePayError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    new_status = await _process_payment_event(
-        db, ref=ref, raw_status=resp.get("status") or "", event="", payload=resp, source="verify",
-    )
-    return {"reference": ref, "status": new_status, "provider_raw": resp}
-
-
 @api.get("/settings/payments")
 async def get_payment_methods_status(request: Request):
     """Returns which payment methods are currently enabled, plus extra metadata for the client.
 
-    All flags default to `false` (no method available). The admin must
-    explicitly enable a method via Réglages.
+    Methods: SendavaPay (automatic), Manual Mobile Money, Crypto USDT BEP20.
+    Defaults applied in absence of admin override.
     """
     db = request.app.state.db
-    secure_doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
+    sendava_doc = await db.app_settings.find_one({"_id": "sendavapay"}, {"_id": 0}) or {}
     manual_doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
     crypto_doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
     return {
-        "secure_enabled": bool(secure_doc.get("enabled", False)),
-        "secure_allowed_countries": secure_doc.get("allowed_countries") or [],
+        "sendava_enabled": bool(sendava_doc.get("enabled", True)) and sendava_pay.is_configured(),
+        "sendava_excluded_countries": sorted(list(sendava_pay.EXCLUDED_COUNTRIES)),
         "manual_enabled": bool(manual_doc.get("enabled", False)),
         "crypto_enabled": bool(crypto_doc.get("enabled", False)),
         "crypto": {
@@ -1224,12 +815,6 @@ class ManualPaymentSettings(BaseModel):
     phone_to_pay: Optional[str] = None
     operator_name: Optional[str] = None
     allowed_countries: List[str] = Field(default_factory=list)
-
-
-class SecurePaymentSettings(BaseModel):
-    enabled: bool = False
-    allowed_countries: List[str] = Field(default_factory=list)
-    country_keys: dict = Field(default_factory=dict)  # {"TG": "TGO-...", "BJ": "BEN-..."}
 
 
 class CryptoPaymentSettings(BaseModel):
@@ -2051,37 +1636,6 @@ async def admin_webhook_logs(request: Request, limit: int = 50):
     return {"items": out, "count": len(out)}
 
 
-@admin_router.get("/settings/secure-payment")
-async def admin_get_secure_payment(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
-    return {
-        "enabled": bool(doc.get("enabled", False)),
-        "allowed_countries": doc.get("allowed_countries") or [],
-        "country_keys": doc.get("country_keys") or {},
-        "updated_at": doc.get("updated_at"),
-        "updated_by": doc.get("updated_by"),
-    }
-
-
-@admin_router.put("/settings/secure-payment")
-async def admin_update_secure_payment(
-    data: SecurePaymentSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": bool(data.enabled),
-        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
-        "country_keys": {k.strip().upper(): v.strip() for k, v in (data.country_keys or {}).items() if v and v.strip()},
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "secure_pay"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
-
-
 @admin_router.get("/settings/crypto-payment")
 async def admin_get_crypto_payment(request: Request):
     db = request.app.state.db
@@ -2329,66 +1883,6 @@ async def admin_reprocess_payment(reference: str, request: Request, admin=Depend
             {"$set": {"activation_error": str(exc)}},
         )
         raise HTTPException(500, f"Activation échouée: {exc}")
-
-
-@admin_router.get("/settings/westpay")
-async def admin_get_westpay_settings(request: Request):
-    db = request.app.state.db
-    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
-    return {
-        "enabled": cfg.get("enabled") is not False,
-        "updated_at": cfg.get("updated_at"),
-        "updated_by": cfg.get("updated_by"),
-    }
-
-
-@admin_router.put("/settings/westpay")
-async def admin_update_westpay_settings(
-    data: WestpayAutoSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": bool(data.enabled),
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "westpay_auto"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "enabled": payload["enabled"]}
-
-
-
-
-@admin_router.get("/settings/secure-payment")
-async def admin_get_secure_payment(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "secure_pay"}, {"_id": 0}) or {}
-    return {
-        "enabled": bool(doc.get("enabled", False)),
-        "allowed_countries": doc.get("allowed_countries") or [],
-        "country_keys": doc.get("country_keys") or {},
-        "updated_at": doc.get("updated_at"),
-        "updated_by": doc.get("updated_by"),
-    }
-
-
-@admin_router.put("/settings/secure-payment")
-async def admin_update_secure_payment(
-    data: SecurePaymentSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": bool(data.enabled),
-        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
-        "country_keys": {k.strip().upper(): v.strip() for k, v in (data.country_keys or {}).items() if v and v.strip()},
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "secure_pay"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
 
 
 @admin_router.get("/settings/crypto-payment")
@@ -2646,14 +2140,6 @@ async def sendava_initiate(data: SendavaInitiateIn, request: Request, user=Depen
         "currency": currency,
         "reused": False,
     }
-
-
-@api.get("/settings/westpay")
-async def get_westpay_public_settings(request: Request):
-    """Public read — used by the frontend to show/hide the auto-payment button."""
-    db = request.app.state.db
-    cfg = await db.app_settings.find_one({"_id": "westpay_auto"}, {"_id": 0}) or {}
-    return {"enabled": cfg.get("enabled") is not False}  # default True
 
 
 @api.get("/sendavapay-webhook")

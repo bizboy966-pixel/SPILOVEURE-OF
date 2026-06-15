@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 8 — SendavaPay refactor verified. Backend 100% green (16/16 pytest passing): all WestPay/SecurePay routes return 404, /api/settings/payments returns the new schema (sendava_enabled, sendava_excluded_countries, manual_enabled, crypto_enabled), POST /api/payments/sendava/initiate returns real https://sendavapay.com/pay/... URL with status=pending/currency=XOF, country=CD returns 400, webhook HMAC-SHA256 with whsec_7d1cd59d... is validated (invalid→401, valid→non-401). Frontend /activation: mode-sendava clickable, form expands with TG/CI/BJ chips (CD absent), submit calls /api/payments/sendava/initiate (HTTP 200) and window.open is invoked with a real sendavapay.com URL in _blank. Zero legacy westpay-* / mode-westpay testIDs on the activation page. HOWEVER: admin Réglages tab still renders a 'Paiement sécurisé Mobile Money (WestPay)' card with wp-save / wp-enabled-toggle that calls the now-deleted PUT /api/admin/settings/westpay, and /api/admin/settings/secure-payment returns 404 in the console on every admin load.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "(admin)/index.tsx — admin-westpay-card (lines ~1320-1360)",
+        "issue": "Legacy 'Paiement sécurisé Mobile Money (WestPay)' card is still rendered in admin Réglages tab. Buttons wp-save and wp-enabled-toggle still exist and call PUT /api/admin/settings/westpay which now returns 404. The whole card block + its load() call to GET /admin/settings/westpay (line 185) and the wpEnabled/wpSaving state must be removed since the user explicitly asked to drop WestPay entirely.",
+        "selector": "[data-testid=\"wp-save\"], [data-testid=\"wp-enabled-toggle\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "(admin)/index.tsx — settings load",
+        "issue": "Admin index.tsx still issues GET /api/admin/settings/secure-payment on tab load → 404 visible in browser console every time an admin opens the panel. The corresponding state (secure_enabled, secure_allowed_countries) and any UI block reading it must also be removed.",
+        "selector": "n/a (network call from useEffect load())",
+        "priority": "HIGH"
+      },
+      {
+        "component": "(app)/activation.tsx — dead code path",
+        "issue": "Lines 143 (`secureUIEnabled = false`), 233 (call to POST /payments/secure/initiate), 270 (window.location indexOf 'westpay') and 614 (`paymentMode === 'auto' && secureUIEnabled`) are unreachable dead code referencing removed endpoints. paymentMode union no longer includes 'auto'. Should be deleted to keep activation.tsx clean.",
+        "selector": "n/a",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sendava_refactor.py",
+    "/app/test_reports/pytest/sendava_refactor.xml"
+  ],
+  "action_items": [
+    "Remove the 'admin-westpay-card' block (≈ lines 1318-1360) and the wpEnabled/wpSaving state + the GET /admin/settings/westpay call in load() (line 185) from /app/frontend/app/(admin)/index.tsx.",
+    "Remove the GET /api/admin/settings/secure-payment call and any related secureEnabled/secureCountries admin UI from /app/frontend/app/(admin)/index.tsx so the admin panel stops emitting a 404 on every load.",
+    "Optional cleanup: in /app/frontend/app/(app)/activation.tsx, delete the dead secureUIEnabled flag and the unreachable `paymentMode === 'auto'` block (~ lines 614-700) and the dead /payments/secure/initiate POST at line 233."
+  ],
+  "critical_code_review_comments": [
+    "Backend refactor is clean: secure_pay.py is gone, server.py no longer imports it, only sendava_pay is wired in. Webhook signature accepts plain hex, sha256=<hex> and stripe-style — solid.",
+    "Frontend refactor incomplete: while activation.tsx user-facing UI is correctly switched to sendava, the admin settings page was not cleaned up. The user explicitly asked to remove ALL automatic-payment configurations other than SendavaPay; the lingering WestPay card violates that.",
+    "server.py still huge (>2800 lines). Same advice as iter7: extract payments/admin/settings into separate routers.",
+    "(admin)/index.tsx >1200 lines — splitting per-tab components would also remove the risk of leftover legacy code like this WestPay card surviving a refactor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sendava_refactor.py (new)"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "85% (user-facing /activation 100%; admin Réglages has WestPay regression)" },
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Fresh test users were registered via POST /api/auth/register with sponsor_username=admin, country=TG, password_confirm/accept_terms, email under @example.com (the @test.local domain is rejected by Pydantic EmailStr).",
+  "seed_data_creation": "Created 3 throwaway test users (sendava_*@example.com, sendavaui_*@example.com) during backend + frontend testing. They remain in DB with status=pending (no level activated). Safe to ignore; no production data touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend SendavaPay flow is fully validated end-to-end against the real https://sendavapay.com sandbox (returns a real pay/api/pay_... URL). The pytest file /app/backend/tests/test_sendava_refactor.py is reusable — run with REACT_APP_BACKEND_URL set. After the main agent cleans up the admin WestPay card and the /admin/settings/secure-payment call in (admin)/index.tsx, the only remaining verification needed is: open admin → Réglages, confirm (a) no 'Paiement sécurisé Mobile Money (WestPay)' card, (b) no 404 in console for /admin/settings/secure-payment or /admin/settings/westpay, (c) wp-save/wp-enabled-toggle testIDs absent from DOM.",
+  "rca_of_the_issue": "Refactor scope mismatch: the main agent removed the backend admin endpoints (/admin/settings/secure-payment, /admin/settings/westpay) and stripped activation.tsx of user-facing WestPay UI, but did not touch /app/frontend/app/(admin)/index.tsx where the admin-side toggles for those same endpoints still live (lines 185, 1320-1360). Reproduction: log in as admin → /(admin) → Réglages tab → observe the WestPay card and a 404 in DevTools network for /api/admin/settings/secure-payment. Mitigation: delete the wpEnabled state, the load()-side GET /admin/settings/westpay call, the GET /admin/settings/secure-payment call, and the Card JSX block in (admin)/index.tsx."
+}
