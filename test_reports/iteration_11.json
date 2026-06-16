@@ -1,0 +1,33 @@
+{
+  "summary": "Re-tested SoleasPay success → auto-redirect to /services after main agent's fix. The source code in /app/frontend/app/(app)/activation.tsx (lines 618-633) is now CORRECT — the onActivated callback only calls refresh() and router.replace('/services'), and no window.alert remains. UI behavior observed: ✅ Login OK, ✅ /activation reached, ✅ mode-soleas + TG + soleas-service-37 + phone fill + soleas-submit works, ✅ POST /initiate intercepted and GET /status intercepted, ✅ soleas-activated card appears with green check, French heading, and countdown decrementing 3→2→1. HOWEVER, the auto-redirect to /services STILL DOES NOT HAPPEN and a window.alert with text '✅ Paiement confirmé ! Votre niveau est activé.' STILL FIRES at t≈3s — identical to iteration_10. URL remained on /activation for the full 6s observation window. CRITICAL: This alert text is NOT present anywhere in the current source (grep returns 0 matches in /app/frontend/app and /app/frontend/src). This means the bundled JS being served is STALE — Metro bundler is serving a cached version of activation.tsx from BEFORE the fix. Main agent must clear Metro cache and restart frontend.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "SoleasPay V3 success → auto-redirect to /services",
+        "issue": "Stale Metro bundle: served activation.tsx bundle still contains the old window.alert('✅ Paiement confirmé ! Votre niveau est activé.') which blocks/intercepts the auto-redirect. Source file is fixed but Metro cache (/app/frontend/.metro-cache) is serving the pre-fix compiled output. Auto-redirect to /services therefore does not occur in the running app even though the code is correct on disk.",
+        "affected_selectors": ["[data-testid=\"soleas-activated\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Clear Metro bundler cache and hard-restart the Expo dev server so the fixed activation.tsx is recompiled. Commands: `rm -rf /app/frontend/.metro-cache /app/frontend/.expo /tmp/metro-* 2>/dev/null; sudo supervisorctl restart frontend` (or start expo with --clear). After restart, re-run the same Playwright flow to confirm: (a) no dialog fires, (b) URL changes to /services within ~3-4s of activation.",
+    "After cache clear, ALSO verify there are no other lingering window.alert/Alert.alert calls along the activation→/services redirect path (services.tsx line 117 has its own window.alert that runs when /services receives ?payment=success or polls — make sure it does not fire on plain navigation)."
+  ],
+  "critical_code_review_comments": [
+    "Source code fix at activation.tsx lines 618-633 is correct (refresh + router.replace('/services')), no window.alert, no window.location.href — matches the requested fix.",
+    "Frontend dev workflow weakness: Metro cache can survive hot-reload of complex changes; main agent should systematically restart frontend after edits to activation.tsx since hot-reload of large RN-web modules is unreliable.",
+    "activation.tsx still 1133 lines — split SoleasPollingView/AutoForm/ManualForm/CryptoForm into separate files."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only test)", "frontend": "85% — UI is correct, success card + countdown render perfectly; redirect blocked only because served bundle is stale"},
+  "test_credentials": "testsoleas1@example.com / Test1234! (existing user, status=pending, max_level=0, country=TG) — still valid",
+  "seed_data_creation": "Re-used existing testsoleas1 user from iteration_10. No new data created.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Source fix is correct. Issue is Metro cache. After main agent clears cache and restarts frontend, repeat the exact same flow: login as testsoleas1 → /activation → mode-soleas → soleas-country-TG → soleas-service-37 → fill soleas-phone with +22890111111 → soleas-submit. Mock POST /api/payments/soleaspay/initiate => {order_id:'TEST-X', message:'...'} and GET /api/payments/soleaspay/status/* => {status:'paid',activation_done:true,level:1}. Use page.on('dialog', ...) to assert NO dialog fires. After ~4s assert page.url contains '/services'. If page.url is /services AND dialog_count==0 → fix verified.",
+  "rca_of_the_issue": "ROOT CAUSE (this iteration): The source file activation.tsx has been correctly updated (lines 618-633 no longer contain window.alert; onActivated only calls refresh() then router.replace('/services')). However the JS bundle served by the Expo dev server still contains the OLD code path with window.alert('✅ Paiement confirmé ! Votre niveau est activé.') — confirmed by (1) the dialog text fired in Playwright matches no string in current source (grep returns 0 hits), (2) the redirect behaviour is identical to iteration_10. The Metro bundler at /app/frontend/.metro-cache has cached the pre-fix compilation of activation.tsx and is serving it. Hot-reload did not pick up the change (likely because Metro can miss edits when the file mtime changes during hot-reload of a large RN-web entry, or because the previous bundler process was killed/restarted without a cache invalidation). MITIGATION: `rm -rf /app/frontend/.metro-cache /app/frontend/.expo` then `sudo supervisorctl restart frontend`. Alternatively start Expo with `--clear`. REPRO STEPS to reproduce stale cache hit: navigate to /activation, complete soleas flow with mocked endpoints, observe alert text not present in source code fires anyway → indicates stale bundle."
+}

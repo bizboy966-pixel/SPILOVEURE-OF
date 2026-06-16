@@ -619,10 +619,9 @@ export default function Activation() {
                 orderId={soleasOrderId}
                 initialMessage={soleasMessage}
                 onActivated={() => {
-                  if (typeof window !== "undefined") {
-                    window.alert("✅ Paiement confirmé ! Votre niveau est activé.");
-                    window.location.href = "/services";
-                  }
+                  // Refresh user context so /services sees the new max_level
+                  refresh?.().catch(() => {});
+                  router.replace("/services");
                 }}
                 onFailed={(err) => {
                   setSoleasOrderId(null);
