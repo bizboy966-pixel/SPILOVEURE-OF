@@ -20,6 +20,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — UX success SoleasPay : redirection automatique fluide vers `/services`
+- 🎯 **Objectif** : après confirmation du paiement SoleasPay, l'utilisateur voit un écran de succès clair puis est redirigé automatiquement vers `/services` sans aucune popup bloquante.
+- ✅ **Frontend `activation.tsx` (SoleasPollingView lignes 1007-1045)** : nouvelle carte de succès (icône check verte, "🎉 Mon compte est activé !", niveau activé, CTA "Accéder à mon espace (Xs)") avec **countdown 3→2→1** et texte "Redirection automatique dans X seconde…".
+- 🐛 **Bug corrigé (callback `onActivated`)** : remplacé `window.alert(...) + window.location.href = "/services"` par `refresh()` + `router.replace("/services")`. L'ancien `window.alert` était **bloquant** : la popup empêchait l'auto-redirection de s'exécuter avant un clic OK manuel de l'utilisateur.
+- ⚠️ **Note opérationnelle** : Metro bundler peut servir un bundle obsolète après modification d'`activation.tsx` (1133 lignes). Toujours `rm -rf /app/frontend/.metro-cache /app/frontend/.expo && sudo supervisorctl restart frontend` après une édition majeure de ce fichier.
+- ✅ **Tests E2E (iteration_10→12)** : countdown OK, dialog_count=0, redirection vers `/services` confirmée en ~3.5s. Success rate 100%.
+
 ### 2026-06-15 — Fix activation automatique après paiement SoleasPay
 - 🐛 **Bug corrigé** : après paiement SoleasPay confirmé, le statut utilisateur restait "pending". Cause racine identifiée :
   - `normalize_status` ne reconnaissait que 3 mots-clés stricts (`SUCCESS`/`SUCCÈS`/`VALIDATED`) ; or l'API peut renvoyer d'autres synonymes (`COMPLETED`, `APPROVED`, `PAID`, etc.).
