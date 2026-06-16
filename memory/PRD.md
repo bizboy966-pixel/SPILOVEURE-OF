@@ -20,6 +20,13 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-16)
+### 2026-06-16 — Compteur "Activations à valider" inclut maintenant les auto + manuel
+- 🎯 **Objectif** : la statistique du dashboard admin doit comptabiliser **toutes** les activations non validées (manuelles + automatiques), pas seulement les manuelles.
+- ✅ **Backend `/admin/stats`** : `activations_pending` est maintenant la somme de `db.activations(status=pending)` + `db.payments(provider=soleaspay, status=pending OR (status=paid AND activation_done!=true))`. Ajout aussi des sous-compteurs `activations_pending_manual` et `activations_pending_auto` pour le debug/futur split UI.
+- ✅ **Backend `total_activations_amount`** : inclut désormais aussi les paiements auto validés (`db.payments.activation_done=true`) en plus de `db.activations(status=validated)`.
+- ✅ **Frontend** : aucun changement requis — la StatCard "Activations à valider" lit `stats.activations_pending` qui inclut maintenant les deux types.
+- ✅ **Testé curl** : avant insertion → 8 manuel + 0 auto = 8. Après insertion de 2 auto pending (1 status=pending, 1 status=paid+activation_done=false) → 8 manuel + 2 auto = **10**. Bingo.
+
 ### 2026-06-16 — Valider/Rejeter universel + Suppression d'utilisateurs
 - 🎯 **Objectif** : (1) Permettre à l'admin de valider/rejeter aussi les paiements automatiques (pas seulement les bloqués). (2) Pouvoir supprimer des utilisateurs de test proprement (DB preview + endpoint pour la prod).
 - ✅ **Backend `/admin/activations/{id}/validate`** : étendu pour gérer aussi `db.payments.reference` (SoleasPay). Si l'id correspond à un paiement auto pending : appelle `activate_level`, marque `status="paid"`, `activation_done=true`, `validated_at`, `validated_by`. Idempotent : si l'utilisateur est déjà au niveau requis, réconcilie le flag sans erreur.

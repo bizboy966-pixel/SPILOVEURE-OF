@@ -1189,13 +1189,33 @@ async def admin_stats(request: Request):
     db = request.app.state.db
     users_total = await db.users.count_documents({"role": "user"})
     users_active = await db.users.count_documents({"role": "user", "status": "active"})
-    activations_pending = await db.activations.count_documents({"status": "pending"})
+    # Pending activations include BOTH manual/crypto (db.activations) AND
+    # automatic SoleasPay payments (db.payments) that are not yet activated.
+    # An auto payment is "pending" if status==pending, OR status==paid but
+    # activation_done is false (stuck — needs admin attention).
+    activations_pending_manual = await db.activations.count_documents({"status": "pending"})
+    activations_pending_auto = await db.payments.count_documents({
+        "provider": "soleaspay",
+        "$or": [
+            {"status": "pending"},
+            {"status": "paid", "activation_done": {"$ne": True}},
+        ],
+    })
+    activations_pending = activations_pending_manual + activations_pending_auto
     withdrawals_pending = await db.withdrawals.count_documents({"status": "pending"})
+    # Total validated activation amount includes manual + crypto (db.activations)
+    # AND validated automatic payments (db.payments with activation_done=true).
     total_activation_amount_agg = await db.activations.aggregate([
         {"$match": {"status": "validated"}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
-    total_activations = total_activation_amount_agg[0]["total"] if total_activation_amount_agg else 0
+    total_activations_manual = total_activation_amount_agg[0]["total"] if total_activation_amount_agg else 0
+    total_auto_agg = await db.payments.aggregate([
+        {"$match": {"provider": "soleaspay", "activation_done": True}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    total_activations_auto = total_auto_agg[0]["total"] if total_auto_agg else 0
+    total_activations = (total_activations_manual or 0) + (total_activations_auto or 0)
     total_wd_agg = await db.withdrawals.aggregate([
         {"$match": {"status": "validated"}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
@@ -1205,6 +1225,8 @@ async def admin_stats(request: Request):
         "users_total": users_total,
         "users_active": users_active,
         "activations_pending": activations_pending,
+        "activations_pending_manual": activations_pending_manual,
+        "activations_pending_auto": activations_pending_auto,
         "withdrawals_pending": withdrawals_pending,
         "total_activations_amount": total_activations,
         "total_withdrawals_amount": total_withdrawals,
