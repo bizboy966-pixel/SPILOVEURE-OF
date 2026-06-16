@@ -20,6 +20,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-16)
+### 2026-06-16 — Historique complet des transactions (Admin + User)
+- 🎯 **Objectif** : transparence totale. L'admin doit pouvoir voir toutes les opérations financières d'un utilisateur (commissions niveaux 1-12, parrainage direct, spillover, activations, paiements, retraits, missions). L'utilisateur doit voir ses propres commissions avec leur origine exacte.
+- ✅ **Backend `_build_transaction_history(db, user_id)`** : nouvelle fonction helper qui agrège `db.commissions` + `db.activations` + `db.payments` + `db.withdrawals` + `db.mission_claims` en un format unifié, trié par date desc. Chaque commission résout `from_user_id` → `from_username` via une lookup en `db.users`.
+- ✅ **Backend `/api/transactions`** (user) : réécrit pour utiliser le helper et inclure désormais les commissions et missions (auparavant seulement activations + paiements + retraits).
+- ✅ **Backend `/api/admin/users/{user_id}/transactions`** : nouvel endpoint admin qui retourne la même shape pour n'importe quel utilisateur.
+- ✅ **Labels intelligents** : `direct` → "Parrainage Direct", `spillover_sponsor` → "Commission Spillover (Parrain)", `spillover_beneficiary` → "Commission Spillover (Bénéficiaire)", chaque label suffixé par "— Niveau N".
+- ✅ **Frontend `(app)/transactions.tsx`** : ajout du filtre 💰 Commissions et 🏆 Missions. Carte commission affiche Provenance (username + ID), Niveau concerné, Solde profit, Réserve mise à niveau.
+- ✅ **Frontend `(admin)/user/[id].tsx`** : nouvel onglet "📊 Historique" avec recherche (nom/ID/montant/type) + filtres + carte détaillée pour chaque transaction (label, date, montant, statut, provenance, niveau).
+- ✅ **Testé curl + screenshot** : 14 transactions correctement agrégées (6 spillover_sponsor + 2 direct + 5 payment + 1 withdrawal). UI admin + user OK.
+
 ### 2026-06-16 — Compteur "Activations à valider" inclut maintenant les auto + manuel
 - 🎯 **Objectif** : la statistique du dashboard admin doit comptabiliser **toutes** les activations non validées (manuelles + automatiques), pas seulement les manuelles.
 - ✅ **Backend `/admin/stats`** : `activations_pending` est maintenant la somme de `db.activations(status=pending)` + `db.payments(provider=soleaspay, status=pending OR (status=paid AND activation_done!=true))`. Ajout aussi des sous-compteurs `activations_pending_manual` et `activations_pending_auto` pour le debug/futur split UI.

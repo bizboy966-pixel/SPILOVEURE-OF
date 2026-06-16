@@ -11,7 +11,7 @@ import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
 
 type Tx = {
-  type: "activation" | "payment" | "withdrawal";
+  type: string;
   status: string;
   amount: number;
   fee?: number | null;
@@ -20,10 +20,13 @@ type Tx = {
   label: string;
   ref?: string | null;
   date?: string;
+  from_user_id?: string | null;
+  from_username?: string | null;
+  level?: number | null;
   meta?: any;
 };
 
-type Filter = "all" | "activation" | "payment" | "withdrawal";
+type Filter = "all" | "commission" | "activation" | "withdrawal" | "mission";
 
 const STATUS_LABEL: Record<string, { txt: string; bg: string; fg: string }> = {
   pending: { txt: "En attente", bg: "#FEF3C7", fg: "#92400E" },
@@ -67,7 +70,14 @@ export default function Transactions() {
     setRefreshing(false);
   };
 
-  const filtered = items.filter((t) => filter === "all" ? true : t.type === filter);
+  const filtered = items.filter((t) => {
+    if (filter === "all") return true;
+    if (filter === "commission") return t.type.startsWith("commission_");
+    if (filter === "activation") return t.type === "activation" || t.type === "payment";
+    if (filter === "withdrawal") return t.type === "withdrawal";
+    if (filter === "mission") return t.type === "mission";
+    return false;
+  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -84,8 +94,13 @@ export default function Transactions() {
       </LinearGradient>
 
       <View style={styles.filterRow}>
-        {(["all", "activation", "payment", "withdrawal"] as const).map((f) => {
-          const lbl = f === "all" ? "Tout" : f === "activation" ? "Activations" : f === "payment" ? "Paiements" : "Retraits";
+        {(["all", "commission", "activation", "withdrawal", "mission"] as const).map((f) => {
+          const lbl =
+            f === "all" ? "Tout" :
+            f === "commission" ? "💰 Commissions" :
+            f === "activation" ? "Activations" :
+            f === "withdrawal" ? "Retraits" :
+            "Missions";
           const on = filter === f;
           return (
             <TouchableOpacity
@@ -119,17 +134,39 @@ export default function Transactions() {
           contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => {
+            const isCommission = item.type.startsWith("commission_");
+            const isMission = item.type === "mission";
             const isWd = item.type === "withdrawal";
             const isActOrPay = item.type === "activation" || item.type === "payment";
-            const sign = isWd ? "−" : isActOrPay ? "↓" : "";
-            const color = isWd ? theme.colors.danger : (item.status === "paid" || item.status === "validated" || item.status === "active" || item.status === "completed") ? theme.colors.success : theme.colors.textPrimary;
+            const isIncoming = isCommission || isMission;
+            const sign = isWd ? "−" : isIncoming ? "+" : isActOrPay ? "↓" : "";
+            const color =
+              isIncoming ? theme.colors.success :
+              isWd ? theme.colors.danger :
+              (item.status === "paid" || item.status === "validated" || item.status === "active" || item.status === "completed") ? theme.colors.success :
+              theme.colors.textPrimary;
             const st = STATUS_LABEL[item.status] || { txt: item.status, bg: "#E5E7EB", fg: "#374151" };
-            const icon: any = isWd ? "arrow-up-circle" : item.type === "payment" ? "card" : "ribbon";
+            const iconBg =
+              isCommission ? "#DCFCE7" :
+              isMission ? "#FEF3C7" :
+              isWd ? "#FEE2E2" :
+              "#DBEAFE";
+            const iconColor =
+              isCommission ? theme.colors.success :
+              isMission ? theme.colors.warning :
+              isWd ? theme.colors.danger :
+              theme.colors.primary;
+            const icon: any =
+              isCommission ? "trending-up" :
+              isMission ? "trophy" :
+              isWd ? "arrow-up-circle" :
+              item.type === "payment" ? "card" :
+              "ribbon";
             return (
               <Card style={{ marginBottom: 10 }}>
                 <View style={styles.txHead}>
-                  <View style={[styles.iconBox, { backgroundColor: isWd ? "#FEE2E2" : "#DBEAFE" }]}>
-                    <Ionicons name={icon} size={18} color={isWd ? theme.colors.danger : theme.colors.primary} />
+                  <View style={[styles.iconBox, { backgroundColor: iconBg }]}>
+                    <Ionicons name={icon} size={18} color={iconColor} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.txLbl}>{item.label}</Text>
@@ -144,6 +181,45 @@ export default function Transactions() {
                     </View>
                   </View>
                 </View>
+
+                {isCommission && (
+                  <View style={styles.kvBox}>
+                    {item.from_username ? (
+                      <View style={styles.kvRow}>
+                        <Text style={styles.kvLbl}>Provenance</Text>
+                        <Text style={[styles.kvVal, { fontWeight: "800", color: theme.colors.primary }]}>{item.from_username}</Text>
+                      </View>
+                    ) : null}
+                    {item.from_user_id ? (
+                      <View style={styles.kvRow}>
+                        <Text style={styles.kvLbl}>ID utilisateur</Text>
+                        <Text style={[styles.kvVal, { fontSize: 10, fontFamily: "monospace" }]} numberOfLines={1}>{item.from_user_id}</Text>
+                      </View>
+                    ) : null}
+                    {item.level != null ? (
+                      <View style={styles.kvRow}>
+                        <Text style={styles.kvLbl}>Niveau concerné</Text>
+                        <Text style={styles.kvVal}>Niveau {item.level}</Text>
+                      </View>
+                    ) : null}
+                    {(item.meta?.upgrade_share || item.meta?.profit_share) ? (
+                      <>
+                        {item.meta?.profit_share ? (
+                          <View style={styles.kvRow}>
+                            <Text style={styles.kvLbl}>Solde profit</Text>
+                            <Text style={[styles.kvVal, { color: theme.colors.success }]}>+ {formatFCFA(item.meta.profit_share)}</Text>
+                          </View>
+                        ) : null}
+                        {item.meta?.upgrade_share ? (
+                          <View style={styles.kvRow}>
+                            <Text style={styles.kvLbl}>Réserve mise à niveau</Text>
+                            <Text style={[styles.kvVal, { color: theme.colors.warning }]}>+ {formatFCFA(item.meta.upgrade_share)}</Text>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </View>
+                )}
 
                 {isWd && (item.fee != null || item.net != null) && (
                   <View style={styles.kvBox}>
@@ -185,7 +261,7 @@ export default function Transactions() {
                   </View>
                 )}
 
-                {!!item.ref && (
+                {!!item.ref && !isCommission && (
                   <Text style={styles.refTxt} selectable>Réf : {item.ref}</Text>
                 )}
               </Card>

@@ -14,7 +14,7 @@ import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Section = "account" | "privileges" | "finance" | "network" | "level" | "notes" | "tree";
+type Section = "account" | "privileges" | "finance" | "network" | "level" | "history" | "notes" | "tree";
 
 export default function ManageUser() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,6 +36,9 @@ export default function ManageUser() {
   const [noteText, setNoteText] = useState("");
   const [treeLevel, setTreeLevel] = useState(1);
   const [tree, setTree] = useState<any>(null);
+  const [history, setHistory] = useState<any[] | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<"all" | "commission" | "activation" | "withdrawal" | "mission">("all");
+  const [historySearch, setHistorySearch] = useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -61,6 +64,20 @@ export default function ManageUser() {
   useEffect(() => {
     if (section === "tree") loadTree(treeLevel);
   }, [section, treeLevel]);
+
+  const loadHistory = useCallback(async () => {
+    if (!id) return;
+    try {
+      const r = await api.get<any[]>(`/admin/users/${id}/transactions`);
+      setHistory(r || []);
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.detail || "Impossible de charger l'historique.");
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (section === "history" && history === null) loadHistory();
+  }, [section, history, loadHistory]);
 
   const doAction = async (payload: any, okMsg = "✅ Action effectuée", confirmMsg?: string) => {
     // Confirm on web via window.confirm (Alert.alert is silently a noop on web)
@@ -101,6 +118,7 @@ export default function ManageUser() {
     { key: "finance", label: "Finances", icon: "cash", color: theme.colors.success },
     { key: "network", label: "Réseau", icon: "git-network", color: "#A855F7" },
     { key: "level", label: "Niveaux", icon: "ribbon", color: theme.colors.warning },
+    { key: "history", label: "📊 Historique", icon: "time", color: "#10B981" },
     { key: "notes", label: "Notes", icon: "document-text", color: "#0EA5E9" },
     { key: "tree", label: "Arbre", icon: "git-branch", color: "#F97316" },
   ];
@@ -306,6 +324,113 @@ export default function ManageUser() {
           </>
         )}
 
+        {section === "history" && (
+          <Card style={{ marginTop: 12 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={styles.sectionTitle}>📊 Historique Complet ({history?.length ?? 0})</Text>
+              <TouchableOpacity
+                onPress={() => { setHistory(null); loadHistory(); }}
+                style={{ padding: 6 }}
+                testID="history-refresh"
+              >
+                <Ionicons name="refresh" size={18} color={theme.colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <Input
+              label="🔍 Rechercher"
+              value={historySearch}
+              onChangeText={setHistorySearch}
+              placeholder="Nom, ID, type, montant…"
+              testID="history-search"
+            />
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4 }}>
+              {(["all", "commission", "activation", "withdrawal", "mission"] as const).map((f) => {
+                const lbl = f === "all" ? "Tout" : f === "commission" ? "💰 Commissions" : f === "activation" ? "Activations" : f === "withdrawal" ? "Retraits" : "Missions";
+                const on = historyFilter === f;
+                return (
+                  <TouchableOpacity
+                    key={f}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() => setHistoryFilter(f)}
+                    testID={`history-filter-${f}`}
+                  >
+                    <Text style={[styles.chipT, on && { color: "#fff" }]}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <View style={{ height: 10 }} />
+
+            {history === null ? (
+              <Text style={{ color: theme.colors.textSecondary }}>Chargement…</Text>
+            ) : (() => {
+                const q = historySearch.trim().toLowerCase();
+                const filtered = history.filter((t: any) => {
+                  if (historyFilter === "commission" && !String(t.type).startsWith("commission_")) return false;
+                  if (historyFilter === "activation" && t.type !== "activation" && t.type !== "payment") return false;
+                  if (historyFilter === "withdrawal" && t.type !== "withdrawal") return false;
+                  if (historyFilter === "mission" && t.type !== "mission") return false;
+                  if (!q) return true;
+                  const hay = [
+                    t.label, t.type, t.status, t.from_username, t.from_user_id, t.ref,
+                    String(t.amount), String(t.level), t.meta?.operator, t.meta?.transaction_ref,
+                  ].filter(Boolean).join(" ").toLowerCase();
+                  return hay.includes(q);
+                });
+
+                if (filtered.length === 0) {
+                  return <Text style={{ color: theme.colors.textSecondary }}>Aucune transaction.</Text>;
+                }
+
+                return filtered.map((t: any, idx: number) => {
+                  const isCommission = String(t.type).startsWith("commission_");
+                  const isWd = t.type === "withdrawal";
+                  const isIncoming = isCommission || t.type === "mission";
+                  const sign = isWd ? "−" : isIncoming ? "+" : "↓";
+                  const color = isIncoming ? theme.colors.success : isWd ? theme.colors.danger : theme.colors.textPrimary;
+                  const icon = isCommission ? "trending-up" : t.type === "mission" ? "trophy" : isWd ? "arrow-up-circle" : t.type === "payment" ? "card" : "ribbon";
+                  return (
+                    <View key={`${t.ref || idx}-${t.type}-${idx}`} style={styles.historyItem}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View style={[styles.histIcon, { backgroundColor: isCommission ? "#DCFCE7" : isWd ? "#FEE2E2" : t.type === "mission" ? "#FEF3C7" : "#DBEAFE" }]}>
+                          <Ionicons name={icon as any} size={14} color={isCommission ? theme.colors.success : isWd ? theme.colors.danger : t.type === "mission" ? theme.colors.warning : theme.colors.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>{t.label}</Text>
+                          <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 }}>{formatDateTime(t.date)}</Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={{ color, fontWeight: "800", fontSize: 13 }}>{sign} {formatFCFA(t.amount)}</Text>
+                          <Text style={{ color: theme.colors.textSecondary, fontSize: 9 }}>{t.status}</Text>
+                        </View>
+                      </View>
+                      {isCommission && (t.from_username || t.from_user_id) && (
+                        <View style={styles.histMeta}>
+                          {t.from_username ? (
+                            <Text style={styles.histMetaTxt}>👤 Provenance : <Text style={{ fontWeight: "700", color: theme.colors.primary }}>{t.from_username}</Text></Text>
+                          ) : null}
+                          {t.from_user_id ? (
+                            <Text style={[styles.histMetaTxt, { fontFamily: "monospace", fontSize: 9 }]} numberOfLines={1}>🆔 {t.from_user_id}</Text>
+                          ) : null}
+                          {t.level != null ? (
+                            <Text style={styles.histMetaTxt}>📊 Niveau {t.level}</Text>
+                          ) : null}
+                        </View>
+                      )}
+                      {t.meta?.transaction_ref ? (
+                        <Text style={[styles.histMetaTxt, { fontFamily: "monospace", fontSize: 9, marginTop: 2 }]} numberOfLines={1}>Réf : {t.meta.transaction_ref}</Text>
+                      ) : null}
+                    </View>
+                  );
+                });
+              })()
+            }
+          </Card>
+        )}
+
         {section === "notes" && (
           <>
             <Card style={{ marginTop: 12 }}>
@@ -444,4 +569,8 @@ const styles = StyleSheet.create({
   node: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, minWidth: 70, alignItems: "center" },
   nodeOn: { backgroundColor: theme.colors.success },
   nodeOff: { backgroundColor: theme.colors.textSecondary },
+  historyItem: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  histIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  histMeta: { marginTop: 4, paddingLeft: 40, gap: 2 },
+  histMetaTxt: { color: theme.colors.textSecondary, fontSize: 11 },
 });

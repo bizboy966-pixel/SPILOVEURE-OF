@@ -613,26 +613,70 @@ async def my_withdrawals(request: Request, user=Depends(get_current_user)):
 
 @api.get("/transactions")
 async def my_transactions(request: Request, user=Depends(get_current_user)):
-    """Unified transaction history: activations + payments + withdrawals.
+    """Unified transaction history for the current user.
 
-    Returns a single list sorted by date (newest first) with a stable shape:
-      {type, status, amount, fee?, net?, currency, label, ref, date, meta}
+    Returns activations + payments + withdrawals + commissions + mission rewards,
+    sorted by date (newest first), with a stable shape used by both the user UI
+    and the admin "Historique" tab:
+        {type, status, amount, fee?, net?, currency, label, ref, date,
+         from_user_id?, from_username?, level?, meta}
     """
     db = request.app.state.db
+    return await _build_transaction_history(db, user["id"])
+
+
+async def _build_transaction_history(db, user_id: str) -> list[dict]:
+    """Shared helper used by /transactions and /admin/users/{id}/transactions."""
     out: list[dict] = []
 
-    # Activations (admin-validated flow)
-    async for a in db.activations.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+    # MLM commissions (level 1..12, direct or spillover)
+    async for c in db.commissions.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(1000):
+        from_uid = c.get("from_user_id")
+        from_username = None
+        if from_uid:
+            fu = await db.users.find_one({"id": from_uid}, {"_id": 0, "username": 1})
+            from_username = fu.get("username") if fu else None
+        kind = c.get("kind") or "direct"
+        level = c.get("level")
+        label_map = {
+            "direct": "Parrainage Direct",
+            "spillover_sponsor": "Commission Spillover (Parrain)",
+            "spillover_beneficiary": "Commission Spillover (Bénéficiaire)",
+            "spillover": "Commission Spillover",
+        }
+        label = f"{label_map.get(kind, 'Commission')} — Niveau {level}"
+        out.append({
+            "type": f"commission_{kind}",
+            "status": "completed",
+            "amount": float(c.get("amount", 0) or 0),
+            "fee": None, "net": None, "currency": "XOF",
+            "label": label,
+            "ref": from_uid,
+            "date": c.get("created_at"),
+            "from_user_id": from_uid,
+            "from_username": from_username,
+            "level": level,
+            "meta": {
+                "kind": kind,
+                "level": level,
+                "upgrade_share": float(c.get("upgrade_share", 0) or 0),
+                "profit_share": float(c.get("profit_share", 0) or 0),
+                "from_user_id": from_uid,
+                "from_username": from_username,
+            },
+        })
+
+    # Activations (manual / crypto)
+    async for a in db.activations.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1):
         out.append({
             "type": "activation",
             "status": a.get("status", "pending"),
             "amount": float(a.get("amount", 0) or 0),
-            "fee": None,
-            "net": None,
-            "currency": "XOF",
+            "fee": None, "net": None, "currency": "XOF",
             "label": f"Activation niveau {a.get('level', '?')}",
             "ref": a.get("id"),
             "date": a.get("created_at"),
+            "level": a.get("level"),
             "meta": {
                 "level": a.get("level"),
                 "operator": a.get("operator"),
@@ -641,28 +685,29 @@ async def my_transactions(request: Request, user=Depends(get_current_user)):
             },
         })
 
-    # Automatic payments (WestPay flow)
-    async for p in db.payments.find({"user_id": user["id"]}, {"_id": 0, "events": 0, "last_provider_payload": 0}).sort("created_at", -1):
+    # Automatic payments (SoleasPay flow)
+    async for p in db.payments.find({"user_id": user_id}, {"_id": 0, "events": 0, "last_provider_payload": 0}).sort("created_at", -1):
         out.append({
             "type": "payment",
             "status": p.get("status", "pending"),
             "amount": float(p.get("amount", 0) or 0),
-            "fee": None,
-            "net": None,
-            "currency": p.get("currency", "XOF"),
-            "label": f"Paiement niveau {p.get('level', '?')}",
+            "fee": None, "net": None, "currency": p.get("currency", "XOF"),
+            "label": f"Paiement automatique niveau {p.get('level', '?')}",
             "ref": p.get("reference"),
             "date": p.get("created_at"),
+            "level": p.get("level"),
             "meta": {
                 "level": p.get("level"),
-                "operator": p.get("operator"),
+                "operator": p.get("service_label"),
                 "phone": p.get("phone"),
                 "country": p.get("country_code"),
+                "transaction_ref": p.get("transaction_id"),
+                "activation_done": p.get("activation_done"),
             },
         })
 
     # Withdrawals
-    async for w in db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1):
+    async for w in db.withdrawals.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1):
         out.append({
             "type": "withdrawal",
             "status": w.get("status", "pending"),
@@ -679,6 +724,32 @@ async def my_transactions(request: Request, user=Depends(get_current_user)):
                 "country": w.get("country"),
             },
         })
+
+    # Mission rewards (paid missions module, isolated wallet)
+    try:
+        async for mc in db.mission_claims.find(
+            {"user_id": user_id, "status": {"$in": ["validated", "approved", "paid"]}},
+            {"_id": 0},
+        ).sort("created_at", -1):
+            mission = None
+            if mc.get("mission_id"):
+                mission = await db.missions.find_one({"id": mc["mission_id"]}, {"_id": 0, "title": 1, "reward": 1})
+            out.append({
+                "type": "mission",
+                "status": mc.get("status") or "validated",
+                "amount": float(mc.get("reward") or (mission or {}).get("reward") or 0),
+                "fee": None, "net": None, "currency": "XOF",
+                "label": f"Mission rémunérée — {(mission or {}).get('title') or mc.get('mission_id', '')}",
+                "ref": mc.get("id"),
+                "date": mc.get("validated_at") or mc.get("created_at"),
+                "meta": {
+                    "mission_id": mc.get("mission_id"),
+                    "title": (mission or {}).get("title"),
+                },
+            })
+    except Exception:
+        # mission_claims collection may not exist on older DBs
+        pass
 
     out.sort(key=lambda r: (r.get("date") or datetime.now(timezone.utc)), reverse=True)
     return out
@@ -1231,6 +1302,18 @@ async def admin_stats(request: Request):
         "total_activations_amount": total_activations,
         "total_withdrawals_amount": total_withdrawals,
     }
+
+
+@admin_router.get("/users/{user_id}/transactions")
+async def admin_user_transactions(user_id: str, request: Request):
+    """Full transaction history for a given user (admin only).
+    Returns the same shape as /transactions for the current user.
+    """
+    db = request.app.state.db
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not u:
+        raise HTTPException(404, "Utilisateur introuvable.")
+    return await _build_transaction_history(db, user_id)
 
 
 @admin_router.get("/users/{user_id}")
