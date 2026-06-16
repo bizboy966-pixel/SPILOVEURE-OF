@@ -5,9 +5,10 @@
 document. Existing MLM balances (`balance_profit`, `balance_upgrade`) are
 NEVER touched by mission completions.
 
-Time-window: missions are publicly accessible only on Mon-Fri 08:00-16:00
-Africa/Lomé (UTC+0). Outside that window the GET /api/missions endpoint
-returns an empty list with a `window_open=False` flag.
+Time-window: admin-configurable via `db.app_settings.mission_schedule`.
+Each mission can be completed ONCE per period (period = calendar day in the
+configured TZ). When the window reopens on the next scheduled day, the
+mission becomes available again for the user — no manual republish needed.
 """
 from __future__ import annotations
 import uuid
@@ -24,23 +25,70 @@ MISSION_TYPES = ["youtube", "tiktok", "instagram", "facebook", "questionnaire"]
 BALANCE_FIELD = {t: f"balance_{t}" for t in MISSION_TYPES}
 COMPLETED_FIELD = {t: f"completed_{t}" for t in MISSION_TYPES}
 
-# Allowed days (0=Mon … 6=Sun) and time window — admin-configurable later.
-ALLOWED_DAYS = [0, 1, 2, 3, 4]  # Mon-Fri
-OPEN_HM = (8, 0)
-CLOSE_HM = (16, 0)
+# Defaults used when no admin config exists yet.
+DEFAULT_SCHEDULE = {
+    "allowed_days": [0, 1, 2, 3, 4],  # 0=Mon … 6=Sun
+    "open_time": "08:00",              # HH:MM
+    "close_time": "16:00",
+    "timezone": "Africa/Lome",
+    "enabled": True,
+}
 
 
-def _window_open_now() -> bool:
+async def _load_schedule(db) -> dict:
+    """Read admin-configured mission schedule from `app_settings.mission_schedule`.
+    Returns DEFAULT_SCHEDULE merged with any overrides found in DB.
+    """
+    doc = await db.app_settings.find_one({"key": "mission_schedule"}, {"_id": 0})
+    cfg = dict(DEFAULT_SCHEDULE)
+    if doc and isinstance(doc.get("value"), dict):
+        for k in ("allowed_days", "open_time", "close_time", "timezone", "enabled"):
+            if k in doc["value"]:
+                cfg[k] = doc["value"][k]
+    return cfg
+
+
+def _tz(name: str):
     try:
         from zoneinfo import ZoneInfo
-        tz = ZoneInfo("Africa/Lome")
+        return ZoneInfo(name)
     except Exception:
-        tz = timezone.utc
-    now = datetime.now(tz)
-    if now.weekday() not in ALLOWED_DAYS:
+        return timezone.utc
+
+
+def _parse_hm(s: str) -> tuple[int, int]:
+    try:
+        h, m = s.split(":")
+        return int(h), int(m)
+    except Exception:
+        return 0, 0
+
+
+def _window_open_for_schedule(cfg: dict) -> bool:
+    if not cfg.get("enabled", True):
         return False
+    tz = _tz(cfg.get("timezone") or "Africa/Lome")
+    now = datetime.now(tz)
+    allowed = cfg.get("allowed_days") or []
+    if now.weekday() not in allowed:
+        return False
+    oh, om = _parse_hm(cfg.get("open_time") or "08:00")
+    ch, cm = _parse_hm(cfg.get("close_time") or "16:00")
     cur = now.hour * 60 + now.minute
-    return OPEN_HM[0] * 60 + OPEN_HM[1] <= cur < CLOSE_HM[0] * 60 + CLOSE_HM[1]
+    return oh * 60 + om <= cur < ch * 60 + cm
+
+
+def _current_period_key(cfg: dict) -> str:
+    """Period key = ISO date in the configured TZ. Resets at midnight."""
+    tz = _tz(cfg.get("timezone") or "Africa/Lome")
+    return datetime.now(tz).date().isoformat()
+
+
+def _window_human_label(cfg: dict) -> str:
+    days_map = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    days = [days_map[d] for d in (cfg.get("allowed_days") or []) if 0 <= d <= 6]
+    days_str = " / ".join(days) if days else "Aucun jour"
+    return f"📅 {days_str} • 🕒 {cfg.get('open_time')} — {cfg.get('close_time')} ({cfg.get('timezone')})"
 
 
 class MissionIn(BaseModel):
@@ -63,34 +111,45 @@ admin = APIRouter(prefix="/api/admin", tags=["missions_admin"])
 @public.get("/missions")
 async def list_missions(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
-    open_now = _window_open_now()
+    cfg = await _load_schedule(db)
+    open_now = _window_open_for_schedule(cfg)
     if not open_now:
         return {
             "window_open": False,
-            "message": "🚫 Missions actuellement indisponibles.\n📅 Disponibles du lundi au vendredi entre 08h00 et 16h00.",
+            "schedule": cfg,
+            "window_label": _window_human_label(cfg),
+            "message": "🚫 Missions actuellement indisponibles.\n" + _window_human_label(cfg),
             "items": [],
         }
     cur = db.missions.find({"active": True}, {"_id": 0}).sort("created_at", -1)
     items = []
     now_iso = datetime.now(timezone.utc).isoformat()
+    period_key = _current_period_key(cfg)
     async for m in cur:
         if m.get("expires_at") and m["expires_at"] < now_iso:
             continue
-        # Mark as already completed by this user
+        # Mark as already completed by this user IN THE CURRENT PERIOD ONLY.
+        # When the next scheduled day arrives, period_key changes and the
+        # mission becomes available again automatically.
         done = await db.mission_completions.find_one(
-            {"user_id": user["id"], "mission_id": m["id"]}, {"_id": 1}
+            {"user_id": user["id"], "mission_id": m["id"], "period_key": period_key},
+            {"_id": 1},
         )
         m["completed_by_user"] = bool(done)
         items.append(m)
-    return {"window_open": True, "items": items}
+    return {"window_open": True, "schedule": cfg, "window_label": _window_human_label(cfg), "period_key": period_key, "items": items}
 
 
 @public.post("/missions/{mission_id}/complete")
 async def complete_mission(mission_id: str, body: dict, request: Request, user=Depends(get_current_user)):
-    """Body: { watched_seconds: int, answer: str }. Idempotent — one reward per (user, mission)."""
+    """Body: { watched_seconds: int, answer: str }.
+    Idempotent — one reward per (user, mission, period_key). Mission can be
+    redone in the NEXT scheduled period (next allowed day).
+    """
     db = request.app.state.db
-    if not _window_open_now():
-        raise HTTPException(403, "Missions disponibles du lundi au vendredi entre 08h00 et 16h00.")
+    cfg = await _load_schedule(db)
+    if not _window_open_for_schedule(cfg):
+        raise HTTPException(403, "Missions indisponibles. " + _window_human_label(cfg))
     m = await db.missions.find_one({"id": mission_id, "active": True}, {"_id": 0})
     if not m:
         raise HTTPException(404, "Mission introuvable ou désactivée")
@@ -105,12 +164,14 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
         ans = str(body.get("answer") or "").strip().lower()
         if ans != str(m["correct_answer"]).strip().lower():
             raise HTTPException(400, "Réponse incorrecte. Réessayez après avoir bien regardé la vidéo.")
-    # Idempotency
+    # Idempotency — per (user, mission, period)
+    period_key = _current_period_key(cfg)
     existing = await db.mission_completions.find_one(
-        {"user_id": user["id"], "mission_id": mission_id}, {"_id": 1}
+        {"user_id": user["id"], "mission_id": mission_id, "period_key": period_key},
+        {"_id": 1},
     )
     if existing:
-        raise HTTPException(409, "Mission déjà validée — récompense déjà créditée.")
+        raise HTTPException(409, "Mission déjà validée aujourd'hui. Revenez à la prochaine période programmée.")
     mtype = m["type"]
     if mtype not in MISSION_TYPES:
         raise HTTPException(400, "Type de mission invalide")
@@ -124,18 +185,20 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
         "mission_id": mission_id,
         "mission_type": mtype,
         "reward": reward,
+        "period_key": period_key,
         "completed_at": datetime.now(timezone.utc),
     })
     await db.users.update_one(
         {"id": user["id"]},
         {"$inc": {bal_field: reward, cnt_field: 1, "balance_missions_total": reward}},
     )
-    return {"ok": True, "reward": reward, "wallet": mtype}
+    return {"ok": True, "reward": reward, "wallet": mtype, "period_key": period_key}
 
 
 @public.get("/me/mission-wallets")
 async def my_mission_wallets(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    cfg = await _load_schedule(db)
     u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
     wallets = []
     total = 0.0
@@ -144,7 +207,13 @@ async def my_mission_wallets(request: Request, user=Depends(get_current_user)):
         cnt = int(u.get(COMPLETED_FIELD[t]) or 0)
         total += bal
         wallets.append({"type": t, "balance": bal, "completed": cnt})
-    return {"window_open": _window_open_now(), "total": total, "wallets": wallets}
+    return {
+        "window_open": _window_open_for_schedule(cfg),
+        "schedule": cfg,
+        "window_label": _window_human_label(cfg),
+        "total": total,
+        "wallets": wallets,
+    }
 
 
 @public.get("/me/mission-history")
@@ -321,3 +390,63 @@ async def admin_mission_withdrawal_action(wid: str, body: dict, request: Request
             await db.users.update_one({"id": w["user_id"]}, {"$inc": {bal_field: float(w["amount"])}})
     await db.mission_withdrawals.update_one({"id": wid}, {"$set": upd})
     return {"ok": True, "status": new_status}
+
+
+class ScheduleIn(BaseModel):
+    allowed_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    open_time: str = "08:00"
+    close_time: str = "16:00"
+    timezone: str = "Africa/Lome"
+    enabled: bool = True
+
+
+@admin.get("/missions-schedule")
+async def admin_get_schedule(request: Request, _=Depends(require_admin)):
+    """Return the current admin-configured schedule + computed window state."""
+    db = request.app.state.db
+    cfg = await _load_schedule(db)
+    return {
+        "schedule": cfg,
+        "window_open_now": _window_open_for_schedule(cfg),
+        "period_key_now": _current_period_key(cfg),
+        "label": _window_human_label(cfg),
+    }
+
+
+@admin.put("/missions-schedule")
+async def admin_update_schedule(body: ScheduleIn, request: Request, who=Depends(require_admin)):
+    # Basic validation
+    for d in body.allowed_days:
+        if not (0 <= int(d) <= 6):
+            raise HTTPException(400, "allowed_days doit contenir des entiers entre 0 (lundi) et 6 (dimanche).")
+    for label, hm in (("open_time", body.open_time), ("close_time", body.close_time)):
+        try:
+            h, m = hm.split(":")
+            if not (0 <= int(h) <= 23 and 0 <= int(m) <= 59):
+                raise ValueError()
+        except Exception:
+            raise HTTPException(400, f"{label} doit être au format HH:MM (ex 08:00).")
+    # Validate TZ
+    try:
+        _tz(body.timezone)
+    except Exception:
+        raise HTTPException(400, f"Timezone invalide: {body.timezone}")
+    db = request.app.state.db
+    value = body.dict()
+    await db.app_settings.update_one(
+        {"key": "mission_schedule"},
+        {"$set": {
+            "key": "mission_schedule",
+            "value": value,
+            "updated_at": datetime.now(timezone.utc),
+            "updated_by": who.get("username"),
+        }},
+        upsert=True,
+    )
+    cfg = await _load_schedule(db)
+    return {
+        "ok": True,
+        "schedule": cfg,
+        "window_open_now": _window_open_for_schedule(cfg),
+        "label": _window_human_label(cfg),
+    }

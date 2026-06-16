@@ -25,7 +25,9 @@ const TYPE_LABEL: Record<string, string> = {
   questionnaire: "📝 Questionnaire",
 };
 
-type Tab = "missions" | "withdrawals" | "stats";
+type Tab = "missions" | "schedule" | "withdrawals" | "stats";
+
+const DAY_LABELS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
 export default function AdminMissions() {
   const router = useRouter();
@@ -36,21 +38,47 @@ export default function AdminMissions() {
   const [editing, setEditing] = useState<any | null>(null);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [wdFilter, setWdFilter] = useState<"" | "pending" | "validated" | "rejected">("pending");
+  const [schedule, setSchedule] = useState<any | null>(null);
+  const [savingSched, setSavingSched] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [list, s, w] = await Promise.all([
+      const [list, s, w, sched] = await Promise.all([
         api.get<any[]>(`/admin/missions${q ? `?q=${encodeURIComponent(q)}` : ""}`),
         api.get<any>("/admin/missions/stats"),
         api.get<any>(`/admin/mission-withdrawals${wdFilter ? `?status=${wdFilter}` : ""}`),
+        api.get<any>("/admin/missions-schedule"),
       ]);
       setItems(list || []);
       setStats(s);
       setWithdrawals(w.items || []);
+      setSchedule(sched || null);
     } catch {}
   }, [q, wdFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleDay = (d: number) => {
+    if (!schedule) return;
+    const cur: number[] = schedule.schedule?.allowed_days || [];
+    const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort();
+    setSchedule({ ...schedule, schedule: { ...schedule.schedule, allowed_days: next } });
+  };
+
+  const saveSchedule = async () => {
+    if (!schedule) return;
+    setSavingSched(true);
+    try {
+      const r = await api.put<any>("/admin/missions-schedule", schedule.schedule);
+      setSchedule(r);
+      if (typeof window !== "undefined") window.alert(`✅ Programmation sauvegardée\n${r.label}\nÉtat actuel : ${r.window_open_now ? "🟢 Ouvert" : "🔴 Fermé"}`);
+    } catch (e: any) {
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+    } finally {
+      setSavingSched(false);
+    }
+  };
 
   const save = async () => {
     // Frontend validation
@@ -138,7 +166,7 @@ export default function AdminMissions() {
 
       {/* Tabs */}
       <View style={styles.tabRow}>
-        {(["missions", "withdrawals", "stats"] as Tab[]).map((t) => (
+        {(["missions", "schedule", "withdrawals", "stats"] as Tab[]).map((t) => (
           <TouchableOpacity
             key={t}
             style={[styles.tab, tab === t && styles.tabOn]}
@@ -146,7 +174,10 @@ export default function AdminMissions() {
             testID={`admin-missions-tab-${t}`}
           >
             <Text style={[styles.tabTxt, tab === t && { color: "#fff" }]}>
-              {t === "missions" ? "🎬 Missions" : t === "withdrawals" ? `💸 Retraits${withdrawals.length ? ` (${withdrawals.length})` : ""}` : "📊 Stats"}
+              {t === "missions" ? "🎬 Missions" :
+               t === "schedule" ? "⏰ Programmation" :
+               t === "withdrawals" ? `💸 Retraits${withdrawals.length ? ` (${withdrawals.length})` : ""}` :
+               "📊 Stats"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -255,6 +286,103 @@ export default function AdminMissions() {
               </View>
             ) : null}
           </>
+        )}
+
+        {tab === "schedule" && (
+          <View>
+            <View style={styles.schedBanner}>
+              <Ionicons name="time" size={20} color="#fff" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
+                  État actuel : {schedule?.window_open_now ? "🟢 Missions OUVERTES" : "🔴 Missions FERMÉES"}
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                  {schedule?.label || "Chargement…"}
+                </Text>
+                {schedule?.period_key_now ? (
+                  <Text style={{ color: "#fff", fontSize: 10, opacity: 0.85, marginTop: 2 }}>
+                    Période active : {schedule.period_key_now} • Reset auto à minuit ({schedule?.schedule?.timezone})
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            <Text style={styles.schedSection}>📅 Jours de disponibilité</Text>
+            <Text style={styles.schedHelp}>Cochez les jours pendant lesquels les missions sont accessibles.</Text>
+            <View style={styles.daysGrid}>
+              {DAY_LABELS.map((lbl, idx) => {
+                const on = (schedule?.schedule?.allowed_days || []).includes(idx);
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => toggleDay(idx)}
+                    style={[styles.dayChip, on && styles.dayChipOn]}
+                    testID={`sched-day-${idx}`}
+                  >
+                    <Ionicons name={on ? "checkmark-circle" : "ellipse-outline"} size={14} color={on ? "#fff" : theme.colors.primary} />
+                    <Text style={[styles.dayChipTxt, on && { color: "#fff" }]}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.schedSection}>🕒 Heure de début</Text>
+            <TextInput
+              style={styles.input}
+              value={schedule?.schedule?.open_time || ""}
+              onChangeText={(v) => setSchedule({ ...schedule, schedule: { ...(schedule?.schedule || {}), open_time: v } })}
+              placeholder="08:00"
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="sched-open"
+            />
+
+            <Text style={styles.schedSection}>🕓 Heure de fin</Text>
+            <TextInput
+              style={styles.input}
+              value={schedule?.schedule?.close_time || ""}
+              onChangeText={(v) => setSchedule({ ...schedule, schedule: { ...(schedule?.schedule || {}), close_time: v } })}
+              placeholder="16:00"
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="sched-close"
+            />
+
+            <Text style={styles.schedSection}>🌍 Fuseau horaire</Text>
+            <TextInput
+              style={styles.input}
+              value={schedule?.schedule?.timezone || ""}
+              onChangeText={(v) => setSchedule({ ...schedule, schedule: { ...(schedule?.schedule || {}), timezone: v } })}
+              placeholder="Africa/Lome"
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="sched-tz"
+            />
+
+            <TouchableOpacity
+              onPress={() => setSchedule({ ...schedule, schedule: { ...(schedule?.schedule || {}), enabled: !(schedule?.schedule?.enabled) } })}
+              style={[styles.toggleRow, schedule?.schedule?.enabled ? styles.togOn : styles.togOff]}
+              testID="sched-enabled"
+            >
+              <Ionicons name={schedule?.schedule?.enabled ? "checkmark-circle" : "close-circle"} size={16} color="#fff" />
+              <Text style={styles.togTxt}>
+                {schedule?.schedule?.enabled ? "Réactivation automatique : Activée" : "Système désactivé"}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.schedInfo}>
+              <Ionicons name="information-circle" size={14} color={theme.colors.primary} />
+              <Text style={styles.schedInfoTxt}>
+                Une fois sauvegardé, les missions s'ouvriront et se fermeront automatiquement selon ces paramètres. Chaque utilisateur peut effectuer chaque mission UNE fois par période (par jour), puis la mission redevient disponible automatiquement à la prochaine période programmée.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: theme.colors.success, marginTop: 14 }]}
+              onPress={saveSchedule}
+              disabled={savingSched}
+              testID="sched-save"
+            >
+              <Text style={styles.btnTxt}>{savingSched ? "Enregistrement…" : "💾 Enregistrer la programmation"}</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {tab === "withdrawals" && (
@@ -386,4 +514,13 @@ const styles = StyleSheet.create({
   bgValid: { backgroundColor: theme.colors.success },
   bgRejected: { backgroundColor: theme.colors.danger },
   actBtn: { padding: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  schedBanner: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 12, backgroundColor: theme.colors.primary, marginBottom: 14 },
+  schedSection: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "800", marginTop: 14, marginBottom: 4 },
+  schedHelp: { color: theme.colors.textSecondary, fontSize: 11, marginBottom: 8 },
+  daysGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  dayChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  dayChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  dayChipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
+  schedInfo: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14, padding: 10, borderRadius: 8, backgroundColor: "#EFF6FF" },
+  schedInfoTxt: { color: theme.colors.primary, fontSize: 11, flex: 1, lineHeight: 16 },
 });

@@ -20,6 +20,17 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-16)
+### 2026-06-16 — Missions : programmation admin + reset périodique automatique
+- 🎯 **Objectif** : (1) Chaque mission ne peut être effectuée qu'une fois par utilisateur **par période** (et non plus une fois pour toujours). (2) L'admin configure les jours + heures de disponibilité depuis le panel — pas besoin de republier les vidéos chaque jour.
+- ✅ **Backend `missions.py`** : helper `_load_schedule(db)` lit la config admin depuis `db.app_settings.mission_schedule` (fallback : Mon-Fri 08:00-16:00 Africa/Lome). `_window_open_for_schedule(cfg)` calcule l'état du window (jour autorisé + heure dans plage + enabled).
+- ✅ **`_current_period_key(cfg)`** : retourne la date ISO dans le TZ configuré → utilisée comme clé d'idempotence par mission complétion. Reset auto à minuit dans le TZ admin.
+- ✅ **`mission_completions`** stocke maintenant `period_key`. L'unicité passe de `(user_id, mission_id)` à `(user_id, mission_id, period_key)`. Quand le jour change → la mission redevient disponible.
+- ✅ **`/api/missions`** retourne `window_open`, `window_label`, `period_key`, et `completed_by_user` est calculé pour la période courante uniquement.
+- ✅ **`/api/missions/{id}/complete`** vérifie l'idempotence par période et retourne un 409 explicite « Mission déjà validée aujourd'hui. Revenez à la prochaine période programmée. » sinon.
+- ✅ **Endpoints admin `/api/admin/missions-schedule`** (GET + PUT) avec validation : jours 0-6, format HH:MM, TZ valide via zoneinfo. ⚠️ Route nommée `-schedule` (et non `/schedule`) pour éviter le conflit avec `PUT /missions/{mission_id}`.
+- ✅ **Frontend `(admin)/missions.tsx`** : nouvel onglet "⏰ Programmation" avec bannière d'état (🟢/🔴 + label complet + période active), chips jours cliquables (Lun..Dim), inputs heure début/fin, fuseau horaire, toggle activation, info bleue explicative, bouton sauvegarde.
+- ✅ **Testé curl + screenshot** : GET defaults OK. PUT all-days 00:00-23:59 → window_open=true, period_key=2026-06-16, mission listée. UI admin entièrement fonctionnelle.
+
 ### 2026-06-16 — Historique complet des transactions (Admin + User)
 - 🎯 **Objectif** : transparence totale. L'admin doit pouvoir voir toutes les opérations financières d'un utilisateur (commissions niveaux 1-12, parrainage direct, spillover, activations, paiements, retraits, missions). L'utilisateur doit voir ses propres commissions avec leur origine exacte.
 - ✅ **Backend `_build_transaction_history(db, user_id)`** : nouvelle fonction helper qui agrège `db.commissions` + `db.activations` + `db.payments` + `db.withdrawals` + `db.mission_claims` en un format unifié, trié par date desc. Chaque commission résout `from_user_id` → `from_username` via une lookup en `db.users`.
