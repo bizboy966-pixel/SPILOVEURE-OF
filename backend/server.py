@@ -1475,39 +1475,165 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
 
 @admin_router.post("/activations/{activation_id}/validate")
 async def admin_validate_activation(activation_id: str, request: Request, admin=Depends(require_admin)):
+    """Validate a pending activation. Works for BOTH manual/crypto activations
+    (db.activations.id) AND automatic SoleasPay payments (db.payments.reference).
+    """
     db = request.app.state.db
     act = await db.activations.find_one({"id": activation_id})
-    if not act:
+    if act:
+        if act["status"] != "pending":
+            raise HTTPException(400, "Activation déjà traitée.")
+        try:
+            await activate_level(db, act["user_id"], act["level"], source="admin_validate")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        await db.activations.update_one(
+            {"id": activation_id},
+            {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
+        )
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_activation",
+            "target": activation_id, "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True}
+
+    # Fallback: look up SoleasPay payment by reference
+    p = await db.payments.find_one({"reference": activation_id})
+    if not p:
         raise HTTPException(404, "Activation introuvable.")
-    if act["status"] != "pending":
-        raise HTTPException(400, "Activation déjà traitée.")
+    if p.get("activation_done"):
+        return {"ok": True, "already_activated": True, "level": p.get("level")}
+    # If user is already at-or-above this level, just reconcile the flag
+    u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1}) or {}
+    if int(u_now.get("max_level") or 0) >= int(p["level"]):
+        await db.payments.update_one(
+            {"reference": activation_id},
+            {"$set": {"status": "paid", "activation_done": True,
+                      "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"],
+                      "updated_at": datetime.now(timezone.utc)},
+             "$unset": {"activation_error": ""}},
+        )
+        return {"ok": True, "already_activated": True, "level": p["level"]}
     try:
-        await activate_level(db, act["user_id"], act["level"], source="admin_validate")
+        await activate_level(db, p["user_id"], int(p["level"]), source="admin_validate")
     except ValueError as e:
         raise HTTPException(400, str(e))
-    await db.activations.update_one(
-        {"id": activation_id},
-        {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
+    await db.payments.update_one(
+        {"reference": activation_id},
+        {"$set": {"status": "paid", "activation_done": True,
+                  "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"],
+                  "updated_at": datetime.now(timezone.utc)},
+         "$unset": {"activation_error": ""}},
     )
     await db.admin_logs.insert_one({
-        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_activation",
+        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_payment",
         "target": activation_id, "at": datetime.now(timezone.utc),
     })
-    return {"ok": True}
+    return {"ok": True, "level": p["level"]}
 
 
 @admin_router.post("/activations/{activation_id}/reject")
 async def admin_reject_activation(activation_id: str, request: Request, admin=Depends(require_admin)):
+    """Reject a pending activation. Works for BOTH manual/crypto activations
+    (db.activations.id) AND automatic SoleasPay payments (db.payments.reference).
+    """
     db = request.app.state.db
-    await db.activations.update_one(
+    res = await db.activations.update_one(
         {"id": activation_id, "status": "pending"},
         {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"]}},
     )
+    if res.matched_count:
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_activation",
+            "target": activation_id, "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True}
+
+    # Fallback: SoleasPay payment by reference
+    p = await db.payments.find_one({"reference": activation_id})
+    if not p:
+        raise HTTPException(404, "Activation introuvable.")
+    if p.get("activation_done"):
+        raise HTTPException(400, "Ce paiement a déjà été activé — impossible de rejeter.")
+    await db.payments.update_one(
+        {"reference": activation_id},
+        {"$set": {"status": "failed",
+                  "activation_error": f"Rejeté par l'admin {admin.get('username')}",
+                  "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"],
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
     await db.admin_logs.insert_one({
-        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_activation",
+        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_payment",
         "target": activation_id, "at": datetime.now(timezone.utc),
     })
     return {"ok": True}
+
+
+@admin_router.delete("/users/{user_id}")
+async def admin_delete_user(user_id: str, request: Request, admin=Depends(require_admin)):
+    """Hard-delete a user and all their related data (payments, activations,
+    withdrawals, mission claims). Safety guards:
+      • Cannot delete admin accounts.
+      • Cannot delete users with matrix positions (max_level > 0) to protect
+        the binary matrix integrity. Use the audit script for those cases.
+      • Children (users whose sponsor_id points to this user) are re-assigned
+        to the admin to avoid orphan references.
+    """
+    db = request.app.state.db
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Utilisateur introuvable.")
+    if u.get("is_admin") or u.get("email") == os.environ.get("ADMIN_EMAIL"):
+        raise HTTPException(400, "Impossible de supprimer un compte administrateur.")
+    if int(u.get("max_level") or 0) > 0:
+        raise HTTPException(400, f"Impossible de supprimer {u['username']} : niveau {u['max_level']} activé. Utilisez l'audit avant de supprimer.")
+    # Re-assign children to the admin to avoid orphan sponsor_id references
+    admin_id = admin["id"]
+    children_res = await db.users.update_many(
+        {"sponsor_id": user_id}, {"$set": {"sponsor_id": admin_id}},
+    )
+    # Hard delete all related data
+    payments_del = await db.payments.delete_many({"user_id": user_id})
+    activations_del = await db.activations.delete_many({"user_id": user_id})
+    withdrawals_del = await db.withdrawals.delete_many({"user_id": user_id})
+    matrix_del = await db.matrix.delete_many({"user_id": user_id})
+    # Mission claims (if module enabled)
+    try:
+        mission_claims_del = await db.mission_claims.delete_many({"user_id": user_id})
+        mission_claims_count = mission_claims_del.deleted_count
+    except Exception:
+        mission_claims_count = 0
+    try:
+        notifications_del = await db.notifications.delete_many({"user_id": user_id})
+        notifications_count = notifications_del.deleted_count
+    except Exception:
+        notifications_count = 0
+    # Finally, the user
+    await db.users.delete_one({"id": user_id})
+    await db.admin_logs.insert_one({
+        "id": str(uuid.uuid4()), "admin_id": admin_id, "action": "delete_user",
+        "target": user_id,
+        "metadata": {
+            "username": u.get("username"), "email": u.get("email"),
+            "children_reassigned": children_res.modified_count,
+            "payments_deleted": payments_del.deleted_count,
+            "activations_deleted": activations_del.deleted_count,
+            "withdrawals_deleted": withdrawals_del.deleted_count,
+            "matrix_positions_deleted": matrix_del.deleted_count,
+            "mission_claims_deleted": mission_claims_count,
+            "notifications_deleted": notifications_count,
+        },
+        "at": datetime.now(timezone.utc),
+    })
+    return {
+        "ok": True,
+        "deleted_user": u.get("username"),
+        "children_reassigned": children_res.modified_count,
+        "payments_deleted": payments_del.deleted_count,
+        "activations_deleted": activations_del.deleted_count,
+        "withdrawals_deleted": withdrawals_del.deleted_count,
+        "matrix_positions_deleted": matrix_del.deleted_count,
+    }
 
 
 @admin_router.get("/withdrawals")

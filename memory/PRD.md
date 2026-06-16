@@ -20,6 +20,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-16)
+### 2026-06-16 — Valider/Rejeter universel + Suppression d'utilisateurs
+- 🎯 **Objectif** : (1) Permettre à l'admin de valider/rejeter aussi les paiements automatiques (pas seulement les bloqués). (2) Pouvoir supprimer des utilisateurs de test proprement (DB preview + endpoint pour la prod).
+- ✅ **Backend `/admin/activations/{id}/validate`** : étendu pour gérer aussi `db.payments.reference` (SoleasPay). Si l'id correspond à un paiement auto pending : appelle `activate_level`, marque `status="paid"`, `activation_done=true`, `validated_at`, `validated_by`. Idempotent : si l'utilisateur est déjà au niveau requis, réconcilie le flag sans erreur.
+- ✅ **Backend `/admin/activations/{id}/reject`** : étendu pour gérer aussi `db.payments.reference`. Marque le paiement auto comme `status="failed"`, ajoute `activation_error="Rejeté par l'admin <username>"`. Refuse si `activation_done=true`.
+- ✅ **Backend `DELETE /admin/users/{user_id}`** : nouvel endpoint qui hard-delete un user + ses données reliées (payments, activations, withdrawals, matrix positions, mission_claims, notifications). Garde-fous : interdit pour admin, interdit si max_level>0 (intégrité matrice). Réassigne les filleuls (sponsor_id) à l'admin pour éviter les références orphelines. Log dans `admin_logs` avec métadonnées détaillées.
+- ✅ **Frontend `(admin)/index.tsx`** : carte d'activation auto affiche maintenant **Valider** + **Rejeter** en plus du bandeau d'attente + bouton "🚨 FORCER L'ACTIVATION" (si bloqué). Tous les paiements (auto/manuel/crypto) ont la même UX de validation.
+- ✅ **Nettoyage preview** : `teste1` et `alice3f5618` supprimés. 4 paiements + 1 activation effacés. Le filleul `bob3f5618` a été réassigné à l'admin (`sponsor_id` mis à jour).
+- ✅ **Tests curl E2E** : Validate auto payment → user max_level passe à 1 et statut "active", payment.activation_done=true. Reject auto payment → payment.status="failed", activation_error populated.
+- 📝 **Pour la prod** : appeler `DELETE /api/admin/users/{user_id}` avec le token admin. Récupérer l'id via `GET /api/admin/users?q=teste1` ou `q=alice3f5618`.
+
 ### 2026-06-16 — Vue unifiée admin (Auto + Manuel + Crypto) + correction "Invalid Transaction informations"
 - 🎯 **Objectif** : aucun paiement ne doit être perdu. Les paiements automatiques SoleasPay doivent apparaître dans la même liste admin que les paiements manuels/crypto, avec un badge distinctif et un bouton "Forcer l'activation" si l'auto-activation a échoué.
 - ✅ **Backend `/admin/activations` (server.py L1403)** : endpoint réécrit pour **fusionner** `db.activations` (manual + crypto) + `db.payments` (provider='soleaspay'). Chaque entrée porte `payment_method` ∈ {automatic, manual, crypto}, `is_stuck` (auto payé mais non activé), `reference`, `transaction_ref`. Mapping statut : pending=pending, paid+activation_done=validated, paid+!activation_done=pending (bouton force-activate), failed=rejected.

@@ -642,6 +642,36 @@ export default function AdminHome() {
                     </Text>
                   </View>
                 )}
+                {a.status === "pending" && isAuto && (
+                  <View style={styles.actRow}>
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: theme.colors.success }]}
+                      onPress={() => {
+                        if (typeof window !== "undefined" && !window.confirm(
+                          `Valider manuellement le paiement automatique ?\n\nUtilisateur: ${a.username}\nNiveau: ${a.level}\nRéférence: ${a.reference}\nMontant: ${a.amount} ${a.currency || "XOF"}`
+                        )) return;
+                        action(() => api.post(`/admin/activations/${a.id}/validate`));
+                      }}
+                      testID={`admin-validate-act-${a.id}`}
+                    >
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                      <Text style={styles.actT}>Valider</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actBtn}
+                      onPress={() => {
+                        if (typeof window !== "undefined" && !window.confirm(
+                          `Rejeter le paiement automatique ?\n\nUtilisateur: ${a.username}\nRéférence: ${a.reference}`
+                        )) return;
+                        action(() => api.post(`/admin/activations/${a.id}/reject`));
+                      }}
+                      testID={`admin-reject-act-${a.id}`}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                      <Text style={styles.actT}>Rejeter</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
                 <View style={styles.actRow}>
                   <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => Alert.alert("Preuve de paiement", a.transaction_ref ? `Référence: ${a.transaction_ref}\n\nNuméro: ${a.payment_phone || "—"}\nOpérateur: ${a.operator || "—"}` : "Aucune preuve fournie par l'utilisateur (à demander manuellement).")} testID={`admin-proof-${a.id}`}>
                     <Ionicons name="document-text" size={14} color="#fff" />
