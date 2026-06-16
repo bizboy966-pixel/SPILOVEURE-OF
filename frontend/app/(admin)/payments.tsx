@@ -91,7 +91,7 @@ export default function AdminPayments() {
         <TouchableOpacity onPress={() => router.back()} testID="payments-back">
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.hTitle}>💳 Paiements SendavaPay</Text>
+        <Text style={styles.hTitle}>💳 Paiements SoleasPay</Text>
         <TouchableOpacity onPress={load} testID="payments-refresh">
           <Ionicons name="refresh" size={22} color="#fff" />
         </TouchableOpacity>
@@ -177,7 +177,7 @@ export default function AdminPayments() {
               </View>
               {p.transaction_id ? (
                 <View style={styles.refRow}>
-                  <Text style={styles.refLbl}>SendavaPay TX :</Text>
+                  <Text style={styles.refLbl}>Transaction provider :</Text>
                   <Text style={styles.refTxt}>{p.transaction_id}</Text>
                 </View>
               ) : null}

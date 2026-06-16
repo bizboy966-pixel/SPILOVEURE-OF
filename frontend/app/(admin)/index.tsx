@@ -331,7 +331,7 @@ export default function AdminHome() {
                 <Ionicons name="card" size={24} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.contentMgmtTitle}>💳 Paiements SendavaPay</Text>
+                <Text style={styles.contentMgmtTitle}>💳 Paiements SoleasPay</Text>
                 <Text style={styles.contentMgmtSub}>
                   Tous les paiements • Bloqués • Forcer l'activation
                 </Text>

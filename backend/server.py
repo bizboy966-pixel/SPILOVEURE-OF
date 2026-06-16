@@ -714,7 +714,7 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 
 # ============ PAYMENTS (Secure Gateway) ============
 
-import sendava_pay  # noqa: E402
+import soleaspay  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 
@@ -788,12 +788,14 @@ async def get_payment_methods_status(request: Request):
     Defaults applied in absence of admin override.
     """
     db = request.app.state.db
-    sendava_doc = await db.app_settings.find_one({"_id": "sendavapay"}, {"_id": 0}) or {}
+    soleaspay_doc = await db.app_settings.find_one({"_id": "soleaspay"}, {"_id": 0}) or {}
     manual_doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
     crypto_doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
     return {
-        "sendava_enabled": bool(sendava_doc.get("enabled", True)) and sendava_pay.is_configured(),
-        "sendava_excluded_countries": sorted(list(sendava_pay.EXCLUDED_COUNTRIES)),
+        "soleaspay_enabled": bool(soleaspay_doc.get("enabled", True)) and soleaspay.is_configured(),
+        "soleaspay_excluded_countries": sorted(list(soleaspay.EXCLUDED_COUNTRIES)),
+        "soleaspay_countries": sorted(list(soleaspay.SUPPORTED.keys())),
+        "soleaspay_services_by_country": soleaspay.SUPPORTED,
         "manual_enabled": bool(manual_doc.get("enabled", False)),
         "crypto_enabled": bool(crypto_doc.get("enabled", False)),
         "crypto": {
@@ -2084,254 +2086,162 @@ async def admin_update_community_popup(
     return {"ok": True, "settings": payload}
 
 
-# ============ SENDAVAPAY (Automatic Deposit) ============
+# ============ SOLEASPAY (Mobile Money, polling-based) ============
 
 
-class SendavaInitiateIn(BaseModel):
-    level: int = Field(default=1, ge=1, le=12)
-    phone: Optional[str] = ""
-    country_code: str = Field(default="TG")
+class SoleaspayInitiateIn(BaseModel):
+    level: int
+    phone: str
+    country_code: str
+    service_id: int
 
 
-@api.post("/payments/sendava/initiate")
-async def sendava_initiate(data: SendavaInitiateIn, request: Request, user=Depends(get_current_user)):
-    """Initiate a SendavaPay automatic deposit for level activation.
-
-    Excluded countries: RDC Congo (CD).
+@api.post("/payments/soleaspay/initiate")
+async def soleaspay_initiate(
+    data: SoleaspayInitiateIn,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """Trigger a SoleasPay USSD payment on the user's phone.
+    Returns the order_id + transaction reference (pay_id). The client must
+    then poll /payments/soleaspay/status/{order_id} until status='paid'.
     """
-    if not sendava_pay.is_configured():
-        raise HTTPException(503, "Le paiement automatique n'est pas configuré.")
-
-    country = (data.country_code or "TG").upper().strip()
-    if country in sendava_pay.EXCLUDED_COUNTRIES:
-        raise HTTPException(400, "Le paiement automatique n'est pas disponible pour ce pays.")
-
     db = request.app.state.db
-    level = data.level
+    if not soleaspay.is_configured():
+        raise HTTPException(503, "SoleasPay non configuré (API key manquante)")
+    country = (data.country_code or "").upper()
+    if country in soleaspay.EXCLUDED_COUNTRIES:
+        raise HTTPException(400, f"Pays {country} non disponible sur SoleasPay")
+    svc = soleaspay.find_service(country, data.service_id)
+    if not svc:
+        raise HTTPException(400, f"Service {data.service_id} indisponible pour {country}")
+
+    level = int(data.level)
+    if level <= (user.get("max_level") or 0):
+        raise HTTPException(400, "Niveau déjà activé")
     lv = LEVELS_BY_NUM.get(level)
     if not lv:
-        raise HTTPException(400, "Niveau invalide")
-    if user.get("max_level", 0) >= level:
-        raise HTTPException(400, "Niveau déjà activé")
-    if level != user.get("max_level", 0) + 1:
-        raise HTTPException(400, "Vous devez activer les niveaux dans l'ordre")
+        raise HTTPException(400, f"Niveau {level} invalide")
 
-    existing = await db.payments.find_one(
-        {"user_id": user["id"], "level": level, "status": "pending", "provider": "sendavapay"},
-        {"_id": 0},
-    )
-    if existing and existing.get("payment_url"):
-        return {
-            "order_id": existing["reference"],
-            "payment_url": existing["payment_url"],
-            "status": "pending",
-            "amount": existing["amount"],
-            "currency": existing["currency"],
-            "reused": True,
-        }
+    order_id = _new_order_id()
+    success_url = os.environ.get("SOLEASPAY_SUCCESS_URL", "https://spiloveure.com/services")
+    failure_url = os.environ.get("SOLEASPAY_FAILURE_URL", "https://spiloveure.com/activation")
 
-    reference = _new_order_id()
-    amount = float(lv["price"])
-    currency = "XOF" if country in {"TG", "BJ", "CI", "BF", "ML", "NE", "SN", "GW"} else "XAF"
-
-    doc = {
-        "reference": reference,
-        "provider": "sendavapay",
+    # Persist the pending payment FIRST so polling can find it.
+    await db.payments.insert_one({
+        "reference": order_id,
+        "provider": "soleaspay",
+        "service_id": svc["id"],
+        "service_label": svc["label"],
         "user_id": user["id"],
         "username": user.get("username"),
         "level": level,
-        "amount": amount,
-        "currency": currency,
-        "phone": data.phone or "",
+        "amount": float(lv["price"]),
+        "currency": svc["currency"],
+        "phone": str(data.phone),
         "country_code": country,
         "status": "pending",
-        "transaction_id": None,
-        "payment_url": None,
-        "events": [],
-        "last_provider_payload": None,
         "activation_done": False,
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
-    }
-    await db.payments.insert_one(doc)
+    })
 
-    site = os.environ.get("SITE_URL", "").rstrip("/")
-    try:
-        resp = await sendava_pay.create_payment(
-            amount=amount,
-            currency=currency,
-            external_reference=reference,
-            description=f"Activation niveau {level} Spiloveure",
-            customer_name=user.get("full_name") or user.get("username") or "",
-            customer_email=user.get("email") or "",
-            customer_phone=data.phone or "",
-            return_url=f"{site}/services" if site else "",
-            cancel_url=f"{site}/activation" if site else "",
-        )
-    except Exception as exc:
-        log.exception("sendavapay create_payment failed: %s", exc)
+    resp = await soleaspay.initiate_payment(
+        service_id=svc["id"],
+        wallet=str(data.phone).strip().replace("+", ""),
+        amount=float(lv["price"]),
+        currency=svc["currency"],
+        order_id=order_id,
+        description=f"Activation niveau {level} - SPILOVEURE",
+        payer=user.get("username") or "Spiloveure user",
+        payer_email=user.get("email") or "",
+        success_url=success_url,
+        failure_url=failure_url,
+    )
+
+    if not resp.get("success"):
         await db.payments.update_one(
-            {"reference": reference},
-            {"$set": {"status": "failed", "last_provider_payload": {"error": str(exc)}}},
+            {"reference": order_id},
+            {"$set": {"status": "failed",
+                      "activation_error": resp.get("message") or "Échec initiation",
+                      "soleaspay_response": resp,
+                      "updated_at": datetime.now(timezone.utc)}},
         )
-        raise HTTPException(502, f"Échec d'initialisation du paiement : {exc}")
+        raise HTTPException(400, resp.get("message") or "SoleasPay a refusé la requête")
 
-    payment_url = resp.get("paymentUrl") or resp.get("payment_url") or ""
-    sendava_ref = resp.get("reference")
+    pay_id = (resp.get("data") or {}).get("reference")
     await db.payments.update_one(
-        {"reference": reference},
-        {
-            "$set": {
-                "transaction_id": sendava_ref,
-                "payment_url": payment_url,
-                "last_provider_payload": resp,
-                "updated_at": datetime.now(timezone.utc),
-            }
-        },
+        {"reference": order_id},
+        {"$set": {"transaction_id": pay_id,
+                  "soleaspay_status": resp.get("status"),
+                  "updated_at": datetime.now(timezone.utc)}},
     )
-
     return {
-        "order_id": reference,
-        "payment_url": payment_url,
-        "transaction_id": sendava_ref,
+        "order_id": order_id,
+        "transaction_id": pay_id,
         "status": "pending",
-        "amount": amount,
-        "currency": currency,
-        "reused": False,
+        "amount": float(lv["price"]),
+        "currency": svc["currency"],
+        "service_label": svc["label"],
+        "message": resp.get("message") or "Vérifiez votre téléphone pour confirmer le paiement",
     }
 
 
-@api.get("/sendavapay-webhook")
-@api.get("/webhooks")
-async def sendava_webhook_ping(request: Request):
-    """GET probe — opens this URL in a browser to confirm the route reaches
-    the FastAPI backend (returns JSON, not the Expo HTML shell)."""
-    return {
-        "ok": True,
-        "service": "spiloveure-webhook",
-        "provider": "sendavapay",
-        "method_hint": "POST signed JSON to this URL to deliver an event",
-        "configured": sendava_pay.is_configured(),
-    }
-
-
-@api.post("/sendavapay-webhook")
-@api.post("/webhooks")
-async def sendava_webhook(request: Request):
-    """Receive a SendavaPay webhook, verify signature, activate user level.
-    Idempotent: skips if payment is already in a final state."""
+@api.get("/payments/soleaspay/status/{order_id}")
+async def soleaspay_status(order_id: str, request: Request, user=Depends(get_current_user)):
+    """Polled by the client every few seconds. When SoleasPay returns SUCCESS,
+    we activate the user level and mark activation_done=true."""
     db = request.app.state.db
-    raw = await request.body()
+    p = await db.payments.find_one({"reference": order_id, "user_id": user["id"]}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Paiement introuvable")
 
-    signature = sendava_pay.find_signature(dict(request.headers))
-    log_entry: dict = {
-        "received_at": datetime.now(timezone.utc),
-        "path": str(request.url.path),
-        "provider": "sendavapay",
-        "remote_addr": (request.client.host if request.client else None),
-        "headers": {
-            "signature_header_found": signature[:64] if signature else "",
-            "content-type": request.headers.get("content-type"),
-            "user-agent": request.headers.get("user-agent"),
-        },
-        "raw_body_preview": raw[:2000].decode("utf-8", errors="replace") if raw else "",
-        "body_size": len(raw or b""),
-        "status": "received",
-    }
+    if p.get("status") == "paid" and p.get("activation_done"):
+        return {"status": "paid", "activation_done": True, "level": p["level"]}
 
-    if sendava_pay.WEBHOOK_SECRET and not sendava_pay.verify_webhook_signature(raw, signature):
-        log_entry["status"] = "rejected_invalid_signature"
+    if p.get("status") in ("failed",):
+        return {"status": "failed", "error": p.get("activation_error")}
+
+    pay_id = p.get("transaction_id")
+    if not pay_id:
+        return {"status": "pending", "message": "En attente du téléphone…"}
+
+    resp = await soleaspay.verify_payment(order_id, pay_id, service_id=p.get("service_id", 1))
+    sp_status = resp.get("status") or ""
+    new_status = soleaspay.normalize_status(sp_status)
+
+    if new_status == "paid" and not p.get("activation_done"):
         try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        log.warning("sendavapay webhook: invalid signature")
-        raise HTTPException(401, "invalid_signature")
-
-    try:
-        payload = await request.json()
-    except Exception:
-        log_entry["status"] = "rejected_invalid_json"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        return {"received": True, "error": "invalid_json"}
-
-    parsed = sendava_pay.parse_webhook_event(payload)
-    log_entry["parsed"] = {k: parsed.get(k) for k in ("event", "reference", "external_reference", "status", "amount", "currency")}
-
-    ext_ref = parsed.get("external_reference") or ""
-    if not ext_ref and parsed.get("reference"):
-        doc = await db.payments.find_one({"transaction_id": parsed["reference"]}, {"reference": 1})
-        ext_ref = (doc or {}).get("reference") or ""
-
-    if not ext_ref:
-        log_entry["status"] = "missing_reference"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        return {"received": True, "error": "missing_reference"}
-
-    if sendava_pay.is_terminal_success(parsed):
-        new_status_word = "paid"
-    elif sendava_pay.is_terminal_failed(parsed):
-        new_status_word = "failed"
-    else:
-        new_status_word = "pending"
-
-    payment = await db.payments.find_one({"reference": ext_ref}, {"_id": 0})
-    if not payment:
-        log_entry["status"] = "unknown_reference"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        return {"received": True, "error": "unknown_reference", "reference": ext_ref}
-
-    if payment.get("status") == new_status_word and new_status_word in ("paid", "failed"):
-        log_entry["status"] = "idempotent_skip"
-        try:
-            await db.webhook_logs.insert_one(log_entry)
-        except Exception:
-            pass
-        return {"received": True, "reference": ext_ref, "status": new_status_word}
-
-    await _record_payment_event(
-        db, ref=ext_ref, new_status=new_status_word, payload=parsed, source="sendavapay_webhook",
-    )
-
-    if new_status_word == "paid" and not payment.get("activation_done"):
-        try:
-            await activate_level(db, payment["user_id"], int(payment["level"]), source="sendavapay")
+            await activate_level(db, p["user_id"], int(p["level"]), source="soleaspay")
             await db.payments.update_one(
-                {"reference": ext_ref},
-                {"$set": {"activation_done": True}},
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "soleaspay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
             )
-            log.info("sendavapay activation_done ref=%s user=%s level=%s",
-                     ext_ref, payment["user_id"], payment["level"])
+            return {"status": "paid", "activation_done": True, "level": p["level"]}
         except Exception as exc:
-            log.exception("sendavapay activate_level failed for ref=%s: %s", ext_ref, exc)
+            log.exception("soleaspay activate_level failed for ref=%s: %s", order_id, exc)
             await db.payments.update_one(
-                {"reference": ext_ref},
-                {"$set": {"activation_error": str(exc)}},
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_error": str(exc),
+                          "updated_at": datetime.now(timezone.utc)}},
             )
+            return {"status": "paid", "activation_done": False, "error": str(exc)}
 
-    log_entry["status"] = "processed"
-    log_entry["reference"] = ext_ref
-    log_entry["new_status"] = new_status_word
-    try:
-        await db.webhook_logs.insert_one(log_entry)
-    except Exception:
-        pass
-    return {"received": True, "reference": ext_ref, "status": new_status_word}
+    if new_status == "failed":
+        await db.payments.update_one(
+            {"reference": order_id},
+            {"$set": {"status": "failed",
+                      "activation_error": resp.get("message") or "Paiement refusé",
+                      "soleaspay_status": sp_status,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"status": "failed", "error": resp.get("message")}
 
-
-
-
-
-
+    return {"status": "pending", "soleaspay_status": sp_status,
+            "message": resp.get("message") or "Confirmation en attente sur le téléphone…"}
 
 
 api.include_router(admin_router)

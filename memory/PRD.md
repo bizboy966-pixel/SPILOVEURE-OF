@@ -20,6 +20,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — Migration SendavaPay → SoleasPay v3 (polling, sans webhook)
+- 🎯 **Architecture** : SoleasPay envoie un **prompt Mobile Money sur le téléphone** de l'utilisateur (pas de redirection). Backend poll `/api/agent/verif-pay` toutes les 5s jusqu'à `status=SUCCESS` → activation automatique.
+- ✅ **Backend `/app/backend/soleaspay.py`** : module avec `initiate_payment()`, `verify_payment()`, mapping pays→services (TG/BJ/CI/BF/CM/COG/GAB/UGA), exclusion RDC (`COD`) selon règle métier.
+- ✅ **Endpoints** : `POST /api/payments/soleaspay/initiate` (déclenche USSD), `GET /api/payments/soleaspay/status/{order_id}` (poll → activate au passage SUCCESS).
+- ✅ **Suppressions** : fichier `sendava_pay.py` supprimé, toutes les routes SendavaPay (`/payments/sendava/*`, `/sendavapay-webhook`, `/webhooks`), variables `.env` `SENDAVAPAY_*`.
+- ✅ **Frontend `/activation.tsx`** : nouveau UI avec sélecteur pays + opérateur (services chargés dynamiquement depuis `/api/settings/payments`), saisie téléphone, bouton "📱 Envoyer la demande". Composant `SoleasPollingView` qui poll toutes les 5s pendant 5 min, affiche "Vérifiez votre téléphone", redirige vers `/services` à confirmation.
+- ✅ **`.env`** : `SOLEASPAY_API_KEY=cBtrxQKGJa...`, `SOLEASPAY_SUCCESS_URL=https://spiloveure.com/services`, `SOLEASPAY_FAILURE_URL=https://spiloveure.com/activation`.
+- ✅ **E2E réel contre l'API SoleasPay** : initiate retourne `transaction_id=MLS...` réel, status poll fonctionne, exclusion COD vérifiée (400), 36/36 tests pytest PASS.
+- ℹ️ **Pas de clé secrète requise** : architecture polling-based (pas de webhook → pas de vérification HMAC nécessaire).
+
 ### 2026-06-15 — Page admin "Paiements SendavaPay" + idempotence reprocess
 - ✅ **Backend `GET /api/admin/payments`** : liste paginée avec filtres (`status`, `stuck_only`, `q` recherche par référence/username/transaction_id). Retourne `{items, count, counts:{total,pending,paid,failed,stuck}}` pour les badges UI.
 - ✅ **Frontend `/(admin)/payments.tsx`** : grille de stats (5 compteurs), 5 chips de filtre, barre de recherche temps réel, cards par paiement avec badge de statut, bouton "🚨 FORCER L'ACTIVATION" sur les paiements bloqués, lien "Ouvrir la page de paiement" pour les pendants. Bouton d'accès `admin-open-payments-mgmt` ajouté au dashboard admin.

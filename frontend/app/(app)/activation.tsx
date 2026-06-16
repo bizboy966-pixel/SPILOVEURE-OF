@@ -137,21 +137,22 @@ export default function Activation() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
 
   // Global on/off switches for payment methods (admin-controlled).
-  // ⚠️ Legacy WestPay/SecurePay was removed 2026-06-15.
-  // SendavaPay is now the unique automatic payment gateway.
+  // ⚠️ Legacy SendavaPay/WestPay were removed 2026-06-15.
+  // SoleasPay is now the unique automatic payment gateway.
   const [secureEnabled, setSecureEnabled] = useState(false);
   const secureUIEnabled = false; // ← hard switch to hide legacy form (dead code)
-  const [sendavaEnabled, setSendavaEnabled] = useState(true);   // ← runtime kill-switch
+  const [soleasEnabled, setSoleasEnabled] = useState(true);   // ← runtime kill-switch
   const [secureAllowed, setSecureAllowed] = useState<string[]>([]);
 
-  // Countries excluded by SendavaPay merchant policy
-  const SENDAVA_EXCLUDED = ["CD"];
-  // SendavaPay-supported countries
-  const SENDAVA_COUNTRIES = ["TG", "BJ", "BF", "CI", "SN", "ML", "CM", "CG", "GA"];
+  // Countries excluded by SoleasPay merchant policy (RDC excluded by business rule)
+  const SOLEAS_EXCLUDED = ["COD"];
+  const [soleasCountries, setSoleasCountries] = useState<string[]>([]);
+  const [soleasServices, setSoleasServices] = useState<Record<string, any[]>>({});
+
   // Map phone prefix → ISO country code (auto-detection)
   const PHONE_PREFIX_TO_COUNTRY: Record<string, string> = {
     "228": "TG", "229": "BJ", "226": "BF", "225": "CI",
-    "221": "SN", "223": "ML", "237": "CM", "242": "CG", "241": "GA",
+    "237": "CM", "242": "COG", "241": "GAB", "256": "UGA",
   };
   function detectCountryFromPhone(raw: string): string | null {
     const digits = (raw || "").replace(/\D/g, "");
@@ -166,12 +167,16 @@ export default function Activation() {
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
 
   // Active payment method (user choice)
-  const [paymentMode, setPaymentMode] = useState<"sendava" | "manual" | "crypto" | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"soleas" | "manual" | "crypto" | null>(null);
 
-  // SendavaPay flow
-  const [sendavaCountry, setSendavaCountry] = useState("TG");
-  const [sendavaPhone, setSendavaPhone] = useState("");
-  const [sendavaSubmitting, setSendavaSubmitting] = useState(false);
+  // SoleasPay flow
+  const [soleasCountry, setSoleasCountry] = useState("TG");
+  const [soleasServiceId, setSoleasServiceId] = useState<number | null>(null);
+  const [soleasPhone, setSoleasPhone] = useState("");
+  const [soleasSubmitting, setSoleasSubmitting] = useState(false);
+  const [soleasOrderId, setSoleasOrderId] = useState<string | null>(null);
+  const [soleasStatus, setSoleasStatus] = useState<string>("");
+  const [soleasMessage, setSoleasMessage] = useState<string>("");
 
   // Crypto form state
   const [cryptoTxHash, setCryptoTxHash] = useState("");
@@ -189,13 +194,17 @@ export default function Activation() {
       } catch {}
       try {
         const flags = await api.get<{
-          sendava_enabled: boolean;
-          sendava_excluded_countries: string[];
+          soleaspay_enabled: boolean;
+          soleaspay_excluded_countries: string[];
+          soleaspay_countries: string[];
+          soleaspay_services_by_country: Record<string, any[]>;
           manual_enabled: boolean;
           crypto_enabled: boolean;
           crypto?: any;
         }>("/settings/payments", { auth: false });
-        setSendavaEnabled(!!flags.sendava_enabled);
+        setSoleasEnabled(!!flags.soleaspay_enabled);
+        setSoleasCountries(flags.soleaspay_countries || []);
+        setSoleasServices(flags.soleaspay_services_by_country || {});
         setManualEnabled(!!flags.manual_enabled);
         setCryptoEnabled(!!flags.crypto_enabled);
         setCryptoCfg(flags.crypto || null);
@@ -400,7 +409,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureUIEnabled && !sendavaEnabled && !manualEnabled && !cryptoEnabled && (
+        {!secureUIEnabled && !soleasEnabled && !manualEnabled && !cryptoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -419,15 +428,15 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || sendavaEnabled || manualEnabled || cryptoEnabled) && (
+        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
             <View style={styles.modesCol}>
-              {sendavaEnabled && (
+              {soleasEnabled && (
                 <TouchableOpacity
-                  style={[styles.modeCard, paymentMode === "sendava" && styles.modeCardOn]}
-                  onPress={() => setPaymentMode("sendava")}
-                  testID="mode-sendava"
+                  style={[styles.modeCard, paymentMode === "soleas" && styles.modeCardOn]}
+                  onPress={() => setPaymentMode("soleas")}
+                  testID="mode-soleas"
                 >
                   <View style={[styles.modeIcon, { backgroundColor: theme.colors.primary }]}>
                     <Ionicons name="flash" size={22} color="#fff" />
@@ -435,10 +444,10 @@ export default function Activation() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.modeTitle}>1️⃣ Paiement Automatique</Text>
                     <Text style={styles.modeBody}>
-                      Mobile Money instantané — Activation immédiate dès paiement confirmé.
+                      Mobile Money — Recevez la demande sur votre téléphone, confirmez, et votre niveau s'active automatiquement.
                     </Text>
                   </View>
-                  {paymentMode === "sendava" ? (
+                  {paymentMode === "soleas" ? (
                     <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
                   ) : null}
                 </TouchableOpacity>
@@ -509,105 +518,120 @@ export default function Activation() {
           </Card>
         )}
 
-        {paymentMode === "sendava" && sendavaEnabled && (
+        {paymentMode === "soleas" && soleasEnabled && (
           <Card style={{ marginTop: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <View style={styles.mfBadge}>
                 <Ionicons name="flash" size={14} color="#fff" />
                 <Text style={styles.mfBadgeText}>INSTANTANÉ</Text>
               </View>
-              <Text style={styles.section}>Paiement Automatique</Text>
+              <Text style={styles.section}>Paiement Automatique SoleasPay</Text>
             </View>
             <Text style={styles.helper}>
-              Vous serez redirigé vers la passerelle sécurisée SendavaPay pour finaliser le paiement Mobile Money.
-              Le niveau est activé automatiquement dès confirmation.
+              Vous recevrez une notification de paiement directement sur votre téléphone Mobile Money.
+              Confirmez avec votre code secret, et votre niveau s'active automatiquement.
             </Text>
 
-            <View style={{ marginTop: 12 }}>
-              <Text style={styles.lblSmall}>Pays</Text>
-              <View style={styles.opGrid}>
-                {SENDAVA_COUNTRIES
-                  .filter((c) => !SENDAVA_EXCLUDED.includes(c))
-                  .map((c) => (
+            {!soleasOrderId ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.lblSmall}>Pays</Text>
+                <View style={styles.opGrid}>
+                  {soleasCountries
+                    .filter((c) => !SOLEAS_EXCLUDED.includes(c))
+                    .map((c) => (
+                      <TouchableOpacity
+                        key={c}
+                        style={[styles.opChip, soleasCountry === c && styles.opChipOn]}
+                        onPress={() => { setSoleasCountry(c); setSoleasServiceId(null); }}
+                        testID={`soleas-country-${c}`}
+                      >
+                        <Text style={[styles.opText, soleasCountry === c && { color: "#fff" }]}>{c}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+
+                <Text style={styles.lblSmall}>Opérateur Mobile Money</Text>
+                <View style={styles.opGrid}>
+                  {(soleasServices[soleasCountry] || []).map((s: any) => (
                     <TouchableOpacity
-                      key={c}
-                      style={[styles.opChip, sendavaCountry === c && styles.opChipOn]}
-                      onPress={() => setSendavaCountry(c)}
-                      testID={`sendava-country-${c}`}
+                      key={s.id}
+                      style={[styles.opChip, soleasServiceId === s.id && styles.opChipOn]}
+                      onPress={() => setSoleasServiceId(s.id)}
+                      testID={`soleas-service-${s.id}`}
                     >
-                      <Text style={[styles.opText, sendavaCountry === c && { color: "#fff" }]}>{c}</Text>
+                      <Text style={[styles.opText, soleasServiceId === s.id && { color: "#fff" }]}>{s.label}</Text>
                     </TouchableOpacity>
                   ))}
-              </View>
+                </View>
 
-              <Text style={styles.lblSmall}>Numéro Mobile Money (le pays est détecté automatiquement)</Text>
-              <TextInput
-                style={styles.input}
-                value={sendavaPhone}
-                onChangeText={(v) => {
-                  setSendavaPhone(v);
-                  const cc = detectCountryFromPhone(v);
-                  if (cc && SENDAVA_COUNTRIES.includes(cc) && !SENDAVA_EXCLUDED.includes(cc)) {
-                    setSendavaCountry(cc);
-                  }
-                }}
-                placeholder="Ex: +228 90 00 00 00"
-                placeholderTextColor={theme.colors.textSecondary}
-                keyboardType="phone-pad"
-                testID="sendava-phone"
-              />
-
-              <Text style={[styles.hint, { marginTop: 6 }]}>
-                🇨🇩 Service indisponible en RDC Congo. Utilisez le paiement manuel.
-              </Text>
-
-              <View style={{ marginTop: 14 }}>
-                <Button
-                  title={sendavaSubmitting ? "REDIRECTION…" : "PAYER MAINTENANT"}
-                  icon={<Ionicons name="open-outline" size={18} color="#fff" />}
-                  loading={sendavaSubmitting}
-                  disabled={sendavaSubmitting}
-                  onPress={async () => {
-                    setSendavaSubmitting(true);
-                    try {
-                      const targetLevel = (user?.max_level || 0) + 1;
-                      const res = await api.post<{ payment_url: string; order_id: string }>("/payments/sendava/initiate", {
-                        level: targetLevel,
-                        phone: sendavaPhone || "",
-                        country_code: sendavaCountry || "TG",
-                      });
-                      const url = (res?.payment_url || "").trim();
-                      if (!url || !/^https?:\/\//i.test(url)) {
-                        Alert.alert(
-                          "Erreur",
-                          "URL de paiement invalide reçue du serveur. Veuillez réessayer ou utiliser le paiement manuel.",
-                        );
-                        return;
-                      }
-                      if (Platform.OS === "web" && typeof window !== "undefined") {
-                        // Use _blank to keep the user on Spiloveure if they cancel
-                        window.open(url, "_blank");
-                        Alert.alert(
-                          "Paiement en cours",
-                          "Un nouvel onglet s'est ouvert pour finaliser votre paiement. Une fois payé, votre niveau sera activé automatiquement.",
-                        );
-                      } else {
-                        try {
-                          await Linking.openURL(url);
-                        } catch {
-                          Alert.alert("Erreur", "Impossible d'ouvrir la page de paiement.");
-                        }
-                      }
-                    } catch (e: any) {
-                      Alert.alert("Erreur", e?.detail || "Impossible de démarrer le paiement.");
-                    } finally {
-                      setSendavaSubmitting(false);
+                <Text style={styles.lblSmall}>Numéro Mobile Money</Text>
+                <TextInput
+                  style={styles.input}
+                  value={soleasPhone}
+                  onChangeText={(v) => {
+                    setSoleasPhone(v);
+                    const cc = detectCountryFromPhone(v);
+                    if (cc && soleasCountries.includes(cc) && !SOLEAS_EXCLUDED.includes(cc)) {
+                      setSoleasCountry(cc);
                     }
                   }}
-                  testID="sendava-submit"
+                  placeholder="Ex: +228 90 00 00 00"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  keyboardType="phone-pad"
+                  testID="soleas-phone"
                 />
+
+                <View style={{ marginTop: 14 }}>
+                  <Button
+                    title={soleasSubmitting ? "ENVOI…" : "📱 ENVOYER LA DEMANDE"}
+                    icon={<Ionicons name="send" size={18} color="#fff" />}
+                    loading={soleasSubmitting}
+                    disabled={soleasSubmitting || !soleasServiceId || !soleasPhone}
+                    onPress={async () => {
+                      if (!soleasServiceId) {
+                        Alert.alert("Erreur", "Choisissez un opérateur");
+                        return;
+                      }
+                      setSoleasSubmitting(true);
+                      try {
+                        const targetLevel = (user?.max_level || 0) + 1;
+                        const res = await api.post<any>("/payments/soleaspay/initiate", {
+                          level: targetLevel,
+                          phone: soleasPhone,
+                          country_code: soleasCountry,
+                          service_id: soleasServiceId,
+                        });
+                        setSoleasOrderId(res.order_id);
+                        setSoleasStatus("pending");
+                        setSoleasMessage(res.message || "Vérifiez votre téléphone pour confirmer le paiement");
+                      } catch (e: any) {
+                        Alert.alert("Erreur", e?.detail || "Impossible de démarrer le paiement.");
+                      } finally {
+                        setSoleasSubmitting(false);
+                      }
+                    }}
+                    testID="soleas-submit"
+                  />
+                </View>
               </View>
-            </View>
+            ) : (
+              <SoleasPollingView
+                orderId={soleasOrderId}
+                initialMessage={soleasMessage}
+                onActivated={() => {
+                  if (typeof window !== "undefined") {
+                    window.alert("✅ Paiement confirmé ! Votre niveau est activé.");
+                    window.location.href = "/services";
+                  }
+                }}
+                onFailed={(err) => {
+                  setSoleasOrderId(null);
+                  setSoleasStatus("");
+                  if (typeof window !== "undefined") window.alert(`❌ Paiement échoué : ${err}`);
+                }}
+                onCancel={() => { setSoleasOrderId(null); setSoleasStatus(""); }}
+              />
+            )}
           </Card>
         )}
 
@@ -920,6 +944,71 @@ function Step({ n, label, desc }: { n: number; label: string; desc: string }) {
         <Text style={styles.stepLbl}>{label}</Text>
         <Text style={styles.stepDesc}>{desc}</Text>
       </View>
+    </View>
+  );
+}
+
+function SoleasPollingView({
+  orderId, initialMessage, onActivated, onFailed, onCancel,
+}: {
+  orderId: string;
+  initialMessage: string;
+  onActivated: () => void;
+  onFailed: (err: string) => void;
+  onCancel: () => void;
+}) {
+  const [status, setStatus] = useState<string>("pending");
+  const [message, setMessage] = useState<string>(initialMessage);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let stopped = false;
+    let attempts = 0;
+    const poll = async () => {
+      while (!stopped && attempts < 60) {  // ~5 min max (60 x 5s)
+        attempts++;
+        setTick(attempts);
+        try {
+          const r = await api.get<any>(`/payments/soleaspay/status/${orderId}`);
+          if (r.status === "paid" && r.activation_done) {
+            if (!stopped) onActivated();
+            return;
+          }
+          if (r.status === "failed") {
+            if (!stopped) onFailed(r.error || "Échec");
+            return;
+          }
+          if (r.message) setMessage(r.message);
+        } catch {}
+        await new Promise((res) => setTimeout(res, 5000));
+      }
+      if (!stopped) setMessage("⏱ Délai d'attente dépassé. Réessayez ou utilisez un autre moyen de paiement.");
+    };
+    poll();
+    return () => { stopped = true; };
+  }, [orderId, onActivated, onFailed]);
+
+  return (
+    <View style={{ marginTop: 16, padding: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderLeftWidth: 4, borderLeftColor: theme.colors.primary }} testID="soleas-polling">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Ionicons name="phone-portrait" size={24} color={theme.colors.primary} />
+        <Text style={{ color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14, flex: 1 }}>
+          📱 Vérifiez votre téléphone
+        </Text>
+      </View>
+      <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 17 }}>
+        {message}
+      </Text>
+      <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 11, fontStyle: "italic" }}>
+        Vérification automatique en cours… ({tick}/60)
+      </Text>
+      <TouchableOpacity
+        style={{ marginTop: 12, paddingVertical: 10, borderRadius: 14, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border }}
+        onPress={onCancel}
+        testID="soleas-cancel"
+      >
+        <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 }}>Annuler</Text>
+      </TouchableOpacity>
     </View>
   );
 }
