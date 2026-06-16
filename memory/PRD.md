@@ -20,6 +20,14 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-15)
+### 2026-06-15 — Fix activation automatique après paiement SoleasPay
+- 🐛 **Bug corrigé** : après paiement SoleasPay confirmé, le statut utilisateur restait "pending". Cause racine identifiée :
+  - `normalize_status` ne reconnaissait que 3 mots-clés stricts (`SUCCESS`/`SUCCÈS`/`VALIDATED`) ; or l'API peut renvoyer d'autres synonymes (`COMPLETED`, `APPROVED`, `PAID`, etc.).
+  - Aucune idempotence dans le polling : si `activate_level` levait "niveau déjà activé" (suite à un précédent appel partiel), le `payments.activation_done` restait `false` pour toujours.
+- ✅ **Fix dans `soleaspay.py::normalize_status`** : étendu à 12 mots-clés de succès + 8 d'échec, **mode permissif** activé : si `success=true` + `code=200` + statut textuel inconnu → traité comme `paid`.
+- ✅ **Fix dans `/payments/soleaspay/status/{order_id}`** : avant d'appeler `activate_level`, on vérifie si `user.max_level >= payment.level` (idempotence). Si oui → on reconcilie `activation_done=true` + force `status="active"` (défensif). Après `activate_level`, double-check que `user.status` est bien "active". Logs détaillés ajoutés.
+- ✅ **Tests** : `tests/test_soleaspay_activation.py` 6/6 PASS (normalize permissif + activation directe via source='soleaspay'). Total : 19/19 PASS.
+
 ### 2026-06-15 — Migration SendavaPay → SoleasPay v3 (polling, sans webhook)
 - 🎯 **Architecture** : SoleasPay envoie un **prompt Mobile Money sur le téléphone** de l'utilisateur (pas de redirection). Backend poll `/api/agent/verif-pay` toutes les 5s jusqu'à `status=SUCCESS` → activation automatique.
 - ✅ **Backend `/app/backend/soleaspay.py`** : module avec `initiate_payment()`, `verify_payment()`, mapping pays→services (TG/BJ/CI/BF/CM/COG/GAB/UGA), exclusion RDC (`COD`) selon règle métier.

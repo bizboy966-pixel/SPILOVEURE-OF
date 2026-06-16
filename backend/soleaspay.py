@@ -114,11 +114,21 @@ async def verify_payment(order_id: str, pay_id: str, service_id: int = 1) -> dic
         return data
 
 
-def normalize_status(soleaspay_status: str) -> str:
-    """Map SoleasPay status -> our internal {pending, paid, failed}."""
-    s = (soleaspay_status or "").upper()
-    if s in ("SUCCESS", "SUCCÈS", "VALIDATED"):
+def normalize_status(soleaspay_status: str, success_flag: Optional[bool] = None, code: Optional[int] = None) -> str:
+    """Map SoleasPay status -> our internal {pending, paid, failed}.
+
+    SoleasPay's doc lists 'SUCCESS', 'RECEIVED', 'REFUND' for callbacks but the
+    verif-pay endpoint may return synonyms. We are permissive: if `success=true`
+    AND `code=200` we consider it paid even with an unfamiliar status string.
+    """
+    s = (soleaspay_status or "").upper().strip()
+    if s in ("SUCCESS", "SUCCÈS", "SUCCES", "VALIDATED", "VALIDE", "VALIDÉ",
+             "COMPLETED", "CONFIRMED", "APPROVED", "PAID", "PAYE", "PAYÉ"):
         return "paid"
-    if s in ("FAILED", "ÉCHEC", "ECHEC", "CANCELLED", "REFUSED", "REJECTED"):
+    if s in ("FAILED", "ECHEC", "ÉCHEC", "CANCELLED", "CANCELED", "REFUSED",
+             "REJECTED", "DECLINED", "EXPIRED", "TIMEOUT"):
         return "failed"
+    # Permissive fallback: trust the success flag if the textual status is unknown
+    if success_flag is True and (code is None or 200 <= int(code) < 300):
+        return "paid"
     return "pending"

@@ -2208,11 +2208,19 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
 
     resp = await soleaspay.verify_payment(order_id, pay_id, service_id=p.get("service_id", 1))
     sp_status = resp.get("status") or ""
-    new_status = soleaspay.normalize_status(sp_status)
+    new_status = soleaspay.normalize_status(sp_status, resp.get("success"), resp.get("code"))
+    log.info("soleaspay status poll ref=%s sp_status=%r success=%r code=%r → %s",
+             order_id, sp_status, resp.get("success"), resp.get("code"), new_status)
 
     if new_status == "paid" and not p.get("activation_done"):
-        try:
-            await activate_level(db, p["user_id"], int(p["level"]), source="soleaspay")
+        # Step 1: Check if the underlying user is ALREADY at the right level
+        # (idempotency: previous activate_level might have succeeded before a
+        # downstream error). In that case, just reconcile the payment flag.
+        u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
+        if int(u_now.get("max_level") or 0) >= int(p["level"]):
+            # Ensure user.status is "active" (defensive — should already be)
+            if u_now.get("status") != "active":
+                await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
             await db.payments.update_one(
                 {"reference": order_id},
                 {"$set": {"status": "paid", "activation_done": True,
@@ -2220,12 +2228,31 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
+            return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
+
+        # Step 2: Normal activation flow
+        try:
+            await activate_level(db, p["user_id"], int(p["level"]), source="soleaspay")
+            # Defensive: ensure status is set to "active" even if activate_level didn't update it
+            await db.users.update_one(
+                {"id": p["user_id"], "status": {"$ne": "active"}},
+                {"$set": {"status": "active"}},
+            )
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "soleaspay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+            log.info("soleaspay → user %s activated to level %s", p["user_id"], p["level"])
             return {"status": "paid", "activation_done": True, "level": p["level"]}
         except Exception as exc:
             log.exception("soleaspay activate_level failed for ref=%s: %s", order_id, exc)
             await db.payments.update_one(
                 {"reference": order_id},
                 {"$set": {"status": "paid", "activation_error": str(exc),
+                          "soleaspay_status": sp_status,
                           "updated_at": datetime.now(timezone.utc)}},
             )
             return {"status": "paid", "activation_done": False, "error": str(exc)}
