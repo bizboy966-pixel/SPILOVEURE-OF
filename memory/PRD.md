@@ -19,7 +19,14 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-15)
+## Implementation Status (à jour 2026-06-16)
+### 2026-06-16 — Vue unifiée admin (Auto + Manuel + Crypto) + correction "Invalid Transaction informations"
+- 🎯 **Objectif** : aucun paiement ne doit être perdu. Les paiements automatiques SoleasPay doivent apparaître dans la même liste admin que les paiements manuels/crypto, avec un badge distinctif et un bouton "Forcer l'activation" si l'auto-activation a échoué.
+- ✅ **Backend `/admin/activations` (server.py L1403)** : endpoint réécrit pour **fusionner** `db.activations` (manual + crypto) + `db.payments` (provider='soleaspay'). Chaque entrée porte `payment_method` ∈ {automatic, manual, crypto}, `is_stuck` (auto payé mais non activé), `reference`, `transaction_ref`. Mapping statut : pending=pending, paid+activation_done=validated, paid+!activation_done=pending (bouton force-activate), failed=rejected.
+- ✅ **Frontend `(admin)/index.tsx`** : nouveau composant `MethodBadge` (AUTO ⚡ bleu / MANUEL 💳 vert / CRYPTO ₿ orange). Card d'activation enrichie : libellé "Automatique (SoleasPay)", référence interne, bandeau "En attente de confirmation sur le téléphone du client…" pour les auto pending, bouton "🚨 FORCER L'ACTIVATION" pour les auto bloqués (POST `/admin/payments/{ref}/reprocess`).
+- 🐛 **Bug corrigé "Invalid Transaction informations"** : SoleasPay renvoie ce message en anglais (`{success:False, message:'Invalid Transaction informations'}`) tant que la transaction n'est pas encore reconnue côté serveur (transient pendant le polling). Notre code l'expédiait au client via le champ `message` du status polling, et l'utilisateur voyait ce texte au lieu du message français. Fix : on n'envoie plus le message brut de SoleasPay quand `new_status="pending"`, on force "Confirmation en attente sur le téléphone du client…" (server.py L2336).
+- ✅ **Testé curl** : `/api/admin/activations` retourne 12 items (2 auto + 4 manual + 4 crypto + 2 legacy mobile_money) avec tous les champs nécessaires. UI confirmée par screenshot (badge AUTO visible, libellé français, référence affichée).
+
 ### 2026-06-15 — UX success SoleasPay : redirection automatique fluide vers `/services`
 - 🎯 **Objectif** : après confirmation du paiement SoleasPay, l'utilisateur voit un écran de succès clair puis est redirigé automatiquement vers `/services` sans aucune popup bloquante.
 - ✅ **Frontend `activation.tsx` (SoleasPollingView lignes 1007-1045)** : nouvelle carte de succès (icône check verte, "🎉 Mon compte est activé !", niveau activé, CTA "Accéder à mon espace (Xs)") avec **countdown 3→2→1** et texte "Redirection automatique dans X seconde…".

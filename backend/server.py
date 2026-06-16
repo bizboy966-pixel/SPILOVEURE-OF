@@ -1402,9 +1402,74 @@ async def admin_user_action(user_id: str, data: AdminUserActionIn, request: Requ
 
 @admin_router.get("/activations")
 async def admin_list_activations(request: Request, status_filter: Optional[str] = Query(None, alias="status")):
+    """Unified list: manual + crypto activations (db.activations) + automatic
+    SoleasPay payments (db.payments). Each item exposes a `payment_method`
+    field used by the UI to render an AUTO / MANUEL / CRYPTO badge.
+
+    Status mapping for db.payments entries:
+        soleaspay pending                          → "pending"
+        soleaspay paid + activation_done=true      → "validated"
+        soleaspay paid + activation_done=false     → "pending"  (admin can force-activate)
+        soleaspay failed                           → "rejected"
+    """
     db = request.app.state.db
     q = {"status": status_filter} if status_filter else {}
     items = await db.activations.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Tag legacy activations rows (manual / crypto) so the UI knows for sure
+    for it in items:
+        it.setdefault("payment_method", "manual")
+        it["source"] = "activation"
+
+    # Merge automatic SoleasPay payments
+    auto_cursor = db.payments.find({"provider": "soleaspay"}, {"_id": 0}).sort("created_at", -1).limit(500)
+    async for p in auto_cursor:
+        raw_status = p.get("status") or "pending"
+        if raw_status == "paid":
+            mapped_status = "validated" if p.get("activation_done") else "pending"
+        elif raw_status == "failed":
+            mapped_status = "rejected"
+        else:
+            mapped_status = "pending"
+        if status_filter and mapped_status != status_filter:
+            continue
+        merged = {
+            "id": p.get("reference"),
+            "user_id": p.get("user_id"),
+            "username": p.get("username"),
+            "email": None,  # not stored on payment doc
+            "level": p.get("level"),
+            "amount": p.get("amount"),
+            "currency": p.get("currency") or "XOF",
+            "payment_method": "automatic",
+            "operator": p.get("service_label"),
+            "payment_phone": p.get("phone"),
+            "payer_country": p.get("country_code"),
+            "status": mapped_status,
+            "created_at": p.get("created_at"),
+            "updated_at": p.get("updated_at"),
+            "validated_at": p.get("updated_at") if mapped_status == "validated" else None,
+            "rejected_at": p.get("updated_at") if mapped_status == "rejected" else None,
+            "transaction_ref": p.get("transaction_id"),
+            "reference": p.get("reference"),
+            "activation_done": bool(p.get("activation_done")),
+            "activation_error": p.get("activation_error"),
+            "soleaspay_status": p.get("soleaspay_status"),
+            "source": "payment",
+            "provider": "soleaspay",
+            "is_stuck": (raw_status == "paid" and not p.get("activation_done")),
+        }
+        items.append(merged)
+
+    # Sort the merged list by created_at desc (handle None safely)
+    def _ts(x):
+        v = x.get("created_at")
+        if isinstance(v, datetime):
+            return v
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except Exception:
+            return datetime.min.replace(tzinfo=timezone.utc)
+    items.sort(key=_ts, reverse=True)
     return items
 
 
@@ -2268,7 +2333,7 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
         return {"status": "failed", "error": resp.get("message")}
 
     return {"status": "pending", "soleaspay_status": sp_status,
-            "message": resp.get("message") or "Confirmation en attente sur le téléphone…"}
+            "message": "Confirmation en attente sur le téléphone du client…"}
 
 
 api.include_router(admin_router)

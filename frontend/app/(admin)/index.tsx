@@ -546,22 +546,29 @@ export default function AdminHome() {
                 const haystack = [
                   a.username, a.email, a.user_id, a.id,
                   a.payment_phone, a.transaction_ref, a.tx_hash, a.operator, a.payer_country,
+                  a.reference, a.payment_method,
                 ].filter(Boolean).join(" ").toLowerCase();
                 return haystack.includes(q);
               });
               if (filtered.length === 0) {
                 return <Card><Text style={styles.empty}>{q ? `Aucun résultat pour "${actQ}".` : `Aucune activation ${actFilter === "pending" ? "en attente" : actFilter === "validated" ? "validée" : "rejetée"}.`}</Text></Card>;
               }
-              return filtered.map((a) => (
-              <Card key={a.id} style={{ marginBottom: 8 }}>
+              return filtered.map((a) => {
+                const isAuto = a.payment_method === "automatic";
+                const isStuck = !!a.is_stuck;
+                return (
+                <Card key={a.id} style={{ marginBottom: 8, ...(isStuck ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : {}) }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <Text style={styles.userName}>{a.username}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                    <Text style={styles.userName}>{a.username}</Text>
+                    <MethodBadge method={a.payment_method} stuck={isStuck} />
+                  </View>
                   <PillStatus status={a.status} />
                 </View>
                 <View style={styles.kvBox}>
                   <KvRow k="Niveau" v={`Niveau ${a.level}`} />
-                  <KvRow k="E-mail" v={a.email} />
-                  <KvRow k="Mode de paiement" v={a.payment_method?.replace("_", " ") || "—"} />
+                  {a.email ? <KvRow k="E-mail" v={a.email} /> : null}
+                  <KvRow k="Mode de paiement" v={isAuto ? "Automatique (SoleasPay)" : (a.payment_method?.replace("_", " ") || "—")} />
                   {a.payer_country ? <KvRow k="Pays" v={a.payer_country} /> : null}
                   {a.operator ? <KvRow k="Opérateur" v={a.operator} /> : null}
                   <KvRow k="Numéro paiement" v={a.payment_phone || "—"} />
@@ -585,13 +592,20 @@ export default function AdminHome() {
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  <KvRow k="Montant" v={formatFCFA(a.amount)} />
+                  <KvRow k="Montant" v={isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount)} />
                   <KvRow k="Date/Heure" v={formatDateTime(a.created_at)} />
                   {a.transaction_ref ? <KvRow k="Réf. transaction" v={a.transaction_ref} /> : null}
+                  {a.reference && isAuto ? <KvRow k="Référence interne" v={a.reference} /> : null}
                   {a.validated_at ? <KvRow k="Validé le" v={formatDateTime(a.validated_at)} /> : null}
                   {a.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(a.rejected_at)} /> : null}
+                  {a.activation_error ? (
+                    <View style={{ marginTop: 4, padding: 6, backgroundColor: "#FEE2E2", borderRadius: 6 }}>
+                      <Text style={{ color: theme.colors.danger, fontSize: 10, fontWeight: "700" }}>⚠️ Erreur :</Text>
+                      <Text style={{ color: theme.colors.danger, fontSize: 10, marginTop: 2 }} numberOfLines={3}>{a.activation_error}</Text>
+                    </View>
+                  ) : null}
                 </View>
-                {a.status === "pending" && (
+                {a.status === "pending" && !isAuto && (
                   <View style={styles.actRow}>
                     <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/activations/${a.id}/validate`))} testID={`admin-validate-act-${a.id}`}>
                       <Ionicons name="checkmark" size={14} color="#fff" />
@@ -603,6 +617,31 @@ export default function AdminHome() {
                     </TouchableOpacity>
                   </View>
                 )}
+                {a.status === "pending" && isAuto && isStuck && (
+                  <View style={styles.actRow}>
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: theme.colors.warning, flex: 2 }]}
+                      onPress={() => {
+                        if (typeof window !== "undefined" && !window.confirm(
+                          `Forcer l'activation du niveau ${a.level} pour ${a.username} ?\n\nRéférence: ${a.reference}\nMontant: ${a.amount} ${a.currency || "XOF"}`
+                        )) return;
+                        action(() => api.post(`/admin/payments/${a.reference}/reprocess`, {}));
+                      }}
+                      testID={`admin-force-activate-${a.id}`}
+                    >
+                      <Ionicons name="flash" size={14} color="#fff" />
+                      <Text style={styles.actT}>🚨 FORCER L'ACTIVATION</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {a.status === "pending" && isAuto && !isStuck && (
+                  <View style={{ marginTop: 8, padding: 8, backgroundColor: "#EFF6FF", borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ionicons name="phone-portrait" size={14} color={theme.colors.primary} />
+                    <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "700", flex: 1 }}>
+                      En attente de confirmation sur le téléphone du client…
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.actRow}>
                   <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => Alert.alert("Preuve de paiement", a.transaction_ref ? `Référence: ${a.transaction_ref}\n\nNuméro: ${a.payment_phone || "—"}\nOpérateur: ${a.operator || "—"}` : "Aucune preuve fournie par l'utilisateur (à demander manuellement).")} testID={`admin-proof-${a.id}`}>
                     <Ionicons name="document-text" size={14} color="#fff" />
@@ -612,13 +651,16 @@ export default function AdminHome() {
                     <Ionicons name="logo-whatsapp" size={14} color="#fff" />
                     <Text style={styles.actT}>WhatsApp</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.primary }]} onPress={() => Linking.openURL(`mailto:${a.email}`)} testID={`admin-mail-${a.id}`}>
-                    <Ionicons name="mail" size={14} color="#fff" />
-                    <Text style={styles.actT}>E-mail</Text>
-                  </TouchableOpacity>
+                  {a.email ? (
+                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.primary }]} onPress={() => Linking.openURL(`mailto:${a.email}`)} testID={`admin-mail-${a.id}`}>
+                      <Ionicons name="mail" size={14} color="#fff" />
+                      <Text style={styles.actT}>E-mail</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </Card>
-              ));
+              );
+              });
             })()}
           </>
         )}
@@ -1426,6 +1468,23 @@ function PillStatus({ status }: { status: string }) {
   return (
     <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: cfg.bg }}>
       <Text style={{ color: cfg.color, fontWeight: "700", fontSize: 11 }}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+function MethodBadge({ method, stuck }: { method?: string; stuck?: boolean }) {
+  const cfg: any = ({
+    automatic: { bg: "#DBEAFE", color: "#1E40AF", icon: "flash", label: "AUTO" },
+    manual: { bg: "#D1FAE5", color: "#065F46", icon: "card", label: "MANUEL" },
+    crypto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO" },
+  } as any)[method || "manual"] || { bg: "#E5E7EB", color: "#374151", icon: "help-circle", label: (method || "—").toUpperCase() };
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: cfg.bg }}>
+      <Ionicons name={cfg.icon as any} size={11} color={cfg.color} />
+      <Text style={{ color: cfg.color, fontWeight: "800", fontSize: 10, letterSpacing: 0.5 }}>{cfg.label}</Text>
+      {stuck ? (
+        <Text style={{ color: theme.colors.danger, fontWeight: "800", fontSize: 9, marginLeft: 2 }}>🚨</Text>
+      ) : null}
     </View>
   );
 }
