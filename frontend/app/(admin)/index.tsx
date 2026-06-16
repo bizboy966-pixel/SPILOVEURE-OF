@@ -253,9 +253,19 @@ export default function AdminHome() {
               <Text style={styles.sub}>Connecté en tant que {user?.username}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
-            <Ionicons name="log-out-outline" size={20} color="#fff" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <TouchableOpacity
+              onPress={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+              style={styles.logoutBtn}
+              testID="admin-refresh"
+              disabled={refreshing}
+            >
+              <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
+              <Ionicons name="log-out-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       </LinearGradient>
 
