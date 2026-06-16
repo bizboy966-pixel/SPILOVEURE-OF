@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only E2E test of SoleasPay V3 success UI flow with route-mocked /initiate and /status. Registered a fresh test user (testsoleas1), logged in, selected mode-soleas, filled the form, submitted, intercepted both endpoints to return {status:'paid', activation_done:true, level:1}. The activated success view renders correctly (testID 'soleas-activated', green check, French heading '🎉 Mon compte est activé !', level number, CTA 'Accéder à mon espace (Xs)', countdown text 'Redirection automatique dans X seconde…') and the countdown decrements 3→2→1. HOWEVER the automatic redirect to /services does NOT occur: the parent's onActivated callback fires window.alert() BEFORE window.location.href, which blocks JS execution until the user dismisses the modal alert. In Playwright with default dialog handling the URL stayed on /activation; only if a dialog handler accepts the alert does navigation proceed. This contradicts the requested 'automatic redirect after 3 seconds' UX.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "SoleasPay V3 success → auto-redirect to /services",
+        "issue": "window.alert('✅ Paiement confirmé ! Votre niveau est activé.') in the onActivated callback (activation.tsx line 623) is a BLOCKING synchronous modal that halts JS execution before window.location.href='/services' (line 624) runs. Result: the auto-redirect after the 3-second countdown is blocked until the user clicks OK on the alert. Same issue if the user clicks the 'Accéder à mon espace' CTA manually. The new success card already provides clear visual confirmation (green check, '🎉 Mon compte est activé !', level info), so the alert is redundant AND breaks the requested auto-redirect UX.",
+        "affected_selectors": ["[data-testid=\"soleas-activated\"]", "[data-testid=\"soleas-go-services\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Remove the window.alert('✅ Paiement confirmé ! Votre niveau est activé.') call in /app/frontend/app/(app)/activation.tsx line 623 inside the SoleasPollingView onActivated prop. The new in-page success card already shows the confirmation. Keep only `window.location.href = '/services'` (or better: use expo-router `router.replace('/services')`). This will allow the automatic 3s redirect to function as designed.",
+    "Consider replacing window.location.href with router.replace('/services') from useRouter() so the navigation works consistently across web/native and avoids a full page reload."
+  ],
+  "critical_code_review_comments": [
+    "activation.tsx line 622-625: window.alert() blocks the auto-redirect — must be removed for the new success UX to work.",
+    "activation.tsx uses window.location.href instead of expo-router's router.replace — works on web only, may cause full reload and loss of in-memory auth token cache (rehydrated via storage so functional, but slower UX).",
+    "SoleasPollingView (line 951+) — countdown effect re-runs whenever onActivated reference changes; the parent inline function literal passed each render creates a new reference, but works here because countdown state guards the call. Acceptable.",
+    "activation.tsx is 1133 lines — exceeds the 700-line guideline; consider splitting SoleasPollingView, AutoForm, ManualForm, CryptoForm into separate files."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only test)", "frontend": "85% (UI fully correct; auto-redirect blocked by alert)"},
+  "test_credentials": "Created fresh user testsoleas1 / testsoleas1@example.com / Test1234! (sponsor=admin, country=TG, phone=+22890111111). Admin (kossikotokou4@gmail.com) cannot be used because max_level=12 already.",
+  "seed_data_creation": "Registered one test user via POST /api/auth/register (id=928ab2f1-14a1-4d59-b7a7-c215ea6a0af9, status=pending, max_level=0) — kept for future iterations.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test user testsoleas1@example.com / Test1234! is registered (sponsor=admin, country=TG). To retest the redirect fix, log in as this user, navigate to /activation, mock POST /api/payments/soleaspay/initiate -> {order_id:'X',message:'..'} and GET /api/payments/soleaspay/status/* -> {status:'paid',activation_done:true,level:1,message:'OK'}. Click mode-soleas, select TG country chip, click soleas-service-37 (T-MONEY), fill soleas-phone, click soleas-submit. Wait for soleas-activated testID. Verify URL becomes /services within ~4s WITHOUT a dialog handler. If main agent uses router.replace instead of window.location.href, expo-router on web replaces history.",
+  "rca_of_the_issue": "ROOT CAUSE: activation.tsx line 622-625 — the onActivated callback executes `window.alert(...)` synchronously before `window.location.href='/services'`. window.alert is a blocking modal on web; navigation is queued but the alert pauses the event loop. In automated tests without a dialog handler the alert sits forever; for real users the redirect only happens after they click OK. Since the new success UI design (lines 1007-1045) already shows a clear visual confirmation card with countdown + CTA, the alert is redundant. MITIGATION: delete the `window.alert(...)` line. Optionally migrate to `router.replace('/services')` from useRouter(). REPRO STEPS: 1) login as fresh user; 2) navigate /activation; 3) intercept the two soleaspay endpoints; 4) submit form; 5) observe success card with countdown decrementing 3→2→1; 6) at t≈3s observe browser alert appears AND URL stays on /activation until alert is dismissed."
+}

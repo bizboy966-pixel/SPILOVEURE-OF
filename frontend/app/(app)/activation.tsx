@@ -960,6 +960,8 @@ function SoleasPollingView({
   const [status, setStatus] = useState<string>("pending");
   const [message, setMessage] = useState<string>(initialMessage);
   const [tick, setTick] = useState(0);
+  const [activatedLevel, setActivatedLevel] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState<number>(3);
 
   useEffect(() => {
     let stopped = false;
@@ -971,7 +973,10 @@ function SoleasPollingView({
         try {
           const r = await api.get<any>(`/payments/soleaspay/status/${orderId}`);
           if (r.status === "paid" && r.activation_done) {
-            if (!stopped) onActivated();
+            if (!stopped) {
+              setStatus("activated");
+              setActivatedLevel(r.level);
+            }
             return;
           }
           if (r.status === "failed") {
@@ -986,7 +991,58 @@ function SoleasPollingView({
     };
     poll();
     return () => { stopped = true; };
-  }, [orderId, onActivated, onFailed]);
+  }, [orderId, onFailed]);
+
+  // Once activated → countdown then auto-redirect
+  useEffect(() => {
+    if (status !== "activated") return;
+    if (countdown <= 0) {
+      onActivated();
+      return;
+    }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [status, countdown, onActivated]);
+
+  if (status === "activated") {
+    return (
+      <View
+        style={{
+          marginTop: 16, padding: 18, borderRadius: 14,
+          backgroundColor: theme.colors.successBg || "#D1FAE5",
+          borderLeftWidth: 4, borderLeftColor: theme.colors.success,
+          alignItems: "center",
+        }}
+        testID="soleas-activated"
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Ionicons name="checkmark-circle" size={32} color={theme.colors.success} />
+          <Text style={{ color: theme.colors.success, fontWeight: "900", fontSize: 18 }}>
+            🎉 Mon compte est activé !
+          </Text>
+        </View>
+        <Text style={{ color: theme.colors.textPrimary, marginTop: 8, fontSize: 13, textAlign: "center" }}>
+          Niveau {activatedLevel} activé avec succès. Vous avez maintenant accès aux fonctionnalités réservées aux comptes actifs.
+        </Text>
+        <TouchableOpacity
+          style={{
+            marginTop: 16, paddingVertical: 13, paddingHorizontal: 24, borderRadius: 22,
+            backgroundColor: theme.colors.success, flexDirection: "row", alignItems: "center", gap: 8,
+          }}
+          onPress={onActivated}
+          testID="soleas-go-services"
+        >
+          <Ionicons name="rocket" size={18} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>
+            Accéder à mon espace ({countdown}s)
+          </Text>
+        </TouchableOpacity>
+        <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 11, fontStyle: "italic" }}>
+          Redirection automatique dans {countdown} seconde{countdown > 1 ? "s" : ""}…
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ marginTop: 16, padding: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderLeftWidth: 4, borderLeftColor: theme.colors.primary }} testID="soleas-polling">
