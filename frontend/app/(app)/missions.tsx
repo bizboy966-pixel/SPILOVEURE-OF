@@ -266,6 +266,7 @@ export default function MissionsPage() {
   const [items, setItems] = useState<any[]>([]);
   const [windowOpen, setWindowOpen] = useState(true);
   const [message, setMessage] = useState("");
+  const [todayLabel, setTodayLabel] = useState<string>("");
   const [refreshing, setRefreshing] = useState(false);
   const [wallets, setWallets] = useState<any>({ wallets: [], total: 0 });
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -284,6 +285,7 @@ export default function MissionsPage() {
       setItems(m.items || []);
       setWindowOpen(!!m.window_open);
       setMessage(m.message || "");
+      setTodayLabel(m.today_label || "");
       setWallets(w);
       setWithdrawals(wd.items || []);
       setHistory(h.items || []);
@@ -369,10 +371,19 @@ export default function MissionsPage() {
             <View style={styles.closed} testID="missions-closed-banner">
               <Text style={styles.closedTxt}>{message || "🚫 Missions actuellement indisponibles.\n📅 Lundi à Vendredi de 08h00 à 16h00."}</Text>
             </View>
-          ) : items.length === 0 ? (
-            <Text style={styles.empty}>Aucune mission disponible pour le moment.</Text>
           ) : (
-            items.map((m) => <MissionCard key={m.id} m={m} onDone={load} />)
+            <>
+              {todayLabel ? (
+                <View style={{ padding: 10, borderRadius: 10, backgroundColor: "#DBEAFE", borderWidth: 1, borderColor: "#93C5FD", marginBottom: 10 }}>
+                  <Text style={{ color: "#1E40AF", fontWeight: "800", fontSize: 13 }} testID="today-label">📍 Aujourd'hui : {todayLabel}</Text>
+                </View>
+              ) : null}
+              {items.length === 0 ? (
+                <Text style={styles.empty} testID="no-mission-today">{message || "Aucune mission disponible pour vous aujourd'hui."}</Text>
+              ) : (
+                items.map((m) => <MissionCard key={m.id} m={m} onDone={load} />)
+              )}
+            </>
           )
         ) : (
           <>

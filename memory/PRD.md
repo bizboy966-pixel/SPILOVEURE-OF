@@ -20,6 +20,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-17)
+### 2026-06-17 — Rotation hebdomadaire 1 jour = 1 catégorie de mission
+- 🎯 **Objectif** : sur 7 jours de la semaine, chaque jour ne montre QU'UNE seule catégorie (Lun→YouTube, Mar→TikTok, Mer→Instagram, Jeu→Facebook, Ven→Questionnaire). À chaque visite l'utilisateur voit AU MAX une mission — la plus ancienne non encore validée de la catégorie du jour. File de 100 missions par catégorie pour rotation sur tout l'été sans intervention admin.
+- ✅ **Backend `missions.py`** :
+  - `DEFAULT_SCHEDULE.day_type_map` : `{"0":"youtube", "1":"tiktok", "2":"instagram", "3":"facebook", "4":"questionnaire", "5":"", "6":""}` (admin-overridable)
+  - `_today_mission_type(cfg)` : retourne le type de la catégorie du jour ou `""`
+  - `_today_label(cfg)` : renvoie "Mercredi → 📸 Instagram" pour le banner
+  - `list_missions` retravaillé : filtre par `type == today_type`, ignore les missions déjà complétées par l'utilisateur (idempotence LIFETIME et non plus par jour), retourne AU MAX 1 mission (la plus ancienne disponible) + `queue_remaining` pour l'admin
+  - `complete_mission` : vérifie le type du jour avant validation + idempotence per-mission (vie entière)
+  - `ScheduleIn.day_type_map: Optional[dict]` + validation `value ∈ MISSION_TYPES ∪ {""}`
+  - GET/PUT `/admin/missions-schedule` retournent aussi `today_type` + `today_label`
+- ✅ **Frontend admin `(admin)/missions.tsx`** : section "🔄 Rotation hebdomadaire" avec bannière "📍 Aujourd'hui : Mercredi → 📸 Instagram" + grille 7 lignes (Lun..Dim) × 6 chips (YouTube/TikTok/IG/FB/Quiz/Aucun) cliquables pour réassigner.
+- ✅ **Frontend user `(app)/missions.tsx`** : bannière "📍 Aujourd'hui : Mercredi → 📸 Instagram" affichée + message convivial quand 0 mission disponible ("🎉 Aucune mission disponible pour vous aujourd'hui").
+- ✅ **Testé curl** : Mer→Instagram + 0 mission IG en base → 0 items, message convivial. Test temporaire Mer→YouTube → 1 mission YouTube retournée + queue_remaining=1. Logic OK.
+
 ### 2026-06-17 — Retraits Missions : config admin + frais + identification claire
 - 🎯 **Objectifs** : (1) Admin configure min de retrait + frais% depuis le panel. (2) Le calcul frais/net est appliqué automatiquement à chaque demande. (3) Les retraits missions apparaissent dans la **même liste admin** que les retraits commissions, avec un badge distinctif. (4) L'historique utilisateur identifie clairement "🎥 Retrait Mission" vs "🤝 Retrait Commissions".
 - ✅ **Backend `missions.py`** :

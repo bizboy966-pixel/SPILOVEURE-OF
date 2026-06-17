@@ -402,10 +402,45 @@ export default function AdminMissions() {
               </Text>
             </TouchableOpacity>
 
+            <Text style={styles.schedSection}>🔄 Rotation hebdomadaire — 1 catégorie par jour</Text>
+            <Text style={styles.schedHelp}>
+              Chaque jour, une seule catégorie de mission est visible pour l'utilisateur. Sélectionnez la catégorie associée à chaque jour de la semaine. Le système choisit automatiquement la prochaine mission non encore validée par l'utilisateur dans la file de cette catégorie.
+            </Text>
+            {schedule?.today_label ? (
+              <View style={{ padding: 8, borderRadius: 8, backgroundColor: "#FEF3C7", marginBottom: 8, borderWidth: 1, borderColor: "#FCD34D" }}>
+                <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 12 }}>📍 Aujourd'hui : {schedule.today_label}</Text>
+              </View>
+            ) : null}
+            {DAY_LABELS.map((lbl, idx) => {
+              const key = String(idx);
+              const cur = (schedule?.schedule?.day_type_map || {})[key] || "";
+              return (
+                <View key={`row-${idx}`} style={styles.dayMapRow}>
+                  <Text style={styles.dayMapLbl}>{lbl}</Text>
+                  <View style={styles.typeChips}>
+                    {(["youtube", "tiktok", "instagram", "facebook", "questionnaire", ""] as const).map((t) => {
+                      const on = cur === t;
+                      const lblT = t === "youtube" ? "📺 YouTube" : t === "tiktok" ? "🎵 TikTok" : t === "instagram" ? "📸 IG" : t === "facebook" ? "📘 FB" : t === "questionnaire" ? "📝 Quiz" : "— Aucun";
+                      return (
+                        <TouchableOpacity
+                          key={`${idx}-${t || "none"}`}
+                          onPress={() => setSchedule({ ...schedule, schedule: { ...(schedule?.schedule || {}), day_type_map: { ...(schedule?.schedule?.day_type_map || {}), [key]: t } } })}
+                          style={[styles.typeChip, on && styles.typeChipOn]}
+                          testID={`sched-type-${idx}-${t || "none"}`}
+                        >
+                          <Text style={[styles.typeChipTxt, on && { color: "#fff" }]}>{lblT}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
+
             <View style={styles.schedInfo}>
               <Ionicons name="information-circle" size={14} color={theme.colors.primary} />
               <Text style={styles.schedInfoTxt}>
-                Une fois sauvegardé, les missions s'ouvriront et se fermeront automatiquement selon ces paramètres. Chaque utilisateur peut effectuer chaque mission UNE fois par période (par jour), puis la mission redevient disponible automatiquement à la prochaine période programmée.
+                Chaque utilisateur ne peut effectuer chaque mission qu'UNE seule fois. La file de rotation est sans fin : importez 100 missions par catégorie et le système servira automatiquement la prochaine mission non vue le jour programmé.
               </Text>
             </View>
 
@@ -643,4 +678,10 @@ const styles = StyleSheet.create({
   dayChipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
   schedInfo: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14, padding: 10, borderRadius: 8, backgroundColor: "#EFF6FF" },
   schedInfoTxt: { color: theme.colors.primary, fontSize: 11, flex: 1, lineHeight: 16 },
+  dayMapRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  dayMapLbl: { width: 90, color: theme.colors.textPrimary, fontSize: 12, fontWeight: "700" },
+  typeChips: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  typeChip: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  typeChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  typeChipTxt: { color: theme.colors.textPrimary, fontSize: 10, fontWeight: "700" },
 });

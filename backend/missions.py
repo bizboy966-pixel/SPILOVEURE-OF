@@ -32,6 +32,18 @@ DEFAULT_SCHEDULE = {
     "close_time": "16:00",
     "timezone": "Africa/Lome",
     "enabled": True,
+    # Weekly mapping: which mission TYPE is allowed on which weekday.
+    # 0=Mon → youtube, 1=Tue → tiktok, … 4=Fri → questionnaire.
+    # Use the string "" to mark a day with no associated type.
+    "day_type_map": {
+        "0": "youtube",
+        "1": "tiktok",
+        "2": "instagram",
+        "3": "facebook",
+        "4": "questionnaire",
+        "5": "",
+        "6": "",
+    },
 }
 
 # Defaults for the withdrawal config — admin-overridable.
@@ -60,12 +72,29 @@ async def _load_schedule(db) -> dict:
     Returns DEFAULT_SCHEDULE merged with any overrides found in DB.
     """
     doc = await db.app_settings.find_one({"key": "mission_schedule"}, {"_id": 0})
-    cfg = dict(DEFAULT_SCHEDULE)
+    cfg = {**DEFAULT_SCHEDULE, "day_type_map": dict(DEFAULT_SCHEDULE["day_type_map"])}
     if doc and isinstance(doc.get("value"), dict):
         for k in ("allowed_days", "open_time", "close_time", "timezone", "enabled"):
             if k in doc["value"]:
                 cfg[k] = doc["value"][k]
+        if isinstance(doc["value"].get("day_type_map"), dict):
+            # Normalize keys to str and values to str (lowercased)
+            cfg["day_type_map"] = {
+                str(k): (str(v).strip().lower() if v is not None else "")
+                for k, v in doc["value"]["day_type_map"].items()
+            }
     return cfg
+
+
+def _today_mission_type(cfg: dict) -> str:
+    """Return the mission TYPE allowed on the current weekday (or "" if none)."""
+    tz = _tz(cfg.get("timezone") or "Africa/Lome")
+    wd = str(datetime.now(tz).weekday())
+    mp = cfg.get("day_type_map") or {}
+    val = mp.get(wd, "")
+    if val and val not in MISSION_TYPES:
+        return ""
+    return val
 
 
 def _tz(name: str):
@@ -111,6 +140,24 @@ def _window_human_label(cfg: dict) -> str:
     return f"📅 {days_str} • 🕒 {cfg.get('open_time')} — {cfg.get('close_time')} ({cfg.get('timezone')})"
 
 
+TYPE_LABEL = {
+    "youtube": "📺 YouTube",
+    "tiktok": "🎵 TikTok",
+    "instagram": "📸 Instagram",
+    "facebook": "📘 Facebook",
+    "questionnaire": "📝 Questionnaire",
+}
+
+
+def _today_label(cfg: dict) -> str:
+    tz = _tz(cfg.get("timezone") or "Africa/Lome")
+    days_map = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    wd = datetime.now(tz).weekday()
+    today_type = _today_mission_type(cfg)
+    type_lbl = TYPE_LABEL.get(today_type, "Aucune catégorie") if today_type else "Aucune catégorie programmée"
+    return f"{days_map[wd]} → {type_lbl}"
+
+
 class MissionIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
@@ -130,49 +177,93 @@ admin = APIRouter(prefix="/api/admin", tags=["missions_admin"])
 
 @public.get("/missions")
 async def list_missions(request: Request, user=Depends(get_current_user)):
+    """Returns AT MOST ONE mission — the next one in the auto-rotation queue
+    for today's configured mission type. Each day maps to exactly one type
+    (Mon→YouTube, Tue→TikTok, …). Once a user completes a mission, it never
+    reappears for them (one-shot lifetime); the rotation auto-advances to
+    the next-oldest unfinished mission of the same type.
+    """
     db = request.app.state.db
     cfg = await _load_schedule(db)
     open_now = _window_open_for_schedule(cfg)
+    today_type = _today_mission_type(cfg)
+    today_lbl = _today_label(cfg)
     if not open_now:
         return {
             "window_open": False,
+            "today_type": today_type,
+            "today_label": today_lbl,
             "schedule": cfg,
             "window_label": _window_human_label(cfg),
             "message": "🚫 Missions actuellement indisponibles.\n" + _window_human_label(cfg),
             "items": [],
         }
-    cur = db.missions.find({"active": True}, {"_id": 0}).sort("created_at", -1)
-    items = []
+    if not today_type:
+        return {
+            "window_open": True,
+            "today_type": "",
+            "today_label": today_lbl,
+            "schedule": cfg,
+            "window_label": _window_human_label(cfg),
+            "message": f"🚫 Aucune catégorie de mission programmée pour aujourd'hui.\n{today_lbl}",
+            "items": [],
+        }
+    # Build the set of mission_ids the user already completed (lifetime).
+    completed_ids = set()
+    async for c in db.mission_completions.find(
+        {"user_id": user["id"]}, {"_id": 0, "mission_id": 1}
+    ):
+        completed_ids.add(c.get("mission_id"))
+    # Find the oldest active mission of today's type not yet completed by user.
     now_iso = datetime.now(timezone.utc).isoformat()
-    period_key = _current_period_key(cfg)
+    cur = db.missions.find({"active": True, "type": today_type}, {"_id": 0}).sort("created_at", 1)
+    next_mission = None
+    queue_remaining = 0
     async for m in cur:
         if m.get("expires_at") and m["expires_at"] < now_iso:
             continue
-        # Mark as already completed by this user IN THE CURRENT PERIOD ONLY.
-        # When the next scheduled day arrives, period_key changes and the
-        # mission becomes available again automatically.
-        done = await db.mission_completions.find_one(
-            {"user_id": user["id"], "mission_id": m["id"], "period_key": period_key},
-            {"_id": 1},
-        )
-        m["completed_by_user"] = bool(done)
-        items.append(m)
-    return {"window_open": True, "schedule": cfg, "window_label": _window_human_label(cfg), "period_key": period_key, "items": items}
+        if m["id"] in completed_ids:
+            continue
+        if next_mission is None:
+            next_mission = m
+        queue_remaining += 1
+    items = []
+    if next_mission:
+        next_mission["completed_by_user"] = False
+        items.append(next_mission)
+    return {
+        "window_open": True,
+        "today_type": today_type,
+        "today_label": today_lbl,
+        "schedule": cfg,
+        "window_label": _window_human_label(cfg),
+        "period_key": _current_period_key(cfg),
+        "queue_remaining": queue_remaining,
+        "items": items,
+        "message": "🎉 Aucune mission disponible pour vous aujourd'hui — revenez à la prochaine période programmée."
+                   if not next_mission else "",
+    }
 
 
 @public.post("/missions/{mission_id}/complete")
 async def complete_mission(mission_id: str, body: dict, request: Request, user=Depends(get_current_user)):
     """Body: { watched_seconds: int, answer: str }.
-    Idempotent — one reward per (user, mission, period_key). Mission can be
-    redone in the NEXT scheduled period (next allowed day).
+    Idempotent — ONE-SHOT LIFETIME per (user, mission). After completion the
+    mission disappears for that user and the rotation moves to the next one
+    of the same type tomorrow (or next scheduled day).
     """
     db = request.app.state.db
     cfg = await _load_schedule(db)
     if not _window_open_for_schedule(cfg):
         raise HTTPException(403, "Missions indisponibles. " + _window_human_label(cfg))
+    today_type = _today_mission_type(cfg)
+    if not today_type:
+        raise HTTPException(403, f"Aucune catégorie programmée pour aujourd'hui. {_today_label(cfg)}")
     m = await db.missions.find_one({"id": mission_id, "active": True}, {"_id": 0})
     if not m:
         raise HTTPException(404, "Mission introuvable ou désactivée")
+    if m.get("type") != today_type:
+        raise HTTPException(403, f"Cette mission n'est pas active aujourd'hui. Catégorie du jour : {TYPE_LABEL.get(today_type, today_type)}.")
     if m.get("expires_at") and m["expires_at"] < datetime.now(timezone.utc).isoformat():
         raise HTTPException(410, "Mission expirée")
     # Anti-fraud: must watch at least the configured duration
@@ -184,14 +275,13 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
         ans = str(body.get("answer") or "").strip().lower()
         if ans != str(m["correct_answer"]).strip().lower():
             raise HTTPException(400, "Réponse incorrecte. Réessayez après avoir bien regardé la vidéo.")
-    # Idempotency — per (user, mission, period)
-    period_key = _current_period_key(cfg)
+    # ONE-SHOT lifetime idempotency
     existing = await db.mission_completions.find_one(
-        {"user_id": user["id"], "mission_id": mission_id, "period_key": period_key},
+        {"user_id": user["id"], "mission_id": mission_id},
         {"_id": 1},
     )
     if existing:
-        raise HTTPException(409, "Mission déjà validée aujourd'hui. Revenez à la prochaine période programmée.")
+        raise HTTPException(409, "Mission déjà validée. La prochaine sera disponible automatiquement.")
     mtype = m["type"]
     if mtype not in MISSION_TYPES:
         raise HTTPException(400, "Type de mission invalide")
@@ -503,6 +593,7 @@ class ScheduleIn(BaseModel):
     close_time: str = "16:00"
     timezone: str = "Africa/Lome"
     enabled: bool = True
+    day_type_map: Optional[dict] = None  # {"0":"youtube", "1":"tiktok", ...}
 
 
 @admin.get("/missions-schedule")
@@ -515,6 +606,8 @@ async def admin_get_schedule(request: Request, _=Depends(require_admin)):
         "window_open_now": _window_open_for_schedule(cfg),
         "period_key_now": _current_period_key(cfg),
         "label": _window_human_label(cfg),
+        "today_type": _today_mission_type(cfg),
+        "today_label": _today_label(cfg),
     }
 
 
@@ -536,8 +629,22 @@ async def admin_update_schedule(body: ScheduleIn, request: Request, who=Depends(
         _tz(body.timezone)
     except Exception:
         raise HTTPException(400, f"Timezone invalide: {body.timezone}")
+    # Validate day_type_map
+    if body.day_type_map is not None:
+        for k, v in body.day_type_map.items():
+            try:
+                day = int(k)
+            except Exception:
+                raise HTTPException(400, f"day_type_map clé invalide: {k}")
+            if not (0 <= day <= 6):
+                raise HTTPException(400, f"day_type_map clé invalide (0..6): {k}")
+            if v and str(v).strip().lower() not in MISSION_TYPES:
+                raise HTTPException(400, f"day_type_map: type invalide '{v}'. Autorisés: {MISSION_TYPES} ou chaîne vide.")
     db = request.app.state.db
-    value = body.dict()
+    value = body.dict(exclude_none=False)
+    # Normalize day_type_map keys to str
+    if value.get("day_type_map"):
+        value["day_type_map"] = {str(k): str(v).strip().lower() for k, v in value["day_type_map"].items()}
     await db.app_settings.update_one(
         {"key": "mission_schedule"},
         {"$set": {
@@ -554,4 +661,6 @@ async def admin_update_schedule(body: ScheduleIn, request: Request, who=Depends(
         "schedule": cfg,
         "window_open_now": _window_open_for_schedule(cfg),
         "label": _window_human_label(cfg),
+        "today_type": _today_mission_type(cfg),
+        "today_label": _today_label(cfg),
     }
