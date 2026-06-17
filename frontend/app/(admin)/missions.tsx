@@ -25,7 +25,7 @@ const TYPE_LABEL: Record<string, string> = {
   questionnaire: "📝 Questionnaire",
 };
 
-type Tab = "missions" | "schedule" | "withdrawals" | "stats";
+type Tab = "missions" | "schedule" | "payout" | "withdrawals" | "stats";
 
 const DAY_LABELS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
@@ -40,19 +40,29 @@ export default function AdminMissions() {
   const [wdFilter, setWdFilter] = useState<"" | "pending" | "validated" | "rejected">("pending");
   const [schedule, setSchedule] = useState<any | null>(null);
   const [savingSched, setSavingSched] = useState(false);
+  const [payout, setPayout] = useState<any | null>(null);
+  const [payoutMin, setPayoutMin] = useState<string>("");
+  const [payoutFee, setPayoutFee] = useState<string>("");
+  const [savingPayout, setSavingPayout] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [list, s, w, sched] = await Promise.all([
+      const [list, s, w, sched, po] = await Promise.all([
         api.get<any[]>(`/admin/missions${q ? `?q=${encodeURIComponent(q)}` : ""}`),
         api.get<any>("/admin/missions/stats"),
         api.get<any>(`/admin/mission-withdrawals${wdFilter ? `?status=${wdFilter}` : ""}`),
         api.get<any>("/admin/missions-schedule"),
+        api.get<any>("/admin/mission-payout"),
       ]);
       setItems(list || []);
       setStats(s);
       setWithdrawals(w.items || []);
       setSchedule(sched || null);
+      setPayout(po || null);
+      if (po?.config) {
+        setPayoutMin(String(po.config.min_withdrawal ?? ""));
+        setPayoutFee(String(po.config.fee_percent ?? ""));
+      }
     } catch {}
   }, [q, wdFilter]);
 
@@ -63,6 +73,30 @@ export default function AdminMissions() {
     const cur: number[] = schedule.schedule?.allowed_days || [];
     const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort();
     setSchedule({ ...schedule, schedule: { ...schedule.schedule, allowed_days: next } });
+  };
+
+  const savePayout = async () => {
+    const minV = parseFloat(payoutMin);
+    const feeV = parseFloat(payoutFee);
+    if (Number.isNaN(minV) || minV < 0) {
+      if (typeof window !== "undefined") window.alert("❌ Retrait minimum invalide.");
+      return;
+    }
+    if (Number.isNaN(feeV) || feeV < 0 || feeV > 100) {
+      if (typeof window !== "undefined") window.alert("❌ Frais doit être entre 0 et 100.");
+      return;
+    }
+    setSavingPayout(true);
+    try {
+      const r = await api.put<any>("/admin/mission-payout", { min_withdrawal: minV, fee_percent: feeV });
+      if (typeof window !== "undefined") window.alert(`✅ Configuration mise à jour\nMinimum : ${r.config.min_withdrawal} FCFA\nFrais : ${r.config.fee_percent}%`);
+      await load();
+    } catch (e: any) {
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+    } finally {
+      setSavingPayout(false);
+    }
   };
 
   const saveSchedule = async () => {
@@ -166,7 +200,7 @@ export default function AdminMissions() {
 
       {/* Tabs */}
       <View style={styles.tabRow}>
-        {(["missions", "schedule", "withdrawals", "stats"] as Tab[]).map((t) => (
+        {(["missions", "schedule", "payout", "withdrawals", "stats"] as Tab[]).map((t) => (
           <TouchableOpacity
             key={t}
             style={[styles.tab, tab === t && styles.tabOn]}
@@ -176,7 +210,8 @@ export default function AdminMissions() {
             <Text style={[styles.tabTxt, tab === t && { color: "#fff" }]}>
               {t === "missions" ? "🎬 Missions" :
                t === "schedule" ? "⏰ Programmation" :
-               t === "withdrawals" ? `💸 Retraits${withdrawals.length ? ` (${withdrawals.length})` : ""}` :
+               t === "payout" ? "💸 Config Retraits" :
+               t === "withdrawals" ? `💰 Retraits${withdrawals.length ? ` (${withdrawals.length})` : ""}` :
                "📊 Stats"}
             </Text>
           </TouchableOpacity>
@@ -381,6 +416,91 @@ export default function AdminMissions() {
               testID="sched-save"
             >
               <Text style={styles.btnTxt}>{savingSched ? "Enregistrement…" : "💾 Enregistrer la programmation"}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {tab === "payout" && (
+          <View>
+            <View style={styles.schedBanner}>
+              <Ionicons name="cash" size={20} color="#fff" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
+                  💸 Configuration des retraits Missions
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                  Minimum actuel : {payout?.config?.min_withdrawal ?? "…"} FCFA • Frais : {payout?.config?.fee_percent ?? "…"}%
+                </Text>
+              </View>
+            </View>
+
+            {payout?.stats ? (
+              <View style={styles.statsRow}>
+                <View style={styles.stat}>
+                  <Text style={styles.statN}>{payout.stats.total_count}</Text>
+                  <Text style={styles.statL}>Total demandes</Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={[styles.statN, { color: theme.colors.warning }]}>{payout.stats.pending_count}</Text>
+                  <Text style={styles.statL}>🟡 En attente</Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={[styles.statN, { color: theme.colors.success }]}>{payout.stats.validated_count}</Text>
+                  <Text style={styles.statL}>🟢 Validés</Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={[styles.statN, { color: theme.colors.danger }]}>{payout.stats.rejected_count}</Text>
+                  <Text style={styles.statL}>🔴 Rejetés</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {payout?.stats ? (
+              <View style={{ padding: 10, borderRadius: 10, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0", marginTop: 6 }}>
+                <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>💰 Total validé brut : {Math.round(payout.stats.validated_amount).toLocaleString("fr-FR")} FCFA</Text>
+                <Text style={{ color: theme.colors.success, fontSize: 11, marginTop: 2 }}>💵 Total payé net : {Math.round(payout.stats.validated_net).toLocaleString("fr-FR")} FCFA</Text>
+                <Text style={{ color: theme.colors.warning, fontSize: 11, marginTop: 2 }}>🟡 En attente : {Math.round(payout.stats.pending_amount).toLocaleString("fr-FR")} FCFA</Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.schedSection}>💰 Retrait minimum (FCFA)</Text>
+            <Text style={styles.schedHelp}>Montant minimum autorisé pour faire une demande de retrait.</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              value={payoutMin}
+              onChangeText={setPayoutMin}
+              placeholder="500"
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="payout-min"
+            />
+
+            <Text style={styles.schedSection}>💸 Frais de retrait (%)</Text>
+            <Text style={styles.schedHelp}>Pourcentage prélevé sur le montant demandé. Le client reçoit (montant − frais).</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              value={payoutFee}
+              onChangeText={setPayoutFee}
+              placeholder="10"
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="payout-fee"
+            />
+
+            <View style={styles.schedInfo}>
+              <Ionicons name="information-circle" size={14} color={theme.colors.primary} />
+              <Text style={styles.schedInfoTxt}>
+                Exemple : minimum 500 FCFA, frais 10% → un utilisateur qui demande 1 000 FCFA recevra 900 FCFA après prélèvement de 100 FCFA de frais. Les paramètres s'appliquent à TOUS les portefeuilles missions (YouTube, TikTok, Instagram, Facebook, Questionnaire).
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: theme.colors.success, marginTop: 14 }]}
+              onPress={savePayout}
+              disabled={savingPayout}
+              testID="payout-save"
+            >
+              <Text style={styles.btnTxt}>{savingPayout ? "Enregistrement…" : "💾 Enregistrer la configuration"}</Text>
             </TouchableOpacity>
           </View>
         )}

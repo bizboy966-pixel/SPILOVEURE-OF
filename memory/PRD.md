@@ -19,7 +19,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-16)
+## Implementation Status (à jour 2026-06-17)
+### 2026-06-17 — Retraits Missions : config admin + frais + identification claire
+- 🎯 **Objectifs** : (1) Admin configure min de retrait + frais% depuis le panel. (2) Le calcul frais/net est appliqué automatiquement à chaque demande. (3) Les retraits missions apparaissent dans la **même liste admin** que les retraits commissions, avec un badge distinctif. (4) L'historique utilisateur identifie clairement "🎥 Retrait Mission" vs "🤝 Retrait Commissions".
+- ✅ **Backend `missions.py`** :
+  - `_load_payout_config(db)` : lit `app_settings.mission_payout` (defaults : 500 FCFA min, 10% frais)
+  - `request_mission_withdrawal` : applique le min + calcule `fee` et `net_payout`, stocke `fee_percent` + `withdrawal_type="mission"` dans `db.mission_withdrawals`
+  - `GET /me/mission-payout-config` (user) : retourne config pour preview UI
+  - `GET /admin/mission-payout` : retourne config + stats (total, pending, validated, rejected, montants)
+  - `PUT /admin/mission-payout` : validation 0 ≤ fee_percent ≤ 100, 0 ≤ min_withdrawal
+  - `admin_mission_withdrawal_action` : supporte `reason` au rejet (stocké dans `reject_reason`)
+- ✅ **Backend `server.py` /admin/withdrawals**: fusionne maintenant `db.withdrawals` (commissions) + `db.mission_withdrawals` (mission), chaque item porte `withdrawal_type` ∈ {"commissions", "mission"}. Tri par `created_at` desc.
+- ✅ **`/admin/withdrawals/{id}/validate` & `/reject`** : extendus pour gérer les deux collections (lookup db.withdrawals d'abord, fallback db.mission_withdrawals). Refund automatique du wallet mission lors d'un rejet.
+- ✅ **`/admin/stats`** : ajout sous-compteurs `withdrawals_pending_commissions` + `withdrawals_pending_missions` + bloc complet `mission_withdrawals` (total/pending/validated/rejected counts + montants brut/net).
+- ✅ **`_build_transaction_history`** : inclut désormais aussi `db.mission_withdrawals` avec label "🎥 Retrait Mission (wallet)" et `meta.withdrawal_type="mission"`.
+- ✅ **Frontend admin missions (nouvel onglet "💸 Config Retraits")** : bannière config actuelle, stats cards (total/pending/validated/rejected), bloc info montants, inputs min + fee%, info pédagogique, bouton sauvegarde.
+- ✅ **Frontend admin retraits (`(admin)/index.tsx`)** : carte de retrait avec badge **🏆 MISSION** (jaune + bordure gauche) ou **💰 COMMISSIONS** (vert), libellé "Type de retrait" explicite ("🎥 Retrait Mission (youtube)" / "🤝 Retrait Commissions"), motif de rejet affiché.
+- ✅ **Frontend user `(app)/missions.tsx`** : modal retrait avec preview en temps réel (Montant demandé / Frais (X%) / Montant net), bloc info "Minimum X • Frais Y%", bouton désactivé si < min, alerte montre montant brut + frais + net après envoi.
+- ✅ **Testé curl + screenshot** : GET payout OK (config + stats agrégées), PUT 1000/12% OK, /admin/withdrawals retourne 27 items (23 mission + 4 commissions), badges visibles, distinction parfaite.
+
 ### 2026-06-16 — Missions : programmation admin + reset périodique automatique
 - 🎯 **Objectif** : (1) Chaque mission ne peut être effectuée qu'une fois par utilisateur **par période** (et non plus une fois pour toujours). (2) L'admin configure les jours + heures de disponibilité depuis le panel — pas besoin de republier les vidéos chaque jour.
 - ✅ **Backend `missions.py`** : helper `_load_schedule(db)` lit la config admin depuis `db.app_settings.mission_schedule` (fallback : Mon-Fri 08:00-16:00 Africa/Lome). `_window_open_for_schedule(cfg)` calcule l'état du window (jour autorisé + heure dans plage + enabled).

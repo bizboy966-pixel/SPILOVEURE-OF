@@ -706,7 +706,7 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
             },
         })
 
-    # Withdrawals
+    # Withdrawals (MLM commissions)
     async for w in db.withdrawals.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1):
         out.append({
             "type": "withdrawal",
@@ -715,15 +715,38 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
             "fee": float(w.get("fee", 0) or 0) if w.get("fee") is not None else None,
             "net": float(w.get("net_payout", 0) or 0) if w.get("net_payout") is not None else None,
             "currency": "XOF",
-            "label": "Retrait",
+            "label": "Retrait Commissions",
             "ref": w.get("id"),
             "date": w.get("created_at"),
             "meta": {
+                "withdrawal_type": "commissions",
                 "operator": w.get("operator"),
                 "phone": w.get("phone"),
                 "country": w.get("country"),
             },
         })
+
+    # Mission withdrawals (paid missions module — separate collection)
+    try:
+        async for w in db.mission_withdrawals.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1):
+            out.append({
+                "type": "withdrawal",
+                "status": w.get("status", "pending"),
+                "amount": float(w.get("amount", 0) or 0),
+                "fee": float(w.get("fee", 0) or 0) if w.get("fee") is not None else None,
+                "net": float(w.get("net_payout", 0) or 0) if w.get("net_payout") is not None else None,
+                "currency": "XOF",
+                "label": f"🎥 Retrait Mission ({w.get('wallet', '')})",
+                "ref": w.get("id"),
+                "date": w.get("created_at"),
+                "meta": {
+                    "withdrawal_type": "mission",
+                    "wallet": w.get("wallet"),
+                    "reject_reason": w.get("reject_reason"),
+                },
+            })
+    except Exception:
+        pass
 
     # Mission rewards (paid missions module, isolated wallet)
     try:
@@ -1292,15 +1315,40 @@ async def admin_stats(request: Request):
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
     total_withdrawals = total_wd_agg[0]["total"] if total_wd_agg else 0
+    # Mission withdrawals stats (paid missions module — separate collection)
+    try:
+        mw_pending = await db.mission_withdrawals.count_documents({"status": "pending"})
+        mw_validated = await db.mission_withdrawals.count_documents({"status": "validated"})
+        mw_rejected = await db.mission_withdrawals.count_documents({"status": "rejected"})
+        mw_total = mw_pending + mw_validated + mw_rejected
+        mw_amount_agg = await db.mission_withdrawals.aggregate([
+            {"$match": {"status": "validated"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}, "net": {"$sum": "$net_payout"}}},
+        ]).to_list(1)
+        mw_amount = float((mw_amount_agg[0] or {}).get("total") or 0) if mw_amount_agg else 0
+        mw_net = float((mw_amount_agg[0] or {}).get("net") or 0) if mw_amount_agg else 0
+    except Exception:
+        mw_pending = mw_validated = mw_rejected = mw_total = 0
+        mw_amount = mw_net = 0
     return {
         "users_total": users_total,
         "users_active": users_active,
         "activations_pending": activations_pending,
         "activations_pending_manual": activations_pending_manual,
         "activations_pending_auto": activations_pending_auto,
-        "withdrawals_pending": withdrawals_pending,
+        "withdrawals_pending": withdrawals_pending + mw_pending,
+        "withdrawals_pending_commissions": withdrawals_pending,
+        "withdrawals_pending_missions": mw_pending,
         "total_activations_amount": total_activations,
         "total_withdrawals_amount": total_withdrawals,
+        "mission_withdrawals": {
+            "total_count": mw_total,
+            "pending_count": mw_pending,
+            "validated_count": mw_validated,
+            "rejected_count": mw_rejected,
+            "validated_amount": mw_amount,
+            "validated_net": mw_net,
+        },
     }
 
 
@@ -1743,9 +1791,49 @@ async def admin_delete_user(user_id: str, request: Request, admin=Depends(requir
 
 @admin_router.get("/withdrawals")
 async def admin_list_withdrawals(request: Request, status_filter: Optional[str] = Query(None, alias="status")):
+    """Unified withdrawals list: MLM commissions + Paid Missions.
+    Each item exposes a `withdrawal_type` ∈ {"commissions", "mission"} so the
+    UI can render a distinguishing badge.
+    """
     db = request.app.state.db
     q = {"status": status_filter} if status_filter else {}
     items = await db.withdrawals.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for it in items:
+        it.setdefault("withdrawal_type", "commissions")
+        it["source"] = "withdrawals"
+    # Merge mission withdrawals
+    try:
+        async for mw in db.mission_withdrawals.find(q, {"_id": 0}).sort("created_at", -1).limit(500):
+            it = {
+                "id": mw.get("id"),
+                "user_id": mw.get("user_id"),
+                "username": mw.get("username"),
+                "amount": float(mw.get("amount") or 0),
+                "fee": float(mw.get("fee") or 0) if mw.get("fee") is not None else None,
+                "fee_percent": mw.get("fee_percent"),
+                "net_payout": float(mw.get("net_payout") or 0) if mw.get("net_payout") is not None else None,
+                "status": mw.get("status", "pending"),
+                "created_at": mw.get("created_at"),
+                "decided_at": mw.get("decided_at"),
+                "decided_by": mw.get("decided_by"),
+                "reject_reason": mw.get("reject_reason"),
+                "wallet": mw.get("wallet"),
+                "withdrawal_type": "mission",
+                "source": "mission_withdrawals",
+            }
+            items.append(it)
+    except Exception:
+        pass
+
+    def _ts(x):
+        v = x.get("created_at")
+        if isinstance(v, datetime):
+            return v
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except Exception:
+            return datetime.min.replace(tzinfo=timezone.utc)
+    items.sort(key=_ts, reverse=True)
     return items
 
 
@@ -1753,38 +1841,75 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
 async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
-    if not wd:
+    if wd:
+        if wd["status"] != "pending":
+            raise HTTPException(400, "Déjà traité.")
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
+        )
+        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_withdrawal",
+            "target": wd_id, "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True}
+    # Fallback: mission withdrawal (delegate to the missions module's logic)
+    mw = await db.mission_withdrawals.find_one({"id": wd_id})
+    if not mw:
         raise HTTPException(404, "Retrait introuvable.")
-    if wd["status"] != "pending":
+    if mw["status"] != "pending":
         raise HTTPException(400, "Déjà traité.")
-    await db.withdrawals.update_one(
+    await db.mission_withdrawals.update_one(
         {"id": wd_id},
-        {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
+        {"$set": {"status": "validated", "decided_at": datetime.now(timezone.utc), "decided_by": admin.get("username")}},
     )
-    await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
     await db.admin_logs.insert_one({
-        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_withdrawal",
+        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_mission_withdrawal",
         "target": wd_id, "at": datetime.now(timezone.utc),
     })
     return {"ok": True}
 
 
 @admin_router.post("/withdrawals/{wd_id}/reject")
-async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
+async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin), body: dict | None = None):
     db = request.app.state.db
+    reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
-    if not wd:
+    if wd:
+        if wd["status"] != "pending":
+            raise HTTPException(400, "Déjà traité.")
+        # Refund balance
+        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"], "reject_reason": reason}},
+        )
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_withdrawal",
+            "target": wd_id, "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True}
+    # Fallback: mission withdrawal
+    mw = await db.mission_withdrawals.find_one({"id": wd_id})
+    if not mw:
         raise HTTPException(404, "Retrait introuvable.")
-    if wd["status"] != "pending":
+    if mw["status"] != "pending":
         raise HTTPException(400, "Déjà traité.")
-    # Refund balance
-    await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})
-    await db.withdrawals.update_one(
+    # Refund the mission wallet
+    try:
+        from missions import BALANCE_FIELD as _MBF
+        bal_field = _MBF.get(mw.get("wallet"))
+    except Exception:
+        bal_field = None
+    if bal_field:
+        await db.users.update_one({"id": mw["user_id"]}, {"$inc": {bal_field: float(mw.get("amount") or 0)}})
+    await db.mission_withdrawals.update_one(
         {"id": wd_id},
-        {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"]}},
+        {"$set": {"status": "rejected", "decided_at": datetime.now(timezone.utc), "decided_by": admin.get("username"), "reject_reason": reason}},
     )
     await db.admin_logs.insert_one({
-        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_withdrawal",
+        "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_mission_withdrawal",
         "target": wd_id, "at": datetime.now(timezone.utc),
     })
     return {"ok": True}

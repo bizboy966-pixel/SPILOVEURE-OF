@@ -151,13 +151,25 @@ function WithdrawModal({
 }) {
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [payoutCfg, setPayoutCfg] = useState<{ min_withdrawal: number; fee_percent: number } | null>(null);
   const meta = TYPE_META[wallet] || { label: wallet, color: theme.colors.primary, emoji: "🎁", icon: "wallet" };
-  useEffect(() => { if (!visible) setAmount(""); }, [visible]);
+  useEffect(() => {
+    if (!visible) { setAmount(""); return; }
+    api.get<any>("/me/mission-payout-config").then(setPayoutCfg).catch(() => {});
+  }, [visible]);
+
+  const amt = parseInt(amount, 10) || 0;
+  const minOk = payoutCfg ? amt >= payoutCfg.min_withdrawal : true;
+  const fee = payoutCfg ? Math.round((amt * payoutCfg.fee_percent) / 100) : 0;
+  const net = amt - fee;
 
   const submit = async () => {
-    const amt = parseInt(amount, 10) || 0;
     if (amt <= 0) {
       if (typeof window !== "undefined") window.alert("Montant invalide.");
+      return;
+    }
+    if (payoutCfg && amt < payoutCfg.min_withdrawal) {
+      if (typeof window !== "undefined") window.alert(`Montant minimum requis : ${payoutCfg.min_withdrawal} FCFA.`);
       return;
     }
     if (amt > balance) {
@@ -167,7 +179,7 @@ function WithdrawModal({
     setSubmitting(true);
     try {
       await api.post(`/me/mission-withdrawals`, { wallet, amount: amt });
-      if (typeof window !== "undefined") window.alert(`✅ Demande de retrait de ${fmt(amt)} envoyée (portefeuille ${meta.label}).`);
+      if (typeof window !== "undefined") window.alert(`✅ Demande de retrait envoyée\nMontant : ${fmt(amt)}\nFrais : ${fmt(fee)}\nMontant net : ${fmt(net)}`);
       onSubmitted();
       onClose();
     } catch (e: any) {
@@ -185,16 +197,44 @@ function WithdrawModal({
         <View style={styles.modalCard} testID="mission-withdraw-modal">
           <Text style={styles.modalTitle}>{meta.emoji} Retrait — {meta.label}</Text>
           <Text style={styles.modalSub}>Solde disponible : <Text style={{ color: theme.colors.success, fontWeight: "800" }}>{fmt(balance)}</Text></Text>
+          {payoutCfg ? (
+            <View style={{ marginTop: 6, padding: 8, backgroundColor: "#F1F5F9", borderRadius: 8 }}>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                💰 Minimum : <Text style={{ fontWeight: "700", color: theme.colors.textPrimary }}>{payoutCfg.min_withdrawal} FCFA</Text>
+                {"  •  "}
+                💸 Frais : <Text style={{ fontWeight: "700", color: theme.colors.textPrimary }}>{payoutCfg.fee_percent}%</Text>
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.lbl}>Montant à retirer (FCFA)</Text>
           <TextInput
             style={styles.input}
             keyboardType="numeric"
             value={amount}
             onChangeText={setAmount}
-            placeholder="Ex: 1000"
+            placeholder={payoutCfg ? `Min : ${payoutCfg.min_withdrawal}` : "Ex: 1000"}
             placeholderTextColor={theme.colors.textSecondary}
             testID="mission-withdraw-amount"
           />
+          {amt > 0 && payoutCfg ? (
+            <View style={{ marginTop: 8, padding: 10, backgroundColor: "#EFF6FF", borderRadius: 8, borderWidth: 1, borderColor: "#BFDBFE" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Montant demandé</Text>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 }}>{fmt(amt)}</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Frais ({payoutCfg.fee_percent}%)</Text>
+                <Text style={{ color: theme.colors.danger, fontWeight: "700", fontSize: 12 }}>− {fmt(fee)}</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: "#BFDBFE" }}>
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: "800" }}>Montant net</Text>
+                <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>{fmt(net)}</Text>
+              </View>
+              {!minOk ? (
+                <Text style={{ color: theme.colors.danger, fontSize: 11, marginTop: 4 }}>⚠️ Minimum requis : {payoutCfg.min_withdrawal} FCFA</Text>
+              ) : null}
+            </View>
+          ) : null}
           <Text style={styles.warnTxt}>
             ℹ️ Ce retrait sera traité par un administrateur. Les fonds sont réservés immédiatement et restitués en cas de rejet.
           </Text>
@@ -207,9 +247,9 @@ function WithdrawModal({
               <Text style={[styles.btnTxt, { color: theme.colors.textPrimary }]}>Annuler</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: theme.colors.success }, submitting && { opacity: 0.6 }]}
+              style={[styles.btn, { backgroundColor: theme.colors.success }, (submitting || !minOk) && { opacity: 0.6 }]}
               onPress={submit}
-              disabled={submitting || balance <= 0}
+              disabled={submitting || balance <= 0 || !minOk}
               testID="mission-withdraw-submit"
             >
               <Text style={styles.btnTxt}>{submitting ? "Envoi…" : "💸 Demander le retrait"}</Text>

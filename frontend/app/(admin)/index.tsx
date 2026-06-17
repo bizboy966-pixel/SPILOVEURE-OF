@@ -754,18 +754,29 @@ export default function AdminHome() {
               if (filtered.length === 0) {
                 return <Card><Text style={styles.empty}>{q ? `Aucun résultat pour "${wdQ}".` : `Aucun retrait ${wdFilter === "pending" ? "en attente" : wdFilter === "validated" ? "validé" : "rejeté"}.`}</Text></Card>;
               }
-              return filtered.map((w) => (
-              <Card key={w.id} style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={styles.userName}>{w.username}</Text>
+              return filtered.map((w) => {
+                const isMission = w.withdrawal_type === "mission";
+                return (
+                <Card key={w.id} style={{ marginBottom: 8, ...(isMission ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : {}) }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                    <Text style={styles.userName}>{w.username}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: isMission ? "#FEF3C7" : "#D1FAE5" }}>
+                      <Ionicons name={isMission ? "trophy" : "cash"} size={11} color={isMission ? "#92400E" : "#065F46"} />
+                      <Text style={{ color: isMission ? "#92400E" : "#065F46", fontWeight: "800", fontSize: 10, letterSpacing: 0.5 }}>
+                        {isMission ? "MISSION" : "COMMISSIONS"}
+                      </Text>
+                    </View>
+                  </View>
                   <PillStatus status={w.status} />
                 </View>
                 <View style={styles.kvBox}>
+                  <KvRow k="Type de retrait" v={isMission ? `🎥 Retrait Mission (${w.wallet || "—"})` : "🤝 Retrait Commissions"} />
                   <KvRow k="Montant demandé" v={formatFCFA(w.amount)} />
-                  {w.fee != null ? <KvRow k="Frais de retrait" v={formatFCFA(w.fee)} /> : null}
+                  {w.fee != null ? <KvRow k="Frais de retrait" v={`${formatFCFA(w.fee)}${w.fee_percent != null ? ` (${w.fee_percent}%)` : ""}`} /> : null}
                   {w.net_payout != null ? <KvRow k="Montant net" v={formatFCFA(w.net_payout)} /> : null}
-                  <KvRow k="Bénéficiaire" v={w.full_name || "—"} />
-                  {w.method === "crypto" ? (
+                  {!isMission ? <KvRow k="Bénéficiaire" v={w.full_name || "—"} /> : null}
+                  {!isMission && w.method === "crypto" ? (
                     <>
                       <KvRow k="Mode de retrait" v="Crypto USDT BEP20" />
                       <KvRow k="Réseau" v={w.network || "USDT BEP20"} />
@@ -785,17 +796,19 @@ export default function AdminHome() {
                         </View>
                       ) : null}
                     </>
-                  ) : (
+                  ) : !isMission ? (
                     <>
                       <KvRow k="Mode de retrait" v="Mobile Money" />
                       <KvRow k="Opérateur" v={w.operator || "—"} />
                       <KvRow k="Numéro" v={w.phone || "—"} />
                     </>
-                  )}
-                  <KvRow k="Pays" v={w.country || "—"} />
+                  ) : null}
+                  {!isMission ? <KvRow k="Pays" v={w.country || "—"} /> : null}
                   <KvRow k="Date" v={formatDateTime(w.created_at)} />
                   {w.validated_at ? <KvRow k="Validé le" v={formatDateTime(w.validated_at)} /> : null}
                   {w.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(w.rejected_at)} /> : null}
+                  {w.decided_at && !w.validated_at && !w.rejected_at ? <KvRow k="Traité le" v={formatDateTime(w.decided_at)} /> : null}
+                  {w.reject_reason ? <KvRow k="Motif de rejet" v={w.reject_reason} /> : null}
                 </View>
                 {w.status === "pending" && (
                   <View style={styles.actRow}>
@@ -810,7 +823,8 @@ export default function AdminHome() {
                   </View>
                 )}
               </Card>
-              ));
+              );
+              });
             })()}
           </>
         )}

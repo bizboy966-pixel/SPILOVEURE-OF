@@ -34,6 +34,26 @@ DEFAULT_SCHEDULE = {
     "enabled": True,
 }
 
+# Defaults for the withdrawal config — admin-overridable.
+DEFAULT_PAYOUT = {
+    "min_withdrawal": 500.0,   # FCFA
+    "fee_percent": 10.0,       # 0..100
+}
+
+
+async def _load_payout_config(db) -> dict:
+    """Read admin-configured payout settings from `app_settings.mission_payout`."""
+    doc = await db.app_settings.find_one({"key": "mission_payout"}, {"_id": 0})
+    cfg = dict(DEFAULT_PAYOUT)
+    if doc and isinstance(doc.get("value"), dict):
+        for k in ("min_withdrawal", "fee_percent"):
+            if k in doc["value"]:
+                try:
+                    cfg[k] = float(doc["value"][k])
+                except Exception:
+                    pass
+    return cfg
+
 
 async def _load_schedule(db) -> dict:
     """Read admin-configured mission schedule from `app_settings.mission_schedule`.
@@ -235,15 +255,24 @@ class MissionWithdrawalIn(BaseModel):
 
 @public.post("/me/mission-withdrawals")
 async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request, user=Depends(get_current_user)):
-    """Submit a withdrawal request from ONE specific mission wallet."""
+    """Submit a withdrawal request from ONE specific mission wallet.
+    Applies admin-configured min withdrawal and fee_percent.
+    """
     if body.wallet not in MISSION_TYPES:
         raise HTTPException(400, f"Portefeuille invalide. Autorisés: {MISSION_TYPES}")
     db = request.app.state.db
+    payout = await _load_payout_config(db)
+    amount = float(body.amount)
+    if amount < payout["min_withdrawal"]:
+        raise HTTPException(400, f"Montant minimum requis : {int(payout['min_withdrawal'])} FCFA.")
+    fee_percent = float(payout["fee_percent"])
+    fee = round(amount * fee_percent / 100.0, 2)
+    net_payout = round(amount - fee, 2)
     bal_field = BALANCE_FIELD[body.wallet]
     # Atomic conditional decrement — avoids read-then-write race on concurrent requests.
     r = await db.users.update_one(
-        {"id": user["id"], bal_field: {"$gte": float(body.amount)}},
-        {"$inc": {bal_field: -float(body.amount)}},
+        {"id": user["id"], bal_field: {"$gte": amount}},
+        {"$inc": {bal_field: -amount}},
     )
     if r.modified_count == 0:
         u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
@@ -254,13 +283,27 @@ async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request
         "user_id": user["id"],
         "username": user.get("username"),
         "wallet": body.wallet,
-        "amount": float(body.amount),
+        "amount": amount,
+        "fee": fee,
+        "fee_percent": fee_percent,
+        "net_payout": net_payout,
         "status": "pending",
+        "withdrawal_type": "mission",
         "created_at": datetime.now(timezone.utc),
     }
     await db.mission_withdrawals.insert_one(dict(doc))
     doc["created_at"] = doc["created_at"].isoformat()
     return {"ok": True, "withdrawal": doc}
+
+
+@public.get("/me/mission-payout-config")
+async def my_mission_payout_config(request: Request, _user=Depends(get_current_user)):
+    """User-facing endpoint: return current min + fee so the UI can show
+    the net amount preview before submitting a withdrawal.
+    """
+    db = request.app.state.db
+    cfg = await _load_payout_config(db)
+    return cfg
 
 
 @public.get("/me/mission-withdrawals")
@@ -371,8 +414,9 @@ async def admin_list_mission_withdrawals(request: Request, status: str = "", _=D
 
 @admin.post("/mission-withdrawals/{wid}/action")
 async def admin_mission_withdrawal_action(wid: str, body: dict, request: Request, who=Depends(require_admin)):
-    """body: { action: 'validate' | 'reject' }"""
+    """body: { action: 'validate' | 'reject', reason?: str }"""
     action = (body or {}).get("action")
+    reason = (body or {}).get("reason") or ""
     if action not in ("validate", "reject"):
         raise HTTPException(400, "action invalide")
     db = request.app.state.db
@@ -384,12 +428,73 @@ async def admin_mission_withdrawal_action(wid: str, body: dict, request: Request
     new_status = "validated" if action == "validate" else "rejected"
     upd = {"status": new_status, "decided_at": datetime.now(timezone.utc), "decided_by": who.get("username")}
     if action == "reject":
+        upd["reject_reason"] = reason
         # Refund the wallet
         bal_field = BALANCE_FIELD.get(w["wallet"])
         if bal_field:
             await db.users.update_one({"id": w["user_id"]}, {"$inc": {bal_field: float(w["amount"])}})
     await db.mission_withdrawals.update_one({"id": wid}, {"$set": upd})
     return {"ok": True, "status": new_status}
+
+
+class PayoutConfigIn(BaseModel):
+    min_withdrawal: float = Field(ge=0)
+    fee_percent: float = Field(ge=0, le=100)
+
+
+@admin.get("/mission-payout")
+async def admin_get_payout(request: Request, _=Depends(require_admin)):
+    db = request.app.state.db
+    cfg = await _load_payout_config(db)
+    # Aggregate stats too — useful right next to the config form.
+    total_count = await db.mission_withdrawals.count_documents({})
+    pending = await db.mission_withdrawals.count_documents({"status": "pending"})
+    validated = await db.mission_withdrawals.count_documents({"status": "validated"})
+    rejected = await db.mission_withdrawals.count_documents({"status": "rejected"})
+    sum_agg = await db.mission_withdrawals.aggregate([
+        {"$group": {
+            "_id": "$status",
+            "amount_total": {"$sum": "$amount"},
+            "fee_total": {"$sum": "$fee"},
+            "net_total": {"$sum": "$net_payout"},
+        }}
+    ]).to_list(10)
+    by_status = {s["_id"]: s for s in sum_agg}
+    return {
+        "config": cfg,
+        "stats": {
+            "total_count": total_count,
+            "pending_count": pending,
+            "validated_count": validated,
+            "rejected_count": rejected,
+            "total_amount": float((by_status.get("validated") or {}).get("amount_total") or 0)
+                          + float((by_status.get("pending") or {}).get("amount_total") or 0)
+                          + float((by_status.get("rejected") or {}).get("amount_total") or 0),
+            "validated_amount": float((by_status.get("validated") or {}).get("amount_total") or 0),
+            "validated_net": float((by_status.get("validated") or {}).get("net_total") or 0),
+            "validated_fee": float((by_status.get("validated") or {}).get("fee_total") or 0),
+            "pending_amount": float((by_status.get("pending") or {}).get("amount_total") or 0),
+            "rejected_amount": float((by_status.get("rejected") or {}).get("amount_total") or 0),
+        },
+    }
+
+
+@admin.put("/mission-payout")
+async def admin_update_payout(body: PayoutConfigIn, request: Request, who=Depends(require_admin)):
+    db = request.app.state.db
+    value = {"min_withdrawal": float(body.min_withdrawal), "fee_percent": float(body.fee_percent)}
+    await db.app_settings.update_one(
+        {"key": "mission_payout"},
+        {"$set": {
+            "key": "mission_payout",
+            "value": value,
+            "updated_at": datetime.now(timezone.utc),
+            "updated_by": who.get("username"),
+        }},
+        upsert=True,
+    )
+    cfg = await _load_payout_config(db)
+    return {"ok": True, "config": cfg}
 
 
 class ScheduleIn(BaseModel):
