@@ -20,6 +20,17 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-18)
+### 2026-06-18 — Correction synchronisation passerelles (suite intégration AshtecPay)
+- 🎯 **Bug rapporté** : changer la passerelle active dans l'admin ne se répercute pas côté utilisateur. Le user voit toujours "SoleasPay" même quand AshtecPay est actif.
+- 🐛 **Root cause** : 2 problèmes distincts.
+  1. `/api/settings/payments` (endpoint user-facing) lisait UNIQUEMENT le legacy `app_settings.soleaspay` + `soleaspay.is_configured()` env-var ; il ignorait totalement la nouvelle config `payment_gateway` (avec `active`, `ashtec_enabled`, etc.). Si SoleasPay n'avait pas de clé en .env mais AshtecPay était configuré via admin, le bouton "Paiement Automatique" était caché.
+  2. Le titre `"Paiement Automatique SoleasPay"` dans `activation.tsx` exposait le nom de la passerelle à l'utilisateur final, ce que le user ne voulait jamais voir.
+- ✅ **Fix backend `/settings/payments`** : lit maintenant `payment_gateway` config, résout `active_gateway` (avec fallback inter-passerelles), calcule `auto_enabled` selon (gateway enabled + sa propre config). Expose `auto_enabled` + `active_gateway` (nouveaux champs) + maintient `soleaspay_enabled` synchronisé pour backward-compat avec le frontend existant.
+- ✅ **Fix frontend `activation.tsx`** : titre changé de "Paiement Automatique SoleasPay" → "Paiement Automatique" (générique). L'utilisateur ne voit JAMAIS le nom de la passerelle.
+- ✅ **Testé curl** : active=ashtec → `/settings/payments` retourne `active_gateway: "ashtec"`, `auto_enabled: true`. Test d'initiation avec active=ashtec → `db.payments.provider = "ashtecpay"` + vrai `transaction_id` reçu de l'API AshtecPay. Le dispatcher fonctionne parfaitement.
+- ✅ **Screenshot user-side** : affiche uniquement "1️⃣ Paiement Automatique" avec description neutre "Mobile Money — Recevez la demande sur votre téléphone".
+- ⚠️ **Aucun impact sur les paiements existants** : tous les paiements en `db.payments` conservent leur `provider` original ; le status polling dispatche bien selon ce champ.
+
 ### 2026-06-18 — Intégration AshtecPay (2e passerelle) + dispatcher admin-configurable
 - 🎯 **Objectif** : ajouter AshtecPay comme 2e passerelle automatique sans toucher à SoleasPay. L'admin gère les 2 indépendamment (activer/désactiver + clé API + choix actif). Côté user : aucun changement — l'interface affiche toujours "Paiement Automatique".
 - ✅ **Backend `ashtecpay.py` (nouveau)** : module miroir de `soleaspay.py` avec `initiate_payment()`, `verify_payment()`, `normalize_status()`. Implémente `POST /v1/collect`, `GET /v1/transaction/:id`, gère les 4 flows (USSD Push, OTP SMS, OTP USSD, Wave) et tous les codes d'erreur. Base URL configurable via `ASHTECPAY_BASE_URL` (defaults `https://ashtechpay.top`).

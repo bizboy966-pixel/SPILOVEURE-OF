@@ -994,15 +994,44 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
 async def get_payment_methods_status(request: Request):
     """Returns which payment methods are currently enabled, plus extra metadata for the client.
 
-    Methods: SendavaPay (automatic), Manual Mobile Money, Crypto USDT BEP20.
-    Defaults applied in absence of admin override.
+    Automatic payment availability is derived from BOTH the new
+    `payment_gateway` config (preferred) AND the legacy `soleaspay` doc.
+    The user only ever sees a single "Paiement Automatique" option; the
+    backend dispatcher (`/payments/soleaspay/initiate`) routes to whichever
+    gateway is configured as active.
     """
     db = request.app.state.db
     soleaspay_doc = await db.app_settings.find_one({"_id": "soleaspay"}, {"_id": 0}) or {}
     manual_doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
     crypto_doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
+
+    # Resolve the active automatic payment gateway from admin config.
+    gw = await _load_payment_gateway(db)
+    active = gw.get("active", "soleas")
+    if active == "soleas" and not gw.get("soleas_enabled"):
+        if gw.get("ashtec_enabled"):
+            active = "ashtec"
+    if active == "ashtec" and not gw.get("ashtec_enabled"):
+        if gw.get("soleas_enabled"):
+            active = "soleas"
+    soleas_ready = bool(gw.get("soleas_enabled")) and soleaspay.is_configured()
+    ashtec_ready = bool(gw.get("ashtec_enabled")) and bool((gw.get("ashtec_api_key") or "").strip())
+    if active == "soleas":
+        auto_enabled = soleas_ready
+    else:
+        auto_enabled = ashtec_ready
+    # Legacy override: if the admin has explicitly disabled soleaspay in the
+    # `app_settings.soleaspay` doc (old switch), respect it.
+    legacy_soleaspay_disabled = soleaspay_doc.get("enabled") is False
+    if legacy_soleaspay_disabled and active == "soleas":
+        auto_enabled = False
+
     return {
-        "soleaspay_enabled": bool(soleaspay_doc.get("enabled", True)) and soleaspay.is_configured(),
+        # Generic, gateway-agnostic auto-payment switch (preferred for new UI):
+        "auto_enabled": auto_enabled,
+        "active_gateway": active if auto_enabled else None,
+        # Legacy / backward-compat fields (the existing frontend reads these):
+        "soleaspay_enabled": auto_enabled,
         "soleaspay_excluded_countries": sorted(list(soleaspay.EXCLUDED_COUNTRIES)),
         "soleaspay_countries": sorted(list(soleaspay.SUPPORTED.keys())),
         "soleaspay_services_by_country": soleaspay.SUPPORTED,

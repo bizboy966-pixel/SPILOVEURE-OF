@@ -525,7 +525,7 @@ export default function Activation() {
                 <Ionicons name="flash" size={14} color="#fff" />
                 <Text style={styles.mfBadgeText}>INSTANTANÉ</Text>
               </View>
-              <Text style={styles.section}>Paiement Automatique SoleasPay</Text>
+              <Text style={styles.section}>Paiement Automatique</Text>
             </View>
             <Text style={styles.helper}>
               Vous recevrez une notification de paiement directement sur votre téléphone Mobile Money.
