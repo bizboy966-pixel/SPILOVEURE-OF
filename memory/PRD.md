@@ -19,7 +19,23 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-17)
+## Implementation Status (à jour 2026-06-18)
+### 2026-06-18 — Intégration AshtecPay (2e passerelle) + dispatcher admin-configurable
+- 🎯 **Objectif** : ajouter AshtecPay comme 2e passerelle automatique sans toucher à SoleasPay. L'admin gère les 2 indépendamment (activer/désactiver + clé API + choix actif). Côté user : aucun changement — l'interface affiche toujours "Paiement Automatique".
+- ✅ **Backend `ashtecpay.py` (nouveau)** : module miroir de `soleaspay.py` avec `initiate_payment()`, `verify_payment()`, `normalize_status()`. Implémente `POST /v1/collect`, `GET /v1/transaction/:id`, gère les 4 flows (USSD Push, OTP SMS, OTP USSD, Wave) et tous les codes d'erreur. Base URL configurable via `ASHTECPAY_BASE_URL` (defaults `https://ashtechpay.top`).
+- ✅ **Backend `server.py` — dispatcher** :
+  - `_load_payment_gateway(db)` lit `app_settings.payment_gateway` (defaults : active=soleas, ashtec_enabled=false)
+  - `_mask_key(k)` pour ne jamais exposer la clé en clair côté admin GET
+  - `/api/payments/soleaspay/initiate` réécrit en `dispatcher` : selon `active` + `enabled`, dispatche vers `_initiate_via_soleas()` (code original préservé verbatim) OU `_initiate_via_ashtec()`. Stocke `provider="soleaspay"|"ashtecpay"` dans `db.payments`.
+  - `/api/payments/soleaspay/status/{order_id}` lit le `provider` stocké et dispatche vers `_verify_soleas_payment()` ou `_verify_ashtec_payment()`. Active activate_level avec `source="ashtecpay"` quand AshtecPay confirme. Idempotence préservée.
+- ✅ **Backend endpoints admin `/api/admin/payment-gateways`** (GET + PUT) :
+  - GET retourne `active`, `soleas.{enabled,configured}`, `ashtec.{enabled,configured,api_key_masked}`
+  - PUT accepte `active`, `soleas_enabled`, `ashtec_enabled`, `ashtec_api_key` (avec "DELETE" pour effacer)
+  - Garde-fous : au moins 1 passerelle activée, fallback auto si la `active` est désactivée
+- ✅ **Frontend `(admin)/index.tsx` — onglet Réglages** : nouveau composant `PaymentGatewaysCard` en haut. Affichage par passerelle : titre, badge "PASSERELLE ACTIVE" (bordure verte), badges 🟢 Activé / ⚙️ Configuré, bouton Activer/Désactiver, bouton "⭐ Rendre active". AshtecPay : champ clé masquée + input nouvelle clé + bouton sauvegarde dédié.
+- ✅ **Testé curl** : GET initial OK (soleas=active, ashtec=disabled/unconfigured) → PUT avec clé `ak_5c0a...6678` + enabled=true → GET retourne ashtec configured=true, masked key, configurable. Frontend UI confirmée par screenshot.
+- ✅ **ZÉRO impact** : utilisateurs, commissions, retraits, activations, historique inchangés. Backward-compat totale : si aucune config n'est dans la DB, le système retombe automatiquement sur SoleasPay (defaults).
+
 ### 2026-06-17 — Rotation hebdomadaire 1 jour = 1 catégorie de mission
 - 🎯 **Objectif** : sur 7 jours de la semaine, chaque jour ne montre QU'UNE seule catégorie (Lun→YouTube, Mar→TikTok, Mer→Instagram, Jeu→Facebook, Ven→Questionnaire). À chaque visite l'utilisateur voit AU MAX une mission — la plus ancienne non encore validée de la catégorie du jour. File de 100 missions par catégorie pour rotation sur tout l'été sans intervention admin.
 - ✅ **Backend `missions.py`** :

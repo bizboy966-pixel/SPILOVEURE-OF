@@ -809,6 +809,122 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 # ============ PAYMENTS (Secure Gateway) ============
 
 import soleaspay  # noqa: E402
+import ashtecpay  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Payment gateway selector — admin configurable.
+#
+# `db.app_settings.payment_gateway` stores:
+#   {
+#     "active": "soleas" | "ashtec",     # which gateway to use for new payments
+#     "soleas_enabled": bool,
+#     "ashtec_enabled": bool,
+#     "ashtec_api_key": str,             # masked when read (last 4 chars)
+#   }
+# Existing SoleasPay-only deployments default to active="soleas" so behavior
+# is unchanged until the admin enables AshtecPay explicitly.
+# ---------------------------------------------------------------------------
+
+_PG_DEFAULTS = {
+    "active": "soleas",
+    "soleas_enabled": True,
+    "ashtec_enabled": False,
+    "ashtec_api_key": "",
+}
+
+
+async def _load_payment_gateway(db) -> dict:
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}, {"_id": 0}) or {}
+    val = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
+    cfg = dict(_PG_DEFAULTS)
+    for k in _PG_DEFAULTS.keys():
+        if k in val:
+            cfg[k] = val[k]
+    return cfg
+
+
+def _mask_key(k: str) -> str:
+    if not k or not isinstance(k, str):
+        return ""
+    if len(k) <= 8:
+        return "*" * len(k)
+    return k[:4] + "*" * (len(k) - 8) + k[-4:]
+
+
+# Payment gateway admin endpoints — declared right after the helper, before any
+# of the legacy /settings/manual-payment routes to avoid the duplicate handler
+# loaded later in the file from masking them.
+from pydantic import BaseModel as _PGBaseModel  # noqa: E402
+
+
+class PaymentGatewayUpdate(_PGBaseModel):
+    active: Optional[str] = None              # "soleas" | "ashtec"
+    soleas_enabled: Optional[bool] = None
+    ashtec_enabled: Optional[bool] = None
+    ashtec_api_key: Optional[str] = None      # new key, or "" to keep, "DELETE" to clear
+
+
+# Note: the actual @admin_router routes are registered later in the file
+# (after admin_router is created at L1348). See `_register_payment_gateway_routes`
+# right after the admin_router instantiation.
+
+
+def _register_payment_gateway_routes(router):
+    @router.get("/payment-gateways")
+    async def admin_get_payment_gateways(request: Request):
+        db = request.app.state.db
+        cfg = await _load_payment_gateway(db)
+        return {
+            "active": cfg["active"],
+            "soleas": {
+                "enabled": bool(cfg["soleas_enabled"]),
+                "configured": bool(soleaspay.is_configured()),
+            },
+            "ashtec": {
+                "enabled": bool(cfg["ashtec_enabled"]),
+                "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
+                "api_key_masked": _mask_key(cfg.get("ashtec_api_key") or ""),
+            },
+        }
+
+    @router.put("/payment-gateways")
+    async def admin_update_payment_gateways(
+        body: PaymentGatewayUpdate, request: Request, admin=Depends(require_admin),
+    ):
+        db = request.app.state.db
+        current = await _load_payment_gateway(db)
+        new = dict(current)
+        if body.active is not None:
+            if body.active not in ("soleas", "ashtec"):
+                raise HTTPException(400, "active must be 'soleas' or 'ashtec'")
+            new["active"] = body.active
+        if body.soleas_enabled is not None:
+            new["soleas_enabled"] = bool(body.soleas_enabled)
+        if body.ashtec_enabled is not None:
+            new["ashtec_enabled"] = bool(body.ashtec_enabled)
+        if body.ashtec_api_key is not None:
+            key = body.ashtec_api_key.strip()
+            if key == "DELETE":
+                new["ashtec_api_key"] = ""
+            elif key:
+                new["ashtec_api_key"] = key
+        if not new["soleas_enabled"] and not new["ashtec_enabled"]:
+            raise HTTPException(400, "Au moins une passerelle doit rester activée.")
+        if new["active"] == "soleas" and not new["soleas_enabled"]:
+            new["active"] = "ashtec"
+        if new["active"] == "ashtec" and not new["ashtec_enabled"]:
+            new["active"] = "soleas"
+        await db.app_settings.update_one(
+            {"key": "payment_gateway"},
+            {"$set": {
+                "key": "payment_gateway",
+                "value": new,
+                "updated_at": datetime.now(timezone.utc),
+                "updated_by": admin.get("username"),
+            }},
+            upsert=True,
+        )
+        return await admin_get_payment_gateways(request)
 from pydantic import BaseModel, Field  # noqa: E402
 
 
@@ -1235,6 +1351,7 @@ async def get_community_popup(request: Request):
 # ============ ADMIN ============
 
 admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
+_register_payment_gateway_routes(admin_router)
 
 
 
@@ -2523,10 +2640,32 @@ async def soleaspay_initiate(
     request: Request,
     user=Depends(get_current_user),
 ):
-    """Trigger a SoleasPay USSD payment on the user's phone.
-    Returns the order_id + transaction reference (pay_id). The client must
-    then poll /payments/soleaspay/status/{order_id} until status='paid'.
+    """Initiate an automatic payment. Despite its legacy URL the endpoint now
+    dispatches to the active gateway (SoleasPay OR AshtecPay) based on the
+    admin configuration in `app_settings.payment_gateway.active`. The user
+    only ever sees "Paiement Automatique" in the UI.
     """
+    db = request.app.state.db
+    gw = await _load_payment_gateway(db)
+    active = gw.get("active", "soleas")
+    if active == "ashtec" and not gw.get("ashtec_enabled"):
+        active = "soleas"  # fallback
+    if active == "soleas" and not gw.get("soleas_enabled"):
+        # Try fallback to ashtec if enabled
+        if gw.get("ashtec_enabled"):
+            active = "ashtec"
+        else:
+            raise HTTPException(503, "Aucune passerelle automatique active. Contactez l'administrateur.")
+    if active == "ashtec":
+        return await _initiate_via_ashtec(data, request, user, gw)
+    # Default: SoleasPay (existing behavior — unchanged)
+    return await _initiate_via_soleas(data, request, user)
+
+
+async def _initiate_via_soleas(
+    data: "SoleaspayInitiateIn", request: Request, user: dict,
+) -> dict:
+    """Original SoleasPay initiation flow — preserved verbatim."""
     db = request.app.state.db
     if not soleaspay.is_configured():
         raise HTTPException(503, "SoleasPay non configuré (API key manquante)")
@@ -2608,10 +2747,120 @@ async def soleaspay_initiate(
     }
 
 
+async def _initiate_via_ashtec(
+    data: "SoleaspayInitiateIn", request: Request, user: dict, gw: dict,
+) -> dict:
+    """AshtecPay initiation flow. Reuses the same `db.payments` collection
+    with provider='ashtecpay' so the polling endpoint can dispatch on read.
+    """
+    db = request.app.state.db
+    api_key = (gw.get("ashtec_api_key") or "").strip()
+    if not api_key:
+        raise HTTPException(503, "AshtecPay non configuré (clé API manquante côté admin)")
+    country = (data.country_code or "").upper()
+    level = int(data.level)
+    if level <= (user.get("max_level") or 0):
+        raise HTTPException(400, "Niveau déjà activé")
+    lv = LEVELS_BY_NUM.get(level)
+    if not lv:
+        raise HTTPException(400, f"Niveau {level} invalide")
+    # Operator label: reuse soleaspay service catalog → user picks an "operator
+    # name" via the UI which already maps to soleaspay services. Match by label
+    # heuristic (uppercase, prefix). The AshtecPay API accepts the operator
+    # name string directly (e.g. "MTN Mobile Money", "Orange Money").
+    svc = soleaspay.find_service(country, data.service_id)
+    operator_label = (svc or {}).get("label") or ""
+    currency = (svc or {}).get("currency") or "XOF"
+
+    order_id = _new_order_id()
+    notify_url = os.environ.get("ASHTECPAY_WEBHOOK_URL", "")
+
+    await db.payments.insert_one({
+        "reference": order_id,
+        "provider": "ashtecpay",
+        "service_id": (svc or {}).get("id"),
+        "service_label": operator_label,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "level": level,
+        "amount": float(lv["price"]),
+        "currency": currency,
+        "phone": str(data.phone),
+        "country_code": country,
+        "status": "pending",
+        "activation_done": False,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    })
+
+    resp = await ashtecpay.initiate_payment(
+        api_key=api_key,
+        amount=float(lv["price"]),
+        currency=currency,
+        phone=str(data.phone).strip(),
+        operator=operator_label,
+        country_code=country,
+        reference=order_id,
+        notify_url=notify_url or None,
+    )
+    if not resp.get("success"):
+        # OTP required is a special "soft failure" — still propagate the
+        # ussd_code so the UI can prompt the user.
+        if resp.get("error") == "otp_required":
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"status": "pending",
+                          "ashtecpay_status": "otp_required",
+                          "ashtecpay_ussd_code": resp.get("ussd_code"),
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            return {
+                "order_id": order_id,
+                "transaction_id": None,
+                "status": "otp_required",
+                "amount": float(lv["price"]),
+                "currency": currency,
+                "service_label": operator_label,
+                "message": resp.get("message") or "OTP requis. Composez le code USSD.",
+                "ussd_code": resp.get("ussd_code"),
+            }
+        await db.payments.update_one(
+            {"reference": order_id},
+            {"$set": {"status": "failed",
+                      "activation_error": resp.get("message") or "Échec initiation",
+                      "ashtecpay_response": resp,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise HTTPException(400, resp.get("message") or "AshtecPay a refusé la requête")
+
+    txid = resp.get("transaction_id")
+    await db.payments.update_one(
+        {"reference": order_id},
+        {"$set": {"transaction_id": txid,
+                  "ashtecpay_status": resp.get("status"),
+                  "ashtecpay_flow": resp.get("flow"),
+                  "ashtecpay_wave_url": resp.get("wave_url"),
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {
+        "order_id": order_id,
+        "transaction_id": txid,
+        "status": "pending",
+        "amount": float(lv["price"]),
+        "currency": currency,
+        "service_label": operator_label,
+        "flow": resp.get("flow"),
+        "wave_url": resp.get("wave_url"),
+        "message": resp.get("message") or "Vérifiez votre téléphone pour confirmer le paiement",
+    }
+
+
 @api.get("/payments/soleaspay/status/{order_id}")
 async def soleaspay_status(order_id: str, request: Request, user=Depends(get_current_user)):
-    """Polled by the client every few seconds. When SoleasPay returns SUCCESS,
-    we activate the user level and mark activation_done=true."""
+    """Polled by the client every few seconds. Dispatches to the correct
+    gateway verify endpoint based on the stored `provider` field — works
+    transparently for SoleasPay AND AshtecPay payments.
+    """
     db = request.app.state.db
     p = await db.payments.find_one({"reference": order_id, "user_id": user["id"]}, {"_id": 0})
     if not p:
@@ -2623,6 +2872,15 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
     if p.get("status") in ("failed",):
         return {"status": "failed", "error": p.get("activation_error")}
 
+    provider = p.get("provider") or "soleaspay"
+    if provider == "ashtecpay":
+        return await _verify_ashtec_payment(p, order_id, request)
+    # Default: SoleasPay (existing behavior — unchanged)
+    return await _verify_soleas_payment(p, order_id, request)
+
+
+async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> dict:
+    db = request.app.state.db
     pay_id = p.get("transaction_id")
     if not pay_id:
         return {"status": "pending", "message": "En attente du téléphone…"}
@@ -2634,12 +2892,8 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
              order_id, sp_status, resp.get("success"), resp.get("code"), new_status)
 
     if new_status == "paid" and not p.get("activation_done"):
-        # Step 1: Check if the underlying user is ALREADY at the right level
-        # (idempotency: previous activate_level might have succeeded before a
-        # downstream error). In that case, just reconcile the payment flag.
         u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
         if int(u_now.get("max_level") or 0) >= int(p["level"]):
-            # Ensure user.status is "active" (defensive — should already be)
             if u_now.get("status") != "active":
                 await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
             await db.payments.update_one(
@@ -2650,11 +2904,8 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
                  "$unset": {"activation_error": ""}},
             )
             return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
-
-        # Step 2: Normal activation flow
         try:
             await activate_level(db, p["user_id"], int(p["level"]), source="soleaspay")
-            # Defensive: ensure status is set to "active" even if activate_level didn't update it
             await db.users.update_one(
                 {"id": p["user_id"], "status": {"$ne": "active"}},
                 {"$set": {"status": "active"}},
@@ -2666,7 +2917,6 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
-            log.info("soleaspay → user %s activated to level %s", p["user_id"], p["level"])
             return {"status": "paid", "activation_done": True, "level": p["level"]}
         except Exception as exc:
             log.exception("soleaspay activate_level failed for ref=%s: %s", order_id, exc)
@@ -2689,6 +2939,72 @@ async def soleaspay_status(order_id: str, request: Request, user=Depends(get_cur
         return {"status": "failed", "error": resp.get("message")}
 
     return {"status": "pending", "soleaspay_status": sp_status,
+            "message": "Confirmation en attente sur le téléphone du client…"}
+
+
+async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> dict:
+    db = request.app.state.db
+    gw = await _load_payment_gateway(db)
+    api_key = (gw.get("ashtec_api_key") or "").strip()
+    if not api_key:
+        return {"status": "pending", "message": "Clé AshtecPay non configurée — contactez l'admin."}
+    txid = p.get("transaction_id")
+    if not txid:
+        return {"status": "pending", "message": "En attente du téléphone…"}
+    resp = await ashtecpay.verify_payment(api_key=api_key, transaction_id=txid)
+    sp_status = resp.get("status") or ""
+    new_status = ashtecpay.normalize_status(sp_status)
+    log.info("ashtecpay status poll ref=%s sp_status=%r success=%r → %s",
+             order_id, sp_status, resp.get("success"), new_status)
+
+    if new_status == "paid" and not p.get("activation_done"):
+        u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
+        if int(u_now.get("max_level") or 0) >= int(p["level"]):
+            if u_now.get("status") != "active":
+                await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+            return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
+        try:
+            await activate_level(db, p["user_id"], int(p["level"]), source="ashtecpay")
+            await db.users.update_one(
+                {"id": p["user_id"], "status": {"$ne": "active"}},
+                {"$set": {"status": "active"}},
+            )
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+            return {"status": "paid", "activation_done": True, "level": p["level"]}
+        except Exception as exc:
+            log.exception("ashtecpay activate_level failed for ref=%s: %s", order_id, exc)
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"status": "paid", "activation_error": str(exc),
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            return {"status": "paid", "activation_done": False, "error": str(exc)}
+
+    if new_status == "failed":
+        await db.payments.update_one(
+            {"reference": order_id},
+            {"$set": {"status": "failed",
+                      "activation_error": resp.get("message") or "Paiement refusé",
+                      "ashtecpay_status": sp_status,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"status": "failed", "error": resp.get("message")}
+
+    return {"status": "pending", "ashtecpay_status": sp_status,
             "message": "Confirmation en attente sur le téléphone du client…"}
 
 

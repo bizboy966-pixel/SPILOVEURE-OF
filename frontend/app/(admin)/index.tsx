@@ -907,6 +907,7 @@ export default function AdminHome() {
 
         {tab === "payment" && (
           <>
+            <PaymentGatewaysCard />
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
@@ -1665,3 +1666,136 @@ const styles = StyleSheet.create({
   contentMgmtTitle: { color: "#fff", fontWeight: "800", fontSize: 15 },
   contentMgmtSub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
 });
+
+
+function PaymentGatewaysCard() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+
+  const load = async () => {
+    try {
+      const r = await api.get<any>("/admin/payment-gateways");
+      setCfg(r);
+    } catch {}
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (patch: any) => {
+    setSaving(true);
+    try {
+      const r = await api.put<any>("/admin/payment-gateways", patch);
+      setCfg(r);
+      setKeyInput("");
+      if (typeof window !== "undefined") window.alert("✅ Configuration sauvegardée");
+    } catch (e: any) {
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!cfg) {
+    return (
+      <Card style={{ marginTop: 12 }}>
+        <Text style={{ color: theme.colors.textSecondary }}>Chargement des passerelles…</Text>
+      </Card>
+    );
+  }
+
+  const renderGw = (gwKey: "soleas" | "ashtec") => {
+    const meta = cfg[gwKey] || {};
+    const isActive = cfg.active === gwKey;
+    const label = gwKey === "soleas" ? "🔹 Soles Pay" : "🔹 AshtecPay";
+    return (
+      <View key={gwKey} style={{ padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ fontSize: 15, fontWeight: "800", color: theme.colors.textPrimary }}>{label}</Text>
+          {isActive ? (
+            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: theme.colors.success }}>
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 10 }}>✓ PASSERELLE ACTIVE</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: meta.enabled ? "#D1FAE5" : "#FEE2E2" }}>
+            <Text style={{ color: meta.enabled ? "#065F46" : "#991B1B", fontWeight: "700", fontSize: 11 }}>
+              {meta.enabled ? "🟢 Activé" : "🔴 Désactivé"}
+            </Text>
+          </View>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: meta.configured ? "#DBEAFE" : "#FEF3C7" }}>
+            <Text style={{ color: meta.configured ? "#1E40AF" : "#92400E", fontWeight: "700", fontSize: 11 }}>
+              {meta.configured ? "⚙️ Configuré" : "⚙️ À configurer"}
+            </Text>
+          </View>
+        </View>
+
+        {gwKey === "ashtec" ? (
+          <View style={{ marginTop: 10 }}>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 4 }}>
+              Clé API actuelle : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{meta.api_key_masked || "—"}</Text>
+            </Text>
+            <TextInput
+              style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 8, color: theme.colors.textPrimary, fontSize: 12 }}
+              placeholder="Nouvelle clé API (ak_…) — laisser vide pour conserver"
+              placeholderTextColor={theme.colors.textSecondary}
+              value={keyInput}
+              onChangeText={setKeyInput}
+              autoCapitalize="none"
+              testID="ashtec-key-input"
+            />
+            {keyInput ? (
+              <TouchableOpacity
+                style={{ marginTop: 6, padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary, alignItems: "center" }}
+                onPress={() => save({ ashtec_api_key: keyInput })}
+                disabled={saving}
+                testID="ashtec-key-save"
+              >
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>💾 Enregistrer la clé</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
+          <TouchableOpacity
+            style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: meta.enabled ? theme.colors.danger : theme.colors.success, alignItems: "center" }}
+            onPress={() => save(gwKey === "soleas" ? { soleas_enabled: !meta.enabled } : { ashtec_enabled: !meta.enabled })}
+            disabled={saving}
+            testID={`gw-toggle-${gwKey}`}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>
+              {meta.enabled ? "🔴 Désactiver" : "🟢 Activer"}
+            </Text>
+          </TouchableOpacity>
+          {!isActive && meta.enabled ? (
+            <TouchableOpacity
+              style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary, alignItems: "center" }}
+              onPress={() => save({ active: gwKey })}
+              disabled={saving}
+              testID={`gw-set-active-${gwKey}`}
+            >
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>⭐ Rendre active</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <Card style={{ marginTop: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="card" size={22} color={theme.colors.primary} />
+        <Text style={{ fontSize: 16, fontWeight: "800", color: theme.colors.textPrimary }}>💳 Gestion des Passerelles de Paiement</Text>
+      </View>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4, marginBottom: 12 }}>
+        L'utilisateur ne voit que "Paiement Automatique". Le système utilise la passerelle marquée comme ACTIVE ci-dessous.
+      </Text>
+      {renderGw("soleas")}
+      {renderGw("ashtec")}
+    </Card>
+  );
+}
