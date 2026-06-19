@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 15 testing: i18n FR/EN, Haiti country addition, activation gating. All 9 backend tests PASSED. Frontend: language modal, language switch, FABs for activated admin all working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings (admin/activated)", "issues": ["CommunityPopup overlay covers settings cards for ~3-7 seconds after navigation; it does intercept clicks until auto-dismiss. Real users may experience the same friction — consider closing on first user interaction or showing it only on dashboard. Not blocking but UX-noise on settings page."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_i18n_haiti_gating.py",
+    "/app/test_reports/pytest/iter15_i18n_haiti.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "settings.tsx (line 55): Direct use of window.alert() in language switch success — works on Web but throws on native (Expo iOS/Android). Should use Alert.alert() with platform check or always use Alert.alert for cross-platform consistency.",
+    "settings.tsx (line 53): The PUT /api/auth/language failure is silently swallowed (try/catch with empty handler). On network failure user thinks switch succeeded but DB is unchanged. Recommend surfacing an Alert on error.",
+    "i18n/index.tsx: I18nProvider does not pull initial language from user.preferred_language at boot — relies on AsyncStorage + settings page useEffect. On first login on a new device the in-DB preference won't apply until user opens Settings. Consider syncing in useAuth or root provider after /auth/me."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_i18n_haiti_gating.py"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all key flows verified)"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006 (preferred_language reset to 'fr' at end of test).",
+  "seed_data_creation": "Created 1 pending test user via POST /api/auth/register (test_<uuid>@spilovtest.com) for backend gating verification; deleted via direct DB cleanup at end of test run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 15 i18n/Haiti/gating fully validated. Backend test file at /app/backend/tests/test_i18n_haiti_gating.py covers: Haiti in /api/config countries, PUT /api/auth/language (valid fr/en, invalid de/empty/FR_CA → 400, null → 422, no token → 401), preferred_language persistence in /api/auth/me, pending user creation from /api/auth/register requires password_confirm + accept_terms. Frontend verified: (1) Settings shows 🌐 Langue card with testID settings-language-btn, (2) clicking opens language-picker-modal with language-option-fr / language-option-en, (3) selecting EN updates button to '🇬🇧English' immediately and persists to DB, (4) admin (activated) sees JACKPOT FAB (LotteryFab), Support FAB and CommunityPopup overlay. Gating for pending users on frontend was NOT exercised by Playwright (only via backend POST register confirmed status=pending && max_level=0), but code review of /app/frontend/app/(app)/_layout.tsx confirms the isPending check correctly gates LotteryFab/SupportFab/CommunityPopup. The CommunityPopup intercepts clicks for ~3-7s on every (app) route mount — code review item.",
+  "rca_of_the_issue": "N/A — all features working. Initial Playwright test attempt failed because CommunityPopup overlay was covering the settings page; click-target was reachable only after the popup auto-dismissed (~7s). After waiting, both the modal-open click and the language-option-en click succeeded as designed."
+}

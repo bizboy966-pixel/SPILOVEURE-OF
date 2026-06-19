@@ -20,6 +20,7 @@ export type User = {
   total_earned: number;
   total_withdrawn: number;
   withdrawals_disabled?: boolean;
+  preferred_language?: "fr" | "en";
   created_at: string;
 };
 

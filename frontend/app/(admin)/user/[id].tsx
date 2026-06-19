@@ -168,6 +168,7 @@ export default function ManageUser() {
           <KV k="E-mail" v={u.email} />
           <KV k="Téléphone" v={u.phone} />
           <KV k="Pays" v={u.country} />
+          <KV k="Langue" v={u.preferred_language === "en" ? "🇬🇧 English" : "🇫🇷 Français"} />
           <KV k="Parrain" v={u.sponsor_username || "—"} />
           <KV k="Inscription" v={formatDateTime(u.created_at)} />
           <KV k="Solde profit" v={formatFCFA(u.balance_profit)} />

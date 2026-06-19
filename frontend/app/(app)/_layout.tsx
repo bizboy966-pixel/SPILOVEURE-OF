@@ -32,10 +32,15 @@ export default function AppLayout() {
     }
   }, [user, loading, router, segments]);
 
+  // A user is "activated" once they have successfully unlocked at least one
+  // matrix level. Until then, no floating widgets, no community popup, and no
+  // access to lottery/services/missions/etc.
+  const isPending = !user || user.status === "pending" || (user.max_level || 0) === 0;
+
   return (
     <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }} />
-      {user && (
+      {user && !isPending && (
         <>
           <CommunityPopup userId={user.id} />
           <SupportFab />

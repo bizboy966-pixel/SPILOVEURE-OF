@@ -108,6 +108,7 @@ COUNTRIES = [
     {"code": "US", "name": "États-Unis", "dial": "+1", "flag": "🇺🇸"},
     {"code": "BR", "name": "Brésil", "dial": "+55", "flag": "🇧🇷"},
     {"code": "MX", "name": "Mexique", "dial": "+52", "flag": "🇲🇽"},
+    {"code": "HT", "name": "Haïti", "dial": "+509", "flag": "🇭🇹"},
     # === Moyen-Orient ===
     {"code": "AE", "name": "Émirats Arabes Unis", "dial": "+971", "flag": "🇦🇪"},
     {"code": "QA", "name": "Qatar", "dial": "+974", "flag": "🇶🇦"},

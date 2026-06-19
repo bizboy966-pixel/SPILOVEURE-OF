@@ -88,6 +88,7 @@ const COUNTRY_LABELS: Record<string, { flag: string; name: string }> = {
   US: { flag: "🇺🇸", name: "États-Unis" },
   BR: { flag: "🇧🇷", name: "Brésil" },
   MX: { flag: "🇲🇽", name: "Mexique" },
+  HT: { flag: "🇭🇹", name: "Haïti" },
   // Moyen-Orient
   AE: { flag: "🇦🇪", name: "Émirats Arabes Unis" },
   QA: { flag: "🇶🇦", name: "Qatar" },

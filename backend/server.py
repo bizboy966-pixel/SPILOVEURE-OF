@@ -268,6 +268,24 @@ async def update_profile(data: UpdateProfileIn, request: Request, user=Depends(g
     return refreshed
 
 
+from pydantic import BaseModel as _LangBaseModel  # noqa: E402
+
+
+class LanguageIn(_LangBaseModel):
+    language: str  # "fr" | "en"
+
+
+@api.put("/auth/language")
+async def update_language(data: LanguageIn, request: Request, user=Depends(get_current_user)):
+    """Persist the user's preferred UI language. Allowed: 'fr' or 'en'."""
+    lang = (data.language or "").strip().lower()
+    if lang not in ("fr", "en"):
+        raise HTTPException(400, "Langue non supportée. Utilisez 'fr' ou 'en'.")
+    db = request.app.state.db
+    await db.users.update_one({"id": user["id"]}, {"$set": {"preferred_language": lang}})
+    return {"ok": True, "preferred_language": lang}
+
+
 # ============ ACTIVATIONS ============
 
 @api.post("/activations/request")

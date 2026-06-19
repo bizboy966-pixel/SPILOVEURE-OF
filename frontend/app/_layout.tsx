@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider } from "@/src/auth";
+import { I18nProvider } from "@/src/i18n";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,9 +22,11 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
-      </AuthProvider>
+      <I18nProvider>
+        <AuthProvider>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+        </AuthProvider>
+      </I18nProvider>
     </SafeAreaProvider>
   );
 }
