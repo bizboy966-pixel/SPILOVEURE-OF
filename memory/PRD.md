@@ -19,7 +19,19 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-18)
+## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Module Lottery Jackpot (Phase 1)
+- 🎯 **Objectif** : système complet de tirages aléatoires (admin choisit manuellement les gagnants). Activation/désactivation, tirages, participations payantes, gagnants, paiements auto sur balance_profit, notifications, stats, export CSV.
+- ✅ **Backend `lottery.py` (nouveau)** : 3 collections isolées (`lottery_settings`, `lottery_draws`, `lottery_participants`). Statuts tirage : draft → open → closed → announced. Au moment de l'annonce, les gagnants reçoivent leur prize sur `balance_profit` + entrée dans `db.commissions` (kind="lottery_win") + notification. Les participants débitent leur balance_profit + entrée commissions (kind="lottery_entry", montant négatif) au moment de la participation. Remboursement automatique si le tirage est supprimé en draft/open/closed.
+- ✅ **Endpoints public (user)** : `GET /lottery/settings`, `GET /lottery/active` (retourne tirage en cours + tirage récemment annoncé encore visible), `POST /lottery/draws/{id}/join` (vérif solde + capacité + idempotence).
+- ✅ **Endpoints admin** : settings GET/PUT (enabled, floating_icon_visible, results_display_duration_minutes), draws CRUD + participants list + announce winners + stats agrégées + export CSV par tirage.
+- ✅ **Frontend `(app)/lottery.tsx`** : page user avec hero gradient, compte à rebours live (jours/heures/min/sec), participants count, cagnotte par rang, bouton "🎰 Rejoindre" qui vérifie solde + confirmation, badges "déjà participé" / "clôturé" / module désactivé, affichage des derniers résultats avec 🥇🥈🥉🏅.
+- ✅ **Frontend `(admin)/lottery.tsx`** : 3 onglets (Tirages / Réglages / Stats). Création via prompts (nom, durée, # gagnants, # max participants, montant participation). Edition récompense par rang. Boutons changement de statut (Ouvrir/Clôturer/Lancer & Annoncer). Modal sélection des gagnants par rang avec liste des participants. Toggle activation module, toggle icône flottante, durée affichage résultats.
+- ✅ **Composant `LotteryFab.tsx`** : carré flottant en bas-gauche (z-index 9998, ne collide pas avec SupportFab à droite). Affiché uniquement si `enabled=true AND floating_icon_visible=true` côté admin. Refresh auto toutes les 60s.
+- ✅ **Liens** : raccourci admin dans le dashboard `(admin)/index.tsx`. Page user accessible via `/app/lottery` ou via le FAB.
+- ✅ **Testé curl** : GET settings (defaults), GET active (null si aucun), POST draws (création), tous les endpoints répondent correctement. UI confirmée par screenshot.
+- ⚠️ **Phase 2 (à venir)** : module "💳 Recharger mon compte" pour permettre les dépôts manuels/automatiques quand le solde est insuffisant.
+
 ### 2026-06-18 — Correction synchronisation passerelles (suite intégration AshtecPay)
 - 🎯 **Bug rapporté** : changer la passerelle active dans l'admin ne se répercute pas côté utilisateur. Le user voit toujours "SoleasPay" même quand AshtecPay est actif.
 - 🐛 **Root cause** : 2 problèmes distincts.

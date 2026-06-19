@@ -3054,6 +3054,11 @@ from missions import public as missions_public, admin as missions_admin  # noqa:
 app.include_router(missions_public)
 app.include_router(missions_admin)
 
+# Lottery Jackpot module (isolated from MLM commissions)
+from lottery import public as lottery_public, admin as lottery_admin  # noqa: E402
+app.include_router(lottery_public)
+app.include_router(lottery_admin)
+
 # One-shot upgrade reserve audit (admin-only, no UI).
 from upgrade_audit import router as upgrade_audit_router  # noqa: E402
 app.include_router(upgrade_audit_router)

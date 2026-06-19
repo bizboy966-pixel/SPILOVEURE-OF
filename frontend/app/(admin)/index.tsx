@@ -333,6 +333,23 @@ export default function AdminHome() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#F59E0B" }]}
+              onPress={() => router.push("/(admin)/lottery" as any)}
+              testID="admin-open-lottery-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="ticket" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>🎰 Lottery Jackpot</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Tirages, gagnants, paiements et statistiques
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.warning }]}
               onPress={() => router.push("/(admin)/payments" as any)}
               testID="admin-open-payments-mgmt"
