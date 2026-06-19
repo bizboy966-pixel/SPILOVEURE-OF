@@ -20,6 +20,29 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Triplet : Gating d'activation strict, ajout du pays Haïti 🇭🇹, système i18n FR/EN
+**Phase 1 — Gating activation strict** (`/app/frontend/app/(app)/_layout.tsx`, `settings.tsx`)
+- `isPending = !user || user.status === "pending" || max_level === 0` calculé au niveau du layout.
+- Floating widgets gated : `CommunityPopup`, `SupportFab`, `LotteryFab` ne sont rendus QUE si `!isPending`.
+- Dans `settings.tsx`, la carte « Support & Réseaux sociaux » est cachée pour les pending users (le fetch `/settings/support` est aussi skippé).
+- La redirection vers `/activation` pour les routes hors `ALLOWED_FOR_PENDING` (activation, profile, settings) était déjà en place.
+
+**Phase 2 — Ajout du pays Haïti 🇭🇹**
+- Backend : ajout dans `/app/backend/levels.py` COUNTRIES → `{code: HT, name: Haïti, dial: +509, flag: 🇭🇹}`. Apparaît automatiquement dans `GET /api/config`.
+- Frontend : ajout dans `/app/frontend/app/(app)/activation.tsx` `COUNTRY_LABELS`. Toutes les listes pays utilisent désormais le backend `/config` countries.
+
+**Phase 3a — Système i18n FR/EN**
+- Nouveau module `/app/frontend/src/i18n/` : `translations.ts` (~140 clés FR + 140 clés EN couvrant common, auth, dashboard, activation, settings, lottery, missions, withdrawal) + `index.tsx` (Provider + `useT()` + `useI18n()` avec interpolation `{var}` et fallback FR si clé manquante).
+- Persistance : AsyncStorage (`spiloveure.lang`) + DB user field `preferred_language`.
+- Backend : nouvel endpoint `PUT /api/auth/language` body `{language: 'fr'|'en'}` (refuse autre code avec 400).
+- Sync automatique : `(app)/_layout.tsx` synchronise `user.preferred_language` → `setLang()` à chaque login/refresh pour s'appliquer sur un nouvel appareil sans repassage par Settings.
+- UI : sélecteur dans `settings.tsx` (testID `settings-language-btn`) qui ouvre un modal (testID `language-picker-modal`) avec les options `language-option-fr` / `language-option-en`. Sur échec PUT, la langue locale est revertée pour éviter une désynchro UI/DB.
+- Root layout enveloppe l'app dans `I18nProvider` avant `AuthProvider`.
+- Admin : `/(admin)/user/[id].tsx` affiche maintenant la langue préférée (🇫🇷 Français / 🇬🇧 English).
+- ⚠️ Phase 3b (à faire) : traduction du reste des écrans (dashboard complet, admin panel, services, ebooks, formations, applications premium, popup community, notifications backend, e-mails) — le scaffolding est en place, il suffit d'ajouter `const { t } = useI18n()` puis de remplacer les chaînes hardcodées par `t('clé')`.
+- ✅ Tests : 9/9 backend (`test_i18n_haiti_gating.py`), frontend 100% via testing_agent_v3_fork iteration_15. Pending user créé via register confirmé : `status=pending`, `max_level=0`.
+
+
 ### 2026-06-19 — Lottery Jackpot Phase 4 : sélection manuelle des gagnants AVANT le lancement
 - 🆕 **Nouveau endpoint** `POST /api/admin/lottery/draws/{id}/select-winners` body `{winners:[{rank, user_id, prize}, ...]}` qui stocke les gagnants pré-sélectionnés sur le draw (`preset_winners`). Validations strictes côté backend :
   - status doit être `open` (sinon 400)

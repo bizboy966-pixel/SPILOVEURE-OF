@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { View } from "react-native";
 import { useAuth } from "@/src/auth";
+import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
 import { SupportFab } from "@/src/components/SupportFab";
 import { LotteryFab } from "@/src/components/LotteryFab";
@@ -11,8 +12,19 @@ const ALLOWED_FOR_PENDING = new Set(["activation", "profile", "settings"]);
 
 export default function AppLayout() {
   const { user, loading } = useAuth();
+  const { lang, setLang } = useI18n();
   const router = useRouter();
   const segments = useSegments() as string[];
+
+  // Sync the user's stored language preference with the i18n context as soon as
+  // /auth/me returns. This ensures the UI flips to the right language on first
+  // login (even on a fresh device with empty AsyncStorage).
+  useEffect(() => {
+    const pref = user?.preferred_language;
+    if ((pref === "fr" || pref === "en") && pref !== lang) {
+      setLang(pref).catch(() => {});
+    }
+  }, [user?.preferred_language, lang, setLang]);
 
   useEffect(() => {
     if (loading) return;

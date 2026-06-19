@@ -45,14 +45,19 @@ export default function Settings() {
   const pickLanguage = async (next: Lang) => {
     if (next === lang) { setShowLangPicker(false); return; }
     setSavingLang(true);
+    const previous = lang;
     try {
       await setLang(next);
       try {
         await api.put("/auth/language", { language: next });
         await refresh();
-      } catch {}
-      setShowLangPicker(false);
-      if (typeof window !== "undefined") window.alert(`✅ ${next === "fr" ? "Langue mise à jour avec succès." : "Language updated successfully."}`);
+        setShowLangPicker(false);
+        if (typeof window !== "undefined") window.alert(`✅ ${next === "fr" ? "Langue mise à jour avec succès." : "Language updated successfully."}`);
+      } catch (e: any) {
+        // Revert local language if the DB save failed.
+        await setLang(previous);
+        if (typeof window !== "undefined") window.alert(`❌ ${previous === "fr" ? "Échec de la mise à jour de la langue." : "Failed to update language."} ${e?.detail || ""}`);
+      }
     } finally {
       setSavingLang(false);
     }
