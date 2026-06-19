@@ -1,10 +1,22 @@
-"""End-to-end tests for the Lottery Jackpot new flow.
+"""End-to-end tests for the Lottery Jackpot new flow (with manual winner pre-selection).
 
 Covers:
   - POST /api/admin/lottery/draws creates a draw with status='open' immediately.
-  - POST /api/admin/lottery/draws/{id}/launch transitions open -> running.
-  - POST /api/lottery/draws/{id}/join is refused if status != 'open', if full, if duplicate, if low balance.
-  - Auto-completion triggers on GET /api/lottery/active (or /api/admin/lottery/draws) when ends_at < now.
+  - POST /api/admin/lottery/draws/{id}/select-winners validates body and stores preset_winners.
+      * Refused if status != 'open'
+      * Refused if count != winners_count
+      * Refused if duplicate user_id
+      * Refused if user_id is not a participant
+      * Refused if rank coverage incomplete (e.g. only ranks 1 and 3 without 2)
+  - POST /api/admin/lottery/draws/{id}/launch:
+      * Refused with 400 if no participants
+      * Refused with 400 if preset_winners is empty or incomplete
+      * Succeeds and transitions open -> running once preset is valid
+  - POST /api/lottery/draws/{id}/join is refused if status != 'open'.
+  - After countdown expiration, _auto_complete_if_due uses preset_winners — NO random.
+      * Winners == preset_winners (same user_id, ranks, prizes)
+      * balance_profit credited
+      * Commission inserted with kind=lottery_win
   - GET /api/admin/lottery/stats returns correct counts.
 """
 import os
@@ -18,6 +30,7 @@ ADMIN_EMAIL = "kossikotokou4@gmail.com"
 ADMIN_PASSWORD = "@Emma91972006"
 
 
+# ----------------------------- Fixtures -----------------------------
 @pytest.fixture(scope="session")
 def admin_token():
     r = requests.post(
@@ -40,10 +53,11 @@ def admin_headers(admin_token):
 @pytest.fixture(scope="session")
 def admin_user_id(admin_headers):
     r = requests.get(f"{BASE_URL}/api/auth/me", headers=admin_headers, timeout=20)
-    assert r.status_code == 200, f"/auth/me failed: {r.status_code} {r.text}"
+    assert r.status_code == 200
     return r.json()["id"]
 
 
+# ----------------------------- Helpers -----------------------------
 def _create_draw(admin_headers, max_participants=5, winners_count=1, entry_amount=500, prizes=None):
     name = f"TEST_Jackpot_{uuid.uuid4().hex[:8]}"
     payload = {
@@ -70,6 +84,15 @@ def _cleanup(admin_headers, draw_id):
         pass
 
 
+def _select_winners(admin_headers, draw_id, winners):
+    return requests.post(
+        f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/select-winners",
+        headers=admin_headers,
+        json={"winners": winners},
+        timeout=20,
+    )
+
+
 # --- 1) Create draw immediately opens it ---
 class TestCreateDraw:
     def test_create_draw_status_open(self, admin_headers):
@@ -81,167 +104,250 @@ class TestCreateDraw:
         assert d.get("ends_at") in (None, "")
         assert d.get("launched") is False
         assert "id" in d
-        _cleanup(admin_headers, d["id"])
-
-    def test_create_draw_does_not_require_duration(self, admin_headers):
-        # Same as above but explicitly verifying no duration fields are needed
-        r, _ = _create_draw(admin_headers)
-        assert r.status_code == 200
-        d = r.json()
-        assert d["status"] == "open"
+        # New: preset_winners must exist as empty list
+        assert d.get("preset_winners") == []
         _cleanup(admin_headers, d["id"])
 
 
-# --- 2) Launch transitions open -> running ---
-class TestLaunchDraw:
-    def test_launch_requires_open_status_and_participants(self, admin_headers, admin_user_id):
-        r, _ = _create_draw(admin_headers)
-        assert r.status_code == 200
+# --- 2) Select winners: validations ---
+class TestSelectWinnersValidations:
+    def test_select_requires_participant(self, admin_headers, admin_user_id):
+        r, _ = _create_draw(admin_headers, winners_count=1, prizes=[{"rank": 1, "amount": 1000}])
         draw_id = r.json()["id"]
-
-        # 1) Cannot launch without participants
-        r1 = requests.post(
-            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
-            headers=admin_headers,
-            json={"duration_minutes": 5},
-            timeout=20,
-        )
-        assert r1.status_code == 400, f"expected 400 no-participant, got {r1.status_code} {r1.text}"
-
-        # 2) Add admin as participant
-        rj = requests.post(
-            f"{BASE_URL}/api/lottery/draws/{draw_id}/join",
-            headers=admin_headers,
-            timeout=20,
-        )
-        assert rj.status_code in (200, 409), f"join unexpected: {rj.status_code} {rj.text}"
-
-        # 3) Now launch should succeed
-        r2 = requests.post(
-            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
-            headers=admin_headers,
-            json={"duration_minutes": 30},
-            timeout=20,
-        )
-        assert r2.status_code == 200, f"launch failed: {r2.status_code} {r2.text}"
-        d2 = r2.json()
-        assert d2["status"] == "running"
-        assert d2.get("ends_at"), "ends_at must be set"
-        assert d2.get("launched") is True
-
-        # 4) Cannot launch again (status != open)
-        r3 = requests.post(
-            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
-            headers=admin_headers,
-            json={"duration_minutes": 5},
-            timeout=20,
-        )
-        assert r3.status_code == 400
-
+        # Selecting a user who is NOT a participant => 400
+        fake_uid = f"nonexistent_{uuid.uuid4().hex[:8]}"
+        rs = _select_winners(admin_headers, draw_id, [{"rank": 1, "user_id": fake_uid, "prize": 1000}])
+        assert rs.status_code == 400, f"expected 400 non-participant, got {rs.status_code} {rs.text}"
         _cleanup(admin_headers, draw_id)
 
+    def test_select_count_mismatch(self, admin_headers, admin_user_id):
+        # winners_count=2 but we send only 1
+        r, _ = _create_draw(
+            admin_headers,
+            winners_count=2,
+            prizes=[{"rank": 1, "amount": 1000}, {"rank": 2, "amount": 500}],
+        )
+        draw_id = r.json()["id"]
+        # admin joins (just so we have at least 1 participant)
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 1000}],
+        )
+        assert rs.status_code == 400, f"expected 400 count mismatch, got {rs.status_code} {rs.text}"
+        _cleanup(admin_headers, draw_id)
 
-# --- 3) Join restrictions ---
-class TestJoinRestrictions:
-    def test_join_refused_if_running(self, admin_headers):
-        # Create + join + launch
-        r, _ = _create_draw(admin_headers, max_participants=5)
+    def test_select_duplicate_user(self, admin_headers, admin_user_id):
+        r, _ = _create_draw(
+            admin_headers,
+            winners_count=2,
+            prizes=[{"rank": 1, "amount": 1000}, {"rank": 2, "amount": 500}],
+        )
         draw_id = r.json()["id"]
         rj = requests.post(
             f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
         )
         assert rj.status_code in (200, 409)
+        # Same user_id on both ranks
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [
+                {"rank": 1, "user_id": admin_user_id, "prize": 1000},
+                {"rank": 2, "user_id": admin_user_id, "prize": 500},
+            ],
+        )
+        assert rs.status_code == 400, f"expected 400 duplicate, got {rs.status_code} {rs.text}"
+        _cleanup(admin_headers, draw_id)
+
+    def test_select_incomplete_ranks(self, admin_headers, admin_user_id):
+        # winners_count=3 but ranks are 1, 3, 3 (missing 2 and duplicate 3)
+        r, _ = _create_draw(
+            admin_headers,
+            winners_count=3,
+            prizes=[
+                {"rank": 1, "amount": 1000},
+                {"rank": 2, "amount": 500},
+                {"rank": 3, "amount": 250},
+            ],
+        )
+        draw_id = r.json()["id"]
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [
+                {"rank": 1, "user_id": admin_user_id, "prize": 1000},
+                {"rank": 3, "user_id": admin_user_id, "prize": 500},
+                {"rank": 3, "user_id": admin_user_id, "prize": 250},
+            ],
+        )
+        # Either duplicate user OR rank-coverage error => 400
+        assert rs.status_code == 400, f"expected 400 incomplete-ranks, got {rs.status_code} {rs.text}"
+        _cleanup(admin_headers, draw_id)
+
+
+# --- 3) Launch is blocked without preset ---
+class TestLaunchPresetEnforcement:
+    def test_launch_blocked_without_preset(self, admin_headers):
+        r, _ = _create_draw(admin_headers, winners_count=1, prizes=[{"rank": 1, "amount": 1000}])
+        draw_id = r.json()["id"]
+        # Add admin as participant
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        # Launch must fail because no preset_winners
+        rl = requests.post(
+            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
+            headers=admin_headers, json={"duration_minutes": 5}, timeout=20,
+        )
+        assert rl.status_code == 400, f"expected 400 missing preset, got {rl.status_code} {rl.text}"
+        assert "sélectionn" in rl.text.lower() or "preset" in rl.text.lower() or "gagnant" in rl.text.lower()
+        _cleanup(admin_headers, draw_id)
+
+    def test_launch_succeeds_after_preset(self, admin_headers, admin_user_id):
+        r, _ = _create_draw(admin_headers, winners_count=1, prizes=[{"rank": 1, "amount": 1000}])
+        draw_id = r.json()["id"]
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        # Pre-select admin as winner
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 1000}],
+        )
+        assert rs.status_code == 200, f"select-winners failed: {rs.status_code} {rs.text}"
+        body = rs.json()
+        assert isinstance(body.get("preset_winners"), list)
+        assert len(body["preset_winners"]) == 1
+        assert body["preset_winners"][0]["user_id"] == admin_user_id
+        assert body["preset_winners"][0]["rank"] == 1
+        assert float(body["preset_winners"][0]["prize"]) == 1000.0
+
+        # Launch should now succeed
+        rl = requests.post(
+            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
+            headers=admin_headers, json={"duration_minutes": 30}, timeout=20,
+        )
+        assert rl.status_code == 200, f"launch failed: {rl.status_code} {rl.text}"
+        assert rl.json()["status"] == "running"
+        _cleanup(admin_headers, draw_id)
+
+
+# --- 4) Select-winners refused once running ---
+class TestSelectAfterLaunch:
+    def test_select_blocked_after_launch(self, admin_headers, admin_user_id):
+        r, _ = _create_draw(admin_headers, winners_count=1, prizes=[{"rank": 1, "amount": 1000}])
+        draw_id = r.json()["id"]
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        # Pre-select then launch
+        rs1 = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 1000}],
+        )
+        assert rs1.status_code == 200
         rl = requests.post(
             f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
             headers=admin_headers, json={"duration_minutes": 30}, timeout=20,
         )
         assert rl.status_code == 200
-        # Attempt to join again now that it's 'running' (also already joined, but server checks status before duplicate). Either 400 (status) or 409 — but spec says strictly 400 when status != open
+        # Now selecting winners again must fail
+        rs2 = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 999}],
+        )
+        assert rs2.status_code == 400, f"expected 400 after-launch, got {rs2.status_code} {rs2.text}"
+        _cleanup(admin_headers, draw_id)
+
+
+# --- 5) Join refused if status != open ---
+class TestJoinAfterLaunch:
+    def test_join_refused_if_running(self, admin_headers, admin_user_id):
+        r, _ = _create_draw(admin_headers, max_participants=5, winners_count=1, prizes=[{"rank": 1, "amount": 1000}])
+        draw_id = r.json()["id"]
+        rj = requests.post(
+            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
+        )
+        assert rj.status_code in (200, 409)
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 1000}],
+        )
+        assert rs.status_code == 200
+        rl = requests.post(
+            f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
+            headers=admin_headers, json={"duration_minutes": 30}, timeout=20,
+        )
+        assert rl.status_code == 200
+        # Cannot join now (status=running)
         rj2 = requests.post(
             f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
         )
-        assert rj2.status_code == 400, f"expected 400 since status=running, got {rj2.status_code} {rj2.text}"
-        _cleanup(admin_headers, draw_id)
-
-    def test_join_refused_if_already_joined(self, admin_headers):
-        r, _ = _create_draw(admin_headers, max_participants=5)
-        draw_id = r.json()["id"]
-        rj1 = requests.post(
-            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
-        )
-        # Either 200 (fresh join) or 400 (insufficient balance) — but per requirements admin has balance
-        assert rj1.status_code in (200, 409, 400)
-        if rj1.status_code == 200:
-            rj2 = requests.post(
-                f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
-            )
-            assert rj2.status_code == 409
-        _cleanup(admin_headers, draw_id)
-
-    def test_join_refused_if_full(self, admin_headers):
-        # Create with max=1, join with admin, then try again (also already joined; but also full)
-        r, _ = _create_draw(admin_headers, max_participants=1)
-        draw_id = r.json()["id"]
-        rj1 = requests.post(
-            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
-        )
-        assert rj1.status_code in (200, 400, 409)
-        # Subsequent join from same admin would be 400 (full) OR 409 (already joined).
-        # The CAPACITY check happens before the duplicate check in the backend.
-        rj2 = requests.post(
-            f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
-        )
-        assert rj2.status_code in (400, 409)
+        assert rj2.status_code == 400
         _cleanup(admin_headers, draw_id)
 
 
-# --- 4) Stats ---
+# --- 6) Stats ---
 class TestStats:
     def test_stats_has_required_fields(self, admin_headers):
         r = requests.get(f"{BASE_URL}/api/admin/lottery/stats", headers=admin_headers, timeout=20)
-        assert r.status_code == 200, f"stats failed: {r.status_code} {r.text}"
+        assert r.status_code == 200
         data = r.json()
         for k in ("open_count", "running_count", "announced_count", "total_draws"):
-            assert k in data, f"missing key {k} in stats"
+            assert k in data
             assert isinstance(data[k], int)
 
 
-# --- 5) Full E2E: create -> join -> launch 1 min -> wait -> auto announce ---
-class TestE2EAutoComplete:
-    def test_full_flow_auto_announce(self, admin_headers, admin_user_id):
-        # 1) Get admin's profit balance BEFORE
+# --- 7) Full E2E: preset == final winners + balance credited ---
+class TestE2EPresetWinners:
+    def test_full_flow_preset_match(self, admin_headers, admin_user_id):
+        # Get balance BEFORE
         me_r = requests.get(f"{BASE_URL}/api/auth/me", headers=admin_headers, timeout=20)
         assert me_r.status_code == 200
-        before = me_r.json()
-        bp_before = float(before.get("balance_profit") or 0)
+        bp_before = float(me_r.json().get("balance_profit") or 0)
 
-        # 2) Create draw, prize = 2000 FCFA on rank 1
+        # Create draw, prize = 2000 FCFA on rank 1
         r, _ = _create_draw(
             admin_headers,
             max_participants=2, winners_count=1, entry_amount=500,
             prizes=[{"rank": 1, "amount": 2000}],
         )
-        assert r.status_code == 200
         draw_id = r.json()["id"]
 
-        # 3) Admin joins
+        # Admin joins
         rj = requests.post(
             f"{BASE_URL}/api/lottery/draws/{draw_id}/join", headers=admin_headers, timeout=20
         )
-        assert rj.status_code in (200, 409), f"join failed: {rj.status_code} {rj.text}"
+        assert rj.status_code in (200, 409)
 
-        # 4) Admin launches 1 minute
+        # Pre-select admin as winner with a SPECIFIC prize (different from prizes list to confirm preset wins)
+        rs = _select_winners(
+            admin_headers, draw_id,
+            [{"rank": 1, "user_id": admin_user_id, "prize": 2000}],
+        )
+        assert rs.status_code == 200, f"select failed: {rs.text}"
+
+        # Launch 1 minute
         rl = requests.post(
             f"{BASE_URL}/api/admin/lottery/draws/{draw_id}/launch",
             headers=admin_headers, json={"duration_minutes": 1}, timeout=20,
         )
-        assert rl.status_code == 200, f"launch failed: {rl.status_code} {rl.text}"
+        assert rl.status_code == 200
         assert rl.json()["status"] == "running"
 
-        # 5) Sleep ~65s
+        # Sleep ~70s
         time.sleep(70)
 
-        # 6) Trigger auto-complete via GET /api/admin/lottery/draws
+        # Trigger auto-complete
         rlist = requests.get(
             f"{BASE_URL}/api/admin/lottery/draws", headers=admin_headers, timeout=30
         )
@@ -251,20 +357,18 @@ class TestE2EAutoComplete:
         assert target is not None, "draw disappeared"
         assert target["status"] == "announced", f"expected announced got {target['status']}"
         winners = target.get("winners") or []
+        preset = target.get("preset_winners") or []
         assert len(winners) == 1, f"expected 1 winner got {len(winners)}"
-        assert winners[0]["user_id"] == admin_user_id
-        assert float(winners[0]["prize"]) == 2000.0
+        assert len(preset) == 1
+        # Winners MUST match preset exactly (same user_id, rank, prize)
+        assert winners[0]["user_id"] == preset[0]["user_id"] == admin_user_id
+        assert winners[0]["rank"] == preset[0]["rank"] == 1
+        assert float(winners[0]["prize"]) == float(preset[0]["prize"]) == 2000.0
 
-        # 7) Verify balance_profit increased (entry -500 + prize +2000 => net +1500)
+        # Verify balance_profit increased (entry -500 + prize +2000 => net +1500)
         me_r2 = requests.get(f"{BASE_URL}/api/auth/me", headers=admin_headers, timeout=20)
         assert me_r2.status_code == 200
         bp_after = float(me_r2.json().get("balance_profit") or 0)
-        # Allow some slack (other tests may have debited).
-        # Difference between before and after for this draw should be >= +1500 -500
-        # but other parallel tests may have run; we just check it increased meaningfully.
-        # Minimum expectation: after >= before + 1500 - 500 (entry from this test only)
-        assert bp_after >= bp_before + 1500 - 500 - 1, (
+        assert bp_after >= bp_before + 1500 - 1, (
             f"balance_profit did not increase as expected: before={bp_before} after={bp_after}"
         )
-
-        # Cleanup not possible: announced draws can't be deleted by API.

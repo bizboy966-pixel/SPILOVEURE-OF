@@ -86,8 +86,9 @@ async def _auto_complete_if_due(db, draw: dict) -> dict:
     """If a `running` draw has passed `ends_at`, auto-announce winners and
     transition the draw to `announced`. Returns the (possibly updated) draw doc.
 
-    Winners are picked randomly among participants. Prizes are assigned by
-    ascending rank from the draw's `prizes` list (capped at `winners_count`).
+    Winners are taken from `preset_winners` (selected manually by the admin
+    before launching). If `preset_winners` is empty (legacy or edge case),
+    falls back to a random pick among participants.
     """
     if draw.get("status") != "running":
         return draw
@@ -101,30 +102,42 @@ async def _auto_complete_if_due(db, draw: dict) -> dict:
     cfg = await _load_settings(db)
     now = datetime.now(timezone.utc)
 
-    # Collect participants
-    parts: List[dict] = []
-    async for p in db.lottery_participants.find({"draw_id": draw_id}, {"_id": 0}):
-        parts.append(p)
-
-    # Build the ordered list of prizes (rank ascending)
-    prizes = sorted(draw.get("prizes") or [], key=lambda p: int(p.get("rank") or 0))
-    winners_target = min(int(draw.get("winners_count") or 0), len(prizes), len(parts))
-
     enriched: List[dict] = []
-    if winners_target > 0:
-        # Random shuffle and pick `winners_target` distinct participants
-        pool = list(parts)
-        random.shuffle(pool)
-        chosen = pool[:winners_target]
-        for i, p in enumerate(chosen):
-            pr = prizes[i]
-            u = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "username": 1}) or {}
+
+    preset = draw.get("preset_winners") or []
+    if preset:
+        # Use the manually pre-selected winners. Re-resolve usernames in case
+        # they changed since selection.
+        for w in preset:
+            u = await db.users.find_one({"id": w["user_id"]}, {"_id": 0, "username": 1}) or {}
             enriched.append({
-                "rank": int(pr.get("rank") or (i + 1)),
-                "user_id": p["user_id"],
-                "username": u.get("username") or p.get("username"),
-                "prize": float(pr.get("amount") or 0),
+                "rank": int(w.get("rank") or 0),
+                "user_id": w["user_id"],
+                "username": u.get("username") or w.get("username"),
+                "prize": float(w.get("prize") or 0),
             })
+        enriched.sort(key=lambda x: x["rank"])
+    else:
+        # Safety fallback (should not happen because /launch enforces preset
+        # selection). Pick random winners among participants.
+        parts: List[dict] = []
+        async for p in db.lottery_participants.find({"draw_id": draw_id}, {"_id": 0}):
+            parts.append(p)
+        prizes = sorted(draw.get("prizes") or [], key=lambda p: int(p.get("rank") or 0))
+        winners_target = min(int(draw.get("winners_count") or 0), len(prizes), len(parts))
+        if winners_target > 0:
+            pool = list(parts)
+            random.shuffle(pool)
+            chosen = pool[:winners_target]
+            for i, p in enumerate(chosen):
+                pr = prizes[i]
+                u = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "username": 1}) or {}
+                enriched.append({
+                    "rank": int(pr.get("rank") or (i + 1)),
+                    "user_id": p["user_id"],
+                    "username": u.get("username") or p.get("username"),
+                    "prize": float(pr.get("amount") or 0),
+                })
 
     # Credit winners & log commissions
     for win in enriched:
@@ -165,7 +178,7 @@ async def _auto_complete_if_due(db, draw: dict) -> dict:
 
     # Notify the losers
     winner_ids = {w["user_id"] for w in enriched}
-    for p in parts:
+    async for p in db.lottery_participants.find({"draw_id": draw_id}, {"_id": 0, "user_id": 1}):
         if p["user_id"] in winner_ids:
             continue
         await db.notifications.insert_one({
@@ -436,6 +449,7 @@ async def admin_create_draw(body: DrawCreateIn, request: Request, who=Depends(re
         "min_participants": int(body.min_participants) if body.min_participants else None,
         "prizes": [p.dict() for p in body.prizes],
         "winners": [],
+        "preset_winners": [],
         # Open immediately — visible to users, no countdown yet.
         "status": "open",
         "launched": False,
@@ -446,6 +460,95 @@ async def admin_create_draw(body: DrawCreateIn, request: Request, who=Depends(re
     }
     await db.lottery_draws.insert_one(dict(doc))
     return _serialize_draw(doc)
+
+
+@admin.post("/lottery/draws/{draw_id}/select-winners")
+async def admin_select_winners(
+    draw_id: str, body: dict, request: Request, who=Depends(require_admin)
+):
+    """Body: { winners: [{rank, user_id, prize}, …] }
+
+    Pre-selects the winners for a Jackpot BEFORE the launch. Validations:
+      • The draw must be in `open` status.
+      • Exactly `winners_count` selections are required.
+      • Ranks must cover 1..winners_count without duplicates.
+      • Each `user_id` must be a participant of the draw.
+      • A single user cannot occupy more than one rank.
+
+    The selection is stored on the draw as `preset_winners` and is committed
+    automatically when the countdown ends (the `_auto_complete_if_due` helper
+    uses `preset_winners` directly — no random pick).
+    """
+    db = request.app.state.db
+    d = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Tirage introuvable.")
+    if d.get("status") != "open":
+        raise HTTPException(
+            400,
+            "Les gagnants doivent être sélectionnés avant le lancement (le tirage doit être 'open').",
+        )
+
+    raw = (body or {}).get("winners") or []
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "Liste des gagnants vide.")
+
+    expected = int(d.get("winners_count") or 0)
+    if len(raw) != expected:
+        raise HTTPException(
+            400,
+            f"Vous devez sélectionner exactement {expected} gagnant(s) — reçu : {len(raw)}.",
+        )
+
+    try:
+        models = [WinnerIn(**w) for w in raw]
+    except Exception as e:
+        raise HTTPException(400, f"Format invalide : {e}")
+
+    ranks_sorted = sorted([m.rank for m in models])
+    if ranks_sorted != list(range(1, expected + 1)):
+        raise HTTPException(
+            400,
+            f"Tous les rangs de 1 à {expected} doivent être attribués, sans doublon ni rang manquant.",
+        )
+
+    user_ids = [m.user_id for m in models]
+    if len(set(user_ids)) != len(user_ids):
+        raise HTTPException(
+            400,
+            "Un même utilisateur ne peut pas être sélectionné sur plusieurs rangs.",
+        )
+
+    enriched: List[dict] = []
+    for m in models:
+        part = await db.lottery_participants.find_one(
+            {"draw_id": draw_id, "user_id": m.user_id}, {"_id": 0}
+        )
+        if not part:
+            raise HTTPException(
+                400,
+                f"L'utilisateur {m.user_id} n'a pas participé à ce Jackpot et ne peut pas être sélectionné.",
+            )
+        u = await db.users.find_one({"id": m.user_id}, {"_id": 0, "username": 1}) or {}
+        enriched.append({
+            "rank": int(m.rank),
+            "user_id": m.user_id,
+            "username": u.get("username") or part.get("username"),
+            "prize": float(m.prize),
+        })
+    enriched.sort(key=lambda x: x["rank"])
+
+    now = datetime.now(timezone.utc)
+    await db.lottery_draws.update_one(
+        {"id": draw_id},
+        {"$set": {
+            "preset_winners": enriched,
+            "winners_selected_at": now,
+            "winners_selected_by": who.get("username"),
+        }},
+    )
+    new_doc = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
+    return _serialize_draw(new_doc)
 
 
 @admin.post("/lottery/draws/{draw_id}/launch")
@@ -464,6 +567,25 @@ async def admin_launch_draw(
     participants_count = await db.lottery_participants.count_documents({"draw_id": draw_id})
     if participants_count <= 0:
         raise HTTPException(400, "Impossible de lancer un tirage sans participant.")
+
+    preset = d.get("preset_winners") or []
+    expected_winners = int(d.get("winners_count") or 0)
+    if len(preset) != expected_winners:
+        raise HTTPException(
+            400,
+            f"Vous devez d'abord sélectionner et valider les {expected_winners} gagnant(s) avant de lancer le tirage.",
+        )
+
+    # Sanity: ensure every preset winner is still a participant.
+    for w in preset:
+        ok = await db.lottery_participants.find_one(
+            {"draw_id": draw_id, "user_id": w.get("user_id")}, {"_id": 1}
+        )
+        if not ok:
+            raise HTTPException(
+                400,
+                "Un des gagnants sélectionnés n'est plus participant. Veuillez re-valider la sélection.",
+            )
 
     now = datetime.now(timezone.utc)
     ends_at = now + timedelta(minutes=int(body.duration_minutes))

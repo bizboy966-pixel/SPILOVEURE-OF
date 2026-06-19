@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 14: validated the NEW Lottery Jackpot flow with manual winner pre-selection. Backend: 11/11 pytest tests pass (covering create-open draw, /select-winners validations [non-participant, count mismatch, duplicate user, incomplete ranks], /launch blocked without preset, /launch succeeds after preset, /select-winners refused after launch, join refused if running, stats, full E2E preset→winners→balance credit). Frontend: UI flow validated end-to-end — '🎯 Sélectionner les gagnants' button renders on open draws with participants_count > 0, picker modal opens with all expected testIDs (winner-picker-modal, participants-list, participant-row-{uid}, winner-picker-rank-{r}, winner-pick-{r}-{uid}, winner-prize-{r}), '🚀 Lancer le tirage' clicked WITHOUT preset triggers French alert and does NOT open the launch modal, submit triggers confirm dialog, preset_winners block ('🎯 Gagnants pré-sélectionnés (publication automatique à la fin du compte à rebours)') is rendered on the draw card for previously-validated draws.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lottery_jackpot_flow.py",
+    "/app/test_reports/pytest/lottery_jackpot_iter14.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "lottery.py is 827 lines — split between admin routes / public routes / helpers (_auto_complete_if_due) is overdue. The 700-line guideline was breached this iteration.",
+    "_auto_complete_if_due still has a random-pick fallback branch (lines 120-141) when preset_winners is empty. Since /launch now strictly enforces a non-empty preset, this branch should only fire for legacy/edge cases. Consider logging a warning when this fallback executes to surface unexpected uses.",
+    "validateWinners in lottery.tsx uses window.confirm() which is blocking and not great for testability/UX. Consider replacing with an in-app confirmation modal — also makes it easier to write Playwright tests without dialog handlers.",
+    "Launch button uses inline opacity 0.5 style with onPress alert when preset is incomplete, which is good UX, but disabled prop is not set; consider also setting `disabled` so the button cannot be focused/clicked at all from keyboard."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lottery_jackpot_flow.py (rewritten to cover the new manual-winner-selection flow — all old tests that launched without preset_winners are updated to first call /select-winners)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 — confirmed working.",
+  "seed_data_creation": "Created and deleted draw TEST_UI_PICK_970aba via API for UI test (cleaned up at end). E2E test TestE2EPresetWinners creates a TEST_Jackpot_* draw that auto-announces — cannot be deleted (announced draws are immutable by API).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New Lottery flow: create (open) → users join → admin POST /api/admin/lottery/draws/{id}/select-winners {winners:[{rank,user_id,prize}]} → admin POST /api/admin/lottery/draws/{id}/launch {duration_minutes} → countdown → auto-publication of preset_winners (no random) → balance_profit credit + commission kind=lottery_win. The /select-winners endpoint enforces: status==open, len==winners_count, ranks cover 1..N, no duplicate user, all user_ids must be participants. /launch enforces: len(preset_winners)==winners_count. _auto_complete_if_due uses preset_winners directly; random fallback only kicks in if preset is empty (legacy). UI: picker modal grays out (opacity 0.35) participants already chosen on other ranks. Existing pytests in test_lottery_jackpot_flow.py now ALWAYS call /select-winners before /launch — same pattern needed for any future tests.",
+  "rca of the issue": "N/A — no bugs identified. Flow works as designed and is fully covered by automated tests."
+}

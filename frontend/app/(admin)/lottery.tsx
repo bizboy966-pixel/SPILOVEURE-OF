@@ -143,7 +143,12 @@ export default function AdminLottery() {
       if (typeof window !== "undefined") window.alert("❌ Aucun participant inscrit — impossible de lancer le tirage.");
       return;
     }
-    if (typeof window !== "undefined" && !window.confirm(`🚀 Lancer le tirage « ${launchTarget.name} » avec une durée de ${minutes} min ?\n\nUne fois lancé :\n• Les utilisateurs ne pourront plus rejoindre\n• Le compte à rebours sera visible chez les participants\n• Les gagnants seront sélectionnés et crédités automatiquement à la fin`)) return;
+    const presetCount = (launchTarget.preset_winners || []).length;
+    if (presetCount !== Number(launchTarget.winners_count || 0)) {
+      if (typeof window !== "undefined") window.alert(`❌ Vous devez d'abord sélectionner et valider les ${launchTarget.winners_count} gagnant(s) avant de lancer le tirage.`);
+      return;
+    }
+    if (typeof window !== "undefined" && !window.confirm(`🚀 Lancer le tirage « ${launchTarget.name} » avec une durée de ${minutes} min ?\n\nUne fois lancé :\n• Les utilisateurs ne pourront plus rejoindre\n• Le compte à rebours sera visible chez les participants\n• Les gagnants pré-sélectionnés seront publiés et crédités automatiquement à la fin du compte à rebours`)) return;
     setLaunching(true);
     try {
       await api.post(`/admin/lottery/draws/${launchTarget.id}/launch`, { duration_minutes: minutes });
@@ -190,8 +195,15 @@ export default function AdminLottery() {
       const p = await api.get<any[]>(`/admin/lottery/draws/${d.id}/participants`);
       setParticipants(p || []);
       const initial: Record<number, any> = {};
+      // Pre-fill from existing preset_winners if any
+      const presetByRank: Record<number, any> = {};
+      (d.preset_winners || []).forEach((w: any) => { presetByRank[w.rank] = w; });
       (d.prizes || []).forEach((pr: any) => {
-        initial[pr.rank] = { user_id: "", prize: String(pr.amount) };
+        const pre = presetByRank[pr.rank];
+        initial[pr.rank] = {
+          user_id: pre?.user_id || "",
+          prize: String(pre?.prize ?? pr.amount),
+        };
       });
       setWinners(initial);
       setEditing(d);
@@ -200,21 +212,34 @@ export default function AdminLottery() {
     }
   };
 
-  const announceWinners = async () => {
+  const validateWinners = async () => {
     if (!editing) return;
+    const expected = Number(editing.winners_count || 0);
     const list = Object.entries(winners)
-      .map(([rank, v]) => ({ rank: parseInt(rank, 10), user_id: v.user_id, prize: parseFloat(v.prize) || 0 }))
-      .filter((w) => w.user_id);
-    if (list.length === 0) {
-      if (typeof window !== "undefined") window.alert("❌ Sélectionnez au moins un gagnant.");
+      .map(([rank, v]) => ({ rank: parseInt(rank, 10), user_id: v.user_id, prize: parseFloat(v.prize) || 0 }));
+
+    // Vérifications client (mêmes contrôles que le backend pour de meilleurs messages)
+    const missing = list.filter((w) => !w.user_id);
+    if (missing.length > 0) {
+      const ranksMissing = missing.map((m) => m.rank).join(", ");
+      if (typeof window !== "undefined") window.alert(`❌ Tous les rangs doivent être attribués.\nRang(s) manquant(s) : ${ranksMissing}`);
       return;
     }
-    if (typeof window !== "undefined" && !window.confirm(`Annoncer ${list.length} gagnant(s) manuellement ?\n\nLes gains seront crédités immédiatement.`)) return;
+    if (list.length !== expected) {
+      if (typeof window !== "undefined") window.alert(`❌ Vous devez sélectionner exactement ${expected} gagnant(s).`);
+      return;
+    }
+    const ids = list.map((w) => w.user_id);
+    if (new Set(ids).size !== ids.length) {
+      if (typeof window !== "undefined") window.alert("❌ Un même utilisateur ne peut pas être sélectionné sur plusieurs rangs.");
+      return;
+    }
+    if (typeof window !== "undefined" && !window.confirm(`Valider la sélection de ${list.length} gagnant(s) ?\n\nVous pourrez ensuite lancer le tirage avec une durée de votre choix.`)) return;
     try {
-      await api.post(`/admin/lottery/draws/${editing.id}/announce`, { winners: list });
+      await api.post(`/admin/lottery/draws/${editing.id}/select-winners`, { winners: list });
       setEditing(null);
       await load();
-      if (typeof window !== "undefined") window.alert("🎉 Gagnants annoncés et crédités !");
+      if (typeof window !== "undefined") window.alert("✅ Gagnants validés ! Vous pouvez maintenant lancer le tirage.");
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
     }
@@ -278,6 +303,19 @@ export default function AdminLottery() {
                   </TouchableOpacity>
                 ))}
 
+                {(d.preset_winners || []).length > 0 ? (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={styles.subT}>🎯 Gagnants pré-sélectionnés (publication automatique à la fin du compte à rebours)</Text>
+                    {[...d.preset_winners].sort((a: any, b: any) => a.rank - b.rank).map((w: any, i: number) => (
+                      <View key={`pw-${i}`} style={styles.presetRow}>
+                        <Text style={styles.winRank}>{w.rank === 1 ? "🥇" : w.rank === 2 ? "🥈" : w.rank === 3 ? "🥉" : "🏅"} #{w.rank}</Text>
+                        <Text style={styles.winName}>@{w.username || "—"}</Text>
+                        <Text style={styles.winPrize}>{fmt(w.prize)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
                 {(d.winners || []).length > 0 ? (
                   <View style={{ marginTop: 8 }}>
                     <Text style={styles.subT}>🏅 Gagnants annoncés</Text>
@@ -294,20 +332,34 @@ export default function AdminLottery() {
                 <View style={styles.actRow}>
                   {d.status === "open" ? (
                     <TouchableOpacity
-                      style={[styles.actBtn, { backgroundColor: "#F59E0B" }]}
-                      onPress={() => { setLaunchTarget(d); setLaunchDuration("10"); }}
+                      style={[styles.actBtn, { backgroundColor: theme.colors.primary }]}
+                      onPress={() => openWinnerPicker(d)}
+                      disabled={(d.participants_count || 0) <= 0}
+                      testID={`lottery-select-winners-${d.id}`}
+                    >
+                      <Text style={styles.actT}>
+                        {(d.preset_winners || []).length > 0 ? "✏️ Modifier les gagnants" : "🎯 Sélectionner les gagnants"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {d.status === "open" ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.actBtn,
+                        { backgroundColor: "#F59E0B" },
+                        (d.preset_winners || []).length !== Number(d.winners_count || 0) && { opacity: 0.5 },
+                      ]}
+                      onPress={() => {
+                        if ((d.preset_winners || []).length !== Number(d.winners_count || 0)) {
+                          if (typeof window !== "undefined") window.alert(`❌ Vous devez d'abord sélectionner et valider les ${d.winners_count} gagnant(s).`);
+                          return;
+                        }
+                        setLaunchTarget(d);
+                        setLaunchDuration("10");
+                      }}
                       testID={`lottery-launch-${d.id}`}
                     >
                       <Text style={styles.actT}>🚀 Lancer le tirage</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {d.status === "running" ? (
-                    <TouchableOpacity
-                      style={[styles.actBtn, { backgroundColor: theme.colors.primary }]}
-                      onPress={() => openWinnerPicker(d)}
-                      testID={`lottery-finalize-${d.id}`}
-                    >
-                      <Text style={styles.actT}>🎯 Annoncer manuellement</Text>
                     </TouchableOpacity>
                   ) : null}
                   <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => exportCsv(d)}>
@@ -493,7 +545,7 @@ export default function AdminLottery() {
               </View>
 
               <Text style={[styles.helper, { marginTop: 10 }]}>
-                ⚠️ Une fois lancé, plus aucun utilisateur ne pourra rejoindre le tirage. Les gagnants seront tirés au sort automatiquement à la fin du compte à rebours et leurs gains crédités sur leur solde retirable.
+                ⚠️ Une fois lancé, plus aucun utilisateur ne pourra rejoindre le tirage. Les <Text style={{ fontWeight: "800" }}>gagnants pré-sélectionnés</Text> seront publiés automatiquement à la fin du compte à rebours, et les montants seront crédités sur leur solde retirable.
               </Text>
             </View>
 
@@ -514,49 +566,85 @@ export default function AdminLottery() {
         </View>
       </Modal>
 
-      {/* MANUAL ANNOUNCE PICKER */}
+      {/* WINNER SELECTION PICKER (pre-launch) */}
       {editing ? (
         <View style={styles.modalOverlay} testID="winner-picker-modal">
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>🏆 Sélection manuelle des gagnants — {editing.name}</Text>
-            <Text style={styles.modalSub}>{participants.length} participants</Text>
-            <ScrollView style={{ maxHeight: 400, marginTop: 10 }}>
-              {Array.from({ length: editing.winners_count }, (_, i) => i + 1).map((rank) => (
-                <View key={`r-${rank}`} style={styles.winnerSlot}>
-                  <Text style={styles.slotTitle}>{rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "🏅"} Rang {rank}</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Récompense (FCFA)"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    keyboardType="numeric"
-                    value={winners[rank]?.prize || ""}
-                    onChangeText={(v) => setWinners({ ...winners, [rank]: { ...(winners[rank] || {}), prize: v, user_id: winners[rank]?.user_id || "" } })}
-                  />
-                  <Text style={styles.helper}>Sélectionner un participant :</Text>
-                  <ScrollView style={{ maxHeight: 120 }}>
-                    {participants.map((p) => {
-                      const on = winners[rank]?.user_id === p.user_id;
-                      return (
-                        <TouchableOpacity
-                          key={`${rank}-${p.user_id}`}
-                          style={[styles.partRow, on && styles.partRowOn]}
-                          onPress={() => setWinners({ ...winners, [rank]: { ...(winners[rank] || { prize: "0" }), user_id: p.user_id } })}
-                        >
-                          <Text style={[styles.partTxt, on && { color: "#fff" }]}>{p.username}</Text>
-                          {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ))}
+            <Text style={styles.modalTitle}>🎯 Sélection des gagnants — {editing.name}</Text>
+            <Text style={styles.modalSub}>
+              {participants.length} participant{participants.length > 1 ? "s" : ""} inscrit{participants.length > 1 ? "s" : ""} • {editing.winners_count} rang{editing.winners_count > 1 ? "s" : ""} à attribuer
+            </Text>
+            <Text style={[styles.helper, { marginTop: 6 }]}>
+              💡 Un même utilisateur ne peut pas être sélectionné sur plusieurs rangs. Tous les rangs doivent être attribués avant validation.
+            </Text>
+
+            {/* Participants list summary */}
+            <View style={styles.partListBox}>
+              <Text style={styles.partListTitle}>📋 Liste des participants</Text>
+              <ScrollView style={{ maxHeight: 110 }} testID="participants-list">
+                {participants.map((p, idx) => (
+                  <View key={`pp-${p.user_id}`} style={styles.partListRow} testID={`participant-row-${p.user_id}`}>
+                    <Text style={styles.partListIdx}>#{idx + 1}</Text>
+                    <Text style={styles.partListName}>@{p.username || "—"}</Text>
+                    <Text style={styles.partListMeta}>{fmt(p.paid_amount)} • {(p.entered_at || "").slice(0, 16).replace("T", " ")}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+
+            <ScrollView style={{ maxHeight: 380, marginTop: 10 }}>
+              {Array.from({ length: editing.winners_count }, (_, i) => i + 1).map((rank) => {
+                const selectedElsewhere = new Set(
+                  Object.entries(winners)
+                    .filter(([r]) => parseInt(r, 10) !== rank)
+                    .map(([, v]) => v.user_id)
+                    .filter(Boolean)
+                );
+                return (
+                  <View key={`r-${rank}`} style={styles.winnerSlot}>
+                    <Text style={styles.slotTitle}>{rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "🏅"} Rang {rank}</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Récompense (FCFA)"
+                      placeholderTextColor={theme.colors.textSecondary}
+                      keyboardType="numeric"
+                      value={winners[rank]?.prize || ""}
+                      onChangeText={(v) => setWinners({ ...winners, [rank]: { ...(winners[rank] || {}), prize: v, user_id: winners[rank]?.user_id || "" } })}
+                      testID={`winner-prize-${rank}`}
+                    />
+                    <Text style={styles.helper}>Sélectionner un participant :</Text>
+                    <ScrollView style={{ maxHeight: 140 }} testID={`winner-picker-rank-${rank}`}>
+                      {participants.map((p) => {
+                        const on = winners[rank]?.user_id === p.user_id;
+                        const usedElsewhere = selectedElsewhere.has(p.user_id);
+                        return (
+                          <TouchableOpacity
+                            key={`${rank}-${p.user_id}`}
+                            style={[
+                              styles.partRow,
+                              on && styles.partRowOn,
+                              usedElsewhere && !on && { opacity: 0.35 },
+                            ]}
+                            disabled={usedElsewhere && !on}
+                            onPress={() => setWinners({ ...winners, [rank]: { ...(winners[rank] || { prize: "0" }), user_id: p.user_id } })}
+                            testID={`winner-pick-${rank}-${p.user_id}`}
+                          >
+                            <Text style={[styles.partTxt, on && { color: "#fff" }]}>@{p.username || "—"}{usedElsewhere && !on ? "  (déjà attribué)" : ""}</Text>
+                            {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                );
+              })}
             </ScrollView>
             <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-              <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.surfaceSecondary, flex: 1 }]} onPress={() => setEditing(null)}>
+              <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.surfaceSecondary, flex: 1 }]} onPress={() => setEditing(null)} testID="winner-picker-cancel">
                 <Text style={[styles.actT, { color: theme.colors.textPrimary }]}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#F59E0B", flex: 2 }]} onPress={announceWinners}>
-                <Text style={styles.actT}>🚀 Annoncer les gagnants</Text>
+              <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success, flex: 2 }]} onPress={validateWinners} testID="winner-picker-submit">
+                <Text style={styles.actT}>✅ Valider les gagnants</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -667,4 +755,11 @@ const styles = StyleSheet.create({
   partTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
   presetChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   presetChipT: { fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary },
+  presetRow: { flexDirection: "row", alignItems: "center", paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6, backgroundColor: "#FEF3C7", marginBottom: 4 },
+  partListBox: { marginTop: 10, padding: 8, borderRadius: 8, backgroundColor: theme.colors.surfaceSecondary },
+  partListTitle: { fontSize: 12, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 4 },
+  partListRow: { flexDirection: "row", alignItems: "center", paddingVertical: 4, gap: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  partListIdx: { width: 28, fontSize: 11, fontWeight: "700", color: theme.colors.textSecondary },
+  partListName: { flex: 1, fontSize: 12, fontWeight: "700", color: theme.colors.textPrimary },
+  partListMeta: { fontSize: 10, color: theme.colors.textSecondary },
 });
