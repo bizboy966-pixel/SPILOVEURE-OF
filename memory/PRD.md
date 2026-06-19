@@ -20,6 +20,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — 🔴 Correctif critique : Système de parrainage à l'inscription
+**Bug constaté en production** : tous les utilisateurs s'inscrivant sans `?ref=…` dans l'URL étaient automatiquement rattachés au parrain `admin`, causant des erreurs dans la structure du réseau, les commissions et le placement matrice.
+
+**Cause racine** (frontend uniquement) : `/app/frontend/app/(auth)/register.tsx` ligne 32 :
+```js
+const [sponsor, setSponsor] = useState((params.ref as string) || "admin");
+```
+→ Le fallback `"admin"` envoyait silencieusement `admin` comme sponsor au backend, qui validait l'inscription (admin est un utilisateur existant).
+
+**Correctifs livrés** :
+1. Suppression du fallback `"admin"`. Le parrain provient EXCLUSIVEMENT de `?ref=…`.
+2. Vérification du parrain via `GET /api/sponsor/:username` au chargement du formulaire. Si le ref est manquant ou invalide :
+   - Bandeau d'avertissement jaune affichant « ⚠️ Lien de parrainage invalide ou introuvable. Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription. »
+   - Champ Parrain vide avec placeholder « Lien de parrainage requis » et 🔒
+   - Bouton S'INSCRIRE désactivé (`disabled={!sponsorValid || sponsorChecking}`)
+3. Pendant la vérification, affichage d'un message « Vérification du parrain en cours… »
+4. Le champ Parrain est toujours `editable={false}` (verrouillé). Le hint affiche « 🔒 Code parrain verrouillé (transmis via votre lien d'invitation : @username) »
+5. Côté backend (`/api/auth/register`), la validation existante du parrain est suffisante (refuse 400 si introuvable). Selon décision utilisateur (1.b), `admin` reste un parrain valide pour les inscriptions explicites via `?ref=admin`.
+
+**Statut de l'audit existant** : skip pour le moment (décision utilisateur 2.c) — sera traité dans une session ultérieure si besoin.
+
+**Déploiement** : le bug est observable en PRODUCTION (https://spiloveure.com). Code corrigé en préview ; l'utilisateur doit redéployer pour pousser le correctif en prod.
+
+**Tests** : ✅ 3 états UI validés visuellement (no-ref, invalid-ref, valid-ref). ✅ Endpoint `GET /api/sponsor/:username` testé (existant 200, inexistant 404, espaces 404).
+
+
 ### 2026-06-19 — Triplet : Gating d'activation strict, ajout du pays Haïti 🇭🇹, système i18n FR/EN
 **Phase 1 — Gating activation strict** (`/app/frontend/app/(app)/_layout.tsx`, `settings.tsx`)
 - `isPending = !user || user.status === "pending" || max_level === 0` calculé au niveau du layout.

@@ -29,7 +29,14 @@ export default function Register() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [sponsor, setSponsor] = useState((params.ref as string) || "admin");
+  // ⚠️ Le parrain provient EXCLUSIVEMENT du lien de parrainage (?ref=…).
+  // Aucun fallback "admin" : si le lien est manquant ou invalide, l'inscription
+  // est bloquée jusqu'à ce que l'utilisateur passe par un lien valide.
+  const [sponsor, setSponsor] = useState<string>((params.ref as string) || "");
+  const [sponsorValid, setSponsorValid] = useState<boolean | null>(
+    (params.ref as string) ? null : false,
+  );
+  const [sponsorChecking, setSponsorChecking] = useState<boolean>(false);
   const [accept, setAccept] = useState(false);
   const [show, setShow] = useState(false);
   const [show2, setShow2] = useState(false);
@@ -46,8 +53,37 @@ export default function Register() {
     })();
   }, []);
 
+  // Vérifie l'existence du parrain transmis via le lien dès l'ouverture du
+  // formulaire. Si le lien pointe vers un utilisateur introuvable, on bloque
+  // l'inscription.
+  useEffect(() => {
+    const ref = (params.ref as string) || "";
+    if (!ref) {
+      setSponsorValid(false);
+      setSponsor("");
+      return;
+    }
+    setSponsorChecking(true);
+    (async () => {
+      try {
+        await api.get<{ username: string }>(`/sponsor/${encodeURIComponent(ref)}`, { auth: false });
+        setSponsor(ref);
+        setSponsorValid(true);
+      } catch {
+        setSponsorValid(false);
+        setSponsor("");
+      } finally {
+        setSponsorChecking(false);
+      }
+    })();
+  }, [params.ref]);
+
   const submit = async () => {
     setErr(null);
+    if (!sponsorValid) {
+      setErr("Lien de parrainage invalide ou introuvable. Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.");
+      return;
+    }
     if (!username || !email || !phone || !password || !sponsor) {
       setErr("Veuillez remplir tous les champs obligatoires.");
       return;
@@ -92,6 +128,24 @@ export default function Register() {
           <View style={styles.card}>
             <Text style={styles.title}>Créer votre compte</Text>
             <Text style={styles.subtitle}>Veuillez remplir tous les champs pour vous inscrire.</Text>
+
+            {/* Bandeau de blocage si le lien de parrainage est invalide ou absent */}
+            {sponsorValid === false && !sponsorChecking ? (
+              <View style={styles.refBlockBox} testID="register-ref-invalid">
+                <Ionicons name="warning" size={20} color="#92400E" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.refBlockTitle}>⚠️ Lien de parrainage invalide ou introuvable.</Text>
+                  <Text style={styles.refBlockText}>
+                    Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+            {sponsorChecking ? (
+              <View style={styles.refCheckBox}>
+                <Text style={styles.refCheckText}>Vérification du parrain en cours…</Text>
+              </View>
+            ) : null}
 
             {err ? (
               <View style={styles.errBox} testID="register-error">
@@ -169,16 +223,18 @@ export default function Register() {
             />
             <Input
               label="Parrain"
-              icon="people-outline"
-              placeholder="Nom d'utilisateur du parrain"
-              value={sponsor}
-              onChangeText={setSponsor}
+              icon="lock-closed"
+              placeholder="Lien de parrainage requis"
+              value={sponsorValid ? sponsor : ""}
+              onChangeText={() => {}}
               autoCapitalize="none"
               editable={false}
               testID="register-sponsor"
             />
             <Text style={styles.sponsorHint}>
-              Code parrain verrouillé{params.ref ? " (transmis via votre lien d'invitation)" : " (parrain par défaut)"}.
+              {sponsorValid && sponsor
+                ? `🔒 Code parrain verrouillé (transmis via votre lien d'invitation : @${sponsor}).`
+                : "🔒 Le parrain est verrouillé et provient exclusivement de votre lien de parrainage. Sans lien valide, vous ne pouvez pas vous inscrire."}
             </Text>
 
             <TouchableOpacity style={styles.checkRow} onPress={() => setAccept((v) => !v)} testID="register-accept">
@@ -194,6 +250,7 @@ export default function Register() {
               title="S'INSCRIRE"
               onPress={submit}
               loading={loading}
+              disabled={!sponsorValid || sponsorChecking}
               icon={<Ionicons name="person-add" size={18} color="#fff" />}
               testID="register-submit"
             />
@@ -277,6 +334,18 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.dangerBg, padding: 12, borderRadius: 12, marginBottom: 12,
   },
   errText: { color: theme.colors.danger, flex: 1, fontWeight: "600" },
+  refBlockBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 1,
+    padding: 12, borderRadius: 12, marginBottom: 14,
+  },
+  refBlockTitle: { color: "#92400E", fontWeight: "800", fontSize: 14, marginBottom: 2 },
+  refBlockText: { color: "#92400E", fontSize: 12, lineHeight: 16 },
+  refCheckBox: {
+    backgroundColor: theme.colors.surfaceSecondary, padding: 10,
+    borderRadius: 10, marginBottom: 10, alignItems: "center",
+  },
+  refCheckText: { color: theme.colors.textSecondary, fontStyle: "italic", fontSize: 12 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   countrySheet: { backgroundColor: "#fff", maxHeight: "70%", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16 },
   sheetTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 12 },
