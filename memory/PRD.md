@@ -20,6 +20,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Lottery Jackpot Phase 4 : sélection manuelle des gagnants AVANT le lancement
+- 🆕 **Nouveau endpoint** `POST /api/admin/lottery/draws/{id}/select-winners` body `{winners:[{rank, user_id, prize}, ...]}` qui stocke les gagnants pré-sélectionnés sur le draw (`preset_winners`). Validations strictes côté backend :
+  - status doit être `open` (sinon 400)
+  - exactement `winners_count` gagnants requis (sinon 400)
+  - tous les rangs 1..N doivent être attribués sans doublon
+  - aucun doublon de `user_id`
+  - chaque `user_id` doit appartenir à un participant inscrit au tirage
+- 🔒 **`/launch` durci** : refuse maintenant si `preset_winners` est vide ou incomplet — message « Vous devez d'abord sélectionner et valider les N gagnant(s) avant de lancer le tirage. »
+- 🤖 **Auto-completion utilise désormais `preset_winners`** : à expiration du countdown, `_auto_complete_if_due` publie EXACTEMENT les gagnants pré-sélectionnés et crédite leurs `balance_profit` selon les montants choisis (pas de tirage au sort). Fallback random conservé uniquement comme filet de sécurité pour données legacy.
+- 🎨 **Frontend Admin** : nouveau bouton « 🎯 Sélectionner les gagnants » (ou « ✏️ Modifier les gagnants » si déjà fait) sur les draws `open`. Modal repensé : (a) liste récapitulative des participants (nom + montant payé + date d'inscription), (b) un input prize + un sélecteur par rang, (c) les participants déjà attribués à un autre rang sont grisés et désactivés, (d) bouton de soumission « ✅ Valider les gagnants ». Le bouton « 🚀 Lancer le tirage » est désormais désactivé (`disabled` + opacity 0.5) tant que les gagnants n'ont pas été validés.
+- 📋 **Affichage** : un nouveau bloc « 🎯 Gagnants pré-sélectionnés » est rendu sur la carte du draw une fois la validation effectuée, listant @username + prize par rang.
+- ✅ **Tests** : 11/11 pytest backend (`test_lottery_jackpot_flow.py` réécrit), frontend 100% via testing_agent_v3_fork iteration_14, E2E manuel validé (admin → join → select-winners → launch 1 min → auto-publication → soldes crédités exactement selon preset).
+
+
 ### 2026-06-19 — Lottery Jackpot Phase 3 : refonte du flux (open → running → announced)
 - 🔄 **Nouveau cycle de vie** : `draft` et `closed` supprimés du flow. Les statuts utilisés sont désormais `open` → `running` → `announced` uniquement.
 - 🆕 **Création immédiate** : `POST /api/admin/lottery/draws` ne demande plus `starts_at`/`ends_at`. Le payload est `{name, description, entry_amount, winners_count, max_participants, min_participants, prizes}`. Le draw est créé directement en statut `open` et visible aux users.

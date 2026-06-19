@@ -349,6 +349,7 @@ export default function AdminLottery() {
                         { backgroundColor: "#F59E0B" },
                         (d.preset_winners || []).length !== Number(d.winners_count || 0) && { opacity: 0.5 },
                       ]}
+                      disabled={(d.preset_winners || []).length !== Number(d.winners_count || 0)}
                       onPress={() => {
                         if ((d.preset_winners || []).length !== Number(d.winners_count || 0)) {
                           if (typeof window !== "undefined") window.alert(`❌ Vous devez d'abord sélectionner et valider les ${d.winners_count} gagnant(s).`);
