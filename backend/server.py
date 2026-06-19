@@ -3059,6 +3059,11 @@ from lottery import public as lottery_public, admin as lottery_admin  # noqa: E4
 app.include_router(lottery_public)
 app.include_router(lottery_admin)
 
+# Recharge / Top-up module
+from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
+app.include_router(recharge_public)
+app.include_router(recharge_admin)
+
 # One-shot upgrade reserve audit (admin-only, no UI).
 from upgrade_audit import router as upgrade_audit_router  # noqa: E402
 app.include_router(upgrade_audit_router)

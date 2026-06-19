@@ -40,19 +40,24 @@ export default function AdminLottery() {
     }
   };
 
-  const createDraw = async () => {
-    const name = window.prompt("Nom du tirage :");
-    if (!name) return;
-    const startsIn = parseInt(window.prompt("Démarre dans combien d'heures ?", "0") || "0", 10);
-    const durationH = parseInt(window.prompt("Durée du tirage (en heures) ?", "168") || "168", 10);
-    const winnersCount = parseInt(window.prompt("Nombre de gagnants ?", "3") || "3", 10);
-    const maxP = parseInt(window.prompt("Max participants (0 = illimité) ?", "100") || "0", 10);
-    const entry = parseFloat(window.prompt("Montant participation (FCFA) ?", "500") || "500");
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<any>({ name: "", durationH: "168", winnersCount: "3", maxP: "100", entry: "500", startsIn: "0" });
+
+  const submitCreate = async () => {
+    if (!draft.name?.trim()) {
+      if (typeof window !== "undefined") window.alert("❌ Le nom du tirage est requis.");
+      return;
+    }
+    const startsIn = Math.max(0, parseFloat(draft.startsIn) || 0);
+    const durationH = Math.max(1, parseFloat(draft.durationH) || 1);
+    const winnersCount = Math.max(1, parseInt(draft.winnersCount) || 1);
+    const maxP = parseInt(draft.maxP) || 0;
+    const entry = Math.max(0, parseFloat(draft.entry) || 0);
     const starts = new Date(Date.now() + startsIn * 3600000);
     const ends = new Date(starts.getTime() + durationH * 3600000);
     try {
       await api.post("/admin/lottery/draws", {
-        name,
+        name: draft.name.trim(),
         starts_at: starts.toISOString(),
         ends_at: ends.toISOString(),
         winners_count: winnersCount,
@@ -60,6 +65,8 @@ export default function AdminLottery() {
         entry_amount: entry,
         prizes: Array.from({ length: winnersCount }, (_, i) => ({ rank: i + 1, amount: 0 })),
       });
+      setCreating(false);
+      setDraft({ name: "", durationH: "168", winnersCount: "3", maxP: "100", entry: "500", startsIn: "0" });
       await load();
       if (typeof window !== "undefined") window.alert("✅ Tirage créé en brouillon. Définissez les récompenses puis ouvrez-le.");
     } catch (e: any) {
@@ -162,7 +169,7 @@ export default function AdminLottery() {
 
       {tab === "draws" && (
         <View>
-          <TouchableOpacity style={styles.createBtn} onPress={createDraw} testID="lottery-create">
+          <TouchableOpacity style={styles.createBtn} onPress={() => setCreating(true)} testID="lottery-create">
             <Ionicons name="add-circle" size={18} color="#fff" />
             <Text style={styles.createTxt}>Créer un tirage</Text>
           </TouchableOpacity>
@@ -293,6 +300,35 @@ export default function AdminLottery() {
           </Card>
         </View>
       )}
+
+      {creating ? (
+        <View style={styles.modalOverlay} testID="lottery-create-modal">
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>🎰 Créer un tirage</Text>
+            <Text style={styles.modalSub}>Le tirage sera créé en statut "brouillon" — vous pourrez ensuite définir les récompenses puis l'ouvrir.</Text>
+            <Text style={styles.subT}>Nom du tirage *</Text>
+            <TextInput style={styles.input} value={draft.name} onChangeText={(v) => setDraft({ ...draft, name: v })} placeholder="Ex: Jackpot Juin 2026" placeholderTextColor={theme.colors.textSecondary} testID="lottery-name" />
+            <Text style={styles.subT}>Démarre dans (heures, 0 = immédiat)</Text>
+            <TextInput style={styles.input} value={draft.startsIn} onChangeText={(v) => setDraft({ ...draft, startsIn: v })} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.colors.textSecondary} testID="lottery-startin" />
+            <Text style={styles.subT}>Durée du tirage (heures)</Text>
+            <TextInput style={styles.input} value={draft.durationH} onChangeText={(v) => setDraft({ ...draft, durationH: v })} keyboardType="numeric" placeholder="168" placeholderTextColor={theme.colors.textSecondary} testID="lottery-duration" />
+            <Text style={styles.subT}>Nombre de gagnants</Text>
+            <TextInput style={styles.input} value={draft.winnersCount} onChangeText={(v) => setDraft({ ...draft, winnersCount: v })} keyboardType="numeric" placeholder="3" placeholderTextColor={theme.colors.textSecondary} testID="lottery-winners" />
+            <Text style={styles.subT}>Max participants (0 = illimité)</Text>
+            <TextInput style={styles.input} value={draft.maxP} onChangeText={(v) => setDraft({ ...draft, maxP: v })} keyboardType="numeric" placeholder="100" placeholderTextColor={theme.colors.textSecondary} testID="lottery-maxp" />
+            <Text style={styles.subT}>Montant participation (FCFA)</Text>
+            <TextInput style={styles.input} value={draft.entry} onChangeText={(v) => setDraft({ ...draft, entry: v })} keyboardType="numeric" placeholder="500" placeholderTextColor={theme.colors.textSecondary} testID="lottery-entry" />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.surfaceSecondary, flex: 1 }]} onPress={() => setCreating(false)} testID="lottery-create-cancel">
+                <Text style={[styles.actT, { color: theme.colors.textPrimary }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#F59E0B", flex: 2 }]} onPress={submitCreate} testID="lottery-create-submit">
+                <Text style={styles.actT}>✅ Créer le tirage</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {editing ? (
         <View style={styles.modalOverlay} testID="winner-picker-modal">

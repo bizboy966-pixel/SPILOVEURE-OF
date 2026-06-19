@@ -20,6 +20,19 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Lottery Phase 1 (fix create) + Phase 2 (Recharger mon compte)
+- 🐛 **Fix bouton "Créer un tirage"** : remplacé l'enchaînement `window.prompt` peu fiable par un vrai **modal de création** dans `(admin)/lottery.tsx` avec champs (Nom, démarre dans Xh, durée, # gagnants, # max participants, montant participation) et bouton "✅ Créer le tirage". UX nettement améliorée.
+- 🆕 **Phase 2 — Module Recharger mon compte** :
+  - Backend `recharge.py` (nouveau) : collection `recharges` (méthode manuelle), wallet `balance_recharge` ajouté à users
+  - Endpoints public : `GET /me/recharge-balance`, `POST /me/recharge/manual` (création demande pending), `GET /me/recharge-history`
+  - Endpoints admin : `GET /admin/recharges` (filtre par statut), `POST /admin/recharges/{id}/validate` (crédit `balance_recharge` + notification), `POST /admin/recharges/{id}/reject` (avec motif + notification)
+  - Frontend user `(app)/recharger.tsx` : hero gradient vert/bleu avec solde rechargé, formulaire (montant, opérateur en chips, numéro, référence, note), historique avec badges (🟡/🟢/🔴)
+  - Frontend admin `(admin)/recharges.tsx` : liste filtrée (pending/validated/rejected), valider/rejeter avec motif, infos complètes (montant, opérateur, ref, date, note)
+  - **Intégration Lottery** : si `balance_profit` insuffisant pour rejoindre un tirage, le système tente `balance_recharge` en fallback. Sinon redirection vers `/recharger` via confirm dialog.
+  - **Notifications** : `recharge_validated` + `recharge_rejected` envoyées au user
+- ✅ **Liens admin ajoutés** : "🎰 Lottery Jackpot" + "💳 Demandes de Recharge" dans le dashboard admin
+- ✅ **Testé curl** : POST recharge manuelle → status="pending" enregistré → visible côté admin avec compte 1 pending. Backend fonctionne.
+
 ### 2026-06-19 — Module Lottery Jackpot (Phase 1)
 - 🎯 **Objectif** : système complet de tirages aléatoires (admin choisit manuellement les gagnants). Activation/désactivation, tirages, participations payantes, gagnants, paiements auto sur balance_profit, notifications, stats, export CSV.
 - ✅ **Backend `lottery.py` (nouveau)** : 3 collections isolées (`lottery_settings`, `lottery_draws`, `lottery_participants`). Statuts tirage : draft → open → closed → announced. Au moment de l'annonce, les gagnants reçoivent leur prize sur `balance_profit` + entrée dans `db.commissions` (kind="lottery_win") + notification. Les participants débitent leur balance_profit + entrée commissions (kind="lottery_entry", montant négatif) au moment de la participation. Remboursement automatique si le tirage est supprimé en draft/open/closed.

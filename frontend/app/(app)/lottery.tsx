@@ -59,7 +59,8 @@ export default function LotteryPage() {
     if (!active) return;
     if (!canAfford) {
       if (typeof window !== "undefined") {
-        window.alert(`❌ Solde insuffisant\n\nVotre solde retirable : ${fmt(myBalance)}\nMontant requis : ${fmt(entry)}\n\nVeuillez recharger votre compte (bientôt disponible) ou activer plus de niveaux pour gagner des commissions.`);
+        const go = window.confirm(`❌ Solde insuffisant\n\nVotre solde retirable : ${fmt(myBalance)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger votre compte maintenant ?`);
+        if (go) router.push("/(app)/recharger");
       }
       return;
     }

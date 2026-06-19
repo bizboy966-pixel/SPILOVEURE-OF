@@ -193,15 +193,26 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
 
     entry_amount = float(d.get("entry_amount") or 0)
     if entry_amount > 0:
-        # Atomic conditional decrement on balance_profit
+        # Try balance_profit first, then balance_recharge as fallback.
+        debited_from = None
         r = await db.users.update_one(
             {"id": user["id"], "balance_profit": {"$gte": entry_amount}},
             {"$inc": {"balance_profit": -entry_amount}},
         )
-        if r.modified_count == 0:
+        if r.modified_count:
+            debited_from = "balance_profit"
+        else:
+            r2 = await db.users.update_one(
+                {"id": user["id"], "balance_recharge": {"$gte": entry_amount}},
+                {"$inc": {"balance_recharge": -entry_amount}},
+            )
+            if r2.modified_count:
+                debited_from = "balance_recharge"
+        if not debited_from:
             u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
-            bal = float(u.get("balance_profit") or 0)
-            raise HTTPException(400, f"Solde insuffisant. Disponible : {bal:.0f} FCFA. Veuillez recharger votre compte.")
+            bp = float(u.get("balance_profit") or 0)
+            br = float(u.get("balance_recharge") or 0)
+            raise HTTPException(400, f"Solde insuffisant. Disponible : {bp:.0f} FCFA (profit) + {br:.0f} FCFA (recharge). Veuillez recharger votre compte.")
 
     await db.lottery_participants.insert_one({
         "id": str(uuid.uuid4()),
@@ -209,6 +220,7 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
         "user_id": user["id"],
         "username": user.get("username"),
         "paid_amount": entry_amount,
+        "debited_from": locals().get("debited_from"),
         "entered_at": now,
     })
     # Track the debit in db.commissions (kind=lottery_entry, negative profit_share)

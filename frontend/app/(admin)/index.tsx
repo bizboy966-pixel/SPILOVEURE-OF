@@ -350,6 +350,23 @@ export default function AdminHome() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#10B981" }]}
+              onPress={() => router.push("/(admin)/recharges" as any)}
+              testID="admin-open-recharges-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="wallet" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>💳 Demandes de Recharge</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Valider/rejeter les rechargements manuels
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.warning }]}
               onPress={() => router.push("/(admin)/payments" as any)}
               testID="admin-open-payments-mgmt"
