@@ -20,6 +20,17 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Lottery Jackpot Phase 3 : refonte du flux (open → running → announced)
+- 🔄 **Nouveau cycle de vie** : `draft` et `closed` supprimés du flow. Les statuts utilisés sont désormais `open` → `running` → `announced` uniquement.
+- 🆕 **Création immédiate** : `POST /api/admin/lottery/draws` ne demande plus `starts_at`/`ends_at`. Le payload est `{name, description, entry_amount, winners_count, max_participants, min_participants, prizes}`. Le draw est créé directement en statut `open` et visible aux users.
+- 🆕 **Nouvel endpoint** `POST /api/admin/lottery/draws/{id}/launch` body `{duration_minutes: N}` : transitionne `open → running`, pose `ends_at = now + N min`, bloque ensuite tout nouveau join. Refuse si statut ≠ open ou aucun participant inscrit.
+- 🔒 **Cap strict** sur les participations : `POST /api/lottery/draws/{id}/join` refuse explicitement quand `participants >= max_participants` ou si le statut est ≠ `open`.
+- 🤖 **Auto-completion** : à chaque appel `GET /api/lottery/active` ou `GET /api/admin/lottery/draws`, si un draw `running` a passé `ends_at`, le helper `_auto_complete_if_due` (a) tire les gagnants au hasard parmi les participants (cap à `min(winners_count, len(prizes), len(participants))`), (b) crédite `balance_profit` + insère `db.commissions` (kind=lottery_win, meta.auto=True), (c) notifie gagnants/perdants, (d) passe en `announced` avec `results_visible_until`.
+- 🎨 **Frontend Admin `(admin)/lottery.tsx`** : modal de création nettoyé (plus de champs "Démarre dans" / "Durée"). Nouveau bouton "🚀 Lancer le tirage" + modal dédié avec champ `duration_minutes` et 6 chips préréglés (5 min, 10 min, 30 min, 1 h, 3 h, 12 h). Le compte à rebours est affiché en direct sur chaque draw `running`. Status-pills traduites (OUVERT / EN COURS / ANNONCÉ).
+- 🎨 **Frontend User `(app)/lottery.tsx`** : bouton "Rejoindre le Jackpot" visible uniquement si `status='open'` & non plein. Badge "Nombre maximal de participants atteint" si plein. Compte à rebours en direct si `status='running'`. Polling raccourci à 5 s pour suivre l'auto-completion.
+- ✅ **Tests** : 8/8 backend pytest passent (`test_lottery_jackpot_flow.py`), frontend smoke tests OK (testing agent iteration 13), E2E manuel validé (join → launch 1 min → auto-announce + crédit confirmé en DB).
+
+
 ### 2026-06-19 — Lottery Phase 1 (fix create) + Phase 2 (Recharger mon compte)
 - 🐛 **Fix bouton "Créer un tirage"** : remplacé l'enchaînement `window.prompt` peu fiable par un vrai **modal de création** dans `(admin)/lottery.tsx` avec champs (Nom, démarre dans Xh, durée, # gagnants, # max participants, montant participation) et bouton "✅ Créer le tirage". UX nettement améliorée.
 - 🆕 **Phase 2 — Module Recharger mon compte** :

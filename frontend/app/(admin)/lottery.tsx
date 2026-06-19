@@ -260,7 +260,7 @@ export default function AdminLottery() {
                     <Text style={styles.drawSub}>{STATUS_LABEL[d.status] || d.status} • {d.participants_count}{d.max_participants ? `/${d.max_participants}` : ""} participants{isFull ? "  (COMPLET)" : ""}</Text>
                   </View>
                   <View style={[styles.statusPill, statusColor(d.status)]}>
-                    <Text style={styles.statusTxt}>{d.status}</Text>
+                    <Text style={styles.statusTxt}>{d.status === "open" ? "OUVERT" : d.status === "running" ? "EN COURS" : d.status === "announced" ? "ANNONCÉ" : d.status}</Text>
                   </View>
                 </View>
                 {d.description ? <Text style={styles.drawDates}>📝 {d.description}</Text> : null}
