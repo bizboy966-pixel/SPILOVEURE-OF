@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { api } from "@/src/api";
@@ -9,6 +9,37 @@ const fmt = (v: any) => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} F
 
 type Tab = "draws" | "settings" | "stats";
 
+const STATUS_LABEL: Record<string, string> = {
+  open: "🟢 Ouvert aux participations",
+  running: "⏱ En cours (tirage lancé)",
+  announced: "🏆 Annoncé",
+};
+
+function useCountdown(endsAtISO: string | null | undefined) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!endsAtISO) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [endsAtISO]);
+  if (!endsAtISO) return { h: 0, m: 0, s: 0, done: true, label: "—" };
+  const target = new Date(endsAtISO).getTime();
+  const diff = Math.max(0, target - now);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  const done = diff <= 0;
+  return { h, m, s, done, label: done ? "Terminé" : `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` };
+}
+
+function DrawCountdown({ endsAt }: { endsAt: string | null | undefined }) {
+  const cd = useCountdown(endsAt);
+  if (!endsAt) return null;
+  return (
+    <Text style={styles.runningCountdown}>⏱ Compte à rebours : <Text style={{ fontWeight: "900" }}>{cd.label}</Text></Text>
+  );
+}
+
 export default function AdminLottery() {
   const [tab, setTab] = useState<Tab>("draws");
   const [settings, setSettings] = useState<any>(null);
@@ -17,6 +48,11 @@ export default function AdminLottery() {
   const [editing, setEditing] = useState<any | null>(null);
   const [participants, setParticipants] = useState<any[]>([]);
   const [winners, setWinners] = useState<Record<number, { user_id: string; prize: string }>>({});
+
+  // Launch modal state
+  const [launchTarget, setLaunchTarget] = useState<any | null>(null);
+  const [launchDuration, setLaunchDuration] = useState<string>("10"); // minutes
+  const [launching, setLaunching] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -29,6 +65,11 @@ export default function AdminLottery() {
     } catch {}
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Auto-refresh every 10 s so running countdowns / auto-announcements stay live.
+  useEffect(() => {
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+  }, [load]);
 
   const saveSettings = async (patch: any) => {
     try {
@@ -48,8 +89,6 @@ export default function AdminLottery() {
     minParticipants: "0",
     maxP: "100",
     winnersCount: "3",
-    startsIn: "0",
-    durationH: "168",
     prizes: ["100000", "50000", "25000"],
   });
 
@@ -64,20 +103,14 @@ export default function AdminLottery() {
       if (typeof window !== "undefined") window.alert("❌ Le nom du Jackpot est requis.");
       return;
     }
-    const startsIn = Math.max(0, parseFloat(draft.startsIn) || 0);
-    const durationH = Math.max(1, parseFloat(draft.durationH) || 1);
     const winnersCount = Math.max(1, parseInt(draft.winnersCount) || 1);
     const maxP = parseInt(draft.maxP) || 0;
     const minP = parseInt(draft.minParticipants) || 0;
     const entry = Math.max(0, parseFloat(draft.entry) || 0);
-    const starts = new Date(Date.now() + startsIn * 3600000);
-    const ends = new Date(starts.getTime() + durationH * 3600000);
     try {
       await api.post("/admin/lottery/draws", {
         name: draft.name.trim(),
         description: (draft.description || "").trim(),
-        starts_at: starts.toISOString(),
-        ends_at: ends.toISOString(),
         winners_count: winnersCount,
         max_participants: maxP > 0 ? maxP : null,
         min_participants: minP > 0 ? minP : null,
@@ -90,23 +123,38 @@ export default function AdminLottery() {
       setCreating(false);
       setDraft({
         name: "", description: "", entry: "500", minParticipants: "0", maxP: "100",
-        winnersCount: "3", startsIn: "0", durationH: "168",
-        prizes: ["100000", "50000", "25000"],
+        winnersCount: "3", prizes: ["100000", "50000", "25000"],
       });
       await load();
-      if (typeof window !== "undefined") window.alert("✅ Jackpot créé en brouillon. Ouvrez-le pour démarrer les inscriptions.");
+      if (typeof window !== "undefined") window.alert("✅ Jackpot créé et ouvert aux participations. Cliquez sur \"Lancer le tirage\" lorsque vous êtes prêt à démarrer le compte à rebours.");
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
     }
   };
 
-  const setStatus = async (d: any, status: "draft" | "open" | "closed") => {
-    if (typeof window !== "undefined" && !window.confirm(`Passer le tirage en statut "${status}" ?`)) return;
+  const submitLaunch = async () => {
+    if (!launchTarget) return;
+    const minutes = Math.max(1, parseInt(launchDuration) || 0);
+    if (minutes <= 0) {
+      if (typeof window !== "undefined") window.alert("❌ Durée invalide.");
+      return;
+    }
+    if ((launchTarget.participants_count || 0) <= 0) {
+      if (typeof window !== "undefined") window.alert("❌ Aucun participant inscrit — impossible de lancer le tirage.");
+      return;
+    }
+    if (typeof window !== "undefined" && !window.confirm(`🚀 Lancer le tirage « ${launchTarget.name} » avec une durée de ${minutes} min ?\n\nUne fois lancé :\n• Les utilisateurs ne pourront plus rejoindre\n• Le compte à rebours sera visible chez les participants\n• Les gagnants seront sélectionnés et crédités automatiquement à la fin`)) return;
+    setLaunching(true);
     try {
-      await api.put(`/admin/lottery/draws/${d.id}`, { status });
+      await api.post(`/admin/lottery/draws/${launchTarget.id}/launch`, { duration_minutes: minutes });
+      setLaunchTarget(null);
+      setLaunchDuration("10");
       await load();
+      if (typeof window !== "undefined") window.alert("🚀 Tirage lancé ! Le compte à rebours est démarré.");
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
+    } finally {
+      setLaunching(false);
     }
   };
 
@@ -161,12 +209,12 @@ export default function AdminLottery() {
       if (typeof window !== "undefined") window.alert("❌ Sélectionnez au moins un gagnant.");
       return;
     }
-    if (typeof window !== "undefined" && !window.confirm(`Lancer le tirage et annoncer ${list.length} gagnant(s) ?\n\nLes gains seront crédités immédiatement.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`Annoncer ${list.length} gagnant(s) manuellement ?\n\nLes gains seront crédités immédiatement.`)) return;
     try {
       await api.post(`/admin/lottery/draws/${editing.id}/announce`, { winners: list });
       setEditing(null);
       await load();
-      if (typeof window !== "undefined") window.alert("🎉 Tirage annoncé et gagnants crédités !");
+      if (typeof window !== "undefined") window.alert("🎉 Gagnants annoncés et crédités !");
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
     }
@@ -202,69 +250,78 @@ export default function AdminLottery() {
 
           {draws.length === 0 ? (
             <Card style={{ marginTop: 12 }}><Text style={{ color: theme.colors.textSecondary }}>Aucun tirage créé.</Text></Card>
-          ) : draws.map((d) => (
-            <Card key={d.id} style={{ marginTop: 10 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.drawName}>{d.name}</Text>
-                  <Text style={styles.drawSub}>Statut : <Text style={{ fontWeight: "800" }}>{d.status}</Text> • {d.participants_count}{d.max_participants ? `/${d.max_participants}` : ""} participants</Text>
+          ) : draws.map((d) => {
+            const isFull = d.max_participants && d.participants_count >= d.max_participants;
+            return (
+              <Card key={d.id} style={{ marginTop: 10 }} testID={`lottery-draw-${d.id}`}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.drawName}>{d.name}</Text>
+                    <Text style={styles.drawSub}>{STATUS_LABEL[d.status] || d.status} • {d.participants_count}{d.max_participants ? `/${d.max_participants}` : ""} participants{isFull ? "  (COMPLET)" : ""}</Text>
+                  </View>
+                  <View style={[styles.statusPill, statusColor(d.status)]}>
+                    <Text style={styles.statusTxt}>{d.status}</Text>
+                  </View>
                 </View>
-                <View style={[styles.statusPill, statusColor(d.status)]}>
-                  <Text style={styles.statusTxt}>{d.status}</Text>
+                {d.description ? <Text style={styles.drawDates}>📝 {d.description}</Text> : null}
+                <Text style={styles.drawDates}>💰 {fmt(d.entry_amount)} • 🏆 {d.winners_count} gagnant(s){d.min_participants ? ` • min ${d.min_participants}` : ""}</Text>
+                {d.status === "running" ? (
+                  <DrawCountdown endsAt={d.ends_at} />
+                ) : null}
+
+                <Text style={styles.subT}>🎁 Récompenses</Text>
+                {(d.prizes || []).map((p: any) => (
+                  <TouchableOpacity key={p.rank} style={styles.prizeRow} onPress={() => editPrize(d, p.rank)} disabled={d.status !== "open"}>
+                    <Text style={styles.prizeR}>Rang {p.rank}</Text>
+                    <Text style={styles.prizeA}>{fmt(p.amount)}</Text>
+                    {d.status === "open" ? <Ionicons name="create" size={14} color={theme.colors.primary} /> : null}
+                  </TouchableOpacity>
+                ))}
+
+                {(d.winners || []).length > 0 ? (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={styles.subT}>🏅 Gagnants annoncés</Text>
+                    {[...d.winners].sort((a: any, b: any) => a.rank - b.rank).map((w: any, i: number) => (
+                      <View key={`w-${i}`} style={styles.winnerRow}>
+                        <Text style={styles.winRank}>#{w.rank}</Text>
+                        <Text style={styles.winName}>{w.username || "—"}</Text>
+                        <Text style={styles.winPrize}>{fmt(w.prize)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                <View style={styles.actRow}>
+                  {d.status === "open" ? (
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: "#F59E0B" }]}
+                      onPress={() => { setLaunchTarget(d); setLaunchDuration("10"); }}
+                      testID={`lottery-launch-${d.id}`}
+                    >
+                      <Text style={styles.actT}>🚀 Lancer le tirage</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {d.status === "running" ? (
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: theme.colors.primary }]}
+                      onPress={() => openWinnerPicker(d)}
+                      testID={`lottery-finalize-${d.id}`}
+                    >
+                      <Text style={styles.actT}>🎯 Annoncer manuellement</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => exportCsv(d)}>
+                    <Text style={styles.actT}>📥 CSV</Text>
+                  </TouchableOpacity>
+                  {d.status !== "announced" ? (
+                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.danger }]} onPress={() => deleteDraw(d)}>
+                      <Text style={styles.actT}>🗑️</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-              </View>
-              <Text style={styles.drawDates}>{(d.starts_at || "").slice(0, 16).replace("T", " ")} → {(d.ends_at || "").slice(0, 16).replace("T", " ")}</Text>
-              <Text style={styles.drawDates}>💰 {fmt(d.entry_amount)} • 🏆 {d.winners_count} gagnant(s)</Text>
-
-              <Text style={styles.subT}>🎁 Récompenses</Text>
-              {(d.prizes || []).map((p: any) => (
-                <TouchableOpacity key={p.rank} style={styles.prizeRow} onPress={() => editPrize(d, p.rank)} disabled={d.status === "announced"}>
-                  <Text style={styles.prizeR}>Rang {p.rank}</Text>
-                  <Text style={styles.prizeA}>{fmt(p.amount)}</Text>
-                  {d.status !== "announced" ? <Ionicons name="create" size={14} color={theme.colors.primary} /> : null}
-                </TouchableOpacity>
-              ))}
-
-              {(d.winners || []).length > 0 ? (
-                <View style={{ marginTop: 8 }}>
-                  <Text style={styles.subT}>🏅 Gagnants annoncés</Text>
-                  {[...d.winners].sort((a: any, b: any) => a.rank - b.rank).map((w: any, i: number) => (
-                    <View key={`w-${i}`} style={styles.winnerRow}>
-                      <Text style={styles.winRank}>#{w.rank}</Text>
-                      <Text style={styles.winName}>{w.username || "—"}</Text>
-                      <Text style={styles.winPrize}>{fmt(w.prize)}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-
-              <View style={styles.actRow}>
-                {d.status === "draft" ? (
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.primary }]} onPress={() => setStatus(d, "open")}>
-                    <Text style={styles.actT}>🟢 Ouvrir</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {d.status === "open" ? (
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.warning }]} onPress={() => setStatus(d, "closed")}>
-                    <Text style={styles.actT}>⏸ Clôturer</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {d.status === "closed" ? (
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#F59E0B" }]} onPress={() => openWinnerPicker(d)}>
-                    <Text style={styles.actT}>🚀 Lancer & Annoncer</Text>
-                  </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => exportCsv(d)}>
-                  <Text style={styles.actT}>📥 CSV</Text>
-                </TouchableOpacity>
-                {d.status !== "announced" ? (
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.danger }]} onPress={() => deleteDraw(d)}>
-                    <Text style={styles.actT}>🗑️</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </View>
       )}
 
@@ -313,7 +370,7 @@ export default function AdminLottery() {
           <View style={styles.statGrid}>
             <View style={styles.stat}><Text style={styles.statN}>{stats.total_draws}</Text><Text style={styles.statL}>Total tirages</Text></View>
             <View style={styles.stat}><Text style={[styles.statN, { color: theme.colors.success }]}>{stats.open_count}</Text><Text style={styles.statL}>🟢 Ouverts</Text></View>
-            <View style={styles.stat}><Text style={[styles.statN, { color: theme.colors.warning }]}>{stats.closed_count}</Text><Text style={styles.statL}>⏸ Clôturés</Text></View>
+            <View style={styles.stat}><Text style={[styles.statN, { color: theme.colors.warning }]}>{stats.running_count || 0}</Text><Text style={styles.statL}>⏱ En cours</Text></View>
             <View style={styles.stat}><Text style={[styles.statN, { color: theme.colors.primary }]}>{stats.announced_count}</Text><Text style={styles.statL}>🏆 Annoncés</Text></View>
           </View>
           <Card style={{ marginTop: 10 }}>
@@ -327,6 +384,7 @@ export default function AdminLottery() {
         </View>
       )}
 
+      {/* CREATE MODAL */}
       <Modal visible={creating} transparent animationType="fade" onRequestClose={() => setCreating(false)}>
         <View style={styles.modalBg} testID="lottery-create-modal">
           <View style={styles.modalCardSized}>
@@ -336,9 +394,9 @@ export default function AdminLottery() {
                 <Ionicons name="close" size={22} color={theme.colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalSub}>Le Jackpot sera créé en statut "brouillon".</Text>
+            <Text style={styles.modalSub}>Le Jackpot sera immédiatement ouvert aux participations. La durée du compte à rebours sera définie au moment du lancement.</Text>
 
-            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
               <Text style={styles.subT}>1. Nom du Jackpot *</Text>
               <TextInput style={styles.input} value={draft.name} onChangeText={(v) => setDraft({ ...draft, name: v })} placeholder="Ex: Jackpot Juin 2026" placeholderTextColor={theme.colors.textSecondary} testID="lottery-name" autoFocus />
 
@@ -357,19 +415,7 @@ export default function AdminLottery() {
               <Text style={styles.subT}>6. Nombre de gagnants</Text>
               <TextInput style={styles.input} value={draft.winnersCount} onChangeText={updateWinnersCount} keyboardType="numeric" placeholder="3" placeholderTextColor={theme.colors.textSecondary} testID="lottery-winners" />
 
-              <Text style={styles.subT}>7-9. Date de début (dans X heures) & durée</Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.helper}>Démarre dans (h)</Text>
-                  <TextInput style={styles.input} value={draft.startsIn} onChangeText={(v) => setDraft({ ...draft, startsIn: v })} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.colors.textSecondary} testID="lottery-startin" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.helper}>Durée (h)</Text>
-                  <TextInput style={styles.input} value={draft.durationH} onChangeText={(v) => setDraft({ ...draft, durationH: v })} keyboardType="numeric" placeholder="168" placeholderTextColor={theme.colors.textSecondary} testID="lottery-duration" />
-                </View>
-              </View>
-
-              <Text style={styles.subT}>10. Récompenses par rang (FCFA)</Text>
+              <Text style={styles.subT}>7. Récompenses par rang (FCFA)</Text>
               {Array.from({ length: Math.max(1, parseInt(draft.winnersCount) || 1) }, (_, i) => i + 1).map((rank) => (
                 <View key={`p-${rank}`} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <Text style={styles.rankLbl}>
@@ -398,17 +444,81 @@ export default function AdminLottery() {
                 <Text style={[styles.actT, { color: theme.colors.textPrimary }]}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#F59E0B", flex: 2 }]} onPress={submitCreate} testID="lottery-create-submit">
-                <Text style={styles.actT}>✅ Créer le Jackpot</Text>
+                <Text style={styles.actT}>✅ Créer & Ouvrir</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
+      {/* LAUNCH MODAL */}
+      <Modal visible={!!launchTarget} transparent animationType="fade" onRequestClose={() => setLaunchTarget(null)}>
+        <View style={styles.modalBg} testID="lottery-launch-modal">
+          <View style={[styles.modalCardSized, { maxHeight: 480 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🚀 Lancer le tirage</Text>
+              <TouchableOpacity onPress={() => setLaunchTarget(null)} testID="lottery-launch-close" style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={theme.colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 }}>
+              <Text style={styles.modalSub}>{launchTarget?.name}</Text>
+              <Text style={[styles.drawDates, { marginTop: 6 }]}>👥 {launchTarget?.participants_count || 0}{launchTarget?.max_participants ? `/${launchTarget.max_participants}` : ""} participants inscrits</Text>
+
+              <Text style={styles.subT}>Durée du compte à rebours (minutes)</Text>
+              <TextInput
+                style={styles.input}
+                value={launchDuration}
+                onChangeText={setLaunchDuration}
+                keyboardType="numeric"
+                placeholder="10"
+                placeholderTextColor={theme.colors.textSecondary}
+                testID="lottery-launch-duration"
+              />
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                {[5, 10, 30, 60, 180, 720].map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={styles.presetChip}
+                    onPress={() => setLaunchDuration(String(m))}
+                    testID={`lottery-launch-preset-${m}`}
+                  >
+                    <Text style={styles.presetChipT}>
+                      {m < 60 ? `${m} min` : m === 60 ? "1 h" : m === 180 ? "3 h" : "12 h"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.helper, { marginTop: 10 }]}>
+                ⚠️ Une fois lancé, plus aucun utilisateur ne pourra rejoindre le tirage. Les gagnants seront tirés au sort automatiquement à la fin du compte à rebours et leurs gains crédités sur leur solde retirable.
+              </Text>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.surfaceSecondary, flex: 1 }]} onPress={() => setLaunchTarget(null)} testID="lottery-launch-cancel">
+                <Text style={[styles.actT, { color: theme.colors.textPrimary }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actBtn, { backgroundColor: "#F59E0B", flex: 2, opacity: launching ? 0.6 : 1 }]}
+                onPress={submitLaunch}
+                disabled={launching}
+                testID="lottery-launch-submit"
+              >
+                <Text style={styles.actT}>{launching ? "Lancement…" : "🚀 Lancer maintenant"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MANUAL ANNOUNCE PICKER */}
       {editing ? (
         <View style={styles.modalOverlay} testID="winner-picker-modal">
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>🏆 Sélection des gagnants — {editing.name}</Text>
+            <Text style={styles.modalTitle}>🏆 Sélection manuelle des gagnants — {editing.name}</Text>
             <Text style={styles.modalSub}>{participants.length} participants</Text>
             <ScrollView style={{ maxHeight: 400, marginTop: 10 }}>
               {Array.from({ length: editing.winners_count }, (_, i) => i + 1).map((rank) => (
@@ -458,12 +568,11 @@ export default function AdminLottery() {
 
 function statusColor(s: string) {
   const m: any = {
-    draft: { backgroundColor: "#E5E7EB" },
     open: { backgroundColor: "#D1FAE5" },
-    closed: { backgroundColor: "#FEF3C7" },
+    running: { backgroundColor: "#FEF3C7" },
     announced: { backgroundColor: "#DBEAFE" },
   };
-  return m[s] || {};
+  return m[s] || { backgroundColor: "#E5E7EB" };
 }
 
 const styles = StyleSheet.create({
@@ -478,6 +587,7 @@ const styles = StyleSheet.create({
   drawName: { fontSize: 15, fontWeight: "800", color: theme.colors.textPrimary },
   drawSub: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
   drawDates: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 3 },
+  runningCountdown: { fontSize: 12, color: "#92400E", marginTop: 6, padding: 6, borderRadius: 6, backgroundColor: "#FEF3C7" },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   statusTxt: { fontSize: 10, fontWeight: "800", color: "#1F2937" },
   subT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 12, marginTop: 8, marginBottom: 4 },
@@ -555,4 +665,6 @@ const styles = StyleSheet.create({
   partRow: { padding: 6, borderRadius: 6, backgroundColor: theme.colors.surface, marginBottom: 3, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   partRowOn: { backgroundColor: theme.colors.primary },
   partTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
+  presetChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  presetChipT: { fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary },
 });

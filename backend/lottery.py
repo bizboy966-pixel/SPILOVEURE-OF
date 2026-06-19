@@ -2,20 +2,33 @@
 
 Collections:
   * `lottery_settings`  — single doc (key="config") with module-wide toggles.
-  * `lottery_draws`     — one doc per draw, status ∈ draft/open/closed/announced.
+  * `lottery_draws`     — one doc per draw, status ∈ open/running/announced.
   * `lottery_participants` — one doc per (user_id, draw_id) joining event.
 
+Lifecycle (new flow):
+  1) Admin crée le jackpot → statut `open` immédiatement (visible aux users).
+  2) Users peuvent rejoindre tant que `status == open` ET `participants_count <
+     max_participants`. Le solde est débité (balance_profit puis balance_recharge).
+  3) Admin clique sur "Lancer le tirage" et choisit une durée
+     (`duration_minutes`). Le statut passe à `running`, `ends_at` est posé, et le
+     compte à rebours commence côté users.
+  4) Quand le compte à rebours arrive à 0 (détecté à chaque appel
+     `/lottery/active` ou `/admin/lottery/draws`), le tirage est complété
+     automatiquement : sélection aléatoire des gagnants parmi les participants,
+     crédit des gains sur `balance_profit`, notifications, statut `announced`.
+
 Funds:
-  - Joining a draw debits `users.balance_profit` (withdrawable wallet).
-  - When the admin announces results, winners are credited back on
-    `users.balance_profit` and an entry is added to `db.commissions` with
-    `kind="lottery"` so the unified transaction history shows it cleanly.
+  - Joining a draw debits `users.balance_profit` (fallback: `balance_recharge`).
+  - When winners are announced (manual or auto), prizes are credited back on
+    `users.balance_profit` and a `lottery_win` row is inserted into
+    `db.commissions` so the unified transaction history shows it cleanly.
 """
 from __future__ import annotations
 import csv
 import io
+import random
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -47,12 +60,138 @@ async def _load_settings(db) -> dict:
 def _serialize_draw(d: dict) -> dict:
     """Strip Mongo internals and normalize datetimes for JSON output."""
     out = {k: v for k, v in d.items() if k != "_id"}
-    for k in ("starts_at", "ends_at", "created_at", "announced_at",
-              "results_visible_until"):
+    for k in (
+        "starts_at", "ends_at", "created_at", "announced_at",
+        "launched_at", "results_visible_until",
+    ):
         v = out.get(k)
         if isinstance(v, datetime):
             out[k] = v.isoformat()
     return out
+
+
+def _delta_minutes(m: int):
+    return timedelta(minutes=max(0, int(m)))
+
+
+def _as_aware(dt):
+    """Mongo stores naive UTC datetimes; coerce them to aware to allow safe
+    comparisons with `datetime.now(timezone.utc)`."""
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+async def _auto_complete_if_due(db, draw: dict) -> dict:
+    """If a `running` draw has passed `ends_at`, auto-announce winners and
+    transition the draw to `announced`. Returns the (possibly updated) draw doc.
+
+    Winners are picked randomly among participants. Prizes are assigned by
+    ascending rank from the draw's `prizes` list (capped at `winners_count`).
+    """
+    if draw.get("status") != "running":
+        return draw
+    ends = _as_aware(draw.get("ends_at"))
+    if not isinstance(ends, datetime):
+        return draw
+    if ends > datetime.now(timezone.utc):
+        return draw
+
+    draw_id = draw["id"]
+    cfg = await _load_settings(db)
+    now = datetime.now(timezone.utc)
+
+    # Collect participants
+    parts: List[dict] = []
+    async for p in db.lottery_participants.find({"draw_id": draw_id}, {"_id": 0}):
+        parts.append(p)
+
+    # Build the ordered list of prizes (rank ascending)
+    prizes = sorted(draw.get("prizes") or [], key=lambda p: int(p.get("rank") or 0))
+    winners_target = min(int(draw.get("winners_count") or 0), len(prizes), len(parts))
+
+    enriched: List[dict] = []
+    if winners_target > 0:
+        # Random shuffle and pick `winners_target` distinct participants
+        pool = list(parts)
+        random.shuffle(pool)
+        chosen = pool[:winners_target]
+        for i, p in enumerate(chosen):
+            pr = prizes[i]
+            u = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "username": 1}) or {}
+            enriched.append({
+                "rank": int(pr.get("rank") or (i + 1)),
+                "user_id": p["user_id"],
+                "username": u.get("username") or p.get("username"),
+                "prize": float(pr.get("amount") or 0),
+            })
+
+    # Credit winners & log commissions
+    for win in enriched:
+        if win["prize"] > 0:
+            await db.users.update_one(
+                {"id": win["user_id"]}, {"$inc": {"balance_profit": win["prize"]}}
+            )
+            await db.commissions.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": win["user_id"],
+                "from_user_id": None,
+                "kind": "lottery_win",
+                "amount": win["prize"],
+                "profit_share": win["prize"],
+                "upgrade_share": 0,
+                "level": None,
+                "meta": {
+                    "draw_id": draw_id,
+                    "draw_name": draw.get("name"),
+                    "rank": win["rank"],
+                    "auto": True,
+                },
+                "created_at": now,
+            })
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": win["user_id"],
+            "kind": "lottery_win",
+            "title": "🎉 Vous avez remporté le Lottery Jackpot !",
+            "body": (
+                f"Félicitations ! Vous êtes #{win['rank']} du tirage "
+                f"« {draw.get('name')} » — gain : {int(win['prize']):,} FCFA "
+                "crédité sur votre solde retirable."
+            ).replace(",", " "),
+            "read": False,
+            "created_at": now,
+        })
+
+    # Notify the losers
+    winner_ids = {w["user_id"] for w in enriched}
+    for p in parts:
+        if p["user_id"] in winner_ids:
+            continue
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": p["user_id"],
+            "kind": "lottery_loss",
+            "title": "Merci pour votre participation au Lottery Jackpot",
+            "body": (
+                f"Le tirage « {draw.get('name')} » est terminé. Rendez-vous au "
+                "prochain Lottery Jackpot !"
+            ),
+            "read": False,
+            "created_at": now,
+        })
+
+    visible_until = now + _delta_minutes(int(cfg["results_display_duration_minutes"]))
+    update_doc = {
+        "status": "announced",
+        "winners": enriched,
+        "announced_at": now,
+        "announced_by": "auto",
+        "results_visible_until": visible_until,
+    }
+    await db.lottery_draws.update_one({"id": draw_id}, {"$set": update_doc})
+    draw.update(update_doc)
+    return draw
 
 
 # ----------------------------------------------------------------------------
@@ -65,23 +204,27 @@ class PrizeIn(BaseModel):
 
 class DrawCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    starts_at: str            # ISO datetime
-    ends_at: str              # ISO datetime
+    description: Optional[str] = None
     entry_amount: float = Field(default=500.0, ge=0)
     winners_count: int = Field(ge=1, le=100)
     max_participants: Optional[int] = Field(default=None, ge=1)
+    min_participants: Optional[int] = Field(default=None, ge=0)
     prizes: List[PrizeIn] = Field(default_factory=list)
 
 
 class DrawUpdateIn(BaseModel):
     name: Optional[str] = None
-    starts_at: Optional[str] = None
-    ends_at: Optional[str] = None
+    description: Optional[str] = None
     entry_amount: Optional[float] = Field(default=None, ge=0)
     winners_count: Optional[int] = Field(default=None, ge=1, le=100)
     max_participants: Optional[int] = Field(default=None, ge=1)
+    min_participants: Optional[int] = Field(default=None, ge=0)
     prizes: Optional[List[PrizeIn]] = None
-    status: Optional[str] = None  # draft|open|closed
+    status: Optional[str] = None  # open|running|announced
+
+
+class LaunchIn(BaseModel):
+    duration_minutes: int = Field(ge=1, le=60 * 24 * 30)  # max 30 jours
 
 
 class WinnerIn(BaseModel):
@@ -112,41 +255,38 @@ async def public_lottery_settings(request: Request, _user=Depends(get_current_us
 
 @public.get("/lottery/active")
 async def get_active_lottery(request: Request, user=Depends(get_current_user)):
-    """Returns the current open draw + any recently-announced draw whose
-    results are still being displayed for the configured duration.
+    """Returns the current open / running draw + any recently-announced draw
+    whose results are still being displayed for the configured duration.
     """
     db = request.app.state.db
     cfg = await _load_settings(db)
     if not cfg["enabled"]:
         return {"enabled": False, "active": None, "announced": None}
 
-    now = datetime.now(timezone.utc)
-
-    # 1) Find the active (open / closed but not announced) draw.
+    # 1) Find the current active draw (open or running).
     active_doc = await db.lottery_draws.find_one(
-        {"status": {"$in": ["open", "closed"]}}, {"_id": 0}, sort=[("created_at", -1)],
+        {"status": {"$in": ["open", "running"]}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
     )
     active = None
     if active_doc:
-        active_doc.setdefault("entry_amount", 500.0)
-        participants_count = await db.lottery_participants.count_documents(
-            {"draw_id": active_doc["id"]}
-        )
-        already_joined = await db.lottery_participants.find_one(
-            {"draw_id": active_doc["id"], "user_id": user["id"]}, {"_id": 1}
-        ) is not None
-        active = _serialize_draw(active_doc)
-        active["participants_count"] = participants_count
-        active["already_joined"] = already_joined
-        # Auto-flip to "closed" if past ends_at
-        ends = active_doc.get("ends_at")
-        if isinstance(ends, datetime) and ends < now and active_doc["status"] == "open":
-            await db.lottery_draws.update_one(
-                {"id": active_doc["id"]}, {"$set": {"status": "closed"}}
+        # Auto-complete if the running countdown has expired.
+        active_doc = await _auto_complete_if_due(db, active_doc)
+        if active_doc.get("status") in ("open", "running"):
+            active_doc.setdefault("entry_amount", 500.0)
+            participants_count = await db.lottery_participants.count_documents(
+                {"draw_id": active_doc["id"]}
             )
-            active["status"] = "closed"
+            already_joined = await db.lottery_participants.find_one(
+                {"draw_id": active_doc["id"], "user_id": user["id"]}, {"_id": 1}
+            ) is not None
+            active = _serialize_draw(active_doc)
+            active["participants_count"] = participants_count
+            active["already_joined"] = already_joined
 
     # 2) Find any announced draw whose results are still visible.
+    now = datetime.now(timezone.utc)
     announced_doc = await db.lottery_draws.find_one(
         {"status": "announced", "results_visible_until": {"$gte": now}},
         {"_id": 0},
@@ -159,7 +299,8 @@ async def get_active_lottery(request: Request, user=Depends(get_current_user)):
 
 @public.post("/lottery/draws/{draw_id}/join")
 async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_user)):
-    """Deduct entry_amount from balance_profit and register the user."""
+    """Deduct entry_amount from balance_profit (fallback balance_recharge) and
+    register the user. Joining is allowed only when status == "open"."""
     db = request.app.state.db
     cfg = await _load_settings(db)
     if not cfg["enabled"]:
@@ -169,15 +310,9 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
     if not d:
         raise HTTPException(404, "Tirage introuvable.")
     if d.get("status") != "open":
-        raise HTTPException(400, "Ce tirage n'accepte plus de participation.")
+        raise HTTPException(400, "Ce tirage n'accepte plus de participation (le tirage a été lancé ou est terminé).")
 
-    now = datetime.now(timezone.utc)
-    ends = d.get("ends_at")
-    if isinstance(ends, datetime) and ends < now:
-        await db.lottery_draws.update_one({"id": draw_id}, {"$set": {"status": "closed"}})
-        raise HTTPException(400, "Ce tirage est terminé.")
-
-    # Capacity check
+    # Strict capacity check
     max_p = d.get("max_participants")
     if max_p:
         count = await db.lottery_participants.count_documents({"draw_id": draw_id})
@@ -192,9 +327,9 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
         raise HTTPException(409, "Vous participez déjà à ce tirage.")
 
     entry_amount = float(d.get("entry_amount") or 0)
+    debited_from: Optional[str] = None
     if entry_amount > 0:
         # Try balance_profit first, then balance_recharge as fallback.
-        debited_from = None
         r = await db.users.update_one(
             {"id": user["id"], "balance_profit": {"$gte": entry_amount}},
             {"$inc": {"balance_profit": -entry_amount}},
@@ -212,15 +347,19 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
             u = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
             bp = float(u.get("balance_profit") or 0)
             br = float(u.get("balance_recharge") or 0)
-            raise HTTPException(400, f"Solde insuffisant. Disponible : {bp:.0f} FCFA (profit) + {br:.0f} FCFA (recharge). Veuillez recharger votre compte.")
+            raise HTTPException(
+                400,
+                f"Solde insuffisant. Disponible : {bp:.0f} FCFA (profit) + {br:.0f} FCFA (recharge). Veuillez recharger votre compte.",
+            )
 
+    now = datetime.now(timezone.utc)
     await db.lottery_participants.insert_one({
         "id": str(uuid.uuid4()),
         "draw_id": draw_id,
         "user_id": user["id"],
         "username": user.get("username"),
         "paid_amount": entry_amount,
-        "debited_from": locals().get("debited_from"),
+        "debited_from": debited_from,
         "entered_at": now,
     })
     # Track the debit in db.commissions (kind=lottery_entry, negative profit_share)
@@ -268,18 +407,13 @@ async def admin_update_settings(body: SettingsIn, request: Request, who=Depends(
     return new
 
 
-def _parse_iso(v: str) -> datetime:
-    try:
-        return datetime.fromisoformat(v.replace("Z", "+00:00"))
-    except Exception:
-        raise HTTPException(400, f"Date invalide: {v} (format attendu ISO 8601).")
-
-
 @admin.get("/lottery/draws")
 async def admin_list_draws(request: Request, _=Depends(require_admin)):
     db = request.app.state.db
     items = []
     async for d in db.lottery_draws.find({}, {"_id": 0}).sort("created_at", -1):
+        # Auto-complete any draw whose countdown has expired before returning.
+        d = await _auto_complete_if_due(db, d)
         d["participants_count"] = await db.lottery_participants.count_documents({"draw_id": d["id"]})
         items.append(_serialize_draw(d))
     return items
@@ -287,27 +421,65 @@ async def admin_list_draws(request: Request, _=Depends(require_admin)):
 
 @admin.post("/lottery/draws")
 async def admin_create_draw(body: DrawCreateIn, request: Request, who=Depends(require_admin)):
+    """Create a Jackpot in `open` status immediately — no duration at this step.
+    The duration is supplied later via `POST /admin/lottery/draws/{id}/launch`.
+    """
     db = request.app.state.db
-    starts = _parse_iso(body.starts_at)
-    ends = _parse_iso(body.ends_at)
-    if ends <= starts:
-        raise HTTPException(400, "ends_at doit être postérieur à starts_at.")
+    now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
         "name": body.name,
-        "starts_at": starts,
-        "ends_at": ends,
+        "description": (body.description or "").strip() or None,
         "entry_amount": float(body.entry_amount),
         "winners_count": int(body.winners_count),
         "max_participants": int(body.max_participants) if body.max_participants else None,
+        "min_participants": int(body.min_participants) if body.min_participants else None,
         "prizes": [p.dict() for p in body.prizes],
         "winners": [],
-        "status": "draft",
-        "created_at": datetime.now(timezone.utc),
+        # Open immediately — visible to users, no countdown yet.
+        "status": "open",
+        "launched": False,
+        "ends_at": None,
+        "launched_at": None,
+        "created_at": now,
         "created_by": who.get("username"),
     }
     await db.lottery_draws.insert_one(dict(doc))
     return _serialize_draw(doc)
+
+
+@admin.post("/lottery/draws/{draw_id}/launch")
+async def admin_launch_draw(
+    draw_id: str, body: LaunchIn, request: Request, who=Depends(require_admin)
+):
+    """Move an `open` Jackpot to `running` by stamping `ends_at = now + duration_minutes`.
+    Once running, no more participants can join. Users see a live countdown."""
+    db = request.app.state.db
+    d = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Tirage introuvable.")
+    if d.get("status") != "open":
+        raise HTTPException(400, f"Impossible de lancer un tirage au statut « {d.get('status')} ». Seuls les tirages 'open' peuvent être lancés.")
+
+    participants_count = await db.lottery_participants.count_documents({"draw_id": draw_id})
+    if participants_count <= 0:
+        raise HTTPException(400, "Impossible de lancer un tirage sans participant.")
+
+    now = datetime.now(timezone.utc)
+    ends_at = now + timedelta(minutes=int(body.duration_minutes))
+    await db.lottery_draws.update_one(
+        {"id": draw_id},
+        {"$set": {
+            "status": "running",
+            "launched": True,
+            "launched_at": now,
+            "launched_by": who.get("username"),
+            "ends_at": ends_at,
+            "duration_minutes": int(body.duration_minutes),
+        }},
+    )
+    new_doc = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
+    return _serialize_draw(new_doc)
 
 
 @admin.put("/lottery/draws/{draw_id}")
@@ -319,21 +491,21 @@ async def admin_update_draw(draw_id: str, body: DrawUpdateIn, request: Request, 
     upd: dict = {}
     if body.name is not None:
         upd["name"] = body.name
-    if body.starts_at is not None:
-        upd["starts_at"] = _parse_iso(body.starts_at)
-    if body.ends_at is not None:
-        upd["ends_at"] = _parse_iso(body.ends_at)
+    if body.description is not None:
+        upd["description"] = body.description.strip() or None
     if body.entry_amount is not None:
         upd["entry_amount"] = float(body.entry_amount)
     if body.winners_count is not None:
         upd["winners_count"] = int(body.winners_count)
     if body.max_participants is not None:
         upd["max_participants"] = int(body.max_participants)
+    if body.min_participants is not None:
+        upd["min_participants"] = int(body.min_participants)
     if body.prizes is not None:
         upd["prizes"] = [p.dict() for p in body.prizes]
     if body.status is not None:
-        if body.status not in ("draft", "open", "closed"):
-            raise HTTPException(400, "status doit être draft/open/closed.")
+        if body.status not in ("open", "running", "announced"):
+            raise HTTPException(400, "status doit être open/running/announced.")
         upd["status"] = body.status
     await db.lottery_draws.update_one({"id": draw_id}, {"$set": upd})
     new_doc = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
@@ -342,19 +514,20 @@ async def admin_update_draw(draw_id: str, body: DrawUpdateIn, request: Request, 
 
 @admin.delete("/lottery/draws/{draw_id}")
 async def admin_delete_draw(draw_id: str, request: Request, _=Depends(require_admin)):
-    """Hard delete a draft draw (refunds all participants if any)."""
+    """Hard delete a non-announced draw (refunds all participants if any)."""
     db = request.app.state.db
     d = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
     if not d:
         raise HTTPException(404, "Tirage introuvable.")
     if d["status"] == "announced":
         raise HTTPException(400, "Impossible de supprimer un tirage déjà annoncé.")
-    # Refund participants
+    # Refund participants on the original wallet (best-effort)
     async for p in db.lottery_participants.find({"draw_id": draw_id}, {"_id": 0}):
         amt = float(p.get("paid_amount") or 0)
         if amt > 0:
+            target = "balance_recharge" if p.get("debited_from") == "balance_recharge" else "balance_profit"
             await db.users.update_one(
-                {"id": p["user_id"]}, {"$inc": {"balance_profit": amt}}
+                {"id": p["user_id"]}, {"$inc": {target: amt}}
             )
     await db.lottery_participants.delete_many({"draw_id": draw_id})
     await db.lottery_draws.delete_one({"id": draw_id})
@@ -377,9 +550,10 @@ async def admin_announce_draw(
     draw_id: str, body: dict, request: Request, who=Depends(require_admin)
 ):
     """Body: { winners: [{rank, user_id, prize}, …] }
-    Credits each winner's `balance_profit`, posts a `lottery_win` row in
-    `commissions`, then transitions the draw to `announced` with a
-    `results_visible_until` timestamp for the configured duration.
+    Manual override: lets the admin announce custom winners (e.g. to finalize a
+    `running` draw before its countdown expires). Credits each winner's
+    `balance_profit`, posts a `lottery_win` row in `commissions`, then
+    transitions the draw to `announced`.
     """
     db = request.app.state.db
     d = await db.lottery_draws.find_one({"id": draw_id}, {"_id": 0})
@@ -427,7 +601,6 @@ async def admin_announce_draw(
                 "meta": {"draw_id": draw_id, "draw_name": d.get("name"), "rank": win["rank"]},
                 "created_at": now,
             })
-        # Notify the winner
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": win["user_id"],
@@ -467,17 +640,12 @@ async def admin_announce_draw(
     return {"ok": True, "winners": enriched, "results_visible_until": visible_until.isoformat()}
 
 
-def _delta_minutes(m: int):
-    from datetime import timedelta
-    return timedelta(minutes=max(0, int(m)))
-
-
 @admin.get("/lottery/stats")
 async def admin_lottery_stats(request: Request, _=Depends(require_admin)):
     db = request.app.state.db
     total_draws = await db.lottery_draws.count_documents({})
     open_draws = await db.lottery_draws.count_documents({"status": "open"})
-    closed_draws = await db.lottery_draws.count_documents({"status": "closed"})
+    running_draws = await db.lottery_draws.count_documents({"status": "running"})
     announced_draws = await db.lottery_draws.count_documents({"status": "announced"})
     total_participants = await db.lottery_participants.count_documents({})
     sum_collected = await db.lottery_participants.aggregate([
@@ -491,9 +659,11 @@ async def admin_lottery_stats(request: Request, _=Depends(require_admin)):
     distributed = float((sum_paid[0] or {}).get("total") or 0) if sum_paid else 0
     return {
         "total_draws": total_draws,
-        "draft_count": total_draws - open_draws - closed_draws - announced_draws,
         "open_count": open_draws,
-        "closed_count": closed_draws,
+        "running_count": running_draws,
+        # Kept for backward compatibility with the existing admin UI.
+        "closed_count": running_draws,
+        "draft_count": 0,
         "announced_count": announced_draws,
         "total_participants": total_participants,
         "total_collected": collected,

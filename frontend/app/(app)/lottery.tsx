@@ -47,25 +47,37 @@ export default function LotteryPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const id = setInterval(load, 15000);
+    const id = setInterval(load, 5000);
     return () => clearInterval(id);
   }, [load]);
 
   const myBalance = Number(user?.balance_profit) || 0;
+  const balanceRecharge = Number(user?.balance_recharge) || 0;
   const entry = Number(active?.entry_amount) || 0;
-  const canAfford = myBalance >= entry;
+  const canAfford = (myBalance + balanceRecharge) >= entry;
+  const isFull = !!(active?.max_participants && active?.participants_count >= active?.max_participants);
+  const isOpen = active?.status === "open";
+  const isRunning = active?.status === "running";
 
   const onJoin = async () => {
     if (!active) return;
+    if (!isOpen) {
+      if (typeof window !== "undefined") window.alert("❌ Ce tirage n'accepte plus de participation.");
+      return;
+    }
+    if (isFull) {
+      if (typeof window !== "undefined") window.alert("❌ Nombre maximal de participants atteint.");
+      return;
+    }
     if (!canAfford) {
       if (typeof window !== "undefined") {
-        const go = window.confirm(`❌ Solde insuffisant\n\nVotre solde retirable : ${fmt(myBalance)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger votre compte maintenant ?`);
+        const go = window.confirm(`❌ Solde insuffisant\n\nSolde retirable : ${fmt(myBalance)}\nSolde recharge : ${fmt(balanceRecharge)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger votre compte maintenant ?`);
         if (go) router.push("/(app)/recharger");
       }
       return;
     }
     if (typeof window !== "undefined" && !window.confirm(
-      `Confirmer la participation au tirage « ${active.name} » ?\n\nMontant débité : ${fmt(entry)} (depuis votre solde retirable)`
+      `Confirmer la participation au tirage « ${active.name} » ?\n\nMontant débité : ${fmt(entry)} (depuis votre solde retirable, ou recharge en complément)`
     )) return;
     setJoining(true);
     try {
@@ -123,15 +135,28 @@ export default function LotteryPage() {
       {active ? (
         <Card style={styles.cardActive} testID="lottery-active-card">
           <Text style={styles.activeName}>{active.name}</Text>
-          <View style={styles.cdRow}>
-            <View style={styles.cdBox}><Text style={styles.cdN}>{cd.d}</Text><Text style={styles.cdL}>jours</Text></View>
-            <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.h).padStart(2, "0")}</Text><Text style={styles.cdL}>heures</Text></View>
-            <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.m).padStart(2, "0")}</Text><Text style={styles.cdL}>min</Text></View>
-            <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.s).padStart(2, "0")}</Text><Text style={styles.cdL}>sec</Text></View>
-          </View>
+          {active.description ? <Text style={styles.activeDesc}>{active.description}</Text> : null}
+
+          {isRunning ? (
+            <>
+              <Text style={styles.runningLabel}>⏱ Compte à rebours en cours</Text>
+              <View style={styles.cdRow}>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{cd.d}</Text><Text style={styles.cdL}>jours</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.h).padStart(2, "0")}</Text><Text style={styles.cdL}>heures</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.m).padStart(2, "0")}</Text><Text style={styles.cdL}>min</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.s).padStart(2, "0")}</Text><Text style={styles.cdL}>sec</Text></View>
+              </View>
+            </>
+          ) : (
+            <View style={styles.openBadge}>
+              <Ionicons name="checkmark-circle" size={16} color="#fff" />
+              <Text style={styles.openBadgeTxt}>🟢 Inscriptions ouvertes — En attente du lancement par l'administration</Text>
+            </View>
+          )}
+
           <View style={styles.kv}>
             <Text style={styles.kvL}>👥 Participants</Text>
-            <Text style={styles.kvV}>{active.participants_count}{active.max_participants ? ` / ${active.max_participants}` : ""}</Text>
+            <Text style={styles.kvV}>{active.participants_count}{active.max_participants ? ` / ${active.max_participants}` : ""}{isFull ? "  (COMPLET)" : ""}</Text>
           </View>
           <View style={styles.kv}>
             <Text style={styles.kvL}>🏆 Gagnants prévus</Text>
@@ -163,7 +188,7 @@ export default function LotteryPage() {
               <Ionicons name="checkmark-circle" size={18} color="#fff" />
               <Text style={styles.joinedTxt}>✓ Vous participez à ce tirage</Text>
             </View>
-          ) : active.status === "open" && !cd.done ? (
+          ) : isOpen && !isFull ? (
             <TouchableOpacity
               style={[styles.joinBtn, !canAfford && styles.joinBtnDisabled]}
               onPress={onJoin}
@@ -173,12 +198,17 @@ export default function LotteryPage() {
               <Ionicons name="ticket" size={18} color="#fff" />
               <Text style={styles.joinBtnTxt}>{joining ? "Inscription…" : `🎰 Rejoindre le Jackpot (${fmt(entry)})`}</Text>
             </TouchableOpacity>
-          ) : (
-            <View style={[styles.joinedBadge, { backgroundColor: theme.colors.textSecondary }]}>
-              <Ionicons name="time" size={18} color="#fff" />
-              <Text style={styles.joinedTxt}>Tirage clôturé — En attente des résultats</Text>
+          ) : isOpen && isFull ? (
+            <View style={[styles.joinedBadge, { backgroundColor: theme.colors.danger }]} testID="lottery-full">
+              <Ionicons name="close-circle" size={18} color="#fff" />
+              <Text style={styles.joinedTxt}>Nombre maximal de participants atteint</Text>
             </View>
-          )}
+          ) : isRunning ? (
+            <View style={[styles.joinedBadge, { backgroundColor: theme.colors.warning }]} testID="lottery-running">
+              <Ionicons name="time" size={18} color="#fff" />
+              <Text style={styles.joinedTxt}>⏱ Tirage en cours — En attente des résultats</Text>
+            </View>
+          ) : null}
         </Card>
       ) : !announced ? (
         <Card style={{ marginTop: 12 }}>
@@ -198,7 +228,11 @@ const styles = StyleSheet.create({
   cardActive: { marginTop: 14 },
   cardAnnounced: { marginTop: 14, borderWidth: 2, borderColor: "#F59E0B", backgroundColor: "#FFFBEB" },
   sectionTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 15 },
-  activeName: { color: theme.colors.textPrimary, fontWeight: "900", fontSize: 18, marginBottom: 10 },
+  activeName: { color: theme.colors.textPrimary, fontWeight: "900", fontSize: 18, marginBottom: 4 },
+  activeDesc: { color: theme.colors.textSecondary, fontSize: 12, marginBottom: 10, fontStyle: "italic" },
+  runningLabel: { color: "#92400E", fontWeight: "800", fontSize: 12, marginBottom: 6 },
+  openBadge: { padding: 10, borderRadius: 10, backgroundColor: theme.colors.success, flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  openBadgeTxt: { color: "#fff", fontWeight: "700", fontSize: 11, flex: 1 },
   cdRow: { flexDirection: "row", gap: 6, justifyContent: "space-between", marginBottom: 12 },
   cdBox: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 10, backgroundColor: theme.colors.surfaceSecondary },
   cdN: { fontSize: 22, fontWeight: "900", color: theme.colors.primary },
