@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { api } from "@/src/api";
@@ -41,34 +41,60 @@ export default function AdminLottery() {
   };
 
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState<any>({ name: "", durationH: "168", winnersCount: "3", maxP: "100", entry: "500", startsIn: "0" });
+  const [draft, setDraft] = useState<any>({
+    name: "",
+    description: "",
+    entry: "500",
+    minParticipants: "0",
+    maxP: "100",
+    winnersCount: "3",
+    startsIn: "0",
+    durationH: "168",
+    prizes: ["100000", "50000", "25000"],
+  });
+
+  const updateWinnersCount = (v: string) => {
+    const n = Math.max(1, parseInt(v) || 1);
+    const newPrizes = Array.from({ length: n }, (_, i) => draft.prizes[i] || "0");
+    setDraft({ ...draft, winnersCount: v, prizes: newPrizes });
+  };
 
   const submitCreate = async () => {
     if (!draft.name?.trim()) {
-      if (typeof window !== "undefined") window.alert("❌ Le nom du tirage est requis.");
+      if (typeof window !== "undefined") window.alert("❌ Le nom du Jackpot est requis.");
       return;
     }
     const startsIn = Math.max(0, parseFloat(draft.startsIn) || 0);
     const durationH = Math.max(1, parseFloat(draft.durationH) || 1);
     const winnersCount = Math.max(1, parseInt(draft.winnersCount) || 1);
     const maxP = parseInt(draft.maxP) || 0;
+    const minP = parseInt(draft.minParticipants) || 0;
     const entry = Math.max(0, parseFloat(draft.entry) || 0);
     const starts = new Date(Date.now() + startsIn * 3600000);
     const ends = new Date(starts.getTime() + durationH * 3600000);
     try {
       await api.post("/admin/lottery/draws", {
         name: draft.name.trim(),
+        description: (draft.description || "").trim(),
         starts_at: starts.toISOString(),
         ends_at: ends.toISOString(),
         winners_count: winnersCount,
         max_participants: maxP > 0 ? maxP : null,
+        min_participants: minP > 0 ? minP : null,
         entry_amount: entry,
-        prizes: Array.from({ length: winnersCount }, (_, i) => ({ rank: i + 1, amount: 0 })),
+        prizes: Array.from({ length: winnersCount }, (_, i) => ({
+          rank: i + 1,
+          amount: parseFloat(draft.prizes[i] || "0") || 0,
+        })),
       });
       setCreating(false);
-      setDraft({ name: "", durationH: "168", winnersCount: "3", maxP: "100", entry: "500", startsIn: "0" });
+      setDraft({
+        name: "", description: "", entry: "500", minParticipants: "0", maxP: "100",
+        winnersCount: "3", startsIn: "0", durationH: "168",
+        prizes: ["100000", "50000", "25000"],
+      });
       await load();
-      if (typeof window !== "undefined") window.alert("✅ Tirage créé en brouillon. Définissez les récompenses puis ouvrez-le.");
+      if (typeof window !== "undefined") window.alert("✅ Jackpot créé en brouillon. Ouvrez-le pour démarrer les inscriptions.");
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
     }
@@ -301,34 +327,83 @@ export default function AdminLottery() {
         </View>
       )}
 
-      {creating ? (
-        <View style={styles.modalOverlay} testID="lottery-create-modal">
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>🎰 Créer un tirage</Text>
-            <Text style={styles.modalSub}>Le tirage sera créé en statut "brouillon" — vous pourrez ensuite définir les récompenses puis l'ouvrir.</Text>
-            <Text style={styles.subT}>Nom du tirage *</Text>
-            <TextInput style={styles.input} value={draft.name} onChangeText={(v) => setDraft({ ...draft, name: v })} placeholder="Ex: Jackpot Juin 2026" placeholderTextColor={theme.colors.textSecondary} testID="lottery-name" />
-            <Text style={styles.subT}>Démarre dans (heures, 0 = immédiat)</Text>
-            <TextInput style={styles.input} value={draft.startsIn} onChangeText={(v) => setDraft({ ...draft, startsIn: v })} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.colors.textSecondary} testID="lottery-startin" />
-            <Text style={styles.subT}>Durée du tirage (heures)</Text>
-            <TextInput style={styles.input} value={draft.durationH} onChangeText={(v) => setDraft({ ...draft, durationH: v })} keyboardType="numeric" placeholder="168" placeholderTextColor={theme.colors.textSecondary} testID="lottery-duration" />
-            <Text style={styles.subT}>Nombre de gagnants</Text>
-            <TextInput style={styles.input} value={draft.winnersCount} onChangeText={(v) => setDraft({ ...draft, winnersCount: v })} keyboardType="numeric" placeholder="3" placeholderTextColor={theme.colors.textSecondary} testID="lottery-winners" />
-            <Text style={styles.subT}>Max participants (0 = illimité)</Text>
-            <TextInput style={styles.input} value={draft.maxP} onChangeText={(v) => setDraft({ ...draft, maxP: v })} keyboardType="numeric" placeholder="100" placeholderTextColor={theme.colors.textSecondary} testID="lottery-maxp" />
-            <Text style={styles.subT}>Montant participation (FCFA)</Text>
-            <TextInput style={styles.input} value={draft.entry} onChangeText={(v) => setDraft({ ...draft, entry: v })} keyboardType="numeric" placeholder="500" placeholderTextColor={theme.colors.textSecondary} testID="lottery-entry" />
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+      <Modal visible={creating} transparent animationType="fade" onRequestClose={() => setCreating(false)}>
+        <View style={styles.modalBg} testID="lottery-create-modal">
+          <View style={styles.modalCardSized}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🎰 Créer un Jackpot</Text>
+              <TouchableOpacity onPress={() => setCreating(false)} testID="lottery-create-close" style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={theme.colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSub}>Le Jackpot sera créé en statut "brouillon".</Text>
+
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
+              <Text style={styles.subT}>1. Nom du Jackpot *</Text>
+              <TextInput style={styles.input} value={draft.name} onChangeText={(v) => setDraft({ ...draft, name: v })} placeholder="Ex: Jackpot Juin 2026" placeholderTextColor={theme.colors.textSecondary} testID="lottery-name" autoFocus />
+
+              <Text style={styles.subT}>2. Description</Text>
+              <TextInput style={[styles.input, { minHeight: 60, textAlignVertical: "top" }]} value={draft.description} onChangeText={(v) => setDraft({ ...draft, description: v })} placeholder="Description du tirage (optionnel)" placeholderTextColor={theme.colors.textSecondary} multiline numberOfLines={3} testID="lottery-description" />
+
+              <Text style={styles.subT}>3. Montant de participation (FCFA)</Text>
+              <TextInput style={styles.input} value={draft.entry} onChangeText={(v) => setDraft({ ...draft, entry: v })} keyboardType="numeric" placeholder="500" placeholderTextColor={theme.colors.textSecondary} testID="lottery-entry" />
+
+              <Text style={styles.subT}>4. Nombre minimum de participants</Text>
+              <TextInput style={styles.input} value={draft.minParticipants} onChangeText={(v) => setDraft({ ...draft, minParticipants: v })} keyboardType="numeric" placeholder="0 (sans minimum)" placeholderTextColor={theme.colors.textSecondary} testID="lottery-minp" />
+
+              <Text style={styles.subT}>5. Nombre maximum de participants</Text>
+              <TextInput style={styles.input} value={draft.maxP} onChangeText={(v) => setDraft({ ...draft, maxP: v })} keyboardType="numeric" placeholder="0 = illimité" placeholderTextColor={theme.colors.textSecondary} testID="lottery-maxp" />
+
+              <Text style={styles.subT}>6. Nombre de gagnants</Text>
+              <TextInput style={styles.input} value={draft.winnersCount} onChangeText={updateWinnersCount} keyboardType="numeric" placeholder="3" placeholderTextColor={theme.colors.textSecondary} testID="lottery-winners" />
+
+              <Text style={styles.subT}>7-9. Date de début (dans X heures) & durée</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.helper}>Démarre dans (h)</Text>
+                  <TextInput style={styles.input} value={draft.startsIn} onChangeText={(v) => setDraft({ ...draft, startsIn: v })} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.colors.textSecondary} testID="lottery-startin" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.helper}>Durée (h)</Text>
+                  <TextInput style={styles.input} value={draft.durationH} onChangeText={(v) => setDraft({ ...draft, durationH: v })} keyboardType="numeric" placeholder="168" placeholderTextColor={theme.colors.textSecondary} testID="lottery-duration" />
+                </View>
+              </View>
+
+              <Text style={styles.subT}>10. Récompenses par rang (FCFA)</Text>
+              {Array.from({ length: Math.max(1, parseInt(draft.winnersCount) || 1) }, (_, i) => i + 1).map((rank) => (
+                <View key={`p-${rank}`} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <Text style={styles.rankLbl}>
+                    {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "🏅"} Rang {rank}
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                    value={draft.prizes[rank - 1] || ""}
+                    onChangeText={(v) => {
+                      const np = [...draft.prizes];
+                      np[rank - 1] = v;
+                      setDraft({ ...draft, prizes: np });
+                    }}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    testID={`lottery-prize-${rank}`}
+                  />
+                </View>
+              ))}
+              <View style={{ height: 20 }} />
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
               <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.surfaceSecondary, flex: 1 }]} onPress={() => setCreating(false)} testID="lottery-create-cancel">
                 <Text style={[styles.actT, { color: theme.colors.textPrimary }]}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#F59E0B", flex: 2 }]} onPress={submitCreate} testID="lottery-create-submit">
-                <Text style={styles.actT}>✅ Créer le tirage</Text>
+                <Text style={styles.actT}>✅ Créer le Jackpot</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
-      ) : null}
+      </Modal>
 
       {editing ? (
         <View style={styles.modalOverlay} testID="winner-picker-modal">
@@ -431,6 +506,47 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 8, color: theme.colors.textPrimary, fontSize: 12, marginBottom: 6 },
   modalOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 14 },
   modalCard: { backgroundColor: theme.colors.surface, borderRadius: 12, padding: 16, width: "100%", maxWidth: 600 },
+  modalBg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 24,
+  },
+  modalCardSized: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    width: "100%",
+    maxWidth: 560,
+    maxHeight: Math.min(Dimensions.get("window").height - 40, 720),
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    paddingBottom: 4,
+  },
+  modalScroll: {
+    paddingHorizontal: 16,
+    flexGrow: 0,
+  },
+  modalFooter: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  rankLbl: { width: 80, fontSize: 12, fontWeight: "700", color: theme.colors.textPrimary },
   modalTitle: { fontSize: 16, fontWeight: "900", color: theme.colors.textPrimary },
   modalSub: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 },
   winnerSlot: { padding: 10, borderRadius: 8, backgroundColor: theme.colors.surfaceSecondary, marginBottom: 8 },
