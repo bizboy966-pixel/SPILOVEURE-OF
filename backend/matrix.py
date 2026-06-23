@@ -271,22 +271,22 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     #   - "admin_manual"  — admin forces the level via /api/admin/users/{id}/action.
     # External payments (WestPay / SendavaPay / manual Mobile Money / Crypto
     # validated by admin) settle out-of-band and must NOT touch the reserve.
-    # Strict sources (auto_upgrade, manual) raise if reserve is insufficient.
-    # admin_manual is permissive (admin override) — proceeds with warning.
+    # ALL three internal sources (auto_upgrade, manual, admin_manual) are now
+    # STRICT: they refuse activation if `balance_upgrade < price` and they
+    # ALWAYS debit the reserve on success. The previous "admin override"
+    # behaviour caused inconsistencies where users were upgraded to level 2+
+    # without ever paying the upgrade fee — confusing the cascade logic and
+    # the commission distribution downstream.
     if level >= 2 and source in ("auto_upgrade", "manual", "admin_manual"):
         if user.get("balance_upgrade", 0) < lv["price"]:
-            if source in ("auto_upgrade", "manual"):
-                raise ValueError("Réserve de mise à niveau insuffisante")
-            # admin_manual: log the gap but proceed (admin is responsible).
-            log.warning(
-                f"admin_manual activate_level user={user_id} level={level}: "
-                f"balance_upgrade={user.get('balance_upgrade', 0)} < price={lv['price']} "
-                f"→ activating without debiting (admin override)"
+            raise ValueError(
+                f"Réserve de mise à niveau insuffisante : "
+                f"{user.get('balance_upgrade', 0):.0f} FCFA disponible, "
+                f"{lv['price']} FCFA requis pour le niveau {level}."
             )
-        else:
-            await db.users.update_one(
-                {"id": user_id}, {"$inc": {"balance_upgrade": -lv["price"]}},
-            )
+        await db.users.update_one(
+            {"id": user_id}, {"$inc": {"balance_upgrade": -lv["price"]}},
+        )
     placement = await place_in_matrix(db, user_id, sponsor_id, level)
     await db.users.update_one(
         {"id": user_id},

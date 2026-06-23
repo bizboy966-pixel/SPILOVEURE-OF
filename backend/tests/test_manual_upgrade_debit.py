@@ -122,14 +122,35 @@ def test_external_payment_does_not_debit_reserve(db, admin_id, src):
         _cleanup(db, uid)
 
 
-def test_admin_manual_insufficient_reserve_still_activates(db, admin_id):
-    """admin_manual with reserve < price = admin override; level activates, reserve untouched."""
+def test_admin_manual_insufficient_reserve_now_refuses(db, admin_id):
+    """admin_manual with reserve < price must now REFUSE the activation.
+
+    Previously (buggy behaviour) the admin override silently bypassed the
+    debit and activated the level for free. The fix aligns admin_manual with
+    auto_upgrade/manual: strict reserve check, ValueError on shortfall, and
+    the user's max_level / balance_upgrade are unchanged.
+    """
     uid = _make_user(db, admin_id, balance_upgrade=100)
+    try:
+        with pytest.raises(ValueError, match="Réserve"):
+            _run(activate_level(db, uid, 2, source="admin_manual"))
+        u = _run(db.users.find_one({"id": uid}, {"_id": 0}))
+        assert u["balance_upgrade"] == 100, "reserve must remain intact"
+        assert u["max_level"] == 1, "max_level must not advance"
+    finally:
+        _cleanup(db, uid)
+
+
+def test_admin_manual_sufficient_reserve_debits(db, admin_id):
+    """admin_manual with reserve >= price must succeed AND debit the reserve."""
+    from levels import LEVELS_BY_NUM
+    price = LEVELS_BY_NUM[2]["price"]
+    uid = _make_user(db, admin_id, balance_upgrade=price + 500)
     try:
         _run(activate_level(db, uid, 2, source="admin_manual"))
         u = _run(db.users.find_one({"id": uid}, {"_id": 0}))
-        assert u["balance_upgrade"] == 100, "reserve must NOT be debited when insufficient"
         assert u["max_level"] == 2
+        assert u["balance_upgrade"] == 500, "must debit exactly the level price"
     finally:
         _cleanup(db, uid)
 

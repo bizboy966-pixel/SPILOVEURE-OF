@@ -20,6 +20,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — 🔴 Correctif critique : Système de mise à niveau (admin_manual)
+**Bug constaté** : l'activation `admin_manual` (admin force un niveau via `/api/admin/users/{id}/action` action=`activate_level`) permettait à l'admin d'activer un niveau ≥ 2 d'un utilisateur **sans vérifier ni débiter `balance_upgrade`**. Le code logguait juste un warning et avançait `max_level` gratuitement — incohérent avec `auto_upgrade` et `manual` (côté user) qui exigeaient bien la réserve.
+
+**Fichier touché** : `/app/backend/matrix.py` lignes 264-289 (`activate_level`).
+
+**Comportement avant** :
+```python
+if level >= 2 and source in (..., "admin_manual"):
+    if balance_upgrade < price:
+        if source in ("auto_upgrade", "manual"):
+            raise ValueError(...)
+        # admin_manual: log + proceed without debit ← BUG
+```
+
+**Comportement après** :
+```python
+if level >= 2 and source in ("auto_upgrade", "manual", "admin_manual"):
+    if balance_upgrade < price:
+        raise ValueError("Réserve de mise à niveau insuffisante : X FCFA disponible, Y FCFA requis pour le niveau Z.")
+    await db.users.update_one({"id": user_id}, {"$inc": {"balance_upgrade": -price}})
+```
+
+**Règles confirmées (conformément à la spec utilisateur)** :
+- **Niveau 1 (`admin_manual`)** : pas de check `balance_upgrade`, pas de débit (comportement conservé).
+- **Niveau ≥ 2 (toutes sources internes : `auto_upgrade`, `manual`, `admin_manual`)** : rejet strict si réserve insuffisante, débit obligatoire sur succès.
+- **Paiements externes** (SoleasPay, AshtecPay, manual Mobile Money/Crypto validés par admin via `admin_validate`, `secure_pay`, `gateway_return`, `sendavapay`, `manual_reprocess`) : continuent à ne PAS toucher `balance_upgrade` (payés out-of-band).
+
+**Tests** : ✅ 12/12 pytest passent (`tests/test_manual_upgrade_debit.py`) — l'ancien test obsolète `test_admin_manual_insufficient_reserve_still_activates` a été remplacé par `test_admin_manual_insufficient_reserve_now_refuses` + `test_admin_manual_sufficient_reserve_debits`. E2E curl confirmé : rejet avec message explicite quand vide, succès + débit quand suffisant.
+
+**Déploiement** : bug en PRODUCTION. Correctif appliqué en préview — redéploiement nécessaire.
+
+
 ### 2026-06-19 — 🔴 Correctif critique : Système de parrainage à l'inscription
 **Bug constaté en production** : tous les utilisateurs s'inscrivant sans `?ref=…` dans l'URL étaient automatiquement rattachés au parrain `admin`, causant des erreurs dans la structure du réseau, les commissions et le placement matrice.
 
