@@ -20,6 +20,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — 👥 Nouvelle section « Équipe » (directe + indirecte spillover)
+**Backend**
+- Nouveau endpoint `GET /api/team/indirect` : retourne les utilisateurs placés dans l'équipe de l'utilisateur via le système Spillover (`matrix_placements.parent_id == me.id`, `is_spillover=true`, `sponsor_id != me.id`). Chaque membre est dédupliqué par `user_id` (on garde la placement au level le plus bas) et enrichi avec `placement_level` et `placed_at`. Retour : `{members, active, inactive, total}`.
+- `GET /api/team/direct` (existant) ajoute désormais `total` (couvre inactifs).
+
+**Frontend**
+- Nouvelle page `/(app)/equipe.tsx` avec 2 onglets (`team-tab-direct` / `team-tab-indirect`), bandeau stats (Total / 🟢 Actifs / 🔴 Inactifs), liste enrichie par membre (@username, ID tronqué, téléphone pour direct uniquement, date d'inscription, date d'activation via `level_activated_at['1']`).
+- Pull-to-refresh charge les 2 buckets en parallèle (`Promise.all`).
+- État vide contextualisé (message + hint).
+- `SideMenu.tsx` : item « 👥 Équipe » remplace l'ancien « Équipe directe » (testID `menu-team`).
+- `dashboard.tsx` : bouton `quick-team` redirige vers `/(app)/equipe`.
+
+**Correctif collatéral** appliqué par le testing agent :
+- `src/components/Card.tsx` ne forwardait pas le prop `testID` → tous les testIDs posés sur `<Card>` étaient perdus dans le DOM Web. Fix : accepte et propage `testID` sur le `View` racine.
+
+**Tests** : ✅ 7/7 pytest backend (`test_team_indirect.py` — inclut un scénario positif avec seed spillover puis teardown propre). ✅ Frontend 85 % (limité par un popup promo bloquant temporairement les tests Playwright — non lié à cette feature).
+
+**Note UX** : popup « Communauté SPILOVEURE » automatique 5 s après login gêne l'accès aux tabs sur `/equipe` — à réviser plus tard pour ne l'afficher que sur le dashboard.
+
+
 ### 2026-06-19 — 🔎 Outils d'audit d'intégrité (activations & commissions)
 **Contexte** : bug rapporté en production — certains utilisateurs sont activés à des niveaux sans avoir payé, et d'autres reçoivent d'importantes commissions sans qu'aucun membre de leur réseau n'ait activé quoi que ce soit. Comme je n'ai pas accès à la DB prod, j'ai livré des outils d'audit qui permettront à l'utilisateur d'identifier concrètement les cas suspects.
 
