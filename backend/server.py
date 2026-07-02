@@ -113,14 +113,67 @@ async def lifespan(app: FastAPI):
                 "status": "active",
             }},
         )
+    # Init Emergent Object Storage session once at startup so subsequent
+    # uploads/downloads use the cached storage_key. Best-effort — if it fails
+    # we still boot and fall back to local disk.
+    try:
+        import object_storage as _obj  # noqa: WPS433
+        if _obj.is_enabled():
+            _obj._ensure_key()  # noqa: SLF001
+            log.info("Object storage initialised")
+        else:
+            log.warning("EMERGENT_LLM_KEY not set — object storage disabled")
+    except Exception as _e:
+        log.warning(f"Object storage init failed: {_e}")
     yield
     client.close()
 
 
 app = FastAPI(lifespan=lifespan, title="SPILIVERE API")
 
-# Serve uploaded admin media at /api/uploads/<file>
-app.mount("/api/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+# Serve uploaded admin media at /api/uploads/<file>.
+# In production the container disk is ephemeral, so we prioritize the Emergent
+# Object Storage backend and only fall back to the local disk for legacy files
+# still hanging around in preview / dev containers. Returning a clear French
+# error message (410 Gone) instead of the default StaticFiles 404 helps admins
+# understand that a file needs to be re-uploaded.
+from fastapi import APIRouter as _UploadsRouter  # noqa: E402
+from fastapi.responses import FileResponse, Response  # noqa: E402
+import object_storage as _obj_storage  # noqa: E402
+
+_uploads_api = _UploadsRouter()
+
+
+@_uploads_api.get("/api/uploads/{filename}")
+async def _serve_upload(filename: str):
+    # 1) Object storage (primary, persistent).
+    if _obj_storage.is_enabled():
+        try:
+            data, ctype = _obj_storage.get_upload(filename)
+            return Response(content=data, media_type=ctype)
+        except FileNotFoundError:
+            pass  # fall through to local disk
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger("uploads").warning(f"object storage GET failed for {filename}: {e}")
+
+    # 2) Local disk (legacy fallback — dev / preview only).
+    local = UPLOADS_DIR / filename
+    if local.is_file():
+        return FileResponse(str(local))
+
+    # 3) File truly missing. Emit an explicit French error so admins & users
+    # understand that this file was lost and needs to be re-uploaded.
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Ce fichier n'est plus disponible sur le serveur. "
+            "Veuillez contacter l'administration pour qu'il soit ré-uploadé."
+        ),
+    )
+
+
+app.include_router(_uploads_api)
 
 app.add_middleware(
     CORSMiddleware,

@@ -6,6 +6,7 @@ can also upload files directly via POST /api/admin/uploads which returns a
 relative URL like /api/uploads/<uuid>.<ext> served by FastAPI StaticFiles.
 """
 from __future__ import annotations
+import logging
 import uuid
 import os
 from datetime import datetime, timezone
@@ -16,6 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+
+log = logging.getLogger("digital_content")
 
 
 ROOT_DIR = Path(__file__).parent
@@ -61,30 +64,49 @@ async def admin_upload_file(
             ),
         )
 
-    # Read & enforce size limit by streaming chunks
+    # Read all bytes into memory (bounded by MAX_UPLOAD_BYTES) to enable
+    # dual write: local disk (legacy, dev preview) + Emergent Object Storage
+    # (persistent, production-safe). Object storage is authoritative in prod
+    # where the container disk is ephemeral.
     out_name = f"{uuid.uuid4().hex}{ext}"
     out_path = UPLOADS_DIR / out_name
     total = 0
+    buf = bytearray()
     try:
-        with out_path.open("wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)  # 1 MB chunks
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_UPLOAD_BYTES:
-                    f.close()
-                    out_path.unlink(missing_ok=True)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
-                    )
-                f.write(chunk)
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MB chunks
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+                )
+            buf.extend(chunk)
     except HTTPException:
         raise
     except Exception as e:
-        out_path.unlink(missing_ok=True)
         raise HTTPException(500, f"Échec d'upload: {e}")
+
+    # Write to local disk (best-effort — useful in dev / preview).
+    try:
+        with out_path.open("wb") as f:
+            f.write(buf)
+    except Exception as e:
+        log.warning(f"local disk write failed for {out_name}: {e}")
+
+    # Write to persistent object storage. If this fails, we still succeed
+    # (dev fallback) but log a warning — the file will only survive on the
+    # local disk.
+    storage_ok = False
+    try:
+        import object_storage as _os_mod
+        if _os_mod.is_enabled():
+            _os_mod.put_upload(out_name, bytes(buf), file.content_type or "application/octet-stream")
+            storage_ok = True
+    except Exception as e:
+        log.warning(f"object storage upload failed for {out_name}: {e}")
 
     # Persist a thin row in MongoDB so admins can audit uploads
     db = request.app.state.db
@@ -108,6 +130,53 @@ async def admin_upload_file(
         "filename": raw_name,
         "size": total,
         "content_type": record["content_type"],
+        "storage_ok": storage_ok,
+    }
+
+
+@admin_router.get("/uploads/diagnostic")
+async def uploads_diagnostic(request: Request, _=Depends(require_admin)):
+    """Scan all Digital Content collections and report which files are missing.
+
+    For every entry that references an /api/uploads/<filename> URL, check
+    whether the file is retrievable from object storage or local disk.
+    Broken items must be re-uploaded by the admin.
+    """
+    db = request.app.state.db
+    import object_storage as _obj
+    from pathlib import Path
+    from server import UPLOADS_DIR  # type: ignore
+
+    def _file_ok(url: str) -> bool:
+        if not url or not url.startswith("/api/uploads/"):
+            return True  # external URL, not our concern
+        filename = url.rsplit("/", 1)[-1]
+        if _obj.is_enabled() and _obj.exists(filename):
+            return True
+        return (Path(UPLOADS_DIR) / filename).is_file()
+
+    broken = []
+    fields_per_coll = {
+        "digital_formations": ["image_url", "video_url", "pdf_url", "audio_url"],
+        "digital_ebooks": ["image_url", "pdf_url"],
+        "digital_premium_apps": ["image_url", "apk_url", "download_url"],
+    }
+    for coll, fields in fields_per_coll.items():
+        async for d in db[coll].find({}, {"_id": 0}):
+            missing = [f for f in fields if d.get(f) and not _file_ok(d.get(f))]
+            if missing:
+                broken.append({
+                    "collection": coll,
+                    "id": d.get("id"),
+                    "name": d.get("name") or d.get("title"),
+                    "missing_fields": missing,
+                    "missing_urls": [d.get(f) for f in missing],
+                    "enabled": d.get("enabled"),
+                })
+    return {
+        "broken_count": len(broken),
+        "broken": broken,
+        "object_storage_enabled": _obj.is_enabled(),
     }
 
 
