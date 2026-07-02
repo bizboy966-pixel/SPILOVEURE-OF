@@ -20,6 +20,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-02 — 🔴 Correctif critique : Applications Premium — page « Not Found » sur téléchargement
+**Cause racine** : le disque local `/app/backend/uploads` du container Kubernetes est **éphémère** — les fichiers uploadés par l'admin étaient perdus à chaque redéploiement. La route `/api/uploads/{filename}` (StaticFiles) retournait alors un 404 JSON brut `{"detail":"Not Found"}`.
+
+**Fix — Intégration Emergent Object Storage** :
+- Nouveau module `/app/backend/object_storage.py` : `init/put_upload/get_upload/exists` avec cache du `storage_key` + retry sur 403 + normalisation des 500 upstream en `FileNotFoundError` (évite les warnings de log).
+- `EMERGENT_LLM_KEY` ajouté à `/app/backend/.env`. Init au startup dans la lifespan.
+- `POST /api/admin/uploads` (`digital_content.py`) : dual-write — écrit sur disque local (dev / preview) ET sur object storage (persistant, prod). Retourne désormais `storage_ok: bool`.
+- Route `/api/uploads/{filename}` (`server.py`) réécrite : (1) tente object storage, (2) fallback disque local, (3) `410 Gone` avec message français explicite « Ce fichier n'est plus disponible sur le serveur. Veuillez contacter l'administration pour qu'il soit ré-uploadé. »
+- Nouveau `GET /api/admin/uploads/diagnostic` : scanne toutes les collections `digital_formations`, `digital_ebooks`, `digital_premium_apps` et liste les items dont les fichiers référencés sont introuvables → aide l'admin à identifier ce qui doit être ré-uploadé.
+- Migration : les 3 fichiers legacy déjà présents en local ont été poussés vers object storage → tout est désormais disponible même en cas de redéploiement.
+
+**Frontend `premium-apps.tsx`** : la fonction `openUrl` fait maintenant un `HEAD` préalable sur les URLs `/api/uploads/…` et affiche une alerte française claire si le serveur renvoie 410 (au lieu d'ouvrir un onglet avec le JSON brut).
+
+**Tests** : ✅ 12/12 pytest (`test_uploads_object_storage.py`) — validé par testing_agent_v3_fork iteration 18. Scénario clé validé : upload → suppression du fichier local → GET `/api/uploads/…` retourne toujours 200 avec le contenu (via object storage).
+
+**Déploiement** : bug en PRODUCTION. Correctif appliqué en préview + `EMERGENT_LLM_KEY` ajouté au `.env`. **Redéploiement nécessaire**. Après redéploiement : l'admin devra ré-uploader les fichiers Applications Premium existants qui pointaient vers des URLs `/api/uploads/…` (l'endpoint diagnostic listera exactement lesquels).
+
+
 ### 2026-06-19 — Correctifs sur la nouvelle section « Équipe »
 Suite au feedback utilisateur, 3 ajustements livrés :
 

@@ -20,6 +20,28 @@ type App = {
 async function openUrl(url: string) {
   const u = resolveMediaUrl(url);
   if (!u) return;
+  // For internal /api/uploads links, do a HEAD check first so we can surface
+  // a clear French message when the file has been lost (410 Gone) instead of
+  // routing the user to a browser tab showing raw JSON.
+  if (u.includes("/api/uploads/")) {
+    try {
+      const resp = await fetch(u, { method: "HEAD" });
+      if (resp.status === 410) {
+        if (typeof window !== "undefined") window.alert(
+          "❌ Ce fichier n'est plus disponible sur le serveur.\n\nVeuillez contacter l'administration pour qu'il soit ré-uploadé."
+        );
+        return;
+      }
+      if (!resp.ok) {
+        if (typeof window !== "undefined") window.alert(
+          `❌ Impossible de télécharger ce fichier (code ${resp.status}). Veuillez réessayer plus tard.`
+        );
+        return;
+      }
+    } catch {
+      // Fallback: proceed to open URL (network may block HEAD but allow GET).
+    }
+  }
   if (Platform.OS === "web" && typeof window !== "undefined") {
     window.open(u, "_blank");
   } else {

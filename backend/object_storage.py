@@ -75,7 +75,12 @@ def put_upload(filename: str, data: bytes, content_type: str) -> dict:
 
 
 def get_upload(filename: str) -> Tuple[bytes, str]:
-    """Download a file from object storage. Returns (bytes, content_type)."""
+    """Download a file from object storage. Returns (bytes, content_type).
+
+    Emergent storage returns 500 (not 404) for missing objects — we convert
+    that into a FileNotFoundError so the caller can silently fall through to
+    the local-disk fallback without polluting the logs with warnings.
+    """
     key = _ensure_key()
     path = object_path(filename)
     for attempt in range(2):
@@ -89,6 +94,11 @@ def get_upload(filename: str) -> Tuple[bytes, str]:
             continue
         if r.status_code == 404:
             raise FileNotFoundError(f"object not found: {path}")
+        if r.status_code == 500:
+            # Upstream returns 500 for a missing object — treat it as missing.
+            body = (r.text or "").lower()
+            if "not found" in body or "no such" in body or "missing" in body or len(body) < 200:
+                raise FileNotFoundError(f"object not found (500): {path}")
         r.raise_for_status()
         return r.content, r.headers.get("Content-Type", "application/octet-stream")
     r.raise_for_status()
