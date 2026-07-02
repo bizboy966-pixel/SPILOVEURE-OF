@@ -292,6 +292,22 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
         {"id": user_id},
         {"$set": {"max_level": level, "status": "active", f"level_activated_at.{level}": datetime.now(timezone.utc)}},
     )
+    # Persist a full audit trail for every activation so operators can trace
+    # back "how" and "when" any user reached a given level. Sources ending in
+    # {soleaspay, ashtecpay, gateway_return, admin_validate, manual_reprocess}
+    # correspond to real external payments; auto_upgrade/manual/admin_manual
+    # come from the internal reserve; source=admin_manual for L1 is the only
+    # "no-payment-required" path documented in the business spec.
+    try:
+        await db.activation_events.insert_one({
+            "user_id": user_id,
+            "level": level,
+            "source": source,
+            "requires_payment": bool(level >= 2 or source not in ("admin_manual",)),
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception as _e:
+        log.warning(f"activation_events insert failed for {user_id} L{level}: {_e}")
     await distribute_commission(
         db, user_id, sponsor_id, placement.get("parent_id"), level,
         placement.get("is_spillover", False),

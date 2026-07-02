@@ -3085,3 +3085,7 @@ app.include_router(recharge_admin)
 # One-shot upgrade reserve audit (admin-only, no UI).
 from upgrade_audit import router as upgrade_audit_router  # noqa: E402
 app.include_router(upgrade_audit_router)
+
+# Integrity audit — detects fraudulent activations & orphan commissions (admin-only).
+from integrity_audit import router as integrity_audit_router  # noqa: E402
+app.include_router(integrity_audit_router)
