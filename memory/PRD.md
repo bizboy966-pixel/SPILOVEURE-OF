@@ -20,6 +20,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — 🔎 Outils d'audit d'intégrité (activations & commissions)
+**Contexte** : bug rapporté en production — certains utilisateurs sont activés à des niveaux sans avoir payé, et d'autres reçoivent d'importantes commissions sans qu'aucun membre de leur réseau n'ait activé quoi que ce soit. Comme je n'ai pas accès à la DB prod, j'ai livré des outils d'audit qui permettront à l'utilisateur d'identifier concrètement les cas suspects.
+
+**Backend** :
+- Nouvelle collection `activation_events` : `matrix.py activate_level()` insère désormais un document `{user_id, level, source, requires_payment, created_at}` à chaque appel — traçabilité complète de toutes les activations futures.
+- Nouveau module `/app/backend/integrity_audit.py` avec 3 endpoints READ-ONLY admin :
+  - `GET /api/admin/audit/free-activations` — détecte les users avec `max_level >= 1` (hors admin) dont aucun niveau ne peut être expliqué par un paiement (SoleasPay/AshtecPay), une validation admin (Mobile Money) ou une source légitime (auto_upgrade/manual). Retourne `{summary, findings[]}` avec 2 sévérités : `critical` (no_origin) et `warning` (admin_manual L1 uniquement).
+  - `GET /api/admin/audit/orphan-commissions` — analyse toutes les commissions MLM (direct, spillover_sponsor, spillover_beneficiary) et signale : `from_user_id` inexistant, `from_user_id.max_level < commission.level`, ou incohérence dans la chaîne des parrains (N-1 sauts).
+  - `GET /api/admin/audit/user/{id}/trace` — retour complet pour un utilisateur : profil, classification niveau par niveau, activation_events, payments, activations manuelles, commissions reçues/générées avec origine, totaux.
+
+**Frontend Admin** :
+- Nouvelle page `/(admin)/audit.tsx` avec 3 onglets (activations suspectes, commissions orphelines, tracer un user).
+- Bouton d'accès rouge « 🔎 Audit d'intégrité » ajouté sur le dashboard admin.
+- Depuis un finding « activation suspecte », un bouton « 🔍 Tracer cet utilisateur » pré-remplit et bascule sur l'onglet trace.
+
+**Tests** : ✅ 22/22 pytest passent (`test_integrity_audit.py` nouveau + regression `test_manual_upgrade_debit.py`). ✅ Frontend 100% via testing_agent_v3_fork iteration_16.
+
+**Nettoyage** : 2 users TEST_audit_* résiduels supprimés de la DB préview.
+
+**Comportement du fix admin_manual toujours en place** : level ≥ 2 refuse strictement si `balance_upgrade < price` (auto_upgrade, manual, admin_manual).
+
+**Déploiement** : bug en PRODUCTION → l'utilisateur peut redéployer pour accéder aux outils d'audit sur prod et identifier concrètement les comptes suspects. Il pourra ensuite me fournir des exemples précis (via l'endpoint `/trace`) pour toute correction manuelle.
+
+
 ### 2026-06-19 — 🔴 Correctif critique : Système de mise à niveau (admin_manual)
 **Bug constaté** : l'activation `admin_manual` (admin force un niveau via `/api/admin/users/{id}/action` action=`activate_level`) permettait à l'admin d'activer un niveau ≥ 2 d'un utilisateur **sans vérifier ni débiter `balance_upgrade`**. Le code logguait juste un warning et avançait `max_level` gratuitement — incohérent avec `auto_upgrade` et `manual` (côté user) qui exigeaient bien la réserve.
 

@@ -180,7 +180,7 @@ async def audit_orphan_commissions(request: Request, _=Depends(require_admin)):
 
     async for c in db.commissions.find(
         {"kind": {"$in": list(MLM_KINDS)}},
-        {"_id": 0},
+        {"_id": 0, "id": 1, "user_id": 1, "from_user_id": 1, "level": 1, "kind": 1, "amount": 1, "created_at": 1},
     ):
         total_scanned += 1
         issues = []
@@ -213,7 +213,7 @@ async def audit_orphan_commissions(request: Request, _=Depends(require_admin)):
 
         if issues:
             findings.append({
-                "commission_id": str(c.get("_id")) if "_id" in c else None,
+                "commission_id": c.get("id"),
                 "user_id": user_id,
                 "from_user_id": from_id,
                 "level": level,
