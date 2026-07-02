@@ -27,7 +27,8 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
   const items: { icon: keyof typeof Ionicons.glyphMap; label: string; path: string; testID: string; color: string }[] = [
     { icon: "home", label: "Tableau de bord", path: "/(app)/dashboard", testID: "menu-dashboard", color: "#3B82F6" },
     { icon: "git-network", label: "Les matrices", path: "/(app)/matrices", testID: "menu-matrices", color: theme.colors.secondary },
-    { icon: "people", label: "👥 Équipe", path: "/(app)/equipe", testID: "menu-team", color: theme.colors.success },
+    { icon: "git-branch", label: "🌳 Mon Équipe (arbre)", path: "/(app)/team-direct", testID: "menu-team-direct", color: theme.colors.success },
+    { icon: "people", label: "👥 Équipe", path: "/(app)/equipe", testID: "menu-team", color: "#22C55E" },
     { icon: "list", label: "Détails d'équipe", path: "/(app)/team-details", testID: "menu-team-details", color: theme.colors.warning },
     { icon: "person", label: "Mon profil", path: "/(app)/profile", testID: "menu-profile", color: "#0EA5E9" },
     { icon: "wallet", label: "Portefeuille retrait", path: "/(app)/wallet", testID: "menu-wallet", color: "#A855F7" },

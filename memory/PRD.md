@@ -20,6 +20,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-06-19 — Correctifs sur la nouvelle section « Équipe »
+Suite au feedback utilisateur, 3 ajustements livrés :
+
+1. **Bouton Retour** : ajout en haut de la page `/(app)/equipe.tsx` (testID `team-back`), style pill semi-transparent sur le header gradient. Comportement : `router.back()` si historique navigable, sinon retour au dashboard.
+
+2. **Restauration de l'ancien menu « Mon Équipe (arbre) »** : la page `/(app)/team-direct.tsx` (arbre binaire généalogique) est TOUJOURS PRÉSENTE et inchangée. Le sidebar contient désormais 2 entrées séparées :
+   - 🌳 **Mon Équipe (arbre)** → `/(app)/team-direct` (testID `menu-team-direct`)
+   - 👥 **Équipe** → `/(app)/equipe` (testID `menu-team`)
+
+3. **Dashboard `quick-team` remis à l'ancien comportement** : le bouton « Mon équipe » du dashboard revient sur l'arbre binaire (`/team-direct`), comme avant.
+
+**Résultat** : les 2 fonctionnalités coexistent sans conflit. L'arbre reste accessible via son bouton et son entrée de menu historiques ; la nouvelle liste plate est accessible via le menu « 👥 Équipe » indépendant.
+
+
 ### 2026-06-19 — 👥 Nouvelle section « Équipe » (directe + indirecte spillover)
 **Backend**
 - Nouveau endpoint `GET /api/team/indirect` : retourne les utilisateurs placés dans l'équipe de l'utilisateur via le système Spillover (`matrix_placements.parent_id == me.id`, `is_spillover=true`, `sponsor_id != me.id`). Chaque membre est dédupliqué par `user_id` (on garde la placement au level le plus bas) et enrichi avec `placement_level` et `placed_at`. Retour : `{members, active, inactive, total}`.

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
@@ -45,6 +46,7 @@ const getActivationDate = (m: Member): string => {
 };
 
 export default function EquipePage() {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("direct");
   const [direct, setDirect] = useState<Bucket | null>(null);
   const [indirect, setIndirect] = useState<Bucket | null>(null);
@@ -79,6 +81,17 @@ export default function EquipePage() {
         colors={[theme.colors.primary, theme.colors.primaryDark || "#2563EB"]}
         style={styles.header}
       >
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            onPress={() => (router.canGoBack() ? router.back() : router.push("/(app)/dashboard"))}
+            style={styles.backBtn}
+            hitSlop={12}
+            testID="team-back"
+          >
+            <Ionicons name="arrow-back" size={22} color="#fff" />
+            <Text style={styles.backTxt}>Retour</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.headerTitle}>👥 Mon Équipe</Text>
         <Text style={styles.headerSub}>
           Consultez la composition de votre réseau
@@ -214,6 +227,9 @@ function KV({ label, value, mono }: { label: string; value: string; mono?: boole
 
 const styles = StyleSheet.create({
   header: { paddingTop: 30, paddingBottom: 22, paddingHorizontal: 16 },
+  headerTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.15)" },
+  backTxt: { color: "#fff", fontWeight: "700", fontSize: 13 },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 4 },
 
