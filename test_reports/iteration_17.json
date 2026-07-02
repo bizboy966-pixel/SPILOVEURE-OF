@@ -1,0 +1,39 @@
+{
+  "summary": "Tested nouvelle feature Equipe (direct + indirect). Backend endpoints /api/team/direct and /api/team/indirect entièrement validés (7/7 pytest passent, incluant un test avec seed spillover placement puis nettoyage). Frontend: la page /equipe se charge, testIDs team-page/team-tab-direct/team-tab-indirect/team-stats-direct présents et fonctionnels; navigation dashboard quick-team -> /equipe fonctionne. Un bug mineur trouvé et corrigé: le composant Card ne forwardait pas le prop testID donc team-member-{userId} n'apparaissait pas dans le DOM.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "src/components/Card.tsx", "issue": "Le composant Card ne recevait pas et ne forwardait pas le prop testID. Résultat: team-member-{id} et tout autre testID posé sur <Card> n'apparaissait pas comme data-testid dans le DOM web. FIX APPLIQUÉ (Card accepte et forward testID sur le View racine).", "selector": "[data-testid^='team-member-']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/equipe et dashboard", "issues": ["Un popup promo 'COMMUNAUTÉ OFFICIELLE SPILOVEURE' apparaît automatiquement et masque temporairement les interactions (menu latéral, tabs). Ferme après 5s mais peut gêner l'UX. Non bloquant."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_team_indirect.py",
+    "/app/test_reports/pytest/team_indirect.xml"
+  ],
+  "action_items": [
+    "Bundle Expo Metro peut nécessiter un rebuild pour propager le fix Card.tsx aux utilisateurs (hot reload devrait suffire, mais un `sudo supervisorctl restart frontend` garantit la propagation).",
+    "Considérer désactiver ou différer le popup promo automatique sur les pages autres que le dashboard (il apparaît sur /equipe et gêne les tests UI comme l'accès au drawer)."
+  ],
+  "critical_code_review_comments": [
+    "Card.tsx (fixed): tout prop testID était perdu — corrigé pour forwarder testID sur le View racine.",
+    "equipe.tsx: bonne séparation direct/indirect, Promise.all pour pull-to-refresh conforme au spec.",
+    "server.py /team/indirect: filtre correct (parent_id==me + is_spillover + sponsor_id != me), dedup par user_id sur level croissant, retour {members, active, inactive, total} conforme."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/Card.tsx",
+    "/app/backend/tests/test_team_indirect.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "~85%"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (seed idempotent, source: /app/memory/test_credentials.md)",
+  "seed_data_creation": "test_team_indirect.py::TestTeamIndirectWithSeed crée 2 users via /api/auth/register (TESTsp*, TESTdn*) + un placement spillover matrix_placements avec sponsor_id != admin. Cleanup dans teardown (delete_many). Vérifié: preview DB propre après exécution.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend team/indirect complètement testé via pytest incluant scénario positif avec seed. Card.tsx a été corrigé pour supporter testID — tout nouveau test Playwright qui cible team-member-{id} devrait maintenant fonctionner (après rebuild Metro éventuel). Attention au popup promo qui apparaît 5s après login/nav et peut intercepter les clics."
+}

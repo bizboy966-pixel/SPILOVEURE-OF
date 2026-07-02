@@ -297,7 +297,7 @@ export default function Dashboard() {
             <Ionicons name="grid" size={22} color={theme.colors.secondary} />
             <Text style={styles.quickLabel}>Matrices</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => router.push("/(app)/team-direct")} testID="quick-team">
+          <TouchableOpacity style={styles.quickBtn} onPress={() => router.push("/(app)/equipe" as any)} testID="quick-team">
             <Ionicons name="people" size={22} color={theme.colors.success} />
             <Text style={styles.quickLabel}>Mon équipe</Text>
           </TouchableOpacity>

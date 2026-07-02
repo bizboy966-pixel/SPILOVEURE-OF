@@ -497,7 +497,47 @@ async def team_direct(request: Request, user=Depends(get_current_user)):
     ).sort("created_at", -1).to_list(1000)
     direct_active = sum(1 for u in items if u.get("status") == "active")
     direct_inactive = len(items) - direct_active
-    return {"members": items, "active": direct_active, "inactive": direct_inactive}
+    return {"members": items, "active": direct_active, "inactive": direct_inactive, "total": len(items)}
+
+
+@api.get("/team/indirect")
+async def team_indirect(request: Request, user=Depends(get_current_user)):
+    """Return the "indirect team" — users placed under the current user via
+    Spillover. That is: matrix placements where `parent_id == me.id` and the
+    placed user was NOT sponsored directly by me. We consolidate across all
+    levels so a single user only appears once (kept at their lowest-level
+    placement to keep the entry meaningful).
+    """
+    db = request.app.state.db
+    seen: dict[str, dict] = {}
+    async for pl in db.matrix_placements.find(
+        {"parent_id": user["id"], "is_spillover": True},
+        {"_id": 0, "user_id": 1, "level": 1, "created_at": 1},
+    ).sort("level", 1):
+        uid = pl.get("user_id")
+        if not uid or uid in seen:
+            continue
+        seen[uid] = {"placement_level": pl.get("level"), "placed_at": pl.get("created_at")}
+
+    if not seen:
+        return {"members": [], "active": 0, "inactive": 0, "total": 0}
+
+    members = []
+    async for u in db.users.find(
+        {"id": {"$in": list(seen.keys())}},
+        {"_id": 0, "password_hash": 0},
+    ).sort("created_at", -1):
+        # Exclude users that we sponsored directly — they belong to
+        # /team/direct, not /team/indirect (spec: "pas des filleuls directs").
+        if u.get("sponsor_id") == user["id"]:
+            continue
+        meta = seen.get(u["id"]) or {}
+        u["placement_level"] = meta.get("placement_level")
+        u["placed_at"] = meta.get("placed_at")
+        members.append(u)
+
+    active = sum(1 for u in members if u.get("status") == "active")
+    return {"members": members, "active": active, "inactive": len(members) - active, "total": len(members)}
 
 
 # ============ DASHBOARD ============
