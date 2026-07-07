@@ -744,22 +744,38 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
     async for c in db.commissions.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(1000):
         from_uid = c.get("from_user_id")
         from_username = None
+        from_sponsor_id = None
+        from_user_exists = False
         if from_uid:
-            fu = await db.users.find_one({"id": from_uid}, {"_id": 0, "username": 1})
-            from_username = fu.get("username") if fu else None
+            fu = await db.users.find_one({"id": from_uid}, {"_id": 0, "username": 1, "sponsor_id": 1})
+            if fu:
+                from_user_exists = True
+                from_username = fu.get("username")
+                from_sponsor_id = fu.get("sponsor_id")
         kind = c.get("kind") or "direct"
         level = c.get("level")
-        # User-facing label: strip all MLM jargon (Spillover / Parrain / Bénéficiaire).
-        # Rule: level 1 direct referral → "Commission directe";
-        #       matrix placements (levels 2..12, all kinds) → "Commission niveau X";
-        #       lottery-related entries keep their own dedicated labels.
+        # User-facing label — strip all MLM jargon (Spillover / Parrain / Bénéficiaire).
+        # "Commission directe" = commission earned from a user who registered with
+        # the recipient's OWN referral link, regardless of the activation level or
+        # the matrix spillover placement. The sponsor relationship is defined by
+        # `users.sponsor_id` (immutable).
+        #   Primary check   : from_user.sponsor_id == recipient user_id.
+        #   Fallback (from_user deleted from DB): matrix.py guarantees that
+        #     kind ∈ {direct, spillover_sponsor} with level == 1 means the
+        #     recipient IS the direct sponsor of the new user.
+        #   Otherwise a level (2..12) is used → "Commission niveau X".
+        #   Lottery-related kinds keep their own dedicated labels.
+        is_direct_sponsor = (
+            (from_user_exists and from_sponsor_id == user_id)
+            or (not from_user_exists and level == 1 and kind in ("direct", "spillover_sponsor"))
+        )
         if kind == "lottery_win":
             label = "Gain Loterie"
         elif kind == "lottery_entry":
             label = "Participation Loterie"
         elif kind == "lottery_loss":
             label = "Perte Loterie"
-        elif level == 1 and kind == "direct":
+        elif is_direct_sponsor:
             label = "Commission directe"
         elif level:
             label = f"Commission niveau {level}"

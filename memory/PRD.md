@@ -20,7 +20,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
-### 2026-07-07 — 🧹 Nettoyage des libellés de l'historique des transactions
+### 2026-07-07 (bis) — 🔧 Correction règle « Commission directe » (Spillover-aware)
+**Problème remonté** : la première itération n'utilisait que `kind=direct` + `level=1` pour flagger « Commission directe ». Or, quand un filleul direct est placé par Spillover, la commission générée est de `kind=spillover_sponsor` (également au level 1). Résultat : seuls les 2 premiers filleuls directs (avant Spillover) étaient étiquetés « Commission directe » ; les suivants apparaissaient comme « Commission niveau 1 ».
+
+**Règle métier définitive** : « Commission directe » = toute commission provenant d'un utilisateur dont `users.sponsor_id` correspond au bénéficiaire de la commission. Le Spillover ne change JAMAIS le parrain d'origine.
+
+**Fix — `/app/backend/server.py` → `_build_transaction_history()`** :
+- Check primaire : `from_user.sponsor_id == recipient.user_id` → « Commission directe » (source de vérité).
+- Fallback pour données historiques où le from_user a été supprimé de la DB : `matrix.py` garantit que `kind ∈ {direct, spillover_sponsor}` avec `level=1` signifie que le bénéficiaire EST le parrain direct → « Commission directe ».
+- Sinon, avec un `level` (2..12) → « Commission niveau X » (matrix ancestor ou hop supérieur du sponsor chain).
+
+**Vérification empirique (compte admin, DB preview)** : les 8 commissions MLM (2 `direct` + 6 `spillover_sponsor` niveau 1) sont maintenant toutes étiquetées « Commission directe » — cohérent car ces 8 filleuls sont bien parrainés directement par l'admin.
+
+**Régression** : nouveau test `/app/backend/tests/test_transaction_labels.py` couvre 5 cas (parrainage direct multi-kind, ancêtre matrix, from_user supprimé, loterie, absence totale de jargon). Tous verts.
+
+
 **Contexte** : les libellés utilisateur contenaient du jargon MLM interne (« Spillover », « Parrainage Direct », « Commission Spillover (Parrain) », « Commission Spillover (Bénéficiaire) ») affiché dans `/(app)/transactions` et dans le panneau admin `/api/admin/users/{id}/transactions`.
 
 **Fix — libellés unifiés côté serveur (mapping dynamique à la lecture)** :
