@@ -749,13 +749,22 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
             from_username = fu.get("username") if fu else None
         kind = c.get("kind") or "direct"
         level = c.get("level")
-        label_map = {
-            "direct": "Parrainage Direct",
-            "spillover_sponsor": "Commission Spillover (Parrain)",
-            "spillover_beneficiary": "Commission Spillover (Bénéficiaire)",
-            "spillover": "Commission Spillover",
-        }
-        label = f"{label_map.get(kind, 'Commission')} — Niveau {level}"
+        # User-facing label: strip all MLM jargon (Spillover / Parrain / Bénéficiaire).
+        # Rule: level 1 direct referral → "Commission directe";
+        #       matrix placements (levels 2..12, all kinds) → "Commission niveau X";
+        #       lottery-related entries keep their own dedicated labels.
+        if kind == "lottery_win":
+            label = "Gain Loterie"
+        elif kind == "lottery_entry":
+            label = "Participation Loterie"
+        elif kind == "lottery_loss":
+            label = "Perte Loterie"
+        elif level == 1 and kind == "direct":
+            label = "Commission directe"
+        elif level:
+            label = f"Commission niveau {level}"
+        else:
+            label = "Commission"
         out.append({
             "type": f"commission_{kind}",
             "status": "completed",

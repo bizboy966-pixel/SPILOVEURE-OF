@@ -20,6 +20,23 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-07 — 🧹 Nettoyage des libellés de l'historique des transactions
+**Contexte** : les libellés utilisateur contenaient du jargon MLM interne (« Spillover », « Parrainage Direct », « Commission Spillover (Parrain) », « Commission Spillover (Bénéficiaire) ») affiché dans `/(app)/transactions` et dans le panneau admin `/api/admin/users/{id}/transactions`.
+
+**Fix — libellés unifiés côté serveur (mapping dynamique à la lecture)** :
+- `/app/backend/server.py` → `_build_transaction_history()` (ligne ~750).
+- Règle appliquée :
+  - `kind=direct` & `level=1` → **« Commission directe »**.
+  - Tout autre kind MLM avec un `level` (2..12) ou spillover_sponsor / spillover_beneficiary → **« Commission niveau X »** (X = level).
+  - `kind=lottery_win` → « Gain Loterie ».
+  - `kind=lottery_entry` → « Participation Loterie ».
+  - `kind=lottery_loss` → « Perte Loterie ».
+- Le mapping se fait à la **lecture** (GET) → les commissions historiques déjà enregistrées en base sont automatiquement reformatées, sans migration DB.
+- Le frontend `/(app)/transactions.tsx` affiche directement `item.label` — aucune modif frontend requise.
+- Vérifié par curl : sur le compte admin, 2 « Commission directe », 6 « Commission niveau 1 », 17 « Participation Loterie », 5 « Gain Loterie », **0 mention** de Spillover/Parrain/Bénéficiaire.
+- Vérifié visuellement sur la page Historique du preview.
+
+
 ### 2026-07-02 — 🔴 Correctif critique : Applications Premium — page « Not Found » sur téléchargement
 **Cause racine** : le disque local `/app/backend/uploads` du container Kubernetes est **éphémère** — les fichiers uploadés par l'admin étaient perdus à chaque redéploiement. La route `/api/uploads/{filename}` (StaticFiles) retournait alors un 404 JSON brut `{"detail":"Not Found"}`.
 
