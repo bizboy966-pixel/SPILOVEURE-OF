@@ -75,6 +75,12 @@ export default function EquipePage() {
   const currentBucket = tab === "direct" ? direct : indirect;
   const isActive = (m: Member) => m.status === "active" || (m.max_level || 0) >= 1;
 
+  // Global network stats — always show the SUM of direct + indirect,
+  // independent of the active tab (spec 2026-07-07).
+  const globalTotal = (direct?.total || 0) + (indirect?.total || 0);
+  const globalActive = (direct?.active || 0) + (indirect?.active || 0);
+  const globalInactive = (direct?.inactive || 0) + (indirect?.inactive || 0);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} testID="team-page">
       <LinearGradient
@@ -126,12 +132,41 @@ export default function EquipePage() {
           </TouchableOpacity>
         </View>
 
-        {/* STATS ROW */}
+        {/* GLOBAL NETWORK STATS — always sum direct + indirect (spec 2026-07-07) */}
+        <View style={styles.globalStatsCard} testID="team-global-stats">
+          <Text style={styles.globalStatsTitle}>🌐 Statistiques globales du réseau</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
+              <Text style={styles.statN}>{direct?.total ?? 0}</Text>
+              <Text style={styles.statL}>👤 Directe</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statN}>{indirect?.total ?? 0}</Text>
+              <Text style={styles.statL}>🌐 Indirecte</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={[styles.statN, { color: theme.colors.primary }]}>{globalTotal}</Text>
+              <Text style={styles.statL}>∑ Total</Text>
+            </View>
+          </View>
+          <View style={[styles.statsRow, { marginTop: 6 }]}>
+            <View style={styles.statBox}>
+              <Text style={[styles.statN, { color: theme.colors.success }]}>{globalActive}</Text>
+              <Text style={styles.statL}>🟢 Actifs</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={[styles.statN, { color: theme.colors.danger }]}>{globalInactive}</Text>
+              <Text style={styles.statL}>🔴 Inactifs</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* PER-TAB STATS ROW */}
         {currentBucket && (
           <View style={styles.statsRow} testID={`team-stats-${tab}`}>
             <View style={styles.statBox}>
               <Text style={styles.statN}>{currentBucket.total}</Text>
-              <Text style={styles.statL}>Total</Text>
+              <Text style={styles.statL}>Total {tab === "direct" ? "directe" : "indirecte"}</Text>
             </View>
             <View style={styles.statBox}>
               <Text style={[styles.statN, { color: theme.colors.success }]}>{currentBucket.active}</Text>
@@ -153,8 +188,8 @@ export default function EquipePage() {
           />
           <Text style={styles.explainer}>
             {tab === "direct"
-              ? "Toutes les personnes qui se sont inscrites via votre lien de parrainage direct."
-              : "Utilisateurs placés dans votre équipe par le système Spillover (ne sont pas vos filleuls directs)."}
+              ? "Toutes les personnes qui se sont inscrites via votre lien de parrainage direct (même si le système Spillover les a placées sous un autre membre)."
+              : "Tous les membres de votre réseau qui ne se sont pas inscrits avec votre lien personnel : filleuls de vos filleuls + placements Spillover."}
           </Text>
         </View>
 
@@ -174,12 +209,12 @@ export default function EquipePage() {
               <Text style={styles.emptyText}>
                 {tab === "direct"
                   ? "Aucun filleul direct pour le moment."
-                  : "Aucun membre spillover dans votre équipe."}
+                  : "Aucun membre indirect dans votre réseau."}
               </Text>
               <Text style={styles.emptyHint}>
                 {tab === "direct"
                   ? "Partagez votre lien de parrainage pour commencer à construire votre équipe."
-                  : "Les nouveaux membres apparaîtront ici automatiquement quand ils vous seront attribués."}
+                  : "Les membres apparaîtront ici quand vos filleuls parraineront à leur tour ou quand le Spillover placera un membre sous vous."}
               </Text>
             </View>
           </Card>
@@ -246,6 +281,22 @@ const styles = StyleSheet.create({
   statBox: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center" },
   statN: { fontSize: 22, fontWeight: "900", color: theme.colors.textPrimary },
   statL: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
+
+  globalStatsCard: {
+    backgroundColor: theme.colors.surfaceSecondary,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  globalStatsTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+    marginBottom: 8,
+    textAlign: "center",
+  },
 
   explainerBox: {
     flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 8,

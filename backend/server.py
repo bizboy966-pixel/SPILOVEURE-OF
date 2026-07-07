@@ -555,42 +555,75 @@ async def team_direct(request: Request, user=Depends(get_current_user)):
 
 @api.get("/team/indirect")
 async def team_indirect(request: Request, user=Depends(get_current_user)):
-    """Return the "indirect team" — users placed under the current user via
-    Spillover. That is: matrix placements where `parent_id == me.id` and the
-    placed user was NOT sponsored directly by me. We consolidate across all
-    levels so a single user only appears once (kept at their lowest-level
-    placement to keep the entry meaningful).
+    """Return the "indirect team" — every user in my network who is NOT one of
+    my direct referrals. This is the union of:
+      • all descendants of my direct referrals down the sponsor chain
+        (i.e. people registered via the link of my directs, transitively),
+      • users placed under me via matrix Spillover (`parent_id == me.id`
+        AND `is_spillover == True`), even if they were sponsored by someone
+        outside my sponsor branch.
+    We dedupe so a single user only appears once. Users I sponsored directly
+    are excluded — they belong to /team/direct.
     """
     db = request.app.state.db
-    seen: dict[str, dict] = {}
+    me_id = user["id"]
+
+    # 1) My direct referrals (excluded from indirect).
+    direct_ids: set[str] = set(
+        await db.users.distinct("id", {"sponsor_id": me_id})
+    )
+
+    # 2) BFS down the sponsor tree starting from my direct referrals.
+    indirect_ids: set[str] = set()
+    frontier = list(direct_ids)
+    while frontier:
+        next_frontier: list[str] = []
+        chunk_ids = await db.users.distinct("id", {"sponsor_id": {"$in": frontier}})
+        for uid in chunk_ids:
+            if uid == me_id or uid in direct_ids or uid in indirect_ids:
+                continue
+            indirect_ids.add(uid)
+            next_frontier.append(uid)
+        frontier = next_frontier
+
+    # 3) Spillover placements attached under me (may include users not in the
+    # sponsor descendants of my directs, e.g. spillovers from above).
+    spillover_meta: dict[str, dict] = {}
     async for pl in db.matrix_placements.find(
-        {"parent_id": user["id"], "is_spillover": True},
+        {"parent_id": me_id, "is_spillover": True},
         {"_id": 0, "user_id": 1, "level": 1, "created_at": 1},
     ).sort("level", 1):
         uid = pl.get("user_id")
-        if not uid or uid in seen:
+        if not uid or uid == me_id or uid in direct_ids:
             continue
-        seen[uid] = {"placement_level": pl.get("level"), "placed_at": pl.get("created_at")}
+        if uid not in spillover_meta:
+            spillover_meta[uid] = {
+                "placement_level": pl.get("level"),
+                "placed_at": pl.get("created_at"),
+            }
+        indirect_ids.add(uid)
 
-    if not seen:
+    if not indirect_ids:
         return {"members": [], "active": 0, "inactive": 0, "total": 0}
 
     members = []
     async for u in db.users.find(
-        {"id": {"$in": list(seen.keys())}},
+        {"id": {"$in": list(indirect_ids)}},
         {"_id": 0, "password_hash": 0},
     ).sort("created_at", -1):
-        # Exclude users that we sponsored directly — they belong to
-        # /team/direct, not /team/indirect (spec: "pas des filleuls directs").
-        if u.get("sponsor_id") == user["id"]:
-            continue
-        meta = seen.get(u["id"]) or {}
-        u["placement_level"] = meta.get("placement_level")
-        u["placed_at"] = meta.get("placed_at")
+        meta = spillover_meta.get(u["id"])
+        if meta:
+            u["placement_level"] = meta["placement_level"]
+            u["placed_at"] = meta["placed_at"]
         members.append(u)
 
     active = sum(1 for u in members if u.get("status") == "active")
-    return {"members": members, "active": active, "inactive": len(members) - active, "total": len(members)}
+    return {
+        "members": members,
+        "active": active,
+        "inactive": len(members) - active,
+        "total": len(members),
+    }
 
 
 # ============ DASHBOARD ============

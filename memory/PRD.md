@@ -21,6 +21,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-06-19)
 ### 2026-07-07 (bis) — 🔧 Correction règle « Commission directe » (Spillover-aware)
+
+### 2026-07-07 (ter) — 👥 Refonte règle « Équipe directe / indirecte »
+**Problème remonté** : `/api/team/indirect` ne renvoyait QUE les placements Spillover directs (`parent_id == user_id` + `is_spillover=true`). Les filleuls des filleuls (2ème/3ème génération du sponsor tree) étaient ignorés, alors qu'ils doivent apparaître dans l'équipe indirecte.
+
+**Règles définitives** :
+- **Équipe directe** = utilisateurs où `sponsor_id == me.id` (invariant, peu importe le placement Spillover).
+- **Équipe indirecte** = union de :
+  1. Tous les descendants du sponsor tree en partant de mes filleuls directs (parcours BFS via `sponsor_id`), transitivement.
+  2. Les utilisateurs placés sous moi par Spillover (`parent_id == me.id`, `is_spillover=true`), même s'ils ont été parrainés par quelqu'un hors de ma branche.
+- Direct ∩ Indirect = ∅ (dédupliqué).
+
+**Fix backend** — `/app/backend/server.py` → `team_indirect()` :
+- BFS sur `db.users.distinct('id', {'sponsor_id': $in: frontier})` en partant des directs.
+- Ajout des `matrix_placements.parent_id == me` avec `is_spillover=true`.
+- Exclusion systématique des directs → aucun chevauchement possible.
+
+**Fix frontend** — `/app/frontend/app/(app)/equipe.tsx` :
+- Nouvelle carte « 🌐 Statistiques globales du réseau » affichant : Directe / Indirecte / ∑ Total, puis Actifs / Inactifs cumulés (direct + indirect).
+- Stats par onglet conservées en dessous pour drill-down.
+- Explainer indirect reformulé : « Tous les membres de votre réseau qui ne se sont pas inscrits avec votre lien personnel : filleuls de vos filleuls + placements Spillover. ».
+
+**Régression** : `/app/backend/tests/test_team_endpoints_v2.py` — 5 cas (direct sponsor_id-based, indirect via sponsor BFS multi-niveaux, indirect via Spillover hors branche, direct/indirect disjoints même en cas de Spillover d'un direct sous soi, compteurs actifs/inactifs). Tous verts.
+
+**Vérification empirique (compte admin)** : 12 directs + 2 indirects (dont 1 descendant sponsor-tree via un direct et 1 Spillover hors branche), 0 chevauchement.
+
+
 **Problème remonté** : la première itération n'utilisait que `kind=direct` + `level=1` pour flagger « Commission directe ». Or, quand un filleul direct est placé par Spillover, la commission générée est de `kind=spillover_sponsor` (également au level 1). Résultat : seuls les 2 premiers filleuls directs (avant Spillover) étaient étiquetés « Commission directe » ; les suivants apparaissaient comme « Commission niveau 1 ».
 
 **Règle métier définitive** : « Commission directe » = toute commission provenant d'un utilisateur dont `users.sponsor_id` correspond au bénéficiaire de la commission. Le Spillover ne change JAMAIS le parrain d'origine.
