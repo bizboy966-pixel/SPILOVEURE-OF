@@ -20,6 +20,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-08 — 📜 Bouton « Historique » dans la gestion des retraits (Admin)
+**Objectif** : permettre à l'admin de consulter instantanément l'historique complet d'un utilisateur avant de valider ou de rejeter sa demande de retrait, sans quitter la page.
+
+**Frontend** — `/app/frontend/app/(admin)/index.tsx` :
+- Nouveau state `historyUser` + `historyTx` + `historyLoading` + fonctions `openUserHistory(userId, username)` / `closeUserHistory()`.
+- Bouton **📜 Historique** ajouté dans l'`actRow` de chaque demande de retrait, TOUJOURS visible (indépendamment du statut pending / validated / rejected) — utile pour audit post-mortem.
+- Boutons **✅ Valider** / **❌ Rejeter** conservés (visibles uniquement si `status === "pending"`).
+- **Modal fullscreen** (`transparent + animationType=fade`) affichant : libellé de la transaction, date+heure formatée, statut, from_username éventuel, montant coloré (vert pour crédit, rouge pour débit). Header en bleu primary avec bouton de fermeture rond.
+- Récupération via l'endpoint existant `GET /api/admin/users/{user_id}/transactions` (déjà en place, aucun ajout backend).
+
+**data-testid** : `admin-history-wd-{w.id}`, `admin-wd-history-modal`, `admin-wd-history-close`, `admin-wd-history-row-{idx}`.
+
+**Vérification e2e** : screenshot admin → onglet Retraits → bouton Historique cliqué → modale affiche « 📜 Historique — @admin » avec 59 transactions listées correctement.
+
+
 ### 2026-07-07 (bis) — 🔧 Correction règle « Commission directe » (Spillover-aware)
 
 ### 2026-07-07 (ter) — 👥 Refonte règle « Équipe directe / indirecte »

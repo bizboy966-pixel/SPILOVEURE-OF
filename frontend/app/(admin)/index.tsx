@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Alert, FlatList, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity,
+  Alert, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -48,6 +48,30 @@ export default function AdminHome() {
   // Sub-tab filters for activations / withdrawals
   const [actFilter, setActFilter] = useState<"pending" | "validated" | "rejected">("pending");
   const [wdFilter, setWdFilter] = useState<"pending" | "validated" | "rejected">("pending");
+
+  // Transaction history modal (opened from a withdrawal row).
+  const [historyUser, setHistoryUser] = useState<{ id: string; username: string } | null>(null);
+  const [historyTx, setHistoryTx] = useState<any[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const openUserHistory = useCallback(async (userId: string, username: string) => {
+    setHistoryUser({ id: userId, username });
+    setHistoryTx(null);
+    setHistoryLoading(true);
+    try {
+      const tx = await api.get<any[]>(`/admin/users/${userId}/transactions`);
+      setHistoryTx(tx || []);
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Impossible de charger l'historique."}`);
+      setHistoryTx([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+  const closeUserHistory = useCallback(() => {
+    setHistoryUser(null);
+    setHistoryTx(null);
+    setHistoryLoading(false);
+  }, []);
 
   // Manual payment settings
   const [mpEnabled, setMpEnabled] = useState(false);  const [mpTitle, setMpTitle] = useState("Paiement manuel");
@@ -861,18 +885,28 @@ export default function AdminHome() {
                   {w.decided_at && !w.validated_at && !w.rejected_at ? <KvRow k="Traité le" v={formatDateTime(w.decided_at)} /> : null}
                   {w.reject_reason ? <KvRow k="Motif de rejet" v={w.reject_reason} /> : null}
                 </View>
-                {w.status === "pending" && (
-                  <View style={styles.actRow}>
-                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`))} testID={`admin-validate-wd-${w.id}`}>
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                      <Text style={styles.actT}>Valider</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`))} testID={`admin-reject-wd-${w.id}`}>
-                      <Ionicons name="close" size={14} color="#fff" />
-                      <Text style={styles.actT}>Rejeter</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={styles.actRow}>
+                  <TouchableOpacity
+                    style={[styles.actBtn, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => openUserHistory(w.user_id, w.username || "—")}
+                    testID={`admin-history-wd-${w.id}`}
+                  >
+                    <Ionicons name="time" size={14} color="#fff" />
+                    <Text style={styles.actT}>📜 Historique</Text>
+                  </TouchableOpacity>
+                  {w.status === "pending" && (
+                    <>
+                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`))} testID={`admin-validate-wd-${w.id}`}>
+                        <Ionicons name="checkmark" size={14} color="#fff" />
+                        <Text style={styles.actT}>Valider</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`))} testID={`admin-reject-wd-${w.id}`}>
+                        <Ionicons name="close" size={14} color="#fff" />
+                        <Text style={styles.actT}>Rejeter</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
               </Card>
               );
               });
@@ -1518,6 +1552,61 @@ export default function AdminHome() {
           </>
         )}
       </ScrollView>
+
+      {/* Transaction history modal — opened from the withdrawals list. */}
+      <Modal
+        visible={historyUser !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeUserHistory}
+      >
+        <View style={styles.historyOverlay}>
+          <View style={styles.historyCard} testID="admin-wd-history-modal">
+            <View style={styles.historyHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.historyTitle}>📜 Historique — @{historyUser?.username}</Text>
+                <Text style={styles.historySub}>
+                  {historyLoading
+                    ? "Chargement…"
+                    : `${(historyTx || []).length} transaction${(historyTx || []).length > 1 ? "s" : ""}`}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={closeUserHistory} style={styles.historyClose} testID="admin-wd-history-close">
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 500 }} contentContainerStyle={{ padding: 12 }}>
+              {historyLoading ? (
+                <Text style={styles.historyEmpty}>Chargement en cours…</Text>
+              ) : (historyTx || []).length === 0 ? (
+                <Text style={styles.historyEmpty}>Aucune transaction pour cet utilisateur.</Text>
+              ) : (
+                (historyTx || []).map((t: any, idx: number) => (
+                  <View key={idx} style={styles.historyRow} testID={`admin-wd-history-row-${idx}`}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyRowLabel}>{t.label || t.type}</Text>
+                      <Text style={styles.historyRowMeta}>
+                        {formatDateTime(t.date)}
+                        {t.status ? ` • ${t.status}` : ""}
+                        {t.from_username ? ` • de @${t.from_username}` : ""}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.historyRowAmount,
+                        { color: (t.amount || 0) >= 0 ? theme.colors.success : theme.colors.danger },
+                      ]}
+                    >
+                      {(t.amount || 0) >= 0 ? "+ " : ""}
+                      {formatFCFA(t.amount || 0)}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1716,6 +1805,42 @@ const styles = StyleSheet.create({
   },
   contentMgmtTitle: { color: "#fff", fontWeight: "800", fontSize: 15 },
   contentMgmtSub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
+
+  historyOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+  },
+  historyCard: {
+    width: "100%",
+    maxWidth: 640,
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 12 },
+    elevation: 20,
+  },
+  historyHead: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 14, backgroundColor: theme.colors.primary,
+  },
+  historyTitle: { color: "#fff", fontWeight: "900", fontSize: 15 },
+  historySub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
+  historyClose: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  historyEmpty: { color: theme.colors.textSecondary, textAlign: "center", padding: 20, fontStyle: "italic" },
+  historyRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  historyRowLabel: { fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary },
+  historyRowMeta: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
+  historyRowAmount: { fontSize: 13, fontWeight: "900" },
 });
 
 
