@@ -20,6 +20,45 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-08 (bis) — 🏆 Système de Challenge « 100 invitations directes »
+**Nouveau module** — `/app/backend/challenges.py` (~240 lignes) enregistré dans `server.py` (routers `challenges_public` + `challenges_admin`).
+
+**Modèle DB (collection `challenges`)** : `{id, name, target, reward_amount, reward_currency, start_at, end_at, active, created_at, updated_at}`.
+
+**Règle de comptage** (spec définitive) :
+- Une invitation compte SI ET SEULEMENT SI le filleul est un direct (`sponsor_id == me`) ET son `users.level_activated_at.1` ∈ [start_at, end_at].
+- Cas 1 (inscrit avant, activé dans la fenêtre) → compté ✅
+- Cas 2 (inscrit et activé dans la fenêtre) → compté ✅
+- Cas 3 (déjà activé avant start_at) → EXCLU ❌
+- Cas 4 (pending/jamais activé) → EXCLU ❌
+
+**Endpoints** :
+- `GET /api/challenges/current` (user) : renvoie le challenge actif + ma progression + `completed` bool.
+- `POST /api/admin/challenges` : crée un challenge. Un seul actif à la fois (les autres sont automatiquement désactivés).
+- `PUT /api/admin/challenges/{id}` : modifie (nom, dates, target, récompense, active). Refuse `end ≤ start` (HTTP 400). Bug fix appliqué par l'agent de test : normalisation tz-aware avant comparaison (Motor renvoie tz-naive de Mongo).
+- `DELETE /api/admin/challenges/{id}` : supprime.
+- `GET /api/admin/challenges/{id}/participants` : agrégation Mongo → liste des participants avec `progress/target/completed`, + `winners_count`.
+
+**Récompense** : JAMAIS créditée automatiquement. Quand `progress >= target`, un badge "Objectif atteint" s'affiche sur le dashboard user avec un bouton "Contacter" qui ouvre le lien WhatsApp/Telegram du support (fallback : alerte). L'admin vérifie manuellement avant paiement.
+
+**Frontend user** — `/app/frontend/app/(app)/dashboard.tsx` :
+- Composant `ChallengeCard` inséré juste après la carte de solde (jaune trophée `#F59E0B`).
+- Affiche : nom, objectif, récompense, temps restant (compte à rebours live tous les 1s via `setInterval`), barre de progression, ratio `X/Y`.
+- Si `completed` → badge vert "🎉 Objectif atteint" + bouton "Contacter".
+- data-testids : `dashboard-challenge-card`, `dashboard-challenge-countdown`, `dashboard-challenge-progress`, `dashboard-challenge-completed`, `dashboard-challenge-contact`.
+
+**Frontend admin** — `/app/frontend/app/(admin)/index.tsx` :
+- Nouvel onglet "🏆 Challenges" dans la barre de navigation.
+- Formulaire création (nom, objectif, récompense, devise, dates début/fin, toggle actif).
+- Liste des challenges avec badge ACTIF/INACTIF et 3 actions par ligne : Participants (modale liste), Activer/Désactiver, Supprimer.
+- data-testids : `chg-create`, `chg-name`, `chg-target`, `chg-reward`, `chg-currency`, `chg-start`, `chg-end`, `chg-active-toggle`, `chg-item-{id}`, `chg-participants-{id}`, `chg-toggle-{id}`, `chg-delete-{id}`, `admin-chg-participants-modal`.
+
+**Tests** :
+- `/app/backend/tests/test_challenges.py` (4 tests unitaires, tous verts).
+- `/app/backend/tests/test_challenges_http.py` (9 tests HTTP intégration créés par le testing agent, 9/9 verts).
+- Testing agent validation : 100% backend + 100% frontend (admin CRUD + user card + participants modale).
+
+
 ### 2026-07-08 — 📜 Bouton « Historique » dans la gestion des retraits (Admin)
 **Objectif** : permettre à l'admin de consulter instantanément l'historique complet d'un utilisateur avant de valider ou de rejeter sa demande de retrait, sans quitter la page.
 
