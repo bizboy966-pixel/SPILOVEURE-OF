@@ -388,20 +388,25 @@ async def my_activations(request: Request, user=Depends(get_current_user)):
 @api.get("/matrix/tree")
 async def matrix_tree(request: Request, level: int = 1, user=Depends(get_current_user)):
     db = request.app.state.db
-    # BFS down 4 layers under user
+    # BFS down 4 layers under user — batched user lookups (avoids N+1).
     layers = []
     current = [user["id"]]
     for depth in range(4):
         children_layer = []
-        for parent in current:
+        if current:
             kids = await db.matrix_placements.find(
-                {"level": level, "parent_id": parent}, {"_id": 0}
-            ).to_list(20)
-            for k in kids:
-                u = await db.users.find_one(
-                    {"id": k["user_id"]},
+                {"level": level, "parent_id": {"$in": current}}, {"_id": 0}
+            ).to_list(20 * len(current))
+            uids = [k["user_id"] for k in kids]
+            users_by_id: dict[str, dict] = {}
+            if uids:
+                async for u in db.users.find(
+                    {"id": {"$in": uids}},
                     {"_id": 0, "username": 1, "max_level": 1, "status": 1, "created_at": 1, "id": 1},
-                )
+                ):
+                    users_by_id[u["id"]] = u
+            for k in kids:
+                u = users_by_id.get(k["user_id"])
                 if u:
                     k["user"] = u
                 children_layer.append(k)
@@ -421,21 +426,23 @@ async def team_details(
     user=Depends(get_current_user),
 ):
     db = request.app.state.db
-    # All descendants at given level
-    queue = [user["id"]]
-    visited = set([user["id"]])
-    member_ids = []
-    while queue:
-        u = queue.pop(0)
-        kids = await db.matrix_placements.find(
-            {"level": level, "parent_id": u}, {"_id": 0, "user_id": 1}
-        ).to_list(2000)
-        for k in kids:
-            uid = k["user_id"]
-            if uid not in visited:
-                visited.add(uid)
-                member_ids.append(uid)
-                queue.append(uid)
+    # BFS all descendants at given level — batched per depth (avoids N+1).
+    frontier = [user["id"]]
+    visited = {user["id"]}
+    member_ids: list[str] = []
+    while frontier:
+        rows = await db.matrix_placements.find(
+            {"level": level, "parent_id": {"$in": frontier}}, {"_id": 0, "user_id": 1}
+        ).to_list(2000 * len(frontier))
+        next_frontier: list[str] = []
+        for r in rows:
+            uid = r["user_id"]
+            if uid in visited:
+                continue
+            visited.add(uid)
+            member_ids.append(uid)
+            next_frontier.append(uid)
+        frontier = next_frontier
     if not member_ids:
         return []
     q = {"id": {"$in": member_ids}}
@@ -462,22 +469,46 @@ async def team_tree(request: Request, max_depth: int = 4, user=Depends(get_curre
     """
     db = request.app.state.db
 
-    async def build(node_id: str, depth: int) -> Optional[dict]:
+    # Pre-fetch ALL placements & users in the sub-tree via BFS to avoid N+1.
+    placements_by_parent: dict[str, list[dict]] = {}
+    frontier = [user["id"]]
+    all_user_ids: set[str] = set()
+    for _ in range(max_depth):
+        if not frontier:
+            break
+        rows = await db.matrix_placements.find(
+            {"level": 1, "parent_id": {"$in": frontier}},
+            {"_id": 0, "parent_id": 1, "user_id": 1, "leg": 1, "is_spillover": 1},
+        ).to_list(4 * len(frontier))
+        next_frontier: list[str] = []
+        for r in rows:
+            placements_by_parent.setdefault(r["parent_id"], []).append(r)
+            uid = r["user_id"]
+            if uid not in all_user_ids:
+                all_user_ids.add(uid)
+                next_frontier.append(uid)
+        frontier = next_frontier
+
+    users_by_id: dict[str, dict] = {}
+    if all_user_ids:
+        async for u in db.users.find(
+            {"id": {"$in": list(all_user_ids)}},
+            {"_id": 0, "id": 1, "username": 1, "status": 1, "max_level": 1, "created_at": 1},
+        ):
+            users_by_id[u["id"]] = u
+
+    def build(node_id: str, depth: int) -> Optional[dict]:
         if depth > max_depth:
             return None
-        kids = await db.matrix_placements.find(
-            {"level": 1, "parent_id": node_id}, {"_id": 0, "user_id": 1, "leg": 1, "is_spillover": 1},
-        ).to_list(2)
-        children = {}
+        kids = placements_by_parent.get(node_id, [])
+        children: dict = {}
         for k in kids:
-            child_doc = await db.users.find_one(
-                {"id": k["user_id"]},
-                {"_id": 0, "id": 1, "username": 1, "status": 1, "max_level": 1, "created_at": 1},
-            )
+            child_doc = users_by_id.get(k["user_id"])
             if not child_doc:
                 continue
+            child_doc = dict(child_doc)
             child_doc["is_spillover"] = bool(k.get("is_spillover"))
-            child_doc["children"] = await build(k["user_id"], depth + 1)
+            child_doc["children"] = build(k["user_id"], depth + 1)
             children[k.get("leg") or "left"] = child_doc
         return children if children else None
 
@@ -485,7 +516,7 @@ async def team_tree(request: Request, max_depth: int = 4, user=Depends(get_curre
         "id": user["id"], "username": user.get("username"),
         "status": user.get("status"), "max_level": user.get("max_level"),
         "is_spillover": False, "is_self": True,
-        "children": await build(user["id"], 1),
+        "children": build(user["id"], 1),
     }
     return root_user
 
