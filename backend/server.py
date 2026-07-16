@@ -3228,6 +3228,11 @@ from lottery import public as lottery_public, admin as lottery_admin  # noqa: E4
 app.include_router(lottery_public)
 app.include_router(lottery_admin)
 
+# Challenge (100 invites) module — no auto-payout, admin-managed.
+from challenges import public as challenges_public, admin as challenges_admin  # noqa: E402
+app.include_router(challenges_public)
+app.include_router(challenges_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

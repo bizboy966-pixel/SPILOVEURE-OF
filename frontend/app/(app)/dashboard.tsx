@@ -20,6 +20,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [missionWallets, setMissionWallets] = useState<any>({ wallets: [], total: 0 });
+  const [challenge, setChallenge] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -37,6 +38,10 @@ export default function Dashboard() {
       try {
         const mw = await api.get<any>("/me/mission-wallets");
         setMissionWallets(mw);
+      } catch {}
+      try {
+        const ch = await api.get<any>("/challenges/current");
+        setChallenge(ch);
       } catch {}
     } catch (e: any) {
       console.log("dashboard error", e);
@@ -146,6 +151,32 @@ export default function Dashboard() {
             </View>
           </LinearGradient>
         </TouchableOpacity>
+
+        {/* 🏆 Active Challenge — 100 direct invites campaign */}
+        {challenge?.challenge ? (
+          <ChallengeCard
+            data={challenge}
+            onContactSupport={async () => {
+              try {
+                const sup = await api.get<any>("/settings/support", { auth: false } as any);
+                const url = sup?.whatsapp_url || sup?.telegram_url;
+                if (url && typeof window !== "undefined") {
+                  window.open(url, "_blank");
+                } else {
+                  Alert.alert(
+                    "Contactez le service client",
+                    "Utilisez le bouton flottant 💬 en bas à droite pour joindre notre équipe."
+                  );
+                }
+              } catch {
+                Alert.alert(
+                  "Contactez le service client",
+                  "Utilisez le bouton flottant 💬 en bas à droite pour joindre notre équipe."
+                );
+              }
+            }}
+          />
+        ) : null}
 
         {/* Profit Total + Retrait Total — lifetime stats */}
         <View style={styles.statsRow}>
@@ -380,4 +411,122 @@ const styles = StyleSheet.create({
     alignItems: "center", gap: 6, ...theme.shadow.card,
   },
   quickLabel: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 12 },
+
+  chCard: {
+    marginTop: 12, borderRadius: 16, padding: 16, overflow: "hidden",
+    backgroundColor: "#F59E0B",
+  },
+  chHeadRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  chIconBox: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center",
+  },
+  chTitle: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  chSubtitle: { color: "rgba(255,255,255,0.9)", fontSize: 11, marginTop: 2 },
+  chStatsRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+  chStatBox: {
+    flex: 1, backgroundColor: "rgba(255,255,255,0.15)", padding: 8, borderRadius: 10,
+  },
+  chStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "700" },
+  chStatValue: { color: "#fff", fontSize: 16, fontWeight: "900", marginTop: 2 },
+  chProgressTrack: {
+    height: 10, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 5,
+    marginTop: 10, overflow: "hidden",
+  },
+  chProgressFill: { height: 10, backgroundColor: "#fff", borderRadius: 5 },
+  chProgressText: { color: "#fff", fontWeight: "800", fontSize: 12, marginTop: 6, textAlign: "right" },
+  chBadgeWin: {
+    marginTop: 10, backgroundColor: "#065F46", padding: 10, borderRadius: 10,
+    flexDirection: "row", alignItems: "center", gap: 8,
+  },
+  chBadgeWinText: { color: "#D1FAE5", fontSize: 12, fontWeight: "800", flex: 1 },
+  chBadgeWinBtn: {
+    backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+  },
+  chBadgeWinBtnText: { color: "#065F46", fontWeight: "900", fontSize: 12 },
 });
+
+// ============================================================
+// Challenge card (100 direct invites campaign) — dashboard.
+// ============================================================
+function ChallengeCard({
+  data,
+  onContactSupport,
+}: {
+  data: { challenge: any; progress: number; completed: boolean };
+  onContactSupport: () => void;
+}) {
+  const { challenge, progress, completed } = data;
+  const target: number = challenge.target || 100;
+  const percent = Math.max(0, Math.min(100, (progress / target) * 100));
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const endMs = new Date(challenge.end_at).getTime();
+  const remaining = Math.max(0, endMs - now);
+  const remainingLabel = formatCountdown(remaining);
+
+  return (
+    <View style={styles.chCard} testID="dashboard-challenge-card">
+      <View style={styles.chHeadRow}>
+        <View style={styles.chIconBox}>
+          <Ionicons name="trophy" size={22} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.chTitle}>🏆 {challenge.name}</Text>
+          <Text style={styles.chSubtitle}>
+            Objectif : {target} invitations directes actives
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.chStatsRow}>
+        <View style={styles.chStatBox}>
+          <Text style={styles.chStatLabel}>🎁 Récompense</Text>
+          <Text style={styles.chStatValue}>
+            {formatFCFA(challenge.reward_amount)}
+          </Text>
+        </View>
+        <View style={styles.chStatBox}>
+          <Text style={styles.chStatLabel}>⏳ Temps restant</Text>
+          <Text style={styles.chStatValue} testID="dashboard-challenge-countdown">
+            {remainingLabel}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.chProgressTrack}>
+        <View style={[styles.chProgressFill, { width: `${percent}%` }]} />
+      </View>
+      <Text style={styles.chProgressText} testID="dashboard-challenge-progress">
+        {progress} / {target}
+      </Text>
+
+      {completed ? (
+        <View style={styles.chBadgeWin} testID="dashboard-challenge-completed">
+          <Ionicons name="checkmark-circle" size={20} color="#D1FAE5" />
+          <Text style={styles.chBadgeWinText}>
+            🎉 Objectif atteint ! Contactez le service client pour récupérer votre récompense.
+          </Text>
+          <TouchableOpacity onPress={onContactSupport} style={styles.chBadgeWinBtn} testID="dashboard-challenge-contact">
+            <Text style={styles.chBadgeWinBtnText}>Contacter</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "Terminé";
+  const totalSec = Math.floor(ms / 1000);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (d > 0) return `${d}j ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
+}

@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -35,6 +35,28 @@ export default function AdminHome() {
   const [wdQ, setWdQ] = useState("");
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [channels, setChannels] = useState<any[]>([]);
+  const [challenges, setChallenges] = useState<any[]>([]);
+  // Challenge form state (create only — edits go through inline actions).
+  const [chgName, setChgName] = useState("");
+  const [chgTarget, setChgTarget] = useState("100");
+  const [chgReward, setChgReward] = useState("30000");
+  const [chgCurrency, setChgCurrency] = useState("FCFA");
+  const [chgStart, setChgStart] = useState("");
+  const [chgEnd, setChgEnd] = useState("");
+  const [chgActive, setChgActive] = useState(true);
+  const [chgParticipants, setChgParticipants] = useState<{ challenge: any; participants: any[]; winners_count: number } | null>(null);
+  const [chgParticipantsLoading, setChgParticipantsLoading] = useState(false);
+  const openChallengeParticipants = useCallback(async (challengeId: string) => {
+    setChgParticipantsLoading(true);
+    try {
+      const r = await api.get<any>(`/admin/challenges/${challengeId}/participants`);
+      setChgParticipants(r);
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Impossible de charger les participants."}`);
+    } finally {
+      setChgParticipantsLoading(false);
+    }
+  }, []);
 
   // New announcement / channel forms
   const [annTitle, setAnnTitle] = useState("");
@@ -145,6 +167,10 @@ export default function AdminHome() {
       if (tab === "withdrawals") setWithdrawals(await api.get("/admin/withdrawals"));
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
+      if (tab === "challenges") {
+        const r = await api.get<any>("/admin/challenges");
+        setChallenges(r?.items || []);
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -245,6 +271,7 @@ export default function AdminHome() {
     { key: "users", label: "Utilisateurs", icon: "people" },
     { key: "activations", label: "Activations", icon: "checkmark-circle" },
     { key: "withdrawals", label: "Retraits", icon: "cash" },
+    { key: "challenges", label: "Challenges", icon: "trophy" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -990,6 +1017,127 @@ export default function AdminHome() {
           </>
         )}
 
+        {tab === "challenges" && (
+          <>
+            <Card>
+              <Text style={styles.section}>🏆 Nouveau challenge</Text>
+              <Input label="Nom du challenge" value={chgName} onChangeText={setChgName} testID="chg-name" />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input label="Objectif (nb invit.)" value={chgTarget} onChangeText={setChgTarget} keyboardType="numeric" testID="chg-target" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input label="Récompense" value={chgReward} onChangeText={setChgReward} keyboardType="numeric" testID="chg-reward" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input label="Devise" value={chgCurrency} onChangeText={setChgCurrency} testID="chg-currency" />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input label="Début (YYYY-MM-DD HH:mm)" value={chgStart} onChangeText={setChgStart} placeholder="2026-07-20 00:00" testID="chg-start" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input label="Fin (YYYY-MM-DD HH:mm)" value={chgEnd} onChangeText={setChgEnd} placeholder="2026-08-31 23:59" testID="chg-end" />
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setChgActive(!chgActive)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}
+                testID="chg-active-toggle"
+              >
+                <Ionicons
+                  name={chgActive ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={chgActive ? theme.colors.success : theme.colors.textSecondary}
+                />
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: "700" }}>
+                  Activer immédiatement (désactive les autres challenges actifs)
+                </Text>
+              </TouchableOpacity>
+              <Button
+                title="Créer le challenge"
+                onPress={() => action(async () => {
+                  const toIso = (s: string) => {
+                    // Accept "YYYY-MM-DD HH:mm" or "YYYY-MM-DDTHH:mm[:ss]"
+                    const cleaned = s.trim().replace(" ", "T");
+                    return new Date(cleaned).toISOString();
+                  };
+                  await api.post("/admin/challenges", {
+                    name: chgName.trim(),
+                    target: Number(chgTarget) || 100,
+                    reward_amount: Number(chgReward) || 0,
+                    reward_currency: chgCurrency.trim() || "FCFA",
+                    start_at: toIso(chgStart),
+                    end_at: toIso(chgEnd),
+                    active: chgActive,
+                  });
+                  setChgName(""); setChgStart(""); setChgEnd("");
+                })}
+                testID="chg-create"
+              />
+            </Card>
+
+            <View style={{ height: 12 }} />
+
+            {challenges.length === 0 ? (
+              <Card><Text style={styles.empty}>Aucun challenge créé pour l'instant.</Text></Card>
+            ) : challenges.map((c) => (
+              <Card key={c.id} style={{ marginBottom: 8 }} testID={`chg-item-${c.id}`}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.userName}>🏆 {c.name}</Text>
+                    <Text style={styles.userMeta}>
+                      Objectif : {c.target} • Récompense : {formatFCFA(c.reward_amount)}
+                    </Text>
+                  </View>
+                  <View style={{
+                    backgroundColor: c.active ? theme.colors.success : theme.colors.textSecondary,
+                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+                  }}>
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 10 }}>{c.active ? "ACTIF" : "INACTIF"}</Text>
+                  </View>
+                </View>
+                <View style={styles.kvBox}>
+                  <KvRow k="Début" v={formatDateTime(c.start_at)} />
+                  <KvRow k="Fin" v={formatDateTime(c.end_at)} />
+                </View>
+                <View style={styles.actRow}>
+                  <TouchableOpacity
+                    style={[styles.actBtn, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => openChallengeParticipants(c.id)}
+                    testID={`chg-participants-${c.id}`}
+                  >
+                    <Ionicons name="people" size={14} color="#fff" />
+                    <Text style={styles.actT}>Participants</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actBtn, { backgroundColor: c.active ? theme.colors.warning : theme.colors.success }]}
+                    onPress={() => action(async () => {
+                      await api.put(`/admin/challenges/${c.id}`, { active: !c.active });
+                    })}
+                    testID={`chg-toggle-${c.id}`}
+                  >
+                    <Ionicons name={c.active ? "pause" : "play"} size={14} color="#fff" />
+                    <Text style={styles.actT}>{c.active ? "Désactiver" : "Activer"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actBtn}
+                    onPress={() => action(async () => {
+                      if (typeof window !== "undefined" && !window.confirm(`Supprimer "${c.name}" ?`)) return;
+                      await api.delete(`/admin/challenges/${c.id}`);
+                    })}
+                    testID={`chg-delete-${c.id}`}
+                  >
+                    <Ionicons name="trash" size={14} color="#fff" />
+                    <Text style={styles.actT}>Supprimer</Text>
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            ))}
+          </>
+        )}
+
         {tab === "payment" && (
           <>
             <PaymentGatewaysCard />
@@ -1552,6 +1700,55 @@ export default function AdminHome() {
           </>
         )}
       </ScrollView>
+
+      {/* Challenge participants modal — opened from the challenges list. */}
+      <Modal
+        visible={chgParticipants !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChgParticipants(null)}
+      >
+        <View style={styles.historyOverlay}>
+          <View style={styles.historyCard} testID="admin-chg-participants-modal">
+            <View style={styles.historyHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.historyTitle}>🏆 Participants — {chgParticipants?.challenge?.name}</Text>
+                <Text style={styles.historySub}>
+                  {chgParticipantsLoading
+                    ? "Chargement…"
+                    : `${(chgParticipants?.participants || []).length} participant${(chgParticipants?.participants || []).length > 1 ? "s" : ""} • ${chgParticipants?.winners_count || 0} 🎉 gagnant${(chgParticipants?.winners_count || 0) > 1 ? "s" : ""}`}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setChgParticipants(null)} style={styles.historyClose} testID="admin-chg-participants-close">
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 500 }} contentContainerStyle={{ padding: 12 }}>
+              {chgParticipantsLoading ? (
+                <Text style={styles.historyEmpty}>Chargement en cours…</Text>
+              ) : (chgParticipants?.participants || []).length === 0 ? (
+                <Text style={styles.historyEmpty}>Aucun participant ayant validé une invitation pour l'instant.</Text>
+              ) : (
+                (chgParticipants?.participants || []).map((p: any, idx: number) => (
+                  <View key={p.user_id} style={styles.historyRow} testID={`admin-chg-part-${p.user_id}`}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyRowLabel}>
+                        {p.completed ? "🎉 " : ""}@{p.username}
+                      </Text>
+                      <Text style={styles.historyRowMeta}>
+                        {p.country || "—"}{p.phone ? ` • ${p.phone}` : ""}
+                      </Text>
+                    </View>
+                    <Text style={[styles.historyRowAmount, { color: p.completed ? theme.colors.success : theme.colors.textPrimary }]}>
+                      {p.progress} / {p.target}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Transaction history modal — opened from the withdrawals list. */}
       <Modal

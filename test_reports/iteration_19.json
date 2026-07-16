@@ -1,0 +1,42 @@
+{
+  "summary": "Full end-to-end validation of the Challenge 100-invites feature (backend CRUD, counting rules, single-active enforcement, no-auto-credit, admin UI, dashboard user card). 9/9 pytest cases pass against the preview URL. Frontend admin panel and user dashboard both render correctly with all expected data-testids. Fixed ONE real backend bug: PUT /api/admin/challenges/{id} was returning HTTP 500 (TypeError comparing tz-naive/tz-aware datetimes) instead of HTTP 400 when end_at was set before start_at.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/admin/challenges/{id}", "issue": "FIXED. Motor returned tz-naive datetimes from Mongo, comparison against tz-aware new datetime raised TypeError → 500 instead of 400 when end<=start. Added defensive tz-normalization in challenges.py update_challenge()."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_challenges_http.py",
+    "/app/test_reports/pytest/challenges_iter19.xml"
+  ],
+  "action_items": [
+    "None. All spec items validated. The tz-naive bug fix (challenges.py L169-176) is safe and idempotent; no further action needed."
+  ],
+  "critical_code_review_comments": [
+    "challenges.py — _count_progress() uses `sponsor_id == user_id` which is the correct direct-referral definition per the MLM binary matrix spec. Progress rule verified via synthetic data (Cas 1 counts, Cas 2 counts, Cas 3 excluded, Cas 4 pending excluded).",
+    "challenges.py — Only-one-active is enforced BOTH at create (line 124) and at update-to-active (line 164). Verified end-to-end.",
+    "challenges.py — Original `if end <= start` (line 171 before fix) was comparing existing['start_at']/['end_at'] (tz-naive from Motor default codec_options) with data.end_at.astimezone(timezone.utc) (tz-aware). Same problem could occur in create_challenge if Pydantic ever returned a naive datetime, but ChallengeCreate calls astimezone() so it's safe there.",
+    "challenges.py — No commission/reward crediting logic exists anywhere in the module; the target-reached path only flips a client-side `completed` flag. Verified balance_profit is untouched when target is reached.",
+    "challenges.py — challenge_participants() correctly filters sponsor_id != None (line 202), so the seed 'outsider' scenario is excluded. Aggregation is efficient (single pipeline + per-sponsor lookup).",
+    "frontend/(admin)/index.tsx — All required data-testids present: chg-create, chg-name, chg-target, chg-reward, chg-currency, chg-start, chg-end, chg-active-toggle, chg-item-{id}, chg-participants-{id}, chg-toggle-{id}, chg-delete-{id}, admin-chg-participants-modal.",
+    "frontend/(app)/dashboard.tsx — Challenge card is rendered directly after the balance card (verified visually at y=307 right below the balance card at ~y=185). data-testids dashboard-challenge-card, dashboard-challenge-countdown, dashboard-challenge-progress, dashboard-challenge-completed, dashboard-challenge-contact all present.",
+    "Countdown format `168j 23h 9m` (jours/heures/minutes) is displayed correctly."
+  ],
+  "updated_files": [
+    "/app/backend/challenges.py (tz-normalization fix in update_challenge, lines 169-176)",
+    "/app/backend/tests/test_challenges_http.py (new — 9 HTTP integration tests)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all testids + card position + admin CRUD + participants modal verified)"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Login payload: {email, password} on /api/auth/login.",
+  "seed_data_creation": "Test creates 4 synthetic users (TEST_cas1..cas4) as direct referrals of admin to validate progress counting rules. All are cleaned up via cleanup_users fixture. TEST_ challenges are cleaned via cleanup_challenges fixture + belt-and-suspenders db.challenges.delete_many({name:/^TEST_/}). Final DB state verified: 1 active challenge ('Challenge 100 invites'), 0 TEST_ leftovers.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Feature is production-ready. Regression suite: /app/backend/tests/test_challenges_http.py (9 tests, ~3s). Preview URL server time is 2026-07-16, so the seed challenge (2026-06-01 → 2026-12-31) is currently active. If seed loses its active flag, run: db.challenges.updateOne({name:'Challenge 100 invites'},{\\$set:{active:true}}). Admin has 12 direct referrals but 0 activated → seed progress correctly = 0. To simulate progress, directly set users.level_activated_at.1 = <ISODate inside window>.",
+  "rca_of_the_issue": "PUT /api/admin/challenges/{id} bug: Motor's default codec returns Mongo BSON datetimes as tz-naive Python datetimes. The pre-existing challenge['start_at'] fetched from DB was tz-naive, while the request's data.end_at.astimezone(timezone.utc) is tz-aware. Python raises TypeError on `naive <= aware` comparisons, which propagated as HTTP 500. Fix: normalize both `start` and `end` to tz-aware (UTC) before comparison in update_challenge(). No data change required — existing DB documents remain valid."
+}
