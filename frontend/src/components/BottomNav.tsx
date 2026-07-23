@@ -26,7 +26,7 @@ const LEFT: Item[] = [
 
 const RIGHT: Item[] = [
   { key: "jobs", icon: "briefcase", label: "Emploi" },
-  { key: "services", icon: "laptop", label: "Services num.", route: "/(app)/services" },
+  { key: "services", icon: "laptop", label: "Services", route: "/(app)/services" },
   { key: "more", icon: "menu", label: "Plus" },
 ];
 
@@ -38,7 +38,7 @@ const PLUS_MENU: Item[] = [
   { key: "jobs", icon: "briefcase", label: "Offres d'emploi" },
   { key: "devis", icon: "document-text", label: "Devis" },
   { key: "coupons", icon: "ticket", label: "Coupons & Promotions" },
-  { key: "services", icon: "laptop", label: "Services numériques", route: "/(app)/services" },
+  { key: "services", icon: "laptop", label: "Services", route: "/(app)/services" },
 ];
 
 export const BottomNav: React.FC = () => {
