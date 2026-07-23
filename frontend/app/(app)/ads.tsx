@@ -23,6 +23,7 @@ type Ad = {
   cover_image_url: string;
   video_url: string;
   description: string;
+  media_type?: "video" | "poster";
   views_count: number;
   shares_count: number;
   likes: string[];
@@ -80,7 +81,8 @@ export default function AdsScreen() {
 
   const renderAd = ({ item }: { item: Ad }) => {
     const isExpanded = expandedId === item.id;
-    const videoSrc = item.video_url.startsWith("http") ? item.video_url : `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${item.video_url}`;
+    const isPoster = item.media_type === "poster";
+    const videoSrc = item.video_url && !item.video_url.startsWith("http") ? `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${item.video_url}` : item.video_url;
     const coverSrc = item.cover_image_url.startsWith("http") ? item.cover_image_url : `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${item.cover_image_url}`;
     return (
       <View style={styles.card} testID={`ad-card-${item.id}`}>
@@ -90,8 +92,14 @@ export default function AdsScreen() {
           </View>
           <Text style={styles.username}>@{item.username}</Text>
         </View>
-        {/* Video player (web = HTML5 <video>) */}
-        {typeof window !== "undefined" ? (
+        {isPoster ? (
+          <Image
+            source={{ uri: coverSrc }}
+            style={styles.cover}
+            resizeMode="contain"
+            onLoad={() => onView(item.id)}
+          />
+        ) : typeof window !== "undefined" ? (
           // @ts-ignore RN Web renders HTML tags
           <video
             src={videoSrc}
@@ -221,7 +229,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   username: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
-  cover: { width: "100%", height: 220, backgroundColor: "#000" },
+  cover: { width: "100%", height: 320, backgroundColor: "#000" },
   desc: { padding: 10, color: theme.colors.textPrimary, fontSize: 13 },
   actionsRow: {
     flexDirection: "row", gap: 16, paddingHorizontal: 10, paddingBottom: 10,

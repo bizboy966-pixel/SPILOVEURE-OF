@@ -34,6 +34,7 @@ export default function AdvertisingScreen() {
 
   const onPress = (key: string) => {
     if (key === "video") { router.push("/(app)/ad-create" as any); return; }
+    if (key === "poster") { router.push("/(app)/ad-create?type=poster" as any); return; }
     soon();
   };
 
@@ -63,7 +64,7 @@ export default function AdvertisingScreen() {
               <Text style={styles.cardTitle}>{o.title}</Text>
               <Text style={styles.cardSub}>{o.sub}</Text>
             </View>
-            {o.key === "video" ? (
+            {(o.key === "video" || o.key === "poster") ? (
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             ) : (
               <View style={styles.soonBadge}>

@@ -43,8 +43,9 @@ admin = APIRouter(prefix="/api/admin", tags=["ads_admin"], dependencies=[Depends
 # ---------- Models ----------
 class AdCreate(BaseModel):
     cover_image_url: str = Field(..., min_length=1)
-    video_url: str = Field(..., min_length=1)
+    video_url: Optional[str] = None
     description: str = Field(..., min_length=1, max_length=2000)
+    media_type: str = Field(default="video", pattern="^(video|poster)$")
 
 
 class AdAudience(BaseModel):
@@ -168,6 +169,7 @@ async def create_draft(data: AdCreate, request: Request, user=Depends(get_curren
         "cover_image_url": data.cover_image_url,
         "video_url": data.video_url,
         "description": data.description,
+        "media_type": data.media_type,
         # Targeting fields — filled at step 2.
         "target_countries": [],
         "target_age_min": None,
@@ -251,7 +253,8 @@ async def publish_ad(ad_id: str, request: Request, user=Depends(get_current_user
         raise HTTPException(400, "Publicité déjà soumise.")
     missing = []
     if not ad.get("cover_image_url"): missing.append("cover_image_url")
-    if not ad.get("video_url"): missing.append("video_url")
+    if ad.get("media_type", "video") == "video" and not ad.get("video_url"):
+        missing.append("video_url")
     if not ad.get("target_countries"): missing.append("target_countries")
     if not ad.get("duration_days"): missing.append("duration_days")
     if missing:

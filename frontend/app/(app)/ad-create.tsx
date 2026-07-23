@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api } from "../../src/api";
 
@@ -44,6 +44,8 @@ const COUNTRIES = [
 
 export default function AdCreateScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ type?: string }>();
+  const mediaType: "video" | "poster" = params.type === "poster" ? "poster" : "video";
   const [step, setStep] = useState<Step>(1);
   const [adId, setAdId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -85,7 +87,7 @@ export default function AdCreateScreen() {
   };
 
   const submitStep1 = async () => {
-    if (!coverUrl || !videoUrl || !description.trim()) {
+    if (!coverUrl || !description.trim() || (mediaType === "video" && !videoUrl)) {
       if (typeof window !== "undefined") window.alert("Veuillez remplir tous les champs.");
       return;
     }
@@ -93,8 +95,9 @@ export default function AdCreateScreen() {
     try {
       const r = await api.post<{ id: string }>("/ads", {
         cover_image_url: coverUrl,
-        video_url: videoUrl,
+        video_url: mediaType === "video" ? videoUrl : null,
         description: description.trim(),
+        media_type: mediaType,
       });
       setAdId(r.id);
       setStep(2);
@@ -162,7 +165,7 @@ export default function AdCreateScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="adcreate-back">
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>🎥 Nouvelle vidéo publicitaire</Text>
+        <Text style={styles.title}>{mediaType === "poster" ? "🖼 Nouvelle affiche publicitaire" : "🎥 Nouvelle vidéo publicitaire"}</Text>
       </View>
 
       <View style={styles.stepper}>
@@ -178,7 +181,7 @@ export default function AdCreateScreen() {
           <>
             <Text style={styles.section}>Informations de la publicité</Text>
 
-            <Text style={styles.label}>🖼 Image de couverture</Text>
+            <Text style={styles.label}>{mediaType === "poster" ? "🖼 Affiche publicitaire" : "🖼 Image de couverture"}</Text>
             {coverUrl ? (
               <Image source={{ uri: `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${coverUrl}` }} style={styles.preview} />
             ) : null}
@@ -189,29 +192,32 @@ export default function AdCreateScreen() {
               testID="adcreate-cover-btn"
             >
               <Ionicons name={coverUrl ? "checkmark-circle" : "image"} size={18} color="#fff" />
-              <Text style={styles.uploadT}>{uploadingCover ? "Envoi…" : coverUrl ? "Remplacer" : "Importer une image"}</Text>
+              <Text style={styles.uploadT}>{uploadingCover ? "Envoi…" : coverUrl ? "Remplacer" : (mediaType === "poster" ? "Importer l'affiche" : "Importer une image")}</Text>
             </TouchableOpacity>
             {/* @ts-ignore RN Web */}
             <input ref={coverInput} type="file" accept="image/*" style={{ display: "none" }}
               onChange={(e: any) => { const f = e.target.files?.[0]; if (f) uploadFile(f, "cover"); }} />
 
-            <Text style={styles.label}>🎥 Vidéo publicitaire</Text>
-            {videoUrl ? (
-              <Text style={styles.uploadInfo}>✅ Vidéo importée : {videoUrl.split("/").pop()}</Text>
-            ) : null}
-            <TouchableOpacity
-              style={[styles.uploadBtn, uploadingVideo && { opacity: 0.5 }]}
-              onPress={() => videoInput.current?.click()}
-              disabled={uploadingVideo}
-              testID="adcreate-video-btn"
-            >
-              <Ionicons name={videoUrl ? "checkmark-circle" : "videocam"} size={18} color="#fff" />
-              <Text style={styles.uploadT}>{uploadingVideo ? "Envoi…" : videoUrl ? "Remplacer" : "Importer une vidéo"}</Text>
-            </TouchableOpacity>
-            {/* @ts-ignore RN Web */}
-            <input ref={videoInput} type="file" accept="video/*" style={{ display: "none" }}
-              onChange={(e: any) => { const f = e.target.files?.[0]; if (f) uploadFile(f, "video"); }} />
-
+            {mediaType === "video" && (
+              <>
+                <Text style={styles.label}>🎥 Vidéo publicitaire</Text>
+                {videoUrl ? (
+                  <Text style={styles.uploadInfo}>✅ Vidéo importée : {videoUrl.split("/").pop()}</Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.uploadBtn, uploadingVideo && { opacity: 0.5 }]}
+                  onPress={() => videoInput.current?.click()}
+                  disabled={uploadingVideo}
+                  testID="adcreate-video-btn"
+                >
+                  <Ionicons name={videoUrl ? "checkmark-circle" : "videocam"} size={18} color="#fff" />
+                  <Text style={styles.uploadT}>{uploadingVideo ? "Envoi…" : videoUrl ? "Remplacer" : "Importer une vidéo"}</Text>
+                </TouchableOpacity>
+                {/* @ts-ignore RN Web */}
+                <input ref={videoInput} type="file" accept="video/*" style={{ display: "none" }}
+                  onChange={(e: any) => { const f = e.target.files?.[0]; if (f) uploadFile(f, "video"); }} />
+              </>
+            )}
             <Text style={styles.label}>📝 Description</Text>
             <TextInput
               style={styles.textarea}

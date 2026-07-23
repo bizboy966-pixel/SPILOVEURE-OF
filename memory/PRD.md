@@ -20,6 +20,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 (bis) — 🖼 Ajout du type « Affiche publicitaire »
+**Objectif** : réutiliser exactement le même flow que la vidéo publicitaire, mais sans le champ vidéo.
+
+**Backend** — `/app/backend/ads.py` :
+- Nouveau champ `media_type: "video" | "poster"` sur `AdCreate` (défaut = `video`).
+- `video_url` devient `Optional[str] = None`.
+- Validation `publish()` : si `media_type == "video"` on exige `video_url`, sinon on ne l'exige pas.
+
+**Frontend** — `/app/frontend/app/(app)/ad-create.tsx` :
+- Lit `type` depuis les query params via `useLocalSearchParams` → détermine `mediaType`.
+- Titre dynamique : « 🎥 Nouvelle vidéo publicitaire » ou « 🖼 Nouvelle affiche publicitaire ».
+- Le champ « Importer une vidéo » n'est rendu QUE si `mediaType === "video"`.
+- Le label du champ image devient « Affiche publicitaire » / « Importer l'affiche » en mode poster.
+- Étapes 2 (audience), 3 (durée + tarif) et 4 (paiement) restent strictement identiques.
+
+**Feed public** — `/app/frontend/app/(app)/ads.tsx` :
+- Si `media_type === "poster"` → rendu `<Image resizeMode="contain">` (hauteur 320) + trigger `onView` au chargement.
+- Sinon → HTML5 `<video>` player comme avant.
+
+**`advertising.tsx`** : l'option « Affiche publicitaire » route vers `/ad-create?type=poster` (au lieu de « Bientôt »).
+
+**Test e2e (curl)** : Draft poster (sans video_url) → Audience → Durée 3j → **Publish accepté** → Confirm payment → Admin approve → Feed public retourne `media_type=poster` ✅.
+
+
 ### 2026-07-24 — 📢 Module Publicités (vidéos) + tarification dynamique
 **Nouveau module** `/app/backend/ads.py` (~360 lignes) branché dans `server.py`. Collection `ads` + `ads_pricing` (singleton).
 
