@@ -34,11 +34,10 @@ const PLUS_MENU: Item[] = [
   { key: "jackpot", icon: "gift", label: "Jackpot 🎁", route: "/(app)/lottery" },
   { key: "support", icon: "headset", label: "Service client" },
   { key: "adv", icon: "megaphone", label: "Espace publicitaire", route: "/(app)/advertising" },
-  { key: "marketplace", icon: "cart", label: "Marketplace" },
-  { key: "jobs", icon: "briefcase", label: "Offres d'emploi" },
-  { key: "devis", icon: "document-text", label: "Devis" },
+  { key: "publish", icon: "create", label: "📝 Publier un article" },
+  { key: "request", icon: "construct", label: "🛠 Demande de service" },
   { key: "coupons", icon: "ticket", label: "Coupons & Promotions" },
-  { key: "services", icon: "laptop", label: "Services", route: "/(app)/services" },
+  { key: "services", icon: "laptop", label: "💻 Services numériques", route: "/(app)/services" },
 ];
 
 export const BottomNav: React.FC = () => {
