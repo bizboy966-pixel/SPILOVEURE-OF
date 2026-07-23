@@ -32,6 +32,11 @@ export default function AdvertisingScreen() {
     if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
   };
 
+  const onPress = (key: string) => {
+    if (key === "video") { router.push("/(app)/ad-create" as any); return; }
+    soon();
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -48,7 +53,7 @@ export default function AdvertisingScreen() {
           <TouchableOpacity
             key={o.key}
             style={styles.card}
-            onPress={soon}
+            onPress={() => onPress(o.key)}
             testID={`adv-option-${o.key}`}
           >
             <View style={styles.iconBox}>
@@ -58,9 +63,13 @@ export default function AdvertisingScreen() {
               <Text style={styles.cardTitle}>{o.title}</Text>
               <Text style={styles.cardSub}>{o.sub}</Text>
             </View>
-            <View style={styles.soonBadge}>
-              <Text style={styles.soonText}>Bientôt</Text>
-            </View>
+            {o.key === "video" ? (
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            ) : (
+              <View style={styles.soonBadge}>
+                <Text style={styles.soonText}>Bientôt</Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </ScrollView>

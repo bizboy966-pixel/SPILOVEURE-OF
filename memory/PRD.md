@@ -20,6 +20,43 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 — 📢 Module Publicités (vidéos) + tarification dynamique
+**Nouveau module** `/app/backend/ads.py` (~360 lignes) branché dans `server.py`. Collection `ads` + `ads_pricing` (singleton).
+
+**Flow utilisateur (wizard 4 étapes)** :
+1. **Infos** : upload image de couverture (`POST /api/user/uploads` — endpoint public/auth pour images + vidéos, format autorisé JPG/PNG/WEBP/GIF/MP4/MOV/WEBM/M4V, max 100 MB, dual write local + Emergent Object Storage) + upload vidéo + description → `POST /api/ads` (status=draft).
+2. **Audience** : pays multi-select, tranche d'âge min-max, genre (male/female/both) → `PUT /api/ads/{id}/audience`.
+3. **Durée & Tarif** : sélection depuis les durées configurées par l'admin, prix calculé **côté serveur** (`price_per_day × duration_days`) → `PUT /api/ads/{id}/duration`.
+4. **Paiement** : `POST /api/ads/{id}/publish` (status=pending_payment) → écran paiement → `POST /api/ads/{id}/confirm-payment` (status=pending_admin_review) — hook manuel pour l'instant, à brancher sur le webhook SoleasPay/AshtechPay.
+
+**Flow admin** :
+- Config tarification : `GET/PUT /api/admin/ads/pricing` (price_per_day, currency, available_durations).
+- Liste des campagnes : `GET /api/admin/ads?status=...`.
+- Modération : `POST /api/admin/ads/{id}/approve` (status=published, `expires_at = published_at + duration_days`) / `POST /api/admin/ads/{id}/reject` (avec motif).
+
+**Feed public** (`GET /api/ads`) : ne renvoie QUE les ads avec `status="published"` et non expirées.
+
+**Interactions utilisateurs** :
+- `POST /api/ads/{id}/view` — idempotent par user (array `viewers` unique).
+- `POST /api/ads/{id}/like` — toggle.
+- `POST /api/ads/{id}/comment` — ajoute un commentaire (id, user_id, username, text, at).
+- `POST /api/ads/{id}/share` — inc counter.
+
+**Frontend** :
+- Nouvelles pages `/app/frontend/app/(app)/ads.tsx` (feed public avec video player HTML5, actions ❤️💬📤👁, comments inline) et `/(app)/ad-create.tsx` (wizard 4 étapes avec stepper).
+- `advertising.tsx` : option « vidéo publicitaire » routée vers `/ad-create`. Les 2 autres restent « Bientôt ».
+- `BottomNav.tsx` : "Emploi" remplacé par **📢 Publicité** → route `/(app)/ads`.
+- `(admin)/index.tsx` : nouvel onglet **Publicités** avec :
+  - Card Tarification (prix/jour + durées activables séparées par virgules).
+  - Filtres En attente / Publiées / Rejetées / Toutes.
+  - Cards de campagnes avec actions Approuver / Rejeter (motif).
+
+**Test e2e complet (curl backend)** :
+1. Draft créé ✅ → 2. Audience TG/BJ 18-45 both ✅ → 3. Durée 7j → **price=3500 FCFA** (500 × 7) ✅ → 4. Publish `pending_payment` ✅ → 5. Confirm-payment `pending_admin_review` ✅ → 6. Approve `published, expires_at=+7j` ✅ → 7. Feed public 1 pub ✅ → 8. Like counter=1 ✅.
+
+**data-testids ajoutés** : `adcreate-back`, `adcreate-cover-btn`, `adcreate-video-btn`, `adcreate-description`, `adcreate-step1-next`, `adcreate-country-{code}`, `adcreate-age-min/max`, `adcreate-gender-{g}`, `adcreate-step2-next`, `adcreate-duration-{d}`, `adcreate-price-summary`, `adcreate-publish`, `adcreate-payment-confirm`, `ads-back`, `ads-create`, `ads-feed`, `ad-card-{id}`, `ad-like-{id}`, `ad-comment-{id}`, `ad-share-{id}`, `ad-comment-input-{id}`, `ad-comment-send-{id}`, `ads-price-per-day`, `ads-durations`, `ads-pricing-save`, `ads-filter-{k}`, `admin-ad-item-{id}`, `admin-ad-approve-{id}`, `admin-ad-reject-{id}`.
+
+
 ### 2026-07-23 (bis) — 🧹 Nettoyage dashboard + intégration FABs dans le menu Plus
 **Retours utilisateur** :
 - Les FABs flottants (JACKPOT bas-gauche, Service client bas-droite) cachaient les items de la barre de nav du bas.

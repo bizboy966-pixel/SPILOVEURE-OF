@@ -25,7 +25,7 @@ const LEFT: Item[] = [
 ];
 
 const RIGHT: Item[] = [
-  { key: "jobs", icon: "briefcase", label: "Emploi" },
+  { key: "ads", icon: "megaphone", label: "Publicité", route: "/(app)/ads" },
   { key: "services", icon: "laptop", label: "Services", route: "/(app)/services" },
   { key: "more", icon: "menu", label: "Plus" },
 ];

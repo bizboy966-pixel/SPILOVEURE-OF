@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -46,6 +46,12 @@ export default function AdminHome() {
   const [chgActive, setChgActive] = useState(true);
   const [chgParticipants, setChgParticipants] = useState<{ challenge: any; participants: any[]; winners_count: number } | null>(null);
   const [chgParticipantsLoading, setChgParticipantsLoading] = useState(false);
+  // Ads state
+  const [adsPricing, setAdsPricing] = useState<any>(null);
+  const [adsList, setAdsList] = useState<any[]>([]);
+  const [adPricePerDay, setAdPricePerDay] = useState("");
+  const [adDurations, setAdDurations] = useState("");
+  const [adFilter, setAdFilter] = useState<"pending_admin_review" | "published" | "rejected" | "all">("pending_admin_review");
   const openChallengeParticipants = useCallback(async (challengeId: string) => {
     setChgParticipantsLoading(true);
     try {
@@ -171,6 +177,14 @@ export default function AdminHome() {
         const r = await api.get<any>("/admin/challenges");
         setChallenges(r?.items || []);
       }
+      if (tab === "ads") {
+        const [pr, ls] = await Promise.all([
+          api.get<any>("/admin/ads/pricing"),
+          api.get<any>("/admin/ads"),
+        ]);
+        setAdsPricing(pr);
+        setAdsList(ls?.items || []);
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -272,6 +286,7 @@ export default function AdminHome() {
     { key: "activations", label: "Activations", icon: "checkmark-circle" },
     { key: "withdrawals", label: "Retraits", icon: "cash" },
     { key: "challenges", label: "Challenges", icon: "trophy" },
+    { key: "ads", label: "Publicités", icon: "megaphone" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -1133,6 +1148,124 @@ export default function AdminHome() {
                     <Text style={styles.actT}>Supprimer</Text>
                   </TouchableOpacity>
                 </View>
+              </Card>
+            ))}
+          </>
+        )}
+
+        {tab === "ads" && (
+          <>
+            <Card>
+              <Text style={styles.section}>💰 Tarification des publicités</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
+                Prix par jour × durée choisie = montant total à payer par le créateur.
+              </Text>
+              <Input
+                label="Prix par jour (FCFA)"
+                value={adPricePerDay || String(adsPricing?.price_per_day || "")}
+                onChangeText={setAdPricePerDay}
+                keyboardType="numeric"
+                placeholder="Ex : 500"
+                testID="ads-price-per-day"
+              />
+              <Input
+                label="Durées disponibles (séparées par des virgules)"
+                value={adDurations || (adsPricing?.available_durations || []).join(",")}
+                onChangeText={setAdDurations}
+                placeholder="1,3,7,15,30"
+                testID="ads-durations"
+              />
+              <Button
+                title="Enregistrer la tarification"
+                onPress={() => action(async () => {
+                  const price = Number(adPricePerDay || adsPricing?.price_per_day || 0);
+                  const durs = (adDurations || (adsPricing?.available_durations || []).join(","))
+                    .toString()
+                    .split(",").map((x: string) => parseInt(x.trim(), 10)).filter((n: number) => !isNaN(n) && n > 0);
+                  if (!price || durs.length === 0) {
+                    if (typeof window !== "undefined") window.alert("Renseignez prix + durées.");
+                    return;
+                  }
+                  const r = await api.put<any>("/admin/ads/pricing", {
+                    price_per_day: price, currency: "FCFA", available_durations: durs,
+                  });
+                  setAdsPricing(r);
+                  setAdPricePerDay(""); setAdDurations("");
+                })}
+                testID="ads-pricing-save"
+              />
+              {adsPricing?.configured ? (
+                <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 12 }}>✅ {adsPricing.price_per_day} {adsPricing.currency} / jour • Durées : {adsPricing.available_durations.join(", ")}</Text>
+                </View>
+              ) : (
+                <Text style={{ fontSize: 11, color: theme.colors.warning, marginTop: 8 }}>⚠️ Tarification non configurée — les utilisateurs ne peuvent pas publier.</Text>
+              )}
+            </Card>
+
+            <View style={{ height: 12 }} />
+
+            <Card>
+              <Text style={styles.section}>📣 Publicités soumises</Text>
+              <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+                {(["pending_admin_review", "published", "rejected", "all"] as const).map((k) => (
+                  <TouchableOpacity
+                    key={k}
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                      backgroundColor: adFilter === k ? theme.colors.primary : theme.colors.background,
+                    }}
+                    onPress={() => setAdFilter(k)}
+                    testID={`ads-filter-${k}`}
+                  >
+                    <Text style={{
+                      fontSize: 11, fontWeight: "700",
+                      color: adFilter === k ? "#fff" : theme.colors.textPrimary,
+                    }}>{k === "pending_admin_review" ? "En attente" : k === "published" ? "Publiées" : k === "rejected" ? "Rejetées" : "Toutes"}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+
+            <View style={{ height: 8 }} />
+
+            {adsList.filter((a) => adFilter === "all" || a.status === adFilter).length === 0 ? (
+              <Card><Text style={styles.empty}>Aucune publicité dans cette catégorie.</Text></Card>
+            ) : adsList.filter((a) => adFilter === "all" || a.status === adFilter).map((a) => (
+              <Card key={a.id} style={{ marginBottom: 8 }} testID={`admin-ad-item-${a.id}`}>
+                <Text style={styles.userName}>🎥 @{a.username}</Text>
+                <Text style={styles.userMeta} numberOfLines={2}>{a.description}</Text>
+                <View style={styles.kvBox}>
+                  <KvRow k="Durée" v={`${a.duration_days || "?"} jour(s)`} />
+                  <KvRow k="Prix payé" v={`${a.price_amount || 0} ${a.currency || "FCFA"}`} />
+                  <KvRow k="Pays" v={(a.target_countries || []).join(", ") || "—"} />
+                  <KvRow k="Âge" v={`${a.target_age_min || "?"} – ${a.target_age_max || "?"}`} />
+                  <KvRow k="Genre" v={a.target_gender || "—"} />
+                  <KvRow k="Statut" v={a.status} />
+                </View>
+                {a.status === "pending_admin_review" && (
+                  <View style={styles.actRow}>
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: theme.colors.success }]}
+                      onPress={() => action(() => api.post(`/admin/ads/${a.id}/approve`))}
+                      testID={`admin-ad-approve-${a.id}`}
+                    >
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                      <Text style={styles.actT}>Approuver</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actBtn}
+                      onPress={() => action(async () => {
+                        const reason = typeof window !== "undefined" ? window.prompt("Motif du rejet :") || "" : "";
+                        await api.post(`/admin/ads/${a.id}/reject`, { reason });
+                      })}
+                      testID={`admin-ad-reject-${a.id}`}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                      <Text style={styles.actT}>Rejeter</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </Card>
             ))}
           </>

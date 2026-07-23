@@ -3264,6 +3264,11 @@ from challenges import public as challenges_public, admin as challenges_admin  #
 app.include_router(challenges_public)
 app.include_router(challenges_admin)
 
+# Ads module — video advertisements campaign (users publish, admin approves).
+from ads import public as ads_public, admin as ads_admin  # noqa: E402
+app.include_router(ads_public)
+app.include_router(ads_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)
