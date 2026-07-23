@@ -4,8 +4,6 @@ import { View } from "react-native";
 import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
-import { SupportFab } from "@/src/components/SupportFab";
-import { LotteryFab } from "@/src/components/LotteryFab";
 
 // Routes accessible to non-activated users — they can ONLY see /activation.
 const ALLOWED_FOR_PENDING = new Set(["activation", "profile", "settings"]);
@@ -55,8 +53,6 @@ export default function AppLayout() {
       {user && !isPending && (
         <>
           <CommunityPopup userId={user.id} />
-          <SupportFab />
-          <LotteryFab />
         </>
       )}
     </View>

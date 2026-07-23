@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../theme";
+import { api } from "../api";
 
 /**
  * Bottom navigation bar rendered on the dashboard for activated users.
@@ -30,6 +31,8 @@ const RIGHT: Item[] = [
 ];
 
 const PLUS_MENU: Item[] = [
+  { key: "jackpot", icon: "gift", label: "Jackpot 🎁", route: "/(app)/lottery" },
+  { key: "support", icon: "headset", label: "Service client" },
   { key: "adv", icon: "megaphone", label: "Espace publicitaire", route: "/(app)/advertising" },
   { key: "marketplace", icon: "cart", label: "Marketplace" },
   { key: "jobs", icon: "briefcase", label: "Offres d'emploi" },
@@ -44,6 +47,21 @@ export const BottomNav: React.FC = () => {
 
   const soon = () => {
     if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
+  };
+
+  const openSupport = async () => {
+    try {
+      const sup = await api.get<any>("/settings/support", { auth: false } as any);
+      const url = sup?.whatsapp_url || sup?.telegram_url;
+      if (url) {
+        if (Platform.OS === "web" && typeof window !== "undefined") window.open(url, "_blank");
+        else Linking.openURL(url).catch(() => {});
+        return;
+      }
+    } catch {}
+    if (typeof window !== "undefined") {
+      window.alert("Service client indisponible pour le moment. Réessayez plus tard.");
+    }
   };
 
   const openItem = (it: Item) => {
@@ -117,6 +135,7 @@ export const BottomNav: React.FC = () => {
                 style={styles.gridItem}
                 onPress={() => {
                   setPlusOpen(false);
+                  if (it.key === "support") { openSupport(); return; }
                   if (it.route) router.push(it.route as any);
                   else soon();
                 }}

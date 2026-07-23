@@ -20,6 +20,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-23 (bis) — 🧹 Nettoyage dashboard + intégration FABs dans le menu Plus
+**Retours utilisateur** :
+- Les FABs flottants (JACKPOT bas-gauche, Service client bas-droite) cachaient les items de la barre de nav du bas.
+- La section « Mes Revenus de Missions » sur le dashboard faisait doublon avec le hub Tâches.
+- Redirection après login envoyait les users activés vers `/(app)/services` au lieu de `/(app)/dashboard`.
+
+**Fixes** :
+- **`_layout.tsx` (app group)** : suppression de `<SupportFab />` et `<LotteryFab />`. Ces boutons flottants ne s'affichent plus nulle part côté user.
+- **`BottomNav.tsx` — menu Plus étendu** : ajout de « 🎁 Jackpot » (→ `/(app)/lottery`) et « 🎧 Service client » (→ ouvre `whatsapp_url` ou `telegram_url` depuis `/api/settings/support`) en tête du grid.
+- **`dashboard.tsx`** : suppression complète du bloc « 🎥 Mes Revenus de Missions » (le hub Tâches remplit désormais ce rôle).
+- **`app/index.tsx`** : redirection après login pour utilisateurs activés → `/(app)/dashboard` (au lieu de `/services`), afin qu'ils voient immédiatement la nouvelle barre de nav + la carte Challenge.
+- **`dashboard.tsx`** : condition d'affichage BottomNav mise à jour pour inclure les admins qui visitent le dashboard user (`user.role === "admin" || (user.max_level || 0) >= 1`).
+
+**Vérification e2e** : screenshots confirment
+1. Dashboard admin propre — pas de FABs, pas de section missions, BottomNav 7 items visible avec « Tâches » central agrandi.
+2. Menu ☰ Plus (grille 3×3) inclut Jackpot en position 1 + Service client en position 2 puis les 6 autres raccourcis.
+3. `Fermer` bouton bleu.
+
+
 ### 2026-07-23 — 📱 Barre de navigation inférieure & Hub Tâches / Espace publicitaire
 **Objectif** : Barre de nav moderne en bas de la page d'accueil (visible uniquement pour les utilisateurs ACTIVÉS non-admin), avec bouton central agrandi qui ouvre le nouveau hub Tâches. Menu ☰ Plus modal avec 6 raccourcis.
 
