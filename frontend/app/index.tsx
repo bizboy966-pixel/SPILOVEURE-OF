@@ -17,7 +17,8 @@ export default function Index() {
     } else if (user.status === "pending" || user.max_level === 0) {
       router.replace("/(app)/activation");
     } else {
-      router.replace("/(app)/services");
+      // Activated user home = dashboard (where the bottom nav & challenge card live).
+      router.replace("/(app)/dashboard");
     }
   }, [user, loading, router]);
 

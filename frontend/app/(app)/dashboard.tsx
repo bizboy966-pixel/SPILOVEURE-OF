@@ -341,8 +341,8 @@ export default function Dashboard() {
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
-      {/* Bottom navigation — only on the dashboard, for activated users. */}
-      {user && user.role !== "admin" && (user.max_level || 0) >= 1 ? <BottomNav /> : null}
+      {/* Bottom navigation — home dashboard, all activated users (incl. admin). */}
+      {user && (user.role === "admin" || (user.max_level || 0) >= 1) ? <BottomNav /> : null}
     </View>
   );
 }
