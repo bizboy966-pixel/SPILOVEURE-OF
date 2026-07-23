@@ -10,6 +10,7 @@ import * as Clipboard from "expo-clipboard";
 
 import { Card } from "@/src/components/Card";
 import { SideMenu } from "@/src/components/SideMenu";
+import { BottomNav } from "@/src/components/BottomNav";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -135,7 +136,7 @@ export default function Dashboard() {
       </LinearGradient>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* Balance */}
@@ -340,6 +341,8 @@ export default function Dashboard() {
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
+      {/* Bottom navigation — only on the dashboard, for activated users. */}
+      {user && user.role !== "admin" && (user.max_level || 0) >= 1 ? <BottomNav /> : null}
     </View>
   );
 }

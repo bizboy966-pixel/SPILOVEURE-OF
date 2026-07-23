@@ -20,6 +20,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-23 — 📱 Barre de navigation inférieure & Hub Tâches / Espace publicitaire
+**Objectif** : Barre de nav moderne en bas de la page d'accueil (visible uniquement pour les utilisateurs ACTIVÉS non-admin), avec bouton central agrandi qui ouvre le nouveau hub Tâches. Menu ☰ Plus modal avec 6 raccourcis.
+
+**Nouveaux fichiers** :
+- `/app/frontend/src/components/BottomNav.tsx` — barre fixe `position:absolute bottom:0`, layout 3 gauche + 1 centre gros + 3 droite ; centre = `📋 Tâches` (bouton bleu rond 60×60 débordant au-dessus de la barre, `zIndex:100`).
+  - Left : 🛒 Marketplace, 📄 Devis, 🎟 Coupons — tous "Bientôt disponible".
+  - Center : 📋 **Tâches** (bigger) → `/app/frontend/app/(app)/tasks`.
+  - Right : 💼 Emploi (soon), 💻 Services num. → `/services`, ☰ Plus (ouvre bottom sheet).
+  - Menu Plus (bottom sheet slide-up transparente) → grid 3×2 : Espace publicitaire → `/advertising`, Marketplace (soon), Offres d'emploi (soon), Devis (soon), Coupons (soon), Services numériques → `/services`.
+- `/app/frontend/app/(app)/tasks.tsx` — hub qui liste 4 catégories : Missions Rémunérées (actif → `/missions`), Campagnes rémunérées (Bientôt), Tâches spéciales (Bientôt), Challenges actifs (actif → `/dashboard`).
+- `/app/frontend/app/(app)/advertising.tsx` — 3 options : Vidéo pub / Affiche pub / Tâche spéciale (les 3 badge "Bientôt").
+
+**Modification** — `dashboard.tsx` :
+- Import `BottomNav`.
+- Rendu conditionnel : `{user && user.role !== "admin" && (user.max_level || 0) >= 1 ? <BottomNav /> : null}` → invisible pour admins et non-activés.
+- `paddingBottom: 60 → 120` sur le ScrollView pour éviter le chevauchement avec la barre.
+
+**data-testids** : `bottom-nav`, `bottom-nav-tasks`, `bottom-nav-more`, `bottom-nav-plus-menu`, `bottom-nav-marketplace`, `bottom-nav-devis`, `bottom-nav-coupons`, `bottom-nav-jobs`, `bottom-nav-services`, `bottom-nav-plus-{key}`, `bottom-nav-plus-close`, `tasks-back`, `tasks-card-{key}`, `adv-back`, `adv-option-{key}`.
+
+**Vérification** :
+- Screenshot 1 : Dashboard alicea43c41 (activée) → BottomNav visible en bas, centre "Tâches" agrandi et débordant, 7 items équilibrés.
+- Screenshot 2 : Clic ☰ Plus → bottom sheet grille 3×2 avec les 6 raccourcis + bouton Fermer.
+- Screenshot 3 : Clic Tâches central → page hub avec 4 catégories, badges "Bientôt" fonctionnels.
+- Test confirmé sur admin : BottomNav MASQUÉE (correct).
+
+
 ### 2026-07-08 (bis) — 🏆 Système de Challenge « 100 invitations directes »
 **Nouveau module** — `/app/backend/challenges.py` (~240 lignes) enregistré dans `server.py` (routers `challenges_public` + `challenges_admin`).
 
