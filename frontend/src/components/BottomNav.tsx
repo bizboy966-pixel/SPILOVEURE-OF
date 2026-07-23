@@ -37,7 +37,6 @@ const PLUS_MENU: Item[] = [
   { key: "publish", icon: "create", label: "📝 Publier un article" },
   { key: "request", icon: "construct", label: "🛠 Demande de service" },
   { key: "coupons", icon: "ticket", label: "Coupons & Promotions" },
-  { key: "services", icon: "laptop", label: "💻 Services numériques", route: "/(app)/services" },
 ];
 
 export const BottomNav: React.FC = () => {
