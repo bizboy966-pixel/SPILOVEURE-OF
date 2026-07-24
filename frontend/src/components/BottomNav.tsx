@@ -4,18 +4,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../theme";
 import { api } from "../api";
+import { useFeatures, FeatureKey } from "../features";
 
 /**
  * Bottom navigation bar rendered on the dashboard for activated users.
  * Layout: 3 items on the left | central bigger "Tâches" | 3 items on the right.
  * Items with no live target show a "Bientôt disponible" alert.
  * The "☰ Plus" button opens a modern bottom-sheet with the full menu.
+ * Items linked to a disabled feature flag are hidden.
  */
 type Item = {
   key: string;
   icon: any;
   label: string;
   route?: string;
+  feature?: FeatureKey;
 };
 
 const LEFT: Item[] = [
