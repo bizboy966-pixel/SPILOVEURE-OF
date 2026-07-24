@@ -53,6 +53,11 @@ class TaskQuantity(BaseModel):
     quantity: int = Field(..., ge=1)
 
 
+class TaskComplete(BaseModel):
+    proof_url: str = Field(..., min_length=5, max_length=500,
+                           description="URL of the screenshot uploaded via /api/user/uploads")
+
+
 class ActionTypeConfig(BaseModel):
     enabled: bool = True
     price_per_action: float = Field(..., ge=0)
@@ -131,6 +136,16 @@ async def admin_list_tasks(request: Request, status: Optional[str] = None):
     items = []
     async for t in db.special_tasks.find(q).sort("created_at", -1).limit(500):
         items.append(_serialize(t))
+    return {"items": items}
+
+
+@admin.get("/special-tasks/{task_id}/completions")
+async def admin_list_completions(task_id: str, request: Request):
+    """List all completions (with proof screenshots) for a given task — admin audit."""
+    db = request.app.state.db
+    items = []
+    async for c in db.special_task_completions.find({"task_id": task_id}).sort("at", -1):
+        items.append(_serialize(c))
     return {"items": items}
 
 
@@ -283,10 +298,26 @@ async def my_tasks(request: Request, user=Depends(get_current_user)):
     return {"items": items}
 
 
+@public.get("/special-tasks/{task_id}/completions")
+async def owner_list_completions(task_id: str, request: Request, user=Depends(get_current_user)):
+    """Campaign creator can see the screenshots submitted for their own task."""
+    db = request.app.state.db
+    t = await db.special_tasks.find_one({"id": task_id})
+    if not t:
+        raise HTTPException(404, "Tâche introuvable.")
+    if t["user_id"] != user["id"]:
+        raise HTTPException(403, "Accès refusé.")
+    items = []
+    async for c in db.special_task_completions.find({"task_id": task_id}).sort("at", -1):
+        items.append(_serialize(c))
+    return {"items": items}
+
+
 @public.post("/special-tasks/{task_id}/complete")
-async def complete_task(task_id: str, request: Request, user=Depends(get_current_user)):
-    """Credit reward atomically. Prevents double-claim via unique completion record.
-    Auto-closes the campaign when quantity_target is reached.
+async def complete_task(task_id: str, data: TaskComplete, request: Request, user=Depends(get_current_user)):
+    """Credit reward atomically. Requires a screenshot proof URL. Prevents
+    double-claim via unique completion record. Auto-closes the campaign when
+    quantity_target is reached.
     """
     db = request.app.state.db
     t = await db.special_tasks.find_one({"id": task_id})
@@ -310,13 +341,14 @@ async def complete_task(task_id: str, request: Request, user=Depends(get_current
     if r.modified_count == 0:
         raise HTTPException(400, "La campagne est complète.")
 
-    # Insert completion record
+    # Insert completion record (with screenshot proof)
     await db.special_task_completions.insert_one({
         "id": str(uuid.uuid4()),
         "task_id": task_id,
         "user_id": user["id"],
         "username": user.get("username"),
         "reward": reward,
+        "proof_url": data.proof_url,
         "at": now,
     })
     # Credit user

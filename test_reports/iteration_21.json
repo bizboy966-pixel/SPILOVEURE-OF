@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 21 — Special-Tasks screenshot proof: BACKEND 10/10 pytest PASS. All validation rules, full happy path (config→create→audience→quantity→publish→confirm-payment→complete), completions endpoints (owner 200/non-owner 403/admin 200), and commissions/balance side-effects verified. FRONTEND: code review of /(app)/tasks.tsx confirms modal, data-testids, upload flow, and API contract match spec exactly. Full UI E2E of the modal could NOT be executed because the test user (freshly registered via /auth/register) is gated by /activation before /(app)/tasks is reachable, and admin's own tasks are excluded from their own feed (correct backend behaviour). Landing regression: landing-register-btn present unauthenticated (True), absent after admin login (True), admin lands on 'Panel Admin Spiloveure' at root.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["Persistent RN-web deprecation warnings ('shadow*' style props, props.pointerEvents, useNativeDriver missing) — non-blocking, carried from previous iterations."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_special_tasks_proof.py",
+    "/app/test_reports/pytest/iter21_proof.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: If E1 wants a full UI E2E of the proof modal, provide a helper to auto-activate a test user (e.g. seeded active user or an admin-only /admin/users/{id}/force-activate endpoint). Without that, the /(app)/tasks screen is unreachable for freshly-registered users because the activation gate redirects to /activation.",
+    "NON-BLOCKING: clean up RN-web 'shadow*' and 'pointerEvents' deprecations for a warning-free console."
+  ],
+  "critical_code_review_comments": [
+    "special_tasks.py:complete_task — atomic slot claim via $expr is correct and prevents overselling; commission row uses profit_share=reward and kind='special_task_reward' (verified in DB via /api/transactions).",
+    "TaskComplete model with min_length=5 for proof_url is enforced — clean 422 responses.",
+    "tasks.tsx (357 lines) — submit button correctly disabled until proofUrl set; cancel button ignored while uploading/submitting; file input hidden and web-only (Platform.OS check). Modal, proof-pick-btn, proof-submit-btn, proof-cancel-btn testIDs all present and match spec.",
+    "Minor DRY: ACTION_ICONS/ACTION_BTN/NET_LABELS repeat labels also declared in other screens (my-campaigns/dashboard) — consider centralising in a constants module."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_special_tasks_proof.py (new — 10 tests)"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "code-review PASS; E2E gated by activation requirement (see action_items)"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (verified).",
+  "seed_data_creation": "Config PUT /api/admin/special-tasks/config with video enabled (price 10, reward 5, min 1, max 100). One admin-owned active special task created + auto-completed once during backend tests. One test user registered per pytest run (uuid-prefixed).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend endpoints are fully covered by /app/backend/tests/test_special_tasks_proof.py — run it as regression. IMPORTANT for future UI tests of /(app)/tasks: newly registered users are redirected to /activation and cannot reach /tasks until Level 1 is activated (payment + admin validation). Admin CAN reach /tasks but sees 0 st-do-* buttons because backend excludes tasks created by the current user from the feed (correct). To E2E the proof modal, either (a) seed a pre-activated non-admin user, or (b) create the special task as user A (non-admin, active) and log in as user B (non-admin, active) to complete it.",
+  "rca of the issue": "No functional bug found. Frontend E2E of the proof modal could not be executed end-to-end because activation gate blocks fresh test users from /(app)/tasks — this is expected app behaviour, not a bug. Backend validated via pytest confirms the full contract works exactly as specified."
+}

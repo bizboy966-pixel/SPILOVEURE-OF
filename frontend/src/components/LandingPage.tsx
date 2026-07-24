@@ -31,7 +31,7 @@ const SERVICES: { icon: IconName; color: string; bg: string; key: string }[] = [
 const STATS: { key: string; value: string }[] = [
   { key: "landing.stats.members", value: "12 500+" },
   { key: "landing.stats.paid", value: "180M+" },
-  { key: "landing.stats.countries", value: "15" },
+  { key: "landing.stats.countries", value: "59+" },
   { key: "landing.stats.uptime", value: "99,9%" },
 ];
 
