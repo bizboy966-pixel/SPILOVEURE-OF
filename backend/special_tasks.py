@@ -1,0 +1,343 @@
+"""Special Tasks module — paid micro-tasks (like, view, subscribe, share, comment, join).
+
+Flow (2026-07-24):
+    1. User picks an action type (video/subscribe/share/like/comment/group) + network + link.
+    2. Sets audience (countries, age, gender).
+    3. Picks quantity → server computes price = price_per_action × quantity.
+    4. Payment (manual confirm for now — plug SoleasPay webhook later).
+    5. Task goes LIVE (status=active) automatically — no admin review required.
+    6. Feed shows only active tasks (quantity_completed < quantity_target).
+    7. Users complete → reward credited to their balance_profit; counter increments.
+    8. When quantity_completed == quantity_target → status=completed, task disappears.
+    9. Task remains in DB for history.
+
+Admin config (collection `special_tasks_config` singleton):
+    - action_types: dict mapping "video"|"subscribe"|"share"|"like"|"comment"|"group"
+      → { enabled, price_per_action (creator pays), reward_per_action (user earns), min_qty, max_qty }
+"""
+from __future__ import annotations
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from auth import get_current_user, require_admin
+
+
+public = APIRouter(prefix="/api", tags=["special_tasks"])
+admin = APIRouter(prefix="/api/admin", tags=["special_tasks_admin"], dependencies=[Depends(require_admin)])
+
+
+ACTION_TYPES = ["video", "subscribe", "share", "like", "comment", "group"]
+NETWORKS_STANDARD = ["tiktok", "facebook", "instagram", "youtube"]
+NETWORKS_GROUP = ["whatsapp", "telegram"]
+
+
+class TaskCreate(BaseModel):
+    action_type: str = Field(..., pattern="^(video|subscribe|share|like|comment|group)$")
+    network: str = Field(..., pattern="^(tiktok|facebook|instagram|youtube|whatsapp|telegram)$")
+    link: str = Field(..., min_length=5, max_length=500)
+    description: str = Field(default="", max_length=500)
+
+
+class TaskAudience(BaseModel):
+    target_countries: List[str] = Field(..., min_length=1)
+    target_age_min: int = Field(..., ge=13, le=99)
+    target_age_max: int = Field(..., ge=13, le=99)
+    target_gender: str = Field(..., pattern="^(male|female|both)$")
+
+
+class TaskQuantity(BaseModel):
+    quantity: int = Field(..., ge=1)
+
+
+class ActionTypeConfig(BaseModel):
+    enabled: bool = True
+    price_per_action: float = Field(..., ge=0)
+    reward_per_action: float = Field(..., ge=0)
+    min_qty: int = Field(default=10, ge=1)
+    max_qty: int = Field(default=10000, ge=1)
+
+
+class ConfigUpdate(BaseModel):
+    action_types: dict
+
+
+def _serialize(doc: dict) -> dict:
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for k in ("created_at", "updated_at", "payment_confirmed_at", "completed_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.astimezone(timezone.utc).isoformat()
+    return out
+
+
+async def _get_config(db) -> dict:
+    doc = await db.special_tasks_config.find_one({"key": "singleton"}) or {}
+    return {
+        "action_types": doc.get("action_types") or {},
+        "configured": bool(doc.get("action_types")),
+    }
+
+
+async def _get_task(db, task_id: str, user_id: Optional[str] = None) -> dict:
+    q: dict = {"id": task_id}
+    if user_id:
+        q["user_id"] = user_id
+    t = await db.special_tasks.find_one(q)
+    if not t:
+        raise HTTPException(404, "Tâche introuvable.")
+    return t
+
+
+# ---------- ADMIN ----------
+@admin.get("/special-tasks/config")
+async def admin_get_config(request: Request):
+    return await _get_config(request.app.state.db)
+
+
+@admin.put("/special-tasks/config")
+async def admin_set_config(data: ConfigUpdate, request: Request):
+    # Validate each action_type entry
+    normalised: dict = {}
+    for at in ACTION_TYPES:
+        raw = (data.action_types or {}).get(at) or {}
+        try:
+            cfg = ActionTypeConfig(**raw)
+        except Exception:
+            continue
+        if cfg.max_qty < cfg.min_qty:
+            raise HTTPException(400, f"max_qty < min_qty pour {at}")
+        normalised[at] = cfg.model_dump()
+    if not normalised:
+        raise HTTPException(400, "Aucun type d'action valide fourni.")
+    db = request.app.state.db
+    await db.special_tasks_config.update_one(
+        {"key": "singleton"},
+        {"$set": {"key": "singleton", "action_types": normalised, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return await _get_config(db)
+
+
+@admin.get("/special-tasks")
+async def admin_list_tasks(request: Request, status: Optional[str] = None):
+    db = request.app.state.db
+    q: dict = {}
+    if status:
+        q["status"] = status
+    items = []
+    async for t in db.special_tasks.find(q).sort("created_at", -1).limit(500):
+        items.append(_serialize(t))
+    return {"items": items}
+
+
+# ---------- USER — config + create ----------
+@public.get("/special-tasks/config")
+async def user_get_config(request: Request, user=Depends(get_current_user)):
+    return await _get_config(request.app.state.db)
+
+
+@public.post("/special-tasks")
+async def create_task(data: TaskCreate, request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    cfg = await _get_config(db)
+    action_cfg = (cfg["action_types"] or {}).get(data.action_type)
+    if not action_cfg or not action_cfg.get("enabled"):
+        raise HTTPException(400, "Ce type de tâche n'est pas disponible pour le moment.")
+    # Network compatibility
+    if data.action_type == "group" and data.network not in NETWORKS_GROUP:
+        raise HTTPException(400, "Ce réseau n'accepte pas ce type de tâche.")
+    if data.action_type != "group" and data.network not in NETWORKS_STANDARD:
+        raise HTTPException(400, "Ce réseau n'accepte pas ce type de tâche.")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "action_type": data.action_type,
+        "network": data.network,
+        "link": data.link,
+        "description": data.description,
+        "target_countries": [],
+        "target_age_min": None,
+        "target_age_max": None,
+        "target_gender": None,
+        "quantity_target": 0,
+        "quantity_completed": 0,
+        "price_amount": 0.0,
+        "reward_per_action": float(action_cfg.get("reward_per_action") or 0),
+        "price_per_action": float(action_cfg.get("price_per_action") or 0),
+        "min_qty": int(action_cfg.get("min_qty") or 1),
+        "max_qty": int(action_cfg.get("max_qty") or 10000),
+        "currency": "FCFA",
+        "status": "draft",
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.special_tasks.insert_one(doc)
+    return _serialize(doc)
+
+
+@public.put("/special-tasks/{task_id}/audience")
+async def set_audience(task_id: str, data: TaskAudience, request: Request, user=Depends(get_current_user)):
+    if data.target_age_max < data.target_age_min:
+        raise HTTPException(400, "Âge max < min.")
+    db = request.app.state.db
+    t = await _get_task(db, task_id, user["id"])
+    if t["status"] != "draft":
+        raise HTTPException(400, "Tâche non modifiable.")
+    await db.special_tasks.update_one(
+        {"id": task_id},
+        {"$set": {
+            "target_countries": [c.upper() for c in data.target_countries],
+            "target_age_min": data.target_age_min,
+            "target_age_max": data.target_age_max,
+            "target_gender": data.target_gender,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
+@public.put("/special-tasks/{task_id}/quantity")
+async def set_quantity(task_id: str, data: TaskQuantity, request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    t = await _get_task(db, task_id, user["id"])
+    if t["status"] != "draft":
+        raise HTTPException(400, "Tâche non modifiable.")
+    if data.quantity < t["min_qty"] or data.quantity > t["max_qty"]:
+        raise HTTPException(400, f"Quantité hors bornes ({t['min_qty']}–{t['max_qty']}).")
+    price = float(t["price_per_action"]) * int(data.quantity)
+    await db.special_tasks.update_one(
+        {"id": task_id},
+        {"$set": {
+            "quantity_target": data.quantity,
+            "price_amount": price,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
+@public.post("/special-tasks/{task_id}/publish")
+async def publish_task(task_id: str, request: Request, user=Depends(get_current_user)):
+    """Mark task ready for payment. Next step = /confirm-payment goes live."""
+    db = request.app.state.db
+    t = await _get_task(db, task_id, user["id"])
+    if t["status"] != "draft":
+        raise HTTPException(400, "Statut invalide.")
+    missing = [k for k in ("target_countries", "quantity_target") if not t.get(k)]
+    if missing:
+        raise HTTPException(400, f"Champs manquants : {missing}")
+    await db.special_tasks.update_one(
+        {"id": task_id, "status": "draft"},
+        {"$set": {"status": "pending_payment", "updated_at": datetime.now(timezone.utc)}},
+    )
+    return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
+@public.post("/special-tasks/{task_id}/confirm-payment")
+async def confirm_payment(task_id: str, request: Request, user=Depends(get_current_user)):
+    """Auto-activate task after payment (no admin review, per spec)."""
+    db = request.app.state.db
+    t = await _get_task(db, task_id, user["id"])
+    if t["status"] not in ("pending_payment", "active"):
+        raise HTTPException(400, "Statut invalide.")
+    if t["status"] == "pending_payment":
+        await db.special_tasks.update_one(
+            {"id": task_id, "status": "pending_payment"},
+            {"$set": {
+                "status": "active",
+                "payment_confirmed_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+    return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
+# ---------- FEED + completion ----------
+@public.get("/special-tasks")
+async def user_feed(request: Request, user=Depends(get_current_user)):
+    """Active tasks the current user can still complete (hasn't already done)."""
+    db = request.app.state.db
+    completed = await db.special_task_completions.distinct("task_id", {"user_id": user["id"]})
+    items = []
+    async for t in db.special_tasks.find({
+        "status": "active",
+        "user_id": {"$ne": user["id"]},          # can't earn from your own campaign
+        "id": {"$nin": completed},
+    }).sort("created_at", -1).limit(200):
+        items.append(_serialize(t))
+    return {"items": items}
+
+
+@public.get("/special-tasks/mine")
+async def my_tasks(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    items = []
+    async for t in db.special_tasks.find({"user_id": user["id"]}).sort("created_at", -1):
+        items.append(_serialize(t))
+    return {"items": items}
+
+
+@public.post("/special-tasks/{task_id}/complete")
+async def complete_task(task_id: str, request: Request, user=Depends(get_current_user)):
+    """Credit reward atomically. Prevents double-claim via unique completion record.
+    Auto-closes the campaign when quantity_target is reached.
+    """
+    db = request.app.state.db
+    t = await db.special_tasks.find_one({"id": task_id})
+    if not t:
+        raise HTTPException(404, "Tâche introuvable.")
+    if t["status"] != "active":
+        raise HTTPException(400, "Cette tâche n'est plus disponible.")
+    if t["user_id"] == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas gagner sur votre propre campagne.")
+    existing = await db.special_task_completions.find_one({"task_id": task_id, "user_id": user["id"]})
+    if existing:
+        raise HTTPException(400, "Vous avez déjà complété cette tâche.")
+
+    # Atomic slot claim — only credit if there's still room.
+    now = datetime.now(timezone.utc)
+    reward = float(t["reward_per_action"])
+    r = await db.special_tasks.update_one(
+        {"id": task_id, "status": "active", "$expr": {"$lt": ["$quantity_completed", "$quantity_target"]}},
+        {"$inc": {"quantity_completed": 1}, "$set": {"updated_at": now}},
+    )
+    if r.modified_count == 0:
+        raise HTTPException(400, "La campagne est complète.")
+
+    # Insert completion record
+    await db.special_task_completions.insert_one({
+        "id": str(uuid.uuid4()),
+        "task_id": task_id,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "reward": reward,
+        "at": now,
+    })
+    # Credit user
+    await db.users.update_one({"id": user["id"]}, {"$inc": {"balance_profit": reward}})
+    # Log a commission entry so it shows up in the transaction history
+    await db.commissions.insert_one({
+        "user_id": user["id"],
+        "from_user_id": t["user_id"],
+        "level": None,
+        "kind": "special_task_reward",
+        "amount": reward,
+        "profit_share": reward,
+        "upgrade_share": 0,
+        "meta": {"task_id": task_id, "action_type": t["action_type"], "network": t["network"]},
+        "created_at": now,
+    })
+    # Close campaign if reached target
+    fresh = await db.special_tasks.find_one({"id": task_id})
+    if fresh and fresh["quantity_completed"] >= fresh["quantity_target"]:
+        await db.special_tasks.update_one(
+            {"id": task_id, "status": "active"},
+            {"$set": {"status": "completed", "completed_at": now, "updated_at": now}},
+        )
+    return {"credited": reward, "task_status": (await db.special_tasks.find_one({"id": task_id}))["status"]}

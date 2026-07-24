@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -52,6 +52,8 @@ export default function AdminHome() {
   const [adPricePerDay, setAdPricePerDay] = useState("");
   const [adDurations, setAdDurations] = useState("");
   const [adFilter, setAdFilter] = useState<"pending_admin_review" | "published" | "rejected" | "all">("pending_admin_review");
+  // Special tasks admin state
+  const [stCfg, setStCfg] = useState<any>({});
   const openChallengeParticipants = useCallback(async (challengeId: string) => {
     setChgParticipantsLoading(true);
     try {
@@ -185,6 +187,10 @@ export default function AdminHome() {
         setAdsPricing(pr);
         setAdsList(ls?.items || []);
       }
+      if (tab === "special_tasks") {
+        const cfg = await api.get<any>("/admin/special-tasks/config");
+        setStCfg(cfg?.action_types || {});
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -287,6 +293,7 @@ export default function AdminHome() {
     { key: "withdrawals", label: "Retraits", icon: "cash" },
     { key: "challenges", label: "Challenges", icon: "trophy" },
     { key: "ads", label: "Publicités", icon: "megaphone" },
+    { key: "special_tasks", label: "Tâches spé.", icon: "flash" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -1269,6 +1276,42 @@ export default function AdminHome() {
               </Card>
             ))}
           </>
+        )}
+
+        {tab === "special_tasks" && (
+          <Card>
+            <Text style={styles.section}>🎯 Config des tâches spéciales</Text>
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
+              Prix payé par le créateur × quantité = coût total. Récompense reversée à chaque utilisateur qui complète la tâche.
+            </Text>
+            {["video", "subscribe", "share", "like", "comment", "group"].map((at) => {
+              const c = stCfg[at] || { enabled: false, price_per_action: 0, reward_per_action: 0, min_qty: 10, max_qty: 1000 };
+              const labels: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre un groupe" };
+              return (
+                <View key={at} style={{ borderBottomWidth: 1, borderColor: theme.colors.border, paddingVertical: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ fontWeight: "900", fontSize: 13 }}>{labels[at]}</Text>
+                    <TouchableOpacity
+                      onPress={() => setStCfg((v: any) => ({ ...v, [at]: { ...c, enabled: !c.enabled } }))}
+                      style={{ backgroundColor: c.enabled ? theme.colors.success : theme.colors.textSecondary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}
+                      testID={`st-toggle-${at}`}
+                    >
+                      <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>{c.enabled ? "ACTIF" : "INACTIF"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <View style={{ flex: 1 }}><Input label="Prix / action" value={String(c.price_per_action)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, price_per_action: Number(v) || 0 } }))} keyboardType="numeric" testID={`st-price-${at}`} /></View>
+                    <View style={{ flex: 1 }}><Input label="Récompense / action" value={String(c.reward_per_action)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, reward_per_action: Number(v) || 0 } }))} keyboardType="numeric" testID={`st-reward-${at}`} /></View>
+                    <View style={{ flex: 1 }}><Input label="Min qty" value={String(c.min_qty)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, min_qty: Number(v) || 1 } }))} keyboardType="numeric" testID={`st-min-${at}`} /></View>
+                    <View style={{ flex: 1 }}><Input label="Max qty" value={String(c.max_qty)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, max_qty: Number(v) || 10000 } }))} keyboardType="numeric" testID={`st-max-${at}`} /></View>
+                  </View>
+                </View>
+              );
+            })}
+            <Button title="Enregistrer la configuration" onPress={() => action(async () => {
+              await api.put("/admin/special-tasks/config", { action_types: stCfg });
+            })} testID="st-save" />
+          </Card>
         )}
 
         {tab === "payment" && (

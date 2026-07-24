@@ -20,6 +20,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 (ter) — 🎯 Module « Créer une tâche spéciale » (micro-tâches rémunérées)
+**Nouveau module** `/app/backend/special_tasks.py` (~230 lignes) branché dans `server.py`.
+
+**Modèle DB** :
+- `special_tasks_config` (singleton) → `action_types: {video, subscribe, share, like, comment, group}` chacun avec `{enabled, price_per_action, reward_per_action, min_qty, max_qty}`.
+- `special_tasks` (campagnes) : `{id, user_id, action_type, network, link, description, target_countries, age_min/max, gender, quantity_target, quantity_completed, price_amount, reward_per_action, status, created_at, payment_confirmed_at, completed_at}`.
+- `special_task_completions` (une par user × task) — prévient double claim.
+
+**Types de tâches** : video / subscribe / share / like / comment / group.
+**Réseaux compatibles** : TikTok, Facebook, Instagram, YouTube (standard) — WhatsApp, Telegram (pour "group").
+
+**Endpoints** :
+- Admin : `GET/PUT /api/admin/special-tasks/config`, `GET /api/admin/special-tasks`.
+- User : `GET /api/special-tasks/config`, `POST /api/special-tasks` (draft), `PUT /audience`, `PUT /quantity` (calcule price), `POST /publish` (→ pending_payment), `POST /confirm-payment` (→ **active automatiquement**, pas de review admin), `GET /special-tasks` (feed active hors self + hors déjà complétées), `GET /special-tasks/mine`, `POST /special-tasks/{id}/complete`.
+
+**Logique de complétion atomique** :
+- `update_one` avec `$expr: {$lt: [quantity_completed, quantity_target]}` → claim atomique de slot.
+- Crédit sur `balance_profit` de l'utilisateur.
+- Insertion dans `commissions` (kind=`special_task_reward`) → visible dans l'historique des transactions.
+- Auto-close (status=completed, completed_at=now) dès que `quantity_completed >= quantity_target`.
+
+**Frontend** :
+- `/app/frontend/app/(app)/special-task-create.tsx` — wizard 5 étapes (accueil → type + réseau + lien → audience → quantité + prix → paiement).
+- `advertising.tsx` : option « Créer une tâche spéciale » routée vers `/special-task-create` (chevron actif).
+- `tasks.tsx` : section « 🔥 Tâches actives » avec cards (icône type + réseau, description, réward, progression X/Y, bouton d'action ouvrant le lien + créditant).
+- Admin panel : nouvel onglet **Tâches spé.** avec config complète (6 types, prix/récompense/min/max/enabled).
+
+**Test e2e (curl backend)** : Config 6 types ✅ → Draft "like" facebook → Audience → Qty 100 → **price=5000 FCFA (100×50)** → publish → confirm-payment → **status=active** ✅.
+
+
 ### 2026-07-24 (bis) — 🖼 Ajout du type « Affiche publicitaire »
 **Objectif** : réutiliser exactement le même flow que la vidéo publicitaire, mais sans le champ vidéo.
 

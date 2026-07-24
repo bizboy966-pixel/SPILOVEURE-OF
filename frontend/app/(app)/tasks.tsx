@@ -1,13 +1,38 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
+import { api } from "../../src/api";
 
 // Simple "Tâches" hub — aggregates all revenue-generating activities.
 // This page is the target of the central button in the bottom nav.
 export default function TasksScreen() {
   const router = useRouter();
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ items: any[] }>("/special-tasks");
+      setTasks(r.items || []);
+    } catch {}
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const complete = async (id: string, link: string) => {
+    if (typeof window !== "undefined") window.open(link, "_blank");
+    try {
+      const r = await api.post<{ credited: number; task_status: string }>(`/special-tasks/${id}/complete`);
+      if (typeof window !== "undefined") window.alert(`✅ Tâche validée. Vous avez gagné ${r.credited} FCFA !`);
+      load();
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Impossible de valider la tâche."}`);
+    }
+  };
+
+  const ACTION_ICONS: any = { video: "play", subscribe: "person-add", share: "share-social", like: "heart", comment: "chatbubble", group: "people" };
+  const ACTION_BTN: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre" };
+  const NET_LABELS: any = { tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", whatsapp: "WhatsApp", telegram: "Telegram" };
 
   const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean }[] = [
     {
@@ -52,6 +77,29 @@ export default function TasksScreen() {
         <Text style={styles.intro}>
           Toutes les activités rémunérées de SPILOVEURE en un seul endroit. Choisissez une catégorie pour commencer à générer des revenus.
         </Text>
+
+        {tasks.length > 0 && (
+          <>
+            <Text style={{ fontWeight: "900", fontSize: 14, color: theme.colors.textPrimary, marginTop: 8 }}>🔥 Tâches actives ({tasks.length})</Text>
+            {tasks.map((t) => (
+              <View key={t.id} style={styles.card} testID={`st-card-${t.id}`}>
+                <View style={styles.iconBox}>
+                  <Ionicons name={ACTION_ICONS[t.action_type]} size={22} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{ACTION_BTN[t.action_type]} • {NET_LABELS[t.network]}</Text>
+                  <Text style={styles.cardSub} numberOfLines={2}>{t.description || "Aucune description"}</Text>
+                  <Text style={{ fontSize: 11, color: theme.colors.success, fontWeight: "800", marginTop: 4 }}>
+                    💰 {t.reward_per_action} FCFA • {t.quantity_completed}/{t.quantity_target}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => complete(t.id, t.link)} style={styles.doBtn} testID={`st-do-${t.id}`}>
+                  <Text style={styles.doT}>{ACTION_BTN[t.action_type].split(" ")[0]}</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </>
+        )}
         {cards.map((c) => (
           <TouchableOpacity
             key={c.key}
@@ -116,4 +164,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
+  doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
 });

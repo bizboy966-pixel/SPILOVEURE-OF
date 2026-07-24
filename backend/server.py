@@ -3269,6 +3269,11 @@ from ads import public as ads_public, admin as ads_admin  # noqa: E402
 app.include_router(ads_public)
 app.include_router(ads_admin)
 
+# Special Tasks — paid micro-tasks (auto-credit on completion).
+from special_tasks import public as st_public, admin as st_admin  # noqa: E402
+app.include_router(st_public)
+app.include_router(st_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)
