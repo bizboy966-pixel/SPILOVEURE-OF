@@ -20,6 +20,35 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 (7) — 🎛️ Feature Flags system (kill switches par module)
+**Objectif** : Chaque module récent (Landing Page, Publicité, Ads Vidéo, Ads Affiche, Tâches Spéciales, Marketplace, Publier un article, Demande de service, Tâches rémunérées) est désormais contrôlé par un flag `enabled: bool` en BDD (`feature_flags` collection). Après tout redéploiement, TOUS les flags sont OFF par défaut (idempotent seed `$setOnInsert`).
+
+**Backend** :
+- `/app/backend/feature_flags.py` — `DEFAULT_FLAGS` (9 entrées), `ensure_default_flags()`, `is_enabled()`, `require_feature()` dependency, routers `public` + `admin`.
+- Endpoints :
+  - `GET /api/features` (public) → snapshot `{ key: bool }` pour le frontend.
+  - `GET /api/admin/feature-flags` (admin) → catalog complet avec labels + categories.
+  - `PUT /api/admin/feature-flags/{key}` (admin) → `{ enabled: bool }`, persistance immédiate.
+- Auth admin appliquée via `app.include_router(ff_admin, dependencies=[Depends(require_admin)])` (fix critique du bug initial : `router.dependencies.append` après décoration = no-op en FastAPI).
+- Guards ajoutés dans `ads.py`, `special_tasks.py`, `marketplace.py` :
+  - `POST /ads` → 503 si `ads` OFF ou (`ads_create_video`/`ads_create_poster` selon media_type) OFF.
+  - `GET /ads` → `{items: []}` si `ads` OFF.
+  - `POST /special-tasks` → 503 si `special_tasks` OFF. `GET` → vide.
+  - `POST /marketplace` → 503 si `marketplace` OFF ou `marketplace_publish` OFF. `GET` → vide.
+
+**Frontend** :
+- `/app/frontend/src/features.tsx` — `FeaturesProvider` (fetch `/api/features` toutes les 60 s + au mount) + hooks `useFeature(key)` / `useFeatures()`.
+- `/app/frontend/src/components/FeatureGuard.tsx` — wrapper qui affiche un écran « 🔒 Fonctionnalité désactivée » avec bouton Retour lorsqu'une feature est OFF.
+- `/app/frontend/app/index.tsx` — si `landing_page` OFF + visiteur anonyme → redirect direct vers `/(auth)/login`.
+- Écrans wrappés avec FeatureGuard : `ads.tsx`, `advertising.tsx`, `ad-create.tsx`, `marketplace.tsx`, `marketplace-create.tsx`, `missions.tsx`, `special-task-create.tsx`.
+- `BottomNav` : items masqués si feature OFF (Marketplace, Publicité, Espace publicitaire, Publier, Demande de service).
+- `tasks.tsx` : cartes Missions / Campagnes / Tâches spé. masquées si flag off.
+
+**Admin Panel** : Nouvel onglet « Fonctionnalités » (`data-testid='admin-tab-features'`) avec toggle pills verts/gris groupés par catégorie (Public, Ads, Tasks, Marketplace, Services).
+
+**Tests** : `/app/backend/tests/test_feature_flags.py` (15 cas, tous PASS après fix sécurité).
+
+
 ### 2026-07-24 (5) — 🏠 Landing Page publique (marketing site)
 **Nouveau composant** `/app/frontend/src/components/LandingPage.tsx` (~600 lignes) rendu par `/app/frontend/app/index.tsx` lorsque le visiteur n'a **pas** de token. Les utilisateurs déjà connectés continuent d'être redirigés (admin → `/(admin)`, pending → `/(app)/activation`, activé → `/(app)/dashboard`).
 

@@ -3292,12 +3292,10 @@ from feature_flags import (  # noqa: E402
     admin as ff_admin,
     ensure_default_flags,
 )
-# The admin router of feature_flags does NOT declare its own auth dependency,
-# so we wrap it to require admin like every other admin endpoint.
-from fastapi import Depends as _Depends  # noqa: E402
-ff_admin.dependencies.append(_Depends(require_admin))
 app.include_router(ff_public)
-app.include_router(ff_admin)
+# Enforce admin auth on the whole /api/admin/feature-flags subtree at
+# include-time — mutating router.dependencies after decoration is a no-op.
+app.include_router(ff_admin, dependencies=[Depends(require_admin)])
 
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
