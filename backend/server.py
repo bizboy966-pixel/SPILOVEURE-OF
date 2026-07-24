@@ -3274,6 +3274,11 @@ from special_tasks import public as st_public, admin as st_admin  # noqa: E402
 app.include_router(st_public)
 app.include_router(st_admin)
 
+# Marketplace — free listings, admin review, WhatsApp contact.
+from marketplace import public as mk_public, admin as mk_admin  # noqa: E402
+app.include_router(mk_public)
+app.include_router(mk_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

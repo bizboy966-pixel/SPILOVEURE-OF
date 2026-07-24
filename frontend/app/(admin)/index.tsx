@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -54,6 +54,10 @@ export default function AdminHome() {
   const [adFilter, setAdFilter] = useState<"pending_admin_review" | "published" | "rejected" | "all">("pending_admin_review");
   // Special tasks admin state
   const [stCfg, setStCfg] = useState<any>({});
+  // Marketplace admin state
+  const [mkCfg, setMkCfg] = useState<any>({});
+  const [mkList, setMkList] = useState<any[]>([]);
+  const [mkFilter, setMkFilter] = useState<"pending_admin_review" | "approved" | "expired" | "rejected" | "all">("pending_admin_review");
   const openChallengeParticipants = useCallback(async (challengeId: string) => {
     setChgParticipantsLoading(true);
     try {
@@ -191,6 +195,13 @@ export default function AdminHome() {
         const cfg = await api.get<any>("/admin/special-tasks/config");
         setStCfg(cfg?.action_types || {});
       }
+      if (tab === "marketplace") {
+        const [c, ls] = await Promise.all([
+          api.get<any>("/admin/marketplace/config"),
+          api.get<any>("/admin/marketplace"),
+        ]);
+        setMkCfg(c || {}); setMkList(ls?.items || []);
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -294,6 +305,7 @@ export default function AdminHome() {
     { key: "challenges", label: "Challenges", icon: "trophy" },
     { key: "ads", label: "Publicités", icon: "megaphone" },
     { key: "special_tasks", label: "Tâches spé.", icon: "flash" },
+    { key: "marketplace", label: "Marketplace", icon: "cart" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -1312,6 +1324,73 @@ export default function AdminHome() {
               await api.put("/admin/special-tasks/config", { action_types: stCfg });
             })} testID="st-save" />
           </Card>
+        )}
+
+        {tab === "marketplace" && (
+          <>
+            <Card>
+              <Text style={styles.section}>⚙️ Config Marketplace</Text>
+              <Input label="Durée par annonce (jours)" value={String(mkCfg.duration_days || 14)} onChangeText={(v: string) => setMkCfg((s: any) => ({ ...s, duration_days: parseInt(v, 10) || 14 }))} keyboardType="numeric" testID="mk-duration" />
+              <TouchableOpacity
+                onPress={() => setMkCfg((s: any) => ({ ...s, enabled: !s.enabled }))}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}
+                testID="mk-enabled-toggle"
+              >
+                <Ionicons name={mkCfg.enabled ? "checkbox" : "square-outline"} size={22} color={mkCfg.enabled ? theme.colors.success : theme.colors.textSecondary} />
+                <Text style={{ fontWeight: "700" }}>Publication ouverte aux utilisateurs</Text>
+              </TouchableOpacity>
+              <Button title="Enregistrer" onPress={() => action(async () => {
+                await api.put("/admin/marketplace/config", { duration_days: mkCfg.duration_days || 14, enabled: !!mkCfg.enabled });
+              })} testID="mk-save-cfg" />
+            </Card>
+
+            <View style={{ height: 12 }} />
+            <Card>
+              <Text style={styles.section}>📋 Annonces</Text>
+              <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                {(["pending_admin_review", "approved", "expired", "rejected", "all"] as const).map((k) => (
+                  <TouchableOpacity key={k} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: mkFilter === k ? theme.colors.primary : theme.colors.background }} onPress={() => setMkFilter(k)} testID={`mk-filter-${k}`}>
+                    <Text style={{ fontSize: 10, fontWeight: "700", color: mkFilter === k ? "#fff" : theme.colors.textPrimary }}>
+                      {{"pending_admin_review": "En attente", "approved": "Approuvées", "expired": "Expirées", "rejected": "Rejetées", "all": "Toutes"}[k]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+            <View style={{ height: 8 }} />
+            {mkList.filter((l) => mkFilter === "all" || l.status === mkFilter).length === 0 ? (
+              <Card><Text style={styles.empty}>Aucune annonce dans cette catégorie.</Text></Card>
+            ) : mkList.filter((l) => mkFilter === "all" || l.status === mkFilter).map((l) => (
+              <Card key={l.id} style={{ marginBottom: 8 }} testID={`admin-mk-item-${l.id}`}>
+                <Text style={styles.userName}>🛒 {l.name}</Text>
+                <Text style={styles.userMeta}>@{l.seller_username} • {l.category} • {l.city}</Text>
+                <View style={styles.kvBox}>
+                  <KvRow k="Prix" v={`${l.promo_price ? l.promo_price + " (promo) / " : ""}${l.price} ${l.currency}`} />
+                  <KvRow k="Contact WA" v={l.whatsapp} />
+                  <KvRow k="Photos" v={String((l.images || []).length)} />
+                  <KvRow k="Statut" v={l.status} />
+                </View>
+                {l.status === "pending_admin_review" && (
+                  <View style={styles.actRow}>
+                    <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/marketplace/${l.id}/approve`))} testID={`admin-mk-approve-${l.id}`}>
+                      <Ionicons name="checkmark" size={14} color="#fff" /><Text style={styles.actT}>Approuver</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/marketplace/${l.id}/reject`))} testID={`admin-mk-reject-${l.id}`}>
+                      <Ionicons name="close" size={14} color="#fff" /><Text style={styles.actT}>Rejeter</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {l.status !== "pending_admin_review" && (
+                  <TouchableOpacity style={[styles.actBtn, { marginTop: 6 }]} onPress={() => action(async () => {
+                    if (typeof window !== "undefined" && !window.confirm(`Supprimer "${l.name}" ?`)) return;
+                    await api.delete(`/admin/marketplace/${l.id}`);
+                  })} testID={`admin-mk-delete-${l.id}`}>
+                    <Ionicons name="trash" size={14} color="#fff" /><Text style={styles.actT}>Supprimer</Text>
+                  </TouchableOpacity>
+                )}
+              </Card>
+            ))}
+          </>
         )}
 
         {tab === "payment" && (

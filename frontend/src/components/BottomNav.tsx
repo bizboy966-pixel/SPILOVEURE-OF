@@ -19,7 +19,7 @@ type Item = {
 };
 
 const LEFT: Item[] = [
-  { key: "marketplace", icon: "cart", label: "Marketplace" },
+  { key: "marketplace", icon: "cart", label: "Marketplace", route: "/(app)/marketplace" },
   { key: "devis", icon: "document-text", label: "Devis" },
   { key: "coupons", icon: "ticket", label: "Coupons" },
 ];
@@ -34,7 +34,8 @@ const PLUS_MENU: Item[] = [
   { key: "jackpot", icon: "gift", label: "Jackpot 🎁", route: "/(app)/lottery" },
   { key: "support", icon: "headset", label: "Service client" },
   { key: "adv", icon: "megaphone", label: "Espace publicitaire", route: "/(app)/advertising" },
-  { key: "publish", icon: "create", label: "📝 Publier un article" },
+  { key: "publish", icon: "create", label: "📝 Publier un article", route: "/(app)/marketplace-create" },
+  { key: "marketplace", icon: "cart", label: "🛒 Marketplace", route: "/(app)/marketplace" },
   { key: "request", icon: "construct", label: "🛠 Demande de service" },
   { key: "coupons", icon: "ticket", label: "Coupons & Promotions" },
 ];

@@ -20,6 +20,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 (4) — 🛒 Module Marketplace + « Publier un article »
+**Nouveau module** `/app/backend/marketplace.py` (~180 lignes) branché dans `server.py`. Free listings (aucun paiement), validation admin obligatoire, expiration auto après 14 jours (configurable).
+
+**Modèle DB** :
+- `marketplace_config` (singleton) → `{duration_days, enabled}`.
+- `marketplace_listings` : `{id, seller_id, seller_username, images[], name, category, price, promo_price, currency, city, whatsapp, description, status, views, viewers[], reviews[], created_at, approved_at, expires_at}`.
+
+**Endpoints** :
+- User : `GET /api/marketplace/config`, `POST /api/marketplace`, `GET /api/marketplace` (feed public, expiration lazy à la lecture), `GET /api/marketplace/{id}`, `POST /view`, `POST /review` (1 par user, prevent self-review), `GET /marketplace/mine`.
+- Admin : `GET/PUT /admin/marketplace/config`, `GET /admin/marketplace?status=`, `POST /admin/marketplace/{id}/approve` (fixe `expires_at = now + duration_days`), `POST /reject`, `DELETE`.
+
+**Expiration lazy** : à chaque `GET /api/marketplace`, un `update_many({status:approved, expires_at:{$lte:now}}, {status:expired})` transforme les annonces expirées sans job cron.
+
+**Frontend** :
+- `/app/frontend/app/(app)/marketplace-create.tsx` — formulaire complet (upload multi-images jusqu'à 10, nom, catégorie chips, prix normal + promo optionnel, ville, WhatsApp, description).
+- `/app/frontend/app/(app)/marketplace.tsx` — feed cards avec carousel photos (‹›+ counter), badge catégorie, prix promo barré, boutons **💬 Discuter** (WhatsApp `wa.me/{num}`) + **⭐ Avis / Acheter** (prompt rating 1-5 + commentaire).
+- `BottomNav` : bouton "Marketplace" (bas-gauche) → `/(app)/marketplace`. Menu Plus : « 📝 Publier un article » → `/(app)/marketplace-create`, « 🛒 Marketplace » ajouté → `/(app)/marketplace`.
+- Admin panel : nouvel onglet **Marketplace** avec config (durée + activation) + filtres pending/approved/expired/rejected/all + Approuver/Rejeter/Supprimer.
+
+**Test e2e (curl)** : Config par défaut (14j, enabled) → POST listing iPhone 13 (2 images, prix 250k promo 220k, Lomé, +228 90123456) → Admin approve → `status=approved, expires_at=+14j` → Feed public 1 listing ✅. Screenshot UI confirme carousel + prix + boutons WhatsApp / Avis.
+
+
 ### 2026-07-24 (ter) — 🎯 Module « Créer une tâche spéciale » (micro-tâches rémunérées)
 **Nouveau module** `/app/backend/special_tasks.py` (~230 lignes) branché dans `server.py`.
 
