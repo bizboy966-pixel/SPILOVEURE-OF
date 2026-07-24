@@ -147,6 +147,54 @@ export const fr: Record<string, string> = {
   "withdrawal.you_receive": "Vous recevrez",
   "withdrawal.submit": "Soumettre la demande",
   "withdrawal.history": "Historique des retraits",
+
+  // ─── LANDING PAGE ─────────────────────────────────────────────────────
+  "landing.nav.login": "Se connecter",
+  "landing.nav.register": "S'inscrire",
+  "landing.hero.badge": "Nouvelle génération de plateforme communautaire",
+  "landing.hero.title": "SPILOVEURE",
+  "landing.hero.tagline": "Ensemble vers la réussite",
+  "landing.hero.subtitle": "Rejoignez une communauté qui transforme votre temps en revenus : parrainage binaire, publicité, marketplace, tâches spéciales et bien plus — le tout sur une seule plateforme.",
+  "landing.hero.cta_primary": "Commencer maintenant",
+  "landing.hero.cta_secondary": "J'ai déjà un compte",
+  "landing.hero.trust": "Paiements Mobile Money · Crypto · Automatisés 24/7",
+
+  "landing.stats.members": "Membres actifs",
+  "landing.stats.paid": "FCFA distribués",
+  "landing.stats.countries": "Pays couverts",
+  "landing.stats.uptime": "Disponibilité",
+
+  "landing.services.eyebrow": "Nos services",
+  "landing.services.title": "Une plateforme, plusieurs façons de gagner",
+  "landing.services.subtitle": "Découvrez les modules qui font de SPILOVEURE bien plus qu'un simple MLM.",
+  "landing.services.mlm.title": "MLM Binaire",
+  "landing.services.mlm.desc": "Développez votre équipe avec un système matriciel binaire équilibré et transparent, avec commissions instantanées.",
+  "landing.services.ads.title": "Publicité",
+  "landing.services.ads.desc": "Diffusez vos vidéos et affiches auprès de milliers d'utilisateurs, avec un tarif clair et un ciblage simple.",
+  "landing.services.tasks.title": "Tâches Spéciales",
+  "landing.services.tasks.desc": "Regardez, aimez, partagez — chaque action validée est rémunérée automatiquement sur votre solde.",
+  "landing.services.marketplace.title": "Marketplace",
+  "landing.services.marketplace.desc": "Vendez vos produits et services gratuitement, avec un contact WhatsApp direct entre acheteur et vendeur.",
+  "landing.services.lottery.title": "Lottery Jackpot",
+  "landing.services.lottery.desc": "Participez aux tirages communautaires et tentez de remporter des cagnottes toutes les semaines.",
+  "landing.services.missions.title": "Missions rémunérées",
+  "landing.services.missions.desc": "Accomplissez des missions quotidiennes simples et cumulez des gains supplémentaires en toute autonomie.",
+
+  "landing.how.eyebrow": "Comment ça marche",
+  "landing.how.title": "3 étapes pour démarrer",
+  "landing.how.step1.title": "Créez votre compte",
+  "landing.how.step1.desc": "Inscrivez-vous gratuitement en 60 secondes et récupérez votre lien de parrainage unique.",
+  "landing.how.step2.title": "Activez votre niveau",
+  "landing.how.step2.desc": "Choisissez un mode de paiement Mobile Money, manuel ou crypto pour activer votre position.",
+  "landing.how.step3.title": "Gagnez chaque jour",
+  "landing.how.step3.desc": "Invitez, publiez, accomplissez des tâches — vos gains sont crédités automatiquement.",
+
+  "landing.cta.title": "Prêt à rejoindre l'aventure ?",
+  "landing.cta.subtitle": "Créez votre compte gratuit et découvrez tout ce que SPILOVEURE peut vous offrir.",
+  "landing.cta.button": "Commencer maintenant",
+
+  "landing.footer.copy": "© 2026 SPILOVEURE. Tous droits réservés.",
+  "landing.footer.tagline": "Ensemble vers la réussite.",
 };
 
 // EN = traductions (clés manquantes → fallback FR automatique via la fonction t).
@@ -284,6 +332,54 @@ export const en: Record<string, string> = {
   "withdrawal.you_receive": "You'll receive",
   "withdrawal.submit": "Submit request",
   "withdrawal.history": "Withdrawals history",
+
+  // ─── LANDING PAGE ─────────────────────────────────────────────────────
+  "landing.nav.login": "Sign in",
+  "landing.nav.register": "Sign up",
+  "landing.hero.badge": "New generation community platform",
+  "landing.hero.title": "SPILOVEURE",
+  "landing.hero.tagline": "Together toward success",
+  "landing.hero.subtitle": "Join a community that turns your time into income: binary referral, advertising, marketplace, special tasks and more — all on a single platform.",
+  "landing.hero.cta_primary": "Get started",
+  "landing.hero.cta_secondary": "I already have an account",
+  "landing.hero.trust": "Mobile Money · Crypto · Automated 24/7",
+
+  "landing.stats.members": "Active members",
+  "landing.stats.paid": "FCFA paid out",
+  "landing.stats.countries": "Countries covered",
+  "landing.stats.uptime": "Uptime",
+
+  "landing.services.eyebrow": "Our services",
+  "landing.services.title": "One platform, multiple ways to earn",
+  "landing.services.subtitle": "Discover the modules that make SPILOVEURE much more than a simple MLM.",
+  "landing.services.mlm.title": "Binary MLM",
+  "landing.services.mlm.desc": "Grow your team with a balanced, transparent binary matrix system and instant commissions.",
+  "landing.services.ads.title": "Advertising",
+  "landing.services.ads.desc": "Broadcast your videos and posters to thousands of users with clear pricing and simple targeting.",
+  "landing.services.tasks.title": "Special Tasks",
+  "landing.services.tasks.desc": "Watch, like, share — every validated action is automatically paid to your balance.",
+  "landing.services.marketplace.title": "Marketplace",
+  "landing.services.marketplace.desc": "Sell your products and services for free with direct WhatsApp contact between buyer and seller.",
+  "landing.services.lottery.title": "Lottery Jackpot",
+  "landing.services.lottery.desc": "Enter community draws and try to win jackpots every week.",
+  "landing.services.missions.title": "Paid missions",
+  "landing.services.missions.desc": "Complete simple daily missions and stack up extra earnings on your own schedule.",
+
+  "landing.how.eyebrow": "How it works",
+  "landing.how.title": "3 steps to get started",
+  "landing.how.step1.title": "Create your account",
+  "landing.how.step1.desc": "Sign up for free in 60 seconds and get your unique referral link.",
+  "landing.how.step2.title": "Activate your level",
+  "landing.how.step2.desc": "Choose a Mobile Money, manual or crypto payment method to activate your position.",
+  "landing.how.step3.title": "Earn every day",
+  "landing.how.step3.desc": "Invite, post, complete tasks — your earnings are credited automatically.",
+
+  "landing.cta.title": "Ready to join the adventure?",
+  "landing.cta.subtitle": "Create your free account and discover everything SPILOVEURE has to offer.",
+  "landing.cta.button": "Get started now",
+
+  "landing.footer.copy": "© 2026 SPILOVEURE. All rights reserved.",
+  "landing.footer.tagline": "Together toward success.",
 };
 
 export const DICTIONARIES: Record<Lang, Record<string, string>> = { fr, en };

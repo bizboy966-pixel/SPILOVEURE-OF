@@ -20,6 +20,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-24 (5) — 🏠 Landing Page publique (marketing site)
+**Nouveau composant** `/app/frontend/src/components/LandingPage.tsx` (~600 lignes) rendu par `/app/frontend/app/index.tsx` lorsque le visiteur n'a **pas** de token. Les utilisateurs déjà connectés continuent d'être redirigés (admin → `/(admin)`, pending → `/(app)/activation`, activé → `/(app)/dashboard`).
+
+**Design** — Style moderne & épuré (Hero gradient bleu→violet, blobs décoratifs, chip badge "Nouvelle génération", stats glass-morphism, sections claires alternées, mock "produit" incliné en desktop).
+
+**Sections** :
+1. Header sticky : logo + langue toggle FR/EN + bouton "Se connecter".
+2. Hero : Badge, titre `SPILOVEURE`, tagline `Ensemble vers la réussite`, sous-titre, CTA `Commencer maintenant` → `/(auth)/register`, CTA ghost `J'ai déjà un compte` → `/(auth)/login`, mock "dashboard preview" avec chart en barres.
+3. Stats strip (4 cartes) : `12 500+ membres actifs`, `180M+ FCFA distribués`, `15 pays couverts`, `99,9% disponibilité`.
+4. Services (grid 3×2) : MLM Binaire, Publicité, Tâches Spéciales, Marketplace, Lottery, Missions.
+5. How it works (3 étapes) : Créer compte → Activer niveau → Gagner chaque jour.
+6. Final CTA gradient bleu + Footer.
+
+**i18n** : Toutes les clés `landing.*` ajoutées dans FR + EN (`/app/frontend/src/i18n/translations.ts`). Le toggle langue utilise le provider `useI18n()` existant.
+
+**Responsive** : Breakpoints `isTablet ≥ 720` (grid 2 col) et `isDesktop ≥ 1080` (grid 3 col + hero horizontal avec mock preview). data-testid partout (`landing-lang-toggle`, `landing-register-btn`, `landing-login-btn`, `landing-service-{key}`, `landing-step-{key}`, `landing-final-cta`).
+
+
 ### 2026-07-24 (4) — 🛒 Module Marketplace + « Publier un article »
 **Nouveau module** `/app/backend/marketplace.py` (~180 lignes) branché dans `server.py`. Free listings (aucun paiement), validation admin obligatoire, expiration auto après 14 jours (configurable).
 
