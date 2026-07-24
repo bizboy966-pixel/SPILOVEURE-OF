@@ -1,0 +1,52 @@
+{
+  "summary": "Feature Flags system tested end-to-end (backend + frontend). Public catalog, admin CRUD (partial), 503 guards on POST /ads, /special-tasks, /marketplace, empty-list on GET /ads when OFF, persistence across supervisor restart, frontend landing gate, admin toggle UI (9 rows/toggles), FeatureGuard placeholders on protected user routes. 13/15 backend tests PASS. 1 CRITICAL SECURITY BUG found: /api/admin/feature-flags GET & PUT are accessible WITHOUT authentication (returns 200 to anyone; anyone on the internet can list AND toggle flags). All flags left OFF at the end of testing.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/admin/feature-flags",
+        "issue": "Endpoint accessible without any Authorization header — returns 200 with full flag list to unauthenticated callers. Also returns 200 to non-admin authenticated users.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "PUT /api/admin/feature-flags/{key}",
+        "issue": "Endpoint accepts flag toggles WITHOUT auth. Verified via curl: `curl -X PUT .../api/admin/feature-flags/paid_tasks -d '{\"enabled\":false}'` returned 200 with no token. This lets anyone on the internet disable/enable production features.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login form", "issues": ["Missing data-testid on email/password inputs and submit button (login-email-input / login-password-input / login-submit-btn). Not a blocker but hurts test automation."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_feature_flags.py",
+    "/app/test_reports/pytest/feature_flags.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix admin auth on feature-flags router. Root cause: `ff_admin.dependencies.append(_Depends(require_admin))` in /app/backend/server.py:3298 mutates the router.dependencies list AFTER the @admin.get/put decorators registered the routes with the (empty) dependencies snapshot — the mutation is not applied to those routes. Fix: declare the router with `admin = APIRouter(prefix='/api/admin', tags=['admin-features'], dependencies=[Depends(require_admin)])` inside feature_flags.py (or pass `dependencies=[Depends(require_admin)]` to `app.include_router(ff_admin, ...)` in server.py). Verified with curl that unauthenticated GET & PUT return 200.",
+    "Nice-to-have: add data-testid to login form inputs & submit button."
+  ],
+  "critical_code_review_comments": [
+    "SECURITY: Admin feature-flag endpoints exposed without auth (see action items).",
+    "server.py line 3298: mutating `ff_admin.dependencies` after decoration doesn't propagate to already-registered routes in FastAPI — this is a subtle FastAPI foot-gun. Prefer declaring dependencies on APIRouter constructor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_feature_flags.py (new file — 15 pytest cases)"
+  ],
+  "success_rate": {"backend": "87% (13/15)", "frontend": "100% of tested flows"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Created ephemeral test user via /api/auth/register for user-scoped tests (username testff<8hex>, sponsor=admin).",
+  "seed_data_creation": "Ephemeral test user (TEST_ff_<hex>@example.com) created for guard tests. One ad draft created when ads+ads_create_video ON. No cleanup performed on these two records — negligible impact.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test suite lives at /app/backend/tests/test_feature_flags.py. It auto-resets all 9 flags to FALSE at module teardown. After main agent applies the admin-auth fix, re-run: `cd /app/backend && python -m pytest tests/test_feature_flags.py -v`. Two currently-failing tests (test_unauthenticated_gets_401_or_403, test_non_admin_gets_403) should then pass. Frontend admin UI is fine (9 rows + 9 toggles present, toggle persists via GET /api/features without page reload). FeatureGuard placeholders verified on /ads, /marketplace, /special-task-create, /missions.",
+  "rca_of_the_issue": {
+    "bug": "GET/PUT /api/admin/feature-flags accessible without auth (401/403 expected, 200 returned)",
+    "reproduction": "curl -sX GET https://spiloveure-deploy.preview.emergentagent.com/api/admin/feature-flags -w '%{http_code}'  → 200 + full items list. curl -sX PUT .../api/admin/feature-flags/paid_tasks -H 'Content-Type: application/json' -d '{\"enabled\":false}' → 200.",
+    "root_cause": "In /app/backend/server.py:3290-3300, the feature_flags admin router is imported with NO dependencies, then `ff_admin.dependencies.append(_Depends(require_admin))` is called. In FastAPI, decorator calls (@admin.get(...), @admin.put(...)) register each Route with a snapshot of the router's dependencies AT DECORATION TIME. Later mutations of `router.dependencies` do not retroactively affect already-registered routes. So the append is a no-op for security purposes.",
+    "mitigation": "In /app/backend/feature_flags.py line ~89, change `admin = APIRouter(prefix='/api/admin', tags=['admin-features'])` to `admin = APIRouter(prefix='/api/admin', tags=['admin-features'], dependencies=[Depends(require_admin)])` (and import Depends + require_admin). Remove the append hack in server.py. Alternative: use `app.include_router(ff_admin, dependencies=[Depends(require_admin)])`."
+  }
+}

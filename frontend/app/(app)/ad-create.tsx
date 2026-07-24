@@ -42,7 +42,7 @@ const COUNTRIES = [
   { code: "FR", label: "🇫🇷 France" },
 ];
 
-export default function AdCreateScreen() {
+function AdCreateScreenInner() {
   const router = useRouter();
   const params = useLocalSearchParams<{ type?: string }>();
   const mediaType: "video" | "poster" = params.type === "poster" ? "poster" : "video";
@@ -408,3 +408,14 @@ const styles = StyleSheet.create({
   priceSep: { height: 1, backgroundColor: theme.colors.border, marginVertical: 6 },
   priceTotal: { fontSize: 22, fontWeight: "900", color: theme.colors.primary },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function AdCreateScreen() {
+  return (
+    <FeatureGuard featureKey="ads" title="Création publicité désactivée">
+      <AdCreateScreenInner />
+    </FeatureGuard>
+  );
+}

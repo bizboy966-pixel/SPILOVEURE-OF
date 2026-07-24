@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace";
+type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -58,6 +58,9 @@ export default function AdminHome() {
   const [mkCfg, setMkCfg] = useState<any>({});
   const [mkList, setMkList] = useState<any[]>([]);
   const [mkFilter, setMkFilter] = useState<"pending_admin_review" | "approved" | "expired" | "rejected" | "all">("pending_admin_review");
+  // Feature flags admin state
+  const [flags, setFlags] = useState<any[]>([]);
+  const [flagBusy, setFlagBusy] = useState<string | null>(null);
   const openChallengeParticipants = useCallback(async (challengeId: string) => {
     setChgParticipantsLoading(true);
     try {
@@ -202,6 +205,10 @@ export default function AdminHome() {
         ]);
         setMkCfg(c || {}); setMkList(ls?.items || []);
       }
+      if (tab === "features") {
+        const r = await api.get<any>("/admin/feature-flags");
+        setFlags(r?.items || []);
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -306,6 +313,7 @@ export default function AdminHome() {
     { key: "ads", label: "Publicités", icon: "megaphone" },
     { key: "special_tasks", label: "Tâches spé.", icon: "flash" },
     { key: "marketplace", label: "Marketplace", icon: "cart" },
+    { key: "features", label: "Fonctionnalités", icon: "toggle" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -1390,6 +1398,111 @@ export default function AdminHome() {
                 )}
               </Card>
             ))}
+          </>
+        )}
+
+        {tab === "features" && (
+          <>
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="toggle" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Gestion des fonctionnalités</Text>
+              </View>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 6 }}>
+                Activez ou désactivez chaque module. Une fonctionnalité désactivée devient
+                immédiatement inaccessible côté utilisateur (menu masqué + endpoints bloqués).
+                L'état est conservé après redéploiement.
+              </Text>
+            </Card>
+
+            {flags.length === 0 ? (
+              <Card style={{ marginTop: 12 }}>
+                <Text style={{ color: theme.colors.textSecondary }}>Chargement…</Text>
+              </Card>
+            ) : (
+              Object.entries(
+                flags.reduce((acc: any, f: any) => {
+                  (acc[f.category] = acc[f.category] || []).push(f);
+                  return acc;
+                }, {} as Record<string, any[]>)
+              ).map(([cat, list]: any) => (
+                <Card key={cat} style={{ marginTop: 12 }}>
+                  <Text style={[styles.section, { textTransform: "capitalize", marginBottom: 8 }]}>
+                    {cat}
+                  </Text>
+                  {(list as any[]).map((f) => (
+                    <View
+                      key={f.key}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingVertical: 12,
+                        borderTopWidth: 1,
+                        borderColor: theme.colors.border,
+                      }}
+                      testID={`feature-row-${f.key}`}
+                    >
+                      <View style={{ flex: 1, paddingRight: 12 }}>
+                        <Text style={{ fontWeight: "800", color: theme.colors.textPrimary, fontSize: 14 }}>
+                          {f.label}
+                        </Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                          {f.key}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        disabled={flagBusy === f.key}
+                        onPress={async () => {
+                          setFlagBusy(f.key);
+                          try {
+                            await api.put(`/admin/feature-flags/${f.key}`, { enabled: !f.enabled });
+                            setFlags((prev) =>
+                              prev.map((x: any) =>
+                                x.key === f.key ? { ...x, enabled: !x.enabled } : x
+                              )
+                            );
+                          } catch (e: any) {
+                            if (typeof window !== "undefined")
+                              window.alert(`❌ ${e?.detail || "Impossible de mettre à jour."}`);
+                          } finally {
+                            setFlagBusy(null);
+                          }
+                        }}
+                        style={{
+                          minWidth: 116,
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          borderRadius: 999,
+                          backgroundColor: f.enabled ? theme.colors.success : "#E2E8F0",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexDirection: "row",
+                          gap: 6,
+                          opacity: flagBusy === f.key ? 0.6 : 1,
+                        }}
+                        testID={`feature-toggle-${f.key}`}
+                      >
+                        <Ionicons
+                          name={f.enabled ? "checkmark-circle" : "close-circle"}
+                          size={16}
+                          color={f.enabled ? "#fff" : theme.colors.textSecondary}
+                        />
+                        <Text
+                          style={{
+                            color: f.enabled ? "#fff" : theme.colors.textSecondary,
+                            fontWeight: "900",
+                            fontSize: 12,
+                          }}
+                        >
+                          {f.enabled ? "Activée" : "Désactivée"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </Card>
+              ))
+            )}
           </>
         )}
 

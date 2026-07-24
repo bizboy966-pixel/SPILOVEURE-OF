@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
 from object_storage import is_enabled as _obj_enabled, put_upload as _obj_put
+from feature_flags import is_enabled as feature_enabled
 
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -161,6 +162,12 @@ async def ads_pricing_public(request: Request, user=Depends(get_current_user)):
 async def create_draft(data: AdCreate, request: Request, user=Depends(get_current_user)):
     """Step 1 → save the draft with cover + video + description. Status=draft."""
     db = request.app.state.db
+    if not await feature_enabled(db, "ads"):
+        raise HTTPException(503, "Fonctionnalité 'Publicité' momentanément désactivée par l'administrateur.")
+    sub_key = "ads_create_video" if data.media_type == "video" else "ads_create_poster"
+    if not await feature_enabled(db, sub_key):
+        label = "vidéo publicitaire" if data.media_type == "video" else "affiche publicitaire"
+        raise HTTPException(503, f"Ajout d'une {label} momentanément désactivé par l'administrateur.")
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
@@ -302,8 +309,11 @@ async def my_ads(request: Request, user=Depends(get_current_user)):
 
 @public.get("/ads")
 async def public_feed(request: Request, user=Depends(get_current_user)):
-    """Public ad feed — only approved + not expired."""
+    """Public ad feed — only approved + not expired. Returns empty if the ads
+    module has been globally disabled by the admin (feature flag)."""
     db = request.app.state.db
+    if not await feature_enabled(db, "ads"):
+        return {"items": []}
     now = datetime.now(timezone.utc)
     items = []
     async for a in db.ads.find({

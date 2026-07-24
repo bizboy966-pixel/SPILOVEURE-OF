@@ -7,7 +7,7 @@ import { api } from "../../src/api";
 
 const CATEGORIES = ["Électronique", "Vêtements", "Maison", "Beauté", "Sport", "Automobile", "Immobilier", "Alimentation", "Livres", "Services", "Autre"];
 
-export default function MarketplaceCreate() {
+function MarketplaceCreateInner() {
   const router = useRouter();
   const [images, setImages] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -126,3 +126,14 @@ const styles = StyleSheet.create({
   publish: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: theme.colors.success, padding: 14, borderRadius: 10, marginTop: 12 },
   publishT: { color: "#fff", fontWeight: "900" },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function MarketplaceCreate() {
+  return (
+    <FeatureGuard featureKey="marketplace_publish" title="Publication d'article désactivée">
+      <MarketplaceCreateInner />
+    </FeatureGuard>
+  );
+}

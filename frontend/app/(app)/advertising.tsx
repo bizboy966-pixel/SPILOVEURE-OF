@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 
 // Espace publicitaire — 3 options, all "Bientôt disponible" for now.
-export default function AdvertisingScreen() {
+function AdvertisingScreenInner() {
   const router = useRouter();
   const options: { key: string; icon: any; title: string; sub: string }[] = [
     {
@@ -113,3 +113,14 @@ const styles = StyleSheet.create({
   },
   soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function AdvertisingScreen() {
+  return (
+    <FeatureGuard featureKey="ads" title="Publicité désactivée">
+      <AdvertisingScreenInner />
+    </FeatureGuard>
+  );
+}

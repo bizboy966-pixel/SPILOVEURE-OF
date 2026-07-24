@@ -261,7 +261,7 @@ function WithdrawModal({
   );
 }
 
-export default function MissionsPage() {
+function MissionsPageInner() {
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [windowOpen, setWindowOpen] = useState(true);
@@ -491,3 +491,14 @@ const styles = StyleSheet.create({
   btn: { flex: 1, paddingVertical: 11, borderRadius: 18, alignItems: "center" },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function MissionsPage() {
+  return (
+    <FeatureGuard featureKey="paid_tasks" title="Tâches rémunérées désactivées">
+      <MissionsPageInner />
+    </FeatureGuard>
+  );
+}

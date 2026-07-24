@@ -3,26 +3,36 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/src/auth";
+import { useFeature, useFeatures } from "@/src/features";
 import { theme } from "@/src/theme";
 import LandingPage from "@/src/components/LandingPage";
 
 export default function Index() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const { loading: featLoading } = useFeatures();
+  const landingEnabled = useFeature("landing_page");
   const router = useRouter();
 
   useEffect(() => {
-    if (loading || !user) return;
-    if (user.role === "admin") {
-      router.replace("/(admin)");
-    } else if (user.status === "pending" || user.max_level === 0) {
-      router.replace("/(app)/activation");
-    } else {
-      router.replace("/(app)/dashboard");
+    if (authLoading || featLoading) return;
+    if (user) {
+      if (user.role === "admin") {
+        router.replace("/(admin)");
+      } else if (user.status === "pending" || user.max_level === 0) {
+        router.replace("/(app)/activation");
+      } else {
+        router.replace("/(app)/dashboard");
+      }
+      return;
     }
-  }, [user, loading, router]);
+    // Public visitor + landing DISABLED → send them straight to /login.
+    if (!landingEnabled) {
+      router.replace("/(auth)/login");
+    }
+  }, [user, authLoading, featLoading, landingEnabled, router]);
 
-  // While auth state is being resolved, avoid a "flash" of the landing page.
-  if (loading) {
+  const stillLoading = authLoading || featLoading;
+  if (stillLoading || user || !landingEnabled) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -30,17 +40,7 @@ export default function Index() {
     );
   }
 
-  // Authenticated users are being redirected via the effect above — show a
-  // spinner in the meantime rather than the marketing page.
-  if (user) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
-
-  // Public visitors → marketing landing page.
+  // Public visitor + landing ENABLED → render the marketing page.
   return <LandingPage />;
 }
 

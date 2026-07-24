@@ -7,10 +7,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
+import { useFeatures } from "../../src/features";
 
 // Simple "Tâches" hub — aggregates all revenue-generating activities.
 export default function TasksScreen() {
   const router = useRouter();
+  const { features } = useFeatures();
   const [tasks, setTasks] = useState<any[]>([]);
 
   // Screenshot-proof modal state
@@ -95,24 +97,27 @@ export default function TasksScreen() {
   const ACTION_BTN: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre" };
   const NET_LABELS: any = { tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", whatsapp: "WhatsApp", telegram: "Telegram" };
 
-  const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean }[] = [
+  const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean; hidden?: boolean }[] = [
     {
       key: "missions", icon: "briefcase",
       title: "Missions Rémunérées",
       sub: "Missions quotidiennes récurrentes — retraits indépendants par catégorie.",
       route: "/(app)/missions",
+      hidden: !features.paid_tasks,
     },
     {
       key: "campaigns", icon: "megaphone",
       title: "Campagnes rémunérées",
       sub: "Participez aux campagnes publicitaires de la communauté SPILOVEURE.",
       soon: true,
+      hidden: !features.ads,
     },
     {
       key: "special", icon: "flash",
       title: "Tâches spéciales",
       sub: "Missions ponctuelles à forte récompense proposées par les annonceurs.",
       soon: true,
+      hidden: !features.special_tasks,
     },
     {
       key: "challenges", icon: "trophy",
@@ -159,7 +164,7 @@ export default function TasksScreen() {
             ))}
           </>
         )}
-        {cards.map((c) => (
+        {cards.filter((c) => !c.hidden).map((c) => (
           <TouchableOpacity
             key={c.key} style={styles.card}
             onPress={() => {

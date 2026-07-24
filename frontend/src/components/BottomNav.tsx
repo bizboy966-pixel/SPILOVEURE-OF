@@ -19,13 +19,13 @@ type Item = {
 };
 
 const LEFT: Item[] = [
-  { key: "marketplace", icon: "cart", label: "Marketplace", route: "/(app)/marketplace" },
+  { key: "marketplace", icon: "cart", label: "Marketplace", route: "/(app)/marketplace", feature: "marketplace" },
   { key: "devis", icon: "document-text", label: "Devis" },
   { key: "coupons", icon: "ticket", label: "Coupons" },
 ];
 
 const RIGHT: Item[] = [
-  { key: "ads", icon: "megaphone", label: "Publicité", route: "/(app)/ads" },
+  { key: "ads", icon: "megaphone", label: "Publicité", route: "/(app)/ads", feature: "ads" },
   { key: "services", icon: "laptop", label: "Services", route: "/(app)/services" },
   { key: "more", icon: "menu", label: "Plus" },
 ];
@@ -33,16 +33,25 @@ const RIGHT: Item[] = [
 const PLUS_MENU: Item[] = [
   { key: "jackpot", icon: "gift", label: "Jackpot 🎁", route: "/(app)/lottery" },
   { key: "support", icon: "headset", label: "Service client" },
-  { key: "adv", icon: "megaphone", label: "Espace publicitaire", route: "/(app)/advertising" },
-  { key: "publish", icon: "create", label: "📝 Publier un article", route: "/(app)/marketplace-create" },
-  { key: "marketplace", icon: "cart", label: "🛒 Marketplace", route: "/(app)/marketplace" },
-  { key: "request", icon: "construct", label: "🛠 Demande de service" },
+  { key: "adv", icon: "megaphone", label: "Espace publicitaire", route: "/(app)/advertising", feature: "ads" },
+  { key: "publish", icon: "create", label: "📝 Publier un article", route: "/(app)/marketplace-create", feature: "marketplace_publish" },
+  { key: "marketplace", icon: "cart", label: "🛒 Marketplace", route: "/(app)/marketplace", feature: "marketplace" },
+  { key: "request", icon: "construct", label: "🛠 Demande de service", feature: "service_request" },
   { key: "coupons", icon: "ticket", label: "Coupons & Promotions" },
 ];
 
 export const BottomNav: React.FC = () => {
   const router = useRouter();
   const [plusOpen, setPlusOpen] = useState(false);
+  const { features } = useFeatures();
+
+  // Filter items whose feature flag is disabled — keeps items without a
+  // `feature` field always visible.
+  const visible = (items: Item[]) =>
+    items.filter((it) => !it.feature || features[it.feature]);
+  const leftItems = visible(LEFT);
+  const rightItems = visible(RIGHT);
+  const plusItems = visible(PLUS_MENU);
 
   const soon = () => {
     if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
@@ -75,7 +84,7 @@ export const BottomNav: React.FC = () => {
   return (
     <>
       <View style={styles.wrapper} testID="bottom-nav">
-        {LEFT.map((it) => (
+        {leftItems.map((it) => (
           <TouchableOpacity
             key={`L-${it.key}`}
             style={styles.item}
@@ -99,7 +108,7 @@ export const BottomNav: React.FC = () => {
           <Text style={styles.centerLabel}>Tâches</Text>
         </View>
 
-        {RIGHT.map((it) => (
+        {rightItems.map((it) => (
           <TouchableOpacity
             key={`R-${it.key}`}
             style={styles.item}
@@ -128,7 +137,7 @@ export const BottomNav: React.FC = () => {
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>☰ Plus</Text>
           <View style={styles.grid}>
-            {PLUS_MENU.map((it) => (
+            {plusItems.map((it) => (
               <TouchableOpacity
                 key={it.key}
                 style={styles.gridItem}

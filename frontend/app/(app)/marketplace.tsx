@@ -8,7 +8,7 @@ import { api } from "../../src/api";
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
 type Listing = { id: string; seller_id: string; seller_username: string; images: string[]; name: string; category: string; price: number; promo_price: number | null; currency: string; city: string; whatsapp: string; description: string; views: number; reviews: Review[]; expires_at?: string };
 
-export default function MarketplaceScreen() {
+function MarketplaceScreenInner() {
   const router = useRouter();
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,3 +147,14 @@ const styles = StyleSheet.create({
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, padding: 8, borderRadius: 8 },
   btnT: { color: "#fff", fontWeight: "800", fontSize: 12 },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function MarketplaceScreen() {
+  return (
+    <FeatureGuard featureKey="marketplace" title="Marketplace désactivé">
+      <MarketplaceScreenInner />
+    </FeatureGuard>
+  );
+}

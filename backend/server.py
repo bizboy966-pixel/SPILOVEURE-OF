@@ -125,6 +125,13 @@ async def lifespan(app: FastAPI):
             log.warning("EMERGENT_LLM_KEY not set — object storage disabled")
     except Exception as _e:
         log.warning(f"Object storage init failed: {_e}")
+    # Seed feature flags (idempotent — new keys ship disabled by default).
+    try:
+        from feature_flags import ensure_default_flags as _seed_flags  # noqa: WPS433
+        await _seed_flags(db)
+        log.info("Feature flags seeded")
+    except Exception as _e:
+        log.warning(f"Feature flags seed failed: {_e}")
     yield
     client.close()
 
@@ -3278,6 +3285,19 @@ app.include_router(st_admin)
 from marketplace import public as mk_public, admin as mk_admin  # noqa: E402
 app.include_router(mk_public)
 app.include_router(mk_admin)
+
+# Feature Flags — central on/off switches for every recent module.
+from feature_flags import (  # noqa: E402
+    public as ff_public,
+    admin as ff_admin,
+    ensure_default_flags,
+)
+# The admin router of feature_flags does NOT declare its own auth dependency,
+# so we wrap it to require admin like every other admin endpoint.
+from fastapi import Depends as _Depends  # noqa: E402
+ff_admin.dependencies.append(_Depends(require_admin))
+app.include_router(ff_public)
+app.include_router(ff_admin)
 
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402

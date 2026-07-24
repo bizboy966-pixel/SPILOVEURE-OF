@@ -35,7 +35,7 @@ const NETWORKS_GROUP = [
   { k: "whatsapp", label: "🟢 WhatsApp" }, { k: "telegram", label: "✈️ Telegram" },
 ];
 
-export default function SpecialTaskCreate() {
+function SpecialTaskCreateInner() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [cfg, setCfg] = useState<Record<string, Cfg>>({});
@@ -257,3 +257,14 @@ const styles = StyleSheet.create({
   priceTot: { fontSize: 22, fontWeight: "900", color: theme.colors.primary },
   sep: { height: 1, backgroundColor: theme.colors.border, marginVertical: 6 },
 });
+
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+export default function SpecialTaskCreate() {
+  return (
+    <FeatureGuard featureKey="special_tasks" title="Création de tâche spéciale désactivée">
+      <SpecialTaskCreateInner />
+    </FeatureGuard>
+  );
+}

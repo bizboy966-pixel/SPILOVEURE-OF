@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+from feature_flags import is_enabled as feature_enabled
 
 
 public = APIRouter(prefix="/api", tags=["marketplace"])
@@ -73,6 +74,10 @@ async def cfg(request: Request, user=Depends(get_current_user)):
 @public.post("/marketplace")
 async def create_listing(data: ListingCreate, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    if not await feature_enabled(db, "marketplace"):
+        raise HTTPException(503, "Marketplace momentanément désactivé par l'administrateur.")
+    if not await feature_enabled(db, "marketplace_publish"):
+        raise HTTPException(503, "Publication d'articles momentanément désactivée par l'administrateur.")
     c = await _config(db)
     if not c["enabled"]:
         raise HTTPException(503, "La publication est momentanément désactivée par l'administrateur.")
@@ -102,6 +107,8 @@ async def create_listing(data: ListingCreate, request: Request, user=Depends(get
 @public.get("/marketplace")
 async def public_feed(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    if not await feature_enabled(db, "marketplace"):
+        return {"items": []}
     now = datetime.now(timezone.utc)
     # Auto-expire past-due listings on read (lazy expiration).
     await db.marketplace_listings.update_many(

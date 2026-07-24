@@ -31,7 +31,9 @@ type Ad = {
   published_at?: string;
 };
 
-export default function AdsScreen() {
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+function AdsScreenInner() {
   const router = useRouter();
   const [ads, setAds] = useState<Ad[]>([]);
   const [loading, setLoading] = useState(true);
@@ -259,3 +261,12 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: "900", fontSize: 15, color: theme.colors.textPrimary },
   emptyHint: { fontSize: 12, color: theme.colors.textSecondary },
 });
+
+
+export default function AdsScreen() {
+  return (
+    <FeatureGuard featureKey="ads" title="Publicité désactivée">
+      <AdsScreenInner />
+    </FeatureGuard>
+  );
+}

@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+from feature_flags import is_enabled as feature_enabled
 
 
 public = APIRouter(prefix="/api", tags=["special_tasks"])
@@ -158,6 +159,8 @@ async def user_get_config(request: Request, user=Depends(get_current_user)):
 @public.post("/special-tasks")
 async def create_task(data: TaskCreate, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    if not await feature_enabled(db, "special_tasks"):
+        raise HTTPException(503, "Création de tâches spéciales momentanément désactivée par l'administrateur.")
     cfg = await _get_config(db)
     action_cfg = (cfg["action_types"] or {}).get(data.action_type)
     if not action_cfg or not action_cfg.get("enabled"):
@@ -278,6 +281,8 @@ async def confirm_payment(task_id: str, request: Request, user=Depends(get_curre
 async def user_feed(request: Request, user=Depends(get_current_user)):
     """Active tasks the current user can still complete (hasn't already done)."""
     db = request.app.state.db
+    if not await feature_enabled(db, "special_tasks"):
+        return {"items": []}
     completed = await db.special_task_completions.distinct("task_id", {"user_id": user["id"]})
     items = []
     async for t in db.special_tasks.find({
