@@ -83,11 +83,11 @@ export default function Dashboard() {
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/spiloveure-logo.png")}
-                style={{ width: 40, height: 40 }} resizeMode="contain"
+                style={{ width: 34, height: 34 }} resizeMode="contain"
               />
               <View>
-                <Text style={styles.brand}>Spiloveure</Text>
-                <Text style={styles.brandSub}>AFFILIATE SYSTEM</Text>
+                <Text style={styles.brand}>SPILOVEURE</Text>
+                <Text style={styles.brandSub}>affiliate system</Text>
               </View>
             </View>
             <TouchableOpacity
@@ -116,19 +116,19 @@ export default function Dashboard() {
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
-              <Ionicons name="person" size={28} color="#fff" />
+              <Ionicons name="person" size={22} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Text style={styles.username}>{user?.username}</Text>
-                <Ionicons name="checkmark-circle" size={18} color="#22D3EE" />
+                <Ionicons name="checkmark-circle" size={15} color="#22D3EE" />
               </View>
               <View style={styles.lvlPill}>
-                <Ionicons name="ribbon" size={12} color="#F59E0B" />
+                <Ionicons name="ribbon" size={11} color="#F59E0B" />
                 <Text style={styles.lvlText}>Niveau {user?.max_level ?? 0}</Text>
               </View>
               <Text style={styles.memberSince}>
-                <Ionicons name="calendar-outline" size={12} color="#C7D9FF" /> Membre depuis : {formatDate(user?.created_at)}
+                <Ionicons name="calendar-outline" size={11} color="#C7D9FF" /> Membre depuis : {formatDate(user?.created_at)}
               </Text>
             </View>
           </View>
@@ -315,29 +315,29 @@ export default function Dashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  header: { paddingBottom: 16, paddingHorizontal: 16 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
+  header: { paddingBottom: 12, paddingHorizontal: 16 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   brand: { color: "#fff", fontSize: 18, fontWeight: "800", letterSpacing: 2 },
   brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 2 },
   menuBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
   profileCard: {
-    flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16,
-    backgroundColor: "rgba(255,255,255,0.12)", padding: 12, borderRadius: 16,
+    flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10,
+    backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
   },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center" },
-  username: { color: "#fff", fontSize: 18, fontWeight: "800" },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center" },
+  username: { color: "#fff", fontSize: 15, fontWeight: "800" },
   lvlPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, alignSelf: "flex-start", marginTop: 4,
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 9, alignSelf: "flex-start", marginTop: 2,
   },
-  lvlText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  memberSince: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
+  lvlText: { color: "#fff", fontWeight: "700", fontSize: 11 },
+  memberSince: { color: "#C7D9FF", fontSize: 10, marginTop: 2 },
 
   balanceCard: { borderRadius: 24, padding: 20, flexDirection: "row", alignItems: "center", ...theme.shadow.button },
   balanceLabel: { color: "#C7D9FF", fontSize: 13 },
