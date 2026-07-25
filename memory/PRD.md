@@ -20,6 +20,15 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-25 — 🎥 Marketplace media : Vidéos + Musique de fond
+- **Backend** (`/app/backend/marketplace.py`) : `ListingCreate` accepte désormais `videos: List[str]` (max 5) + `audio: Optional[str]`. Doc persisté et exposé sur GET public + admin.
+- **Uploads** (`/app/backend/ads.py`) : `ALLOWED_UPLOAD` étendu avec `.mp3/.m4a/.aac/.ogg/.wav`.
+- **Frontend `marketplace-create.tsx`** : Formulaire réécrit avec 3 sections media distinctes (📸 Photos bleu 0/10, 🎥 Vidéos violet 0/5, 🎵 Musique rose facultatif). Reorder photos + previews + remove.
+- **Frontend `marketplace.tsx`** : Feed avec `<video controls>` inline pour chaque vidéo + pill flottant « Écouter la musique / Musique on » sur la photo pour l'audio (web-only via `<audio>` HTML5, loop). Badges 🎥 count et 🎵 dans les métadonnées.
+- **Admin panel** : Grid photos + `<video controls>` + `<audio controls>` visibles avant approbation.
+- **Tests** : `/app/backend/tests/test_marketplace_media.py` → 11/11 PASS. E2E frontend testing_agent v3 → 100 % flows PASS.
+
+
 ### 2026-07-24 (7) — 🎛️ Feature Flags system (kill switches par module)
 **Objectif** : Chaque module récent (Landing Page, Publicité, Ads Vidéo, Ads Affiche, Tâches Spéciales, Marketplace, Publier un article, Demande de service, Tâches rémunérées) est désormais contrôlé par un flag `enabled: bool` en BDD (`feature_flags` collection). Après tout redéploiement, TOUS les flags sont OFF par défaut (idempotent seed `$setOnInsert`).
 
