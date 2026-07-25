@@ -1376,8 +1376,48 @@ export default function AdminHome() {
                   <KvRow k="Prix" v={`${l.promo_price ? l.promo_price + " (promo) / " : ""}${l.price} ${l.currency}`} />
                   <KvRow k="Contact WA" v={l.whatsapp} />
                   <KvRow k="Photos" v={String((l.images || []).length)} />
+                  <KvRow k="Vidéos" v={String((l.videos || []).length)} />
+                  <KvRow k="Musique" v={l.audio ? "🎵 oui" : "—"} />
                   <KvRow k="Statut" v={l.status} />
                 </View>
+
+                {/* Media previews for admin review */}
+                {(l.images || []).length > 0 && (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {(l.images || []).map((u: string, i: number) => (
+                      <img
+                        key={i}
+                        src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${u}`}
+                        alt={`img-${i}`}
+                        style={{ width: 80, height: 80, borderRadius: 6, objectFit: "cover" }}
+                      />
+                    ))}
+                  </View>
+                )}
+                {(l.videos || []).length > 0 && (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {(l.videos || []).map((v: string, i: number) => (
+                      // @ts-ignore raw video element in admin web UI
+                      <video
+                        key={i}
+                        src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${v}`}
+                        controls
+                        style={{ width: 200, height: 120, borderRadius: 6, background: "#000" }}
+                      />
+                    ))}
+                  </View>
+                )}
+                {l.audio && (
+                  <View style={{ marginTop: 6 }}>
+                    {/* @ts-ignore raw audio element in admin web UI */}
+                    <audio
+                      src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${l.audio}`}
+                      controls
+                      style={{ width: "100%" }}
+                    />
+                  </View>
+                )}
+
                 {l.status === "pending_admin_review" && (
                   <View style={styles.actRow}>
                     <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/marketplace/${l.id}/approve`))} testID={`admin-mk-approve-${l.id}`}>

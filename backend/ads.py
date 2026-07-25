@@ -30,7 +30,8 @@ from feature_flags import is_enabled as feature_enabled
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_VIDEO = {".mp4", ".mov", ".webm", ".m4v"}
-ALLOWED_UPLOAD = ALLOWED_IMAGE | ALLOWED_VIDEO
+ALLOWED_AUDIO = {".mp3", ".m4a", ".aac", ".ogg", ".wav"}
+ALLOWED_UPLOAD = ALLOWED_IMAGE | ALLOWED_VIDEO | ALLOWED_AUDIO
 MAX_UPLOAD_MB = 100
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR") or "/app/backend/uploads")

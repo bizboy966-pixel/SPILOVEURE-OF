@@ -1,18 +1,27 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, RefreshControl, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Image, Platform, RefreshControl, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
-import { api } from "../../src/api";
+import { api, resolveMediaUrl } from "../../src/api";
 
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
-type Listing = { id: string; seller_id: string; seller_username: string; images: string[]; name: string; category: string; price: number; promo_price: number | null; currency: string; city: string; whatsapp: string; description: string; views: number; reviews: Review[]; expires_at?: string };
+type Listing = {
+  id: string; seller_id: string; seller_username: string;
+  images: string[]; videos?: string[]; audio?: string | null;
+  name: string; category: string; price: number; promo_price: number | null;
+  currency: string; city: string; whatsapp: string; description: string;
+  views: number; reviews: Review[]; expires_at?: string;
+};
 
 function MarketplaceScreenInner() {
   const router = useRouter();
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [imgIdx, setImgIdx] = useState<Record<string, number>>({});
+  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
+  // web-only refs to control audio playback per listing
+  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
   const load = useCallback(async () => {
     try { const r = await api.get<{ items: Listing[] }>("/marketplace"); setItems(r.items || []); }
@@ -45,11 +54,30 @@ function MarketplaceScreenInner() {
     return (total / l.reviews.length).toFixed(1);
   };
 
+  const toggleAudio = (l: Listing) => {
+    if (Platform.OS !== "web" || !l.audio) return;
+    const el = audioRefs.current[l.id];
+    if (!el) return;
+    if (audioPlaying === l.id) {
+      el.pause();
+      setAudioPlaying(null);
+    } else {
+      // Pause any currently playing audio first (only one music at a time).
+      Object.entries(audioRefs.current).forEach(([k, a]) => { if (k !== l.id && a) a.pause(); });
+      el.currentTime = 0;
+      el.play().catch(() => {});
+      setAudioPlaying(l.id);
+    }
+  };
+
   const renderItem = ({ item }: { item: Listing }) => {
-    const idx = imgIdx[item.id] || 0;
     const imgs = item.images || [];
-    const src = imgs[idx] ? `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${imgs[idx]}` : "";
+    const vids = item.videos || [];
+    const idx = imgIdx[item.id] || 0;
+    const src = imgs[idx] ? resolveMediaUrl(imgs[idx]) : "";
     const avg = avgRating(item);
+    const hasAudio = !!item.audio;
+    const isPlaying = audioPlaying === item.id;
     return (
       <View style={styles.card} testID={`mk-card-${item.id}`}>
         <View style={{ position: "relative" }}>
@@ -65,13 +93,54 @@ function MarketplaceScreenInner() {
               <View style={styles.imgCount}><Text style={{ color: "#fff", fontSize: 10 }}>{idx + 1}/{imgs.length}</Text></View>
             </>
           )}
+          {hasAudio && (
+            <TouchableOpacity
+              onPress={() => toggleAudio(item)}
+              style={styles.musicToggle}
+              testID={`mk-audio-toggle-${item.id}`}
+            >
+              <Ionicons name={isPlaying ? "pause" : "musical-notes"} size={16} color="#fff" />
+              <Text style={styles.musicTxt}>{isPlaying ? "Musique on" : "Écouter la musique"}</Text>
+            </TouchableOpacity>
+          )}
+          {Platform.OS === "web" && hasAudio && (
+            // @ts-ignore RN Web audio element
+            <audio
+              ref={(el) => { audioRefs.current[item.id] = el; }}
+              src={resolveMediaUrl(item.audio || "")}
+              loop
+              onEnded={() => setAudioPlaying(null)}
+              style={{ display: "none" }}
+            />
+          )}
         </View>
+
+        {vids.length > 0 && (
+          <View style={styles.videoRow}>
+            {vids.map((v, i) => (
+              <View key={i} style={styles.videoWrap} testID={`mk-video-${item.id}-${i}`}>
+                {Platform.OS === "web" ? (
+                  // @ts-ignore raw HTML video element
+                  <video src={resolveMediaUrl(v)} controls playsInline style={{ width: "100%", maxHeight: 220, borderRadius: 8, background: "#000", display: "block" }} />
+                ) : (
+                  <View style={{ height: 160, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                    <Ionicons name="videocam" size={24} color="#fff" />
+                    <Text style={{ color: "#fff", fontSize: 12, marginTop: 4 }}>Vidéo</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={{ padding: 10, gap: 4 }}>
           <Text style={styles.name}>{item.name}</Text>
-          <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+          <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <View style={styles.catBadge}><Text style={styles.catT}>{item.category}</Text></View>
             <Text style={styles.meta}>📍 {item.city}</Text>
             {avg && <Text style={styles.meta}>⭐ {avg}</Text>}
+            {vids.length > 0 && <Text style={styles.meta}>🎥 {vids.length}</Text>}
+            {hasAudio && <Text style={styles.meta}>🎵</Text>}
           </View>
           <View style={{ flexDirection: "row", gap: 6, alignItems: "baseline" }}>
             {item.promo_price ? (
@@ -137,6 +206,15 @@ const styles = StyleSheet.create({
   img: { width: "100%", height: 220, backgroundColor: "#000" },
   navBtn: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   imgCount: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  musicToggle: {
+    position: "absolute", top: 8, left: 8,
+    backgroundColor: "rgba(123,97,255,0.9)",
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
+  },
+  musicTxt: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  videoRow: { padding: 8, gap: 8, backgroundColor: "#0F172A" },
+  videoWrap: { borderRadius: 8, overflow: "hidden" },
   name: { fontSize: 15, fontWeight: "900", color: theme.colors.textPrimary },
   meta: { fontSize: 11, color: theme.colors.textSecondary },
   catBadge: { backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },

@@ -26,6 +26,8 @@ DEFAULT_DURATION_DAYS = 14
 
 class ListingCreate(BaseModel):
     images: List[str] = Field(..., min_length=1, max_length=10)
+    videos: List[str] = Field(default_factory=list, max_length=5)
+    audio: Optional[str] = Field(default=None, max_length=500)
     name: str = Field(..., min_length=2, max_length=200)
     category: str = Field(..., min_length=1, max_length=100)
     price: float = Field(..., ge=0)
@@ -87,6 +89,8 @@ async def create_listing(data: ListingCreate, request: Request, user=Depends(get
         "seller_id": user["id"],
         "seller_username": user.get("username"),
         "images": data.images,
+        "videos": data.videos,
+        "audio": data.audio,
         "name": data.name,
         "category": data.category,
         "price": data.price,
