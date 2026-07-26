@@ -20,12 +20,18 @@ import { useI18n } from "@/src/i18n";
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const SERVICES: { icon: IconName; color: string; bg: string; key: string }[] = [
-  { key: "mlm", icon: "git-network-outline", color: "#1B5BFF", bg: "#E0EAFF" },
-  { key: "ads", icon: "megaphone-outline", color: "#7B61FF", bg: "#EFEAFF" },
-  { key: "tasks", icon: "checkmark-done-circle-outline", color: "#10B981", bg: "#D1FAE5" },
-  { key: "marketplace", icon: "storefront-outline", color: "#F59E0B", bg: "#FEF3C7" },
-  { key: "lottery", icon: "sparkles-outline", color: "#EC4899", bg: "#FCE7F3" },
-  { key: "missions", icon: "trophy-outline", color: "#0EA5E9", bg: "#DBEAFE" },
+  { key: "training_ecom",   icon: "cart-outline",              color: "#1B5BFF", bg: "#E0EAFF" },
+  { key: "training_cm",     icon: "phone-portrait-outline",    color: "#7B61FF", bg: "#EFEAFF" },
+  { key: "ebooks",          icon: "book-outline",              color: "#10B981", bg: "#D1FAE5" },
+  { key: "coaching",        icon: "people-outline",            color: "#F59E0B", bg: "#FEF3C7" },
+  { key: "training_entrep", icon: "rocket-outline",            color: "#EC4899", bg: "#FCE7F3" },
+  { key: "trading_signals", icon: "trending-up-outline",       color: "#0EA5E9", bg: "#DBEAFE" },
+  { key: "premium_apps",    icon: "diamond-outline",           color: "#8B5CF6", bg: "#EDE9FE" },
+  { key: "ads",             icon: "megaphone-outline",         color: "#7B61FF", bg: "#EFEAFF" },
+  { key: "tasks",           icon: "checkmark-done-circle-outline", color: "#10B981", bg: "#D1FAE5" },
+  { key: "marketplace",     icon: "storefront-outline",        color: "#F59E0B", bg: "#FEF3C7" },
+  { key: "lottery",         icon: "sparkles-outline",          color: "#EC4899", bg: "#FCE7F3" },
+  { key: "missions",        icon: "trophy-outline",            color: "#0EA5E9", bg: "#DBEAFE" },
 ];
 
 const STATS: { key: string; value: string }[] = [
