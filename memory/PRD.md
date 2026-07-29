@@ -20,6 +20,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-29 (3) — 🛠 Fix bouton « Valider » activations (Alert.alert silent-fail)
+**Bug** : Cliquer « Valider » sur une activation en attente ne montrait aucun retour et laissait croire que rien ne se passait — l'API réussissait pourtant en arrière-plan.
+
+**Cause racine** : Le helper `action()` de l'admin panel utilisait `Alert.alert()` (React Native) qui est un no-op sur `react-native-web`. Toutes les feedback (succès + erreurs) étaient invisibles.
+
+**Fix** (`/app/frontend/app/(admin)/index.tsx`) :
+- Nouveau helper `notify(title, message)` cross-platform : `window.alert()` sur Web, `Alert.alert()` en natif.
+- `action()` remanié : appelle `notify()` sur succès et erreur, logge l'erreur brute dans `console.error` (§Gestion des erreurs / logs de diagnostic).
+- Remplacement des **13 appels** `Alert.alert` dispersés dans le fichier par `notify()`.
+
+**Vérifié par testing_agent (iter_26)** — **100 % PASS** (4/4 backend + full E2E frontend) :
+✅ Alerte native « Succès / ✅ Opération réussie » sur Valider et Rejeter · ✅ Ligne disparait de « En attente » et apparait dans « Activées » · ✅ User DB → status='active', max_level=1 · ✅ 404 sur id invalide → alerte « Erreur » propre · ✅ Reject flow OK · ✅ Régression bouton Créer challenge OK.
+
+
 ### 2026-07-30 — 💰 Plan de rémunération officiel SPILOVEURE appliqué (Chantier #3)
 **Réécriture de `matrix.py::distribute_commission`** pour appliquer strictement l'algorithme officiel fourni par le PO.
 
