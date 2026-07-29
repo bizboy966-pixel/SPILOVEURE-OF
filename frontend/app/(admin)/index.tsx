@@ -1,7 +1,25 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Alert, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity,
+  Alert, FlatList, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity,
 } from "react-native";
+
+/**
+ * Cross-platform alert helper.
+ *
+ * React Native's `Alert.alert()` is a no-op on `react-native-web`, which
+ * caused a silent-success bug in the admin panel: clicking "Valider" on
+ * pending activations actually validated them on the backend but the admin
+ * never saw the confirmation dialog (and errors were invisible too). We wrap
+ * both platforms so the same call surfaces feedback on every device.
+ */
+function notify(title: string, message: string): void {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    // Prefix with the title so the admin instantly knows whether it succeeded.
+    window.alert(`${title}\n\n${message}`);
+    return;
+  }
+  Alert.alert(title, message);
+}
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -296,22 +314,26 @@ export default function AdminHome() {
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard) {
         await navigator.clipboard.writeText(serverIp);
-        Alert.alert("Copié", `IP ${serverIp} copiée dans le presse-papiers.`);
+        notify("Copié", `IP ${serverIp} copiée dans le presse-papiers.`);
       } else {
-        Alert.alert("IP serveur", serverIp);
+        notify("IP serveur", serverIp);
       }
     } catch {
-      Alert.alert("IP serveur", serverIp);
+      notify("IP serveur", serverIp);
     }
   }, [serverIp]);
 
   const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie") => {
     try {
       await fn();
-      Alert.alert("Succès", ok);
+      notify("Succès", ok);
       await load();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Erreur");
+      const msg = e?.detail || e?.message || "Une erreur est survenue.";
+      // Log the raw error for diagnostics — spec §3 requires visible admin
+      // errors AND server logs.
+      console.error("[admin action] failed:", e);
+      notify("Erreur", msg);
     }
   };
 
@@ -839,7 +861,7 @@ export default function AdminHome() {
                   </View>
                 )}
                 <View style={styles.actRow}>
-                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => Alert.alert("Preuve de paiement", a.transaction_ref ? `Référence: ${a.transaction_ref}\n\nNuméro: ${a.payment_phone || "—"}\nOpérateur: ${a.operator || "—"}` : "Aucune preuve fournie par l'utilisateur (à demander manuellement).")} testID={`admin-proof-${a.id}`}>
+                  <TouchableOpacity style={[styles.actBtn, { backgroundColor: "#0EA5E9" }]} onPress={() => notify("Preuve de paiement", a.transaction_ref ? `Référence: ${a.transaction_ref}\n\nNuméro: ${a.payment_phone || "—"}\nOpérateur: ${a.operator || "—"}` : "Aucune preuve fournie par l'utilisateur (à demander manuellement).")} testID={`admin-proof-${a.id}`}>
                     <Ionicons name="document-text" size={14} color="#fff" />
                     <Text style={styles.actT}>Voir preuve</Text>
                   </TouchableOpacity>
@@ -1913,9 +1935,9 @@ export default function AdminHome() {
                       operator_name: mpOperator,
                       allowed_countries: mpAllowedCountries,
                     });
-                    Alert.alert("Configuration sauvegardée", "Les utilisateurs verront immédiatement les changements.");
+                    notify("Configuration sauvegardée", "Les utilisateurs verront immédiatement les changements.");
                   } catch (e: any) {
-                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
                   } finally {
                     setMpSaving(false);
                   }
@@ -2110,9 +2132,9 @@ export default function AdminHome() {
                       open_time: wdOpenTime,
                       close_time: wdCloseTime,
                     });
-                    Alert.alert("✅ Sauvegardé", "Les frais de retrait sont appliqués immédiatement.");
+                    notify("✅ Sauvegardé", "Les frais de retrait sont appliqués immédiatement.");
                   } catch (e: any) {
-                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
                   } finally {
                     setWdSaving(false);
                   }
@@ -2163,9 +2185,9 @@ export default function AdminHome() {
                       phone: supPhone,
                       website_url: supWebsite,
                     });
-                    Alert.alert("✅ Sauvegardé", "Les liens de support sont mis à jour.");
+                    notify("✅ Sauvegardé", "Les liens de support sont mis à jour.");
                   } catch (e: any) {
-                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
                   } finally {
                     setSupSaving(false);
                   }
@@ -2257,7 +2279,7 @@ export default function AdminHome() {
                     });
                     if (typeof window !== "undefined") window.alert("Popup Communauté enregistré ✅");
                   } catch (e: any) {
-                    Alert.alert("Erreur", e?.detail || "Impossible de sauvegarder.");
+                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
                   } finally {
                     setCpSaving(false);
                   }
