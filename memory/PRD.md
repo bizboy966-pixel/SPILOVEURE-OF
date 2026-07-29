@@ -20,6 +20,44 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-30 — 💰 Plan de rémunération officiel SPILOVEURE appliqué (Chantier #3)
+**Réécriture de `matrix.py::distribute_commission`** pour appliquer strictement l'algorithme officiel fourni par le PO.
+
+**Règle uniforme (§2 + §9)** :
+Pour **tout** crédit reçu (direct, spillover-sponsor, spillover-beneficiary) :
+```
+need = max(0, price_of_recipient_next_level − recipient.balance_upgrade)
+upgrade_share = min(amount // 2, need)     # jamais au-delà du besoin
+profit_share  = amount − upgrade_share
+```
+Une fois la réserve pleine (ou max_level=12) → 100 % en profit.
+
+**Écarts corrigés vs ancien code** :
+1. **Direct case** utilisait un ratio fixe `upgrade_reserve/total_gain` (25 % à L1) → remplacé par la règle 50/50-avec-plafond.
+2. **Spillover-sponsor half** était mis 100 % en profit → maintenant soumis à la même règle uniforme.
+
+**Règles de déclenchement (§2-§8) — déjà conformes, non modifiées** :
+- Une commission de niveau N n'est émise que lorsqu'un descendant activate le niveau N.
+- Le destinataire est l'ancêtre exactement N sauts au-dessus du filleul (donc génération N de l'ancêtre).
+- L'ancêtre doit être lui-même au moins au niveau N, sinon skip (§10).
+
+**Spillover (§9)** :
+- Direct (1er/2ᵉ filleul) : 100 % au parrain, règle 50/50-avec-plafond.
+- 3ᵉ+ filleul (spillover) : 50 % au parrain direct + 50 % au bénéficiaire, chacun avec règle 50/50-avec-plafond.
+- Collapse si ancêtre identique sur les 2 chaînes → 1 seul crédit direct (pas de double paiement).
+
+**Guards obligatoires (§10) — tous en place** :
+- Paiement confirmé (verrou `activate_level` de 2026-07-29).
+- Compte activé au niveau N.
+- Génération correcte (walk-up sponsor chain de N-1 hops).
+- Bénéficiaire éligible (level ≥ N).
+- Aucune commission versée sans une seule de ces conditions.
+
+**Tests** :
+- `test_official_commission_plan.py` (4 cas) — scénarios spec §2 et §9 : L1 1ère invitation = 1000+1000 ; L1 2ᵉ invitation + auto-upgrade = profit=3000 réserve=0 max_level=2 ; spillover 50/50 vérifié ; commission skippée si ancêtre pas au bon niveau.
+- Régression : `test_soleaspay_activation`, `test_manual_payment_flow`, `test_manual_upgrade_debit`, `test_activation_guard`, `test_challenges_http` → **43/43 PASS**.
+
+
 ### 2026-07-29 (2) — 🏆 Fix bouton « Créer le challenge » + Date/Time pickers
 **Problème** : Bouton silencieux — le wrapper `action()` utilisait `Alert.alert()` (RN natif) qui est no-op sur Expo Web. Combinée à `new Date("").toISOString()` qui lançait un `RangeError` si les champs texte étaient vides ou mal formatés, la création du challenge échouait sans feedback.
 

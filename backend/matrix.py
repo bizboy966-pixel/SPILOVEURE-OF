@@ -91,31 +91,36 @@ async def _walk_up_sponsors(db, start_user_id: Optional[str], hops: int) -> Opti
 
 
 async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
-    """Credit level-N commission to the proper ancestor(s) up the sponsor chain.
+    """Credit level-N commission to the proper ancestor(s) — official SPILOVEURE
+    compensation plan (2026-07-30).
 
-    Rule (per business spec):
-      - When user X activates level N, the ancestor exactly (N-1) hops further
-        above X's direct sponsor — i.e. N hops above X — receives the commission.
-      - That ancestor MUST have already activated level N themselves; otherwise
-        the commission is skipped (not paid retroactively).
+    Trigger — a level-N commission is emitted **only** when a descendant
+    activates level N. The eligible recipient is the ancestor exactly N hops
+    up the sponsor chain (i.e. the N-th generation ancestor). If that ancestor
+    has NOT itself reached level N, the commission is skipped (not paid
+    retroactively when they later upgrade — that's the official spec).
 
-    Direct placement (no spillover):
-      - Full commission goes to the direct ancestor.
-      - Split: upgrade_reserve_ratio (per level) → balance_upgrade,
-               rest                            → balance_profit.
+    ▸ Direct placement (1st or 2nd direct invitee of the sponsor)
+        100 % of `commission_per_invite` → direct ancestor (N-th hop up).
 
-    Spillover placement (parent_id != sponsor_id):
-      - Commission is split 50/50:
-          a) DIRECT-SPONSOR ANCESTOR (the level-N ancestor up the sponsor chain
-             from the new user's direct sponsor):
-             • Their 50% share goes **100% into balance_profit**.
-             • No portion goes to upgrade_reserve.
-          b) SPILLOVER BENEFICIARY (the level-N ancestor up the matrix chain
-             from the spillover parent):
-             • Their 50% share is split 50/50 between balance_profit and
-               balance_upgrade, UNTIL the beneficiary has fully funded the
-               price of their next level. Once that reserve is full (or they
-               are already at max level 12), 100% goes to balance_profit.
+    ▸ Spillover placement (3rd+ direct invitee — placed under the sponsor's
+      weakest leg by `place_in_matrix`)
+        50 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
+        50 % → spillover beneficiary  (N-th hop up the MATRIX chain).
+
+    ▸ Reserve/profit split — SAME UNIFORM RULE for every recipient regardless
+      of kind (direct, spillover_sponsor, spillover_beneficiary):
+        need = max(0, price_of_recipient_next_level − recipient.balance_upgrade)
+        upgrade_share = min(amount // 2, need)   # never over-fill
+        profit_share  = amount − upgrade_share
+      Once the reserve is full (or the recipient is at max level 12) → 100 %
+      goes straight into `balance_profit`.
+
+    ▸ Additional guards (spec §10):
+        - Recipient user must exist and be at level ≥ N.
+        - No commission for max_level == 12 (already at top).
+        - Same person on both chains (spillover collapses to direct) → treat
+          as a single direct credit (no double-payment).
     """
     if not sponsor_id:
         return []
@@ -123,65 +128,60 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
     if not lv:
         return []
     commission = lv["commission_per_invite"]
-    total_gain = lv["total_gain"] or 1
-    upgrade_reserve = lv["upgrade_reserve"]
-    direct_upgrade_ratio = upgrade_reserve / total_gain
 
     direct_ancestor = await _walk_up_sponsors(db, sponsor_id, level - 1)
 
-    credits = []
+    credits: list[dict] = []
     is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
 
+    # Build the list of (recipient_id, amount, kind) tuples.
     if is_spill:
         spillover_ancestor = await _walk_up_sponsors(db, parent_id, level - 1)
-        # Same person on both chains? give full commission, treat as direct.
         if spillover_ancestor and direct_ancestor and spillover_ancestor == direct_ancestor:
-            recipients = [(direct_ancestor, commission, "direct", direct_upgrade_ratio, False)]
+            # Same ancestor on both chains — collapse to a single direct credit
+            # so we never double-pay the same person.
+            recipients = [(direct_ancestor, commission, "direct")]
         else:
             half = commission // 2
             other_half = commission - half
             recipients = []
             if direct_ancestor:
-                # Direct sponsor share — 100% profit, NO upgrade reserve.
-                recipients.append((direct_ancestor, half, "spillover_sponsor", 0.0, False))
+                recipients.append((direct_ancestor, half, "spillover_sponsor"))
             if spillover_ancestor:
-                # Beneficiary share — 50/50 dynamic (capped to next-level price).
-                recipients.append((spillover_ancestor, other_half, "spillover_beneficiary", 0.5, True))
+                recipients.append((spillover_ancestor, other_half, "spillover_beneficiary"))
     else:
         recipients = []
         if direct_ancestor:
-            recipients.append((direct_ancestor, commission, "direct", direct_upgrade_ratio, False))
+            recipients.append((direct_ancestor, commission, "direct"))
 
-    for user_id, amount, kind, upgrade_ratio, cap_to_next_level in recipients:
+    for user_id, amount, kind in recipients:
         recipient = await db.users.find_one(
-            {"id": user_id}, {"_id": 0, "max_level": 1, "balance_upgrade": 1},
+            {"id": user_id},
+            {"_id": 0, "max_level": 1, "balance_upgrade": 1},
         )
+        # Guard: must be at level N (spec §10).
         if not recipient or recipient.get("max_level", 0) < level:
-            log.info(f"Recipient {user_id} not at level {level}, commission skipped")
+            log.info(f"Recipient {user_id} not at level {level} — commission skipped (spec §10).")
             continue
 
-        if upgrade_ratio <= 0:
-            upgrade_share = 0
+        # ── Uniform 50/50-with-cap split (spec §2 + §9) ─────────────────
+        current_max = recipient.get("max_level", 0) or 0
+        current_upgrade = recipient.get("balance_upgrade", 0) or 0
+        if current_max >= 12:
+            upgrade_share = 0  # top level — no further upgrade path.
         else:
-            upgrade_share = int(round(amount * upgrade_ratio))
-
-        if cap_to_next_level and upgrade_share > 0:
-            # Stop feeding the reserve once next-level price is funded.
-            current_max = recipient.get("max_level", 0)
-            current_upgrade = recipient.get("balance_upgrade", 0) or 0
-            if current_max >= 12:
-                upgrade_share = 0
-            else:
-                next_price = LEVELS_BY_NUM[current_max + 1]["price"]
-                remaining = max(0, next_price - current_upgrade)
-                upgrade_share = min(upgrade_share, remaining)
-
+            next_price = LEVELS_BY_NUM[current_max + 1]["price"]
+            need = max(0, next_price - current_upgrade)
+            half_amount = amount // 2
+            upgrade_share = min(half_amount, need)
         profit_share = amount - upgrade_share
 
         commission_doc = {
             "user_id": user_id, "from_user_id": new_user_id,
             "level": level, "kind": kind,
-            "amount": amount, "upgrade_share": upgrade_share, "profit_share": profit_share,
+            "amount": amount,
+            "upgrade_share": upgrade_share,
+            "profit_share": profit_share,
             "created_at": datetime.now(timezone.utc),
         }
         await db.commissions.insert_one(commission_doc)
@@ -199,7 +199,6 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
 
         # Trigger auto-upgrade cascade if the recipient now has enough reserve.
         try:
-            # Loop in case multiple levels can be activated back-to-back.
             for _ in range(12):
                 upgraded_to = await try_auto_upgrade(db, user_id)
                 if not upgraded_to:
