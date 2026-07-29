@@ -1,0 +1,22 @@
+{
+  "summary": "Verified the fix in /app/frontend/app/(app)/_layout.tsx — ALLOWED_FOR_PENDING now includes services, formations, ebooks, premium-apps, trading. Registered a fresh pending user via /api/auth/register (status=pending, max_level=0), injected the JWT into localStorage.auth_token and navigated to each storefront URL. All 5 URLs (/services, /formations, /ebooks, /premium-apps, /trading) stay on the page (URL does not bounce after 3+ seconds). /services screenshot confirms the storefront renders (NOS SERVICES title, 4 tiles: FORMATION/E-BOOK/APPLICATION PREMIUM/TRADING, INACTIF badge). Regression: /dashboard, /wallet, /equipe, /matrices still redirect to /activation for pending users. /activation, /profile, /settings still accessible. Activated admin (status=active, max_level=3) accesses /services and all sub-pages plus /dashboard without any redirect. Test user cleaned up from DB. Bug fully fixed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_layout.tsx ALLOWED_FOR_PENDING is a plain string Set — no risk of drift, but if new storefront sub-routes are added later (e.g. /services/detail/:id) they will also need to be whitelisted. Consider matching on a prefix (segments[1].startsWith('services')) if child routes appear."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "100% (5/5 storefront allowed + 4/4 gated regressions + 3/3 existing-allowed regressions + activated-user regression)"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Ephemeral pending user TEST_srv_9f0d7cf9@example.com (deleted at end).",
+  "seed_data_creation": "One TEST_ user created via /api/auth/register (password_confirm field is REQUIRED — note for future agents), then DELETED from DB at end of test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth token key on web is localStorage.auth_token, stored as JSON.stringify(token) (double-quoted). /api/auth/register REQUIRES password_confirm in the payload (in addition to password) or returns 422. Route segment used for guard is segments[1] (i.e. the direct child of the (app) group).",
+  "rca_of_the_issue": "The bug was a redirect loop caused by _layout.tsx ALLOWED_FOR_PENDING previously containing only {activation, profile, settings}. When a pending user hit /(app)/services, the guard useEffect saw segments[1]='services' ∉ ALLOWED_FOR_PENDING and forced router.replace('/(app)/activation'), which is why the page flashed then bounced. Fix: added 'services', 'formations', 'ebooks', 'premium-apps', 'trading' to the whitelist. Verified — no more bounce."
+}

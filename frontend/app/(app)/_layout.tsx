@@ -5,8 +5,14 @@ import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
 
-// Routes accessible to non-activated users — they can ONLY see /activation.
-const ALLOWED_FOR_PENDING = new Set(["activation", "profile", "settings"]);
+// Routes accessible to non-activated users. They can browse the "Services"
+// showcase (formations, e-books, premium apps, trading) even before paying
+// their activation — those pages act as the platform's storefront and must
+// not redirect them back to /activation automatically.
+const ALLOWED_FOR_PENDING = new Set([
+  "activation", "profile", "settings",
+  "services", "formations", "ebooks", "premium-apps", "trading",
+]);
 
 export default function AppLayout() {
   const { user, loading } = useAuth();
