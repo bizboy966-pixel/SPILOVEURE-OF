@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend-only regression for referral/landing-page bug fixes on SPILOVEURE. Exhaustively tested (1) referral redirect from /register?ref=admin to landing then to register with sponsor locked; (2) flag-independence of that behaviour; (3) direct visits with landing_page OFF and ON; (4) FR/EN size parity of hero title and tagline at desktop/tablet/mobile viewports; (5) /u/admin regression. All 7 acceptance criteria pass. Landing flag restored to OFF at end of testing.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "referral_flag_on": "PASS — /register?ref=admin → /?ref=admin (Landing rendered with SPILOVEURE hero + landing-register-btn). CTA → /register?via=landing&ref=admin. register-sponsor value='admin', editable=false (fill blocked with TimeoutError), lock hint text = '🔒 Code parrain verrouillé (transmis via votre lien d'invitation : @admin).'",
+    "referral_flag_off": "PASS — /register?ref=admin still redirects to /?ref=admin and Landing renders (feature-flag independent for referral visitors).",
+    "direct_flag_off": "PASS — / with landing_page=false redirects to /(auth)/login.",
+    "direct_flag_on": "PASS — / with landing_page=true shows Landing, CTA → /register?via=landing (no ref), register-sponsor empty.",
+    "u_admin_regression": "PASS — /u/admin → /?ref=admin → Landing → CTA → /register?via=landing&ref=admin with sponsor='admin' locked.",
+    "no_redirect_loop": "PASS — via=landing marker prevents re-bounce; user stayed on register page in both T1 and T5.",
+    "fr_en_size_parity": {
+      "desktop_1440": "hero title FR=60px EN=60px, tagline FR=18px EN=18px — MATCH",
+      "tablet_768":   "hero title FR=48px EN=48px, tagline FR=18px EN=18px — MATCH (previously 24px in FR — fixed)",
+      "mobile_390":   "hero title FR=36px EN=36px, tagline FR=16px EN=16px — MATCH"
+    }
+  },
+  "test_report_links": [
+    "/app/frontend/app/index.tsx",
+    "/app/frontend/app/(auth)/register.tsx",
+    "/app/frontend/src/components/LandingPage.tsx"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor (non-blocking): console warnings from RN-web — 'shadow* style props are deprecated. Use boxShadow' and 'props.pointerEvents is deprecated. Use style.pointerEvents'. Pre-existing, not introduced by this fix.",
+    "register.tsx sponsor field: value is bound to `sponsorValid ? sponsor : ''`. If the async /sponsor/<ref> validation call ever fails transiently for a valid ref, the user will see an empty locked field with the generic invalid-link warning. Consider retry/backoff for network errors before deciding sponsorValid=false. Not blocking current fix."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (7/7 acceptance criteria passed)"},
+  "test_credentials": "Admin — kossikotokou4@gmail.com / @Emma91972006 (used to toggle landing_page flag via PUT /api/admin/feature-flags/landing_page)",
+  "seed_data_creation": "None. Landing_page feature-flag was toggled on/off during tests and restored to OFF at the end (matches pre-test state).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "landing_page flag has been RESTORED to false at end of run. Language toggle key in web is localStorage 'spiloveure.lang' with raw value 'fr' or 'en' (NOT JSON-encoded, contrary to the request note). To measure the hero SPILOVEURE title font-size, query ALL 'text=SPILOVEURE' matches and pick the largest — the header navbar also contains the SPILOVEURE brand at 20px.",
+  "rca of the issue": "Bug 1 (referral redirect): register.tsx effect now bounces to /?ref=… whenever ref is present and via!=landing, regardless of landing_page flag; index.tsx renders LandingPage whenever refCode is present OR landing_page flag is ON. The via=landing marker prevents redirect loops. Bug 2 (FR tagline oversized): LandingPage.tsx heroTagline was overridden inline to fontSize:24 on tablet — reduced to 18 to match EN. Verified computed styles are now identical across FR and EN in all three viewports."
+}

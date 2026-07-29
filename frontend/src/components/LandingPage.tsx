@@ -132,7 +132,7 @@ export default function LandingPage({ refCode = "" }: { refCode?: string }) {
               <Text
                 style={[
                   styles.heroTagline,
-                  isTablet && { fontSize: 24 },
+                  isTablet && { fontSize: 18 },
                 ]}
               >
                 {t("landing.hero.tagline")}

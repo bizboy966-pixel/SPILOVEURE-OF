@@ -23,15 +23,23 @@ export default function Register() {
   const landingEnabled = useFeature("landing_page");
   const { loading: featLoading } = useFeatures();
 
-  // Referral-first UX: whenever the marketing landing page is enabled AND the
-  // user did NOT arrive via the "Commencer maintenant" CTA, bounce them to
-  // the landing page carrying the ?ref=… along. They can then click through
-  // to return here.
+  // Referral-first UX: whenever the URL carries a ?ref=… AND the user did NOT
+  // arrive via the "Commencer maintenant" CTA on the landing page, bounce
+  // them to the landing page carrying the ref along. This forces every
+  // referral visitor to discover the platform first. The `via=landing` marker
+  // set by the landing CTA breaks the loop.
   useEffect(() => {
     if (featLoading) return;
-    if (landingEnabled && params.via !== "landing") {
-      const q = params.ref ? `?ref=${encodeURIComponent(String(params.ref))}` : "";
-      router.replace(`/${q}` as any);
+    const hasRef = !!(params.ref && String(params.ref).trim());
+    if (hasRef && params.via !== "landing") {
+      router.replace(`/?ref=${encodeURIComponent(String(params.ref))}` as any);
+      return;
+    }
+    // Fallback for when landing_page flag is enabled but the visitor came
+    // without any ref (direct /register URL) — still send them via the
+    // marketing page first.
+    if (!hasRef && landingEnabled && params.via !== "landing") {
+      router.replace("/" as any);
     }
   }, [featLoading, landingEnabled, params.via, params.ref, router]);
 

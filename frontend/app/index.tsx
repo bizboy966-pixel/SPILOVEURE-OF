@@ -27,16 +27,18 @@ export default function Index() {
       }
       return;
     }
-    // Public visitor + landing DISABLED → send them straight to /login
-    // (preserving the referral code so /login can pass it along to register).
-    if (!landingEnabled) {
-      const q = refCode ? `?ref=${encodeURIComponent(refCode)}` : "";
-      router.replace(`/(auth)/login${q}` as any);
+    // Referral visitor → ALWAYS see the landing page (regardless of the
+    // landing_page feature flag). Direct visitor + landing disabled → login.
+    if (!landingEnabled && !refCode) {
+      router.replace("/(auth)/login" as any);
     }
   }, [user, authLoading, featLoading, landingEnabled, router, refCode]);
 
   const stillLoading = authLoading || featLoading;
-  if (stillLoading || user || !landingEnabled) {
+  // Show the landing page whenever it is enabled OR the visitor came via a
+  // referral link (forced storefront discovery per product spec).
+  const showLanding = landingEnabled || !!refCode;
+  if (stillLoading || user || !showLanding) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -44,7 +46,6 @@ export default function Index() {
     );
   }
 
-  // Public visitor + landing ENABLED → render the marketing page with the ref.
   return <LandingPage refCode={refCode} />;
 }
 
