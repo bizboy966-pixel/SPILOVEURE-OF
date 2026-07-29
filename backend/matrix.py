@@ -280,16 +280,19 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
 
     # ────────────────────────────────────────────────────────────────────
     # SECURITY GUARD — "Sans paiement valide = aucune activation".
-    # For external-payment sources at L1, verify a matching validated payment
-    # exists in db.payments (or a validated db.activations doc). This closes
-    # any theoretical bug where a caller could invoke activate_level(..., 1,
-    # source="soleaspay") without ever having a paid transaction on record.
-    # For L≥2 external sources the same principle applies.
-    # `admin_manual` and internal reserve sources are exempt (they're either
-    # explicit admin overrides or funded by a previously-debited reserve).
+    # For AUTOMATED external-payment sources (SoleasPay / AshtecPay / etc.)
+    # we require a matching payment or activation record in DB. This closes
+    # the theoretical bug where a caller invokes activate_level(..., source=
+    # "soleaspay") without an actual paid transaction.
+    #
+    # `admin_validate` is deliberately EXEMPT (2026-07-29): when an admin
+    # clicks the "Valider" button, they have already personally reconciled
+    # the payment on the gateway (Wave, MTN, Moov, …) — their decision is
+    # the source of truth and the system MUST NOT second-guess it. Same
+    # rationale applies to `admin_manual` for complimentary L1 activations.
     # ────────────────────────────────────────────────────────────────────
-    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay", "gateway_return",
-                      "admin_validate", "manual_reprocess"}
+    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay",
+                      "gateway_return", "manual_reprocess"}
     if source in _PAID_EXTERNAL:
         pay = await db.payments.find_one({
             "user_id": user_id, "level": level,

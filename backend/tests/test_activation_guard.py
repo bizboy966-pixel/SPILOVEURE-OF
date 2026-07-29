@@ -65,8 +65,12 @@ def test_activate_level_refuses_unknown_source():
 
 
 def test_activate_level_refuses_external_source_without_payment():
-    """Even a WHITELISTED external source (soleaspay/ashtecpay/…) must fail if
-    no matching payment or activation record exists."""
+    """Even a WHITELISTED **automated** external source (soleaspay/ashtecpay/…)
+    must fail if no matching payment or activation record exists.
+
+    `admin_validate` is exempt (spec 2026-07-30) — admins verify the payment
+    on their gateway before clicking « Valider », their decision is authoritative
+    and the system must not second-guess it. See separate test below."""
     async def run():
         cli = AsyncIOMotorClient(os.environ.get("MONGO_URL", "mongodb://localhost:27017"))
         db = cli[os.environ.get("DB_NAME", "spilivere")]
@@ -75,12 +79,35 @@ def test_activate_level_refuses_external_source_without_payment():
         await db.users.insert_one(_mk_user(uid, admin["id"]))
         try:
             for src in ("soleaspay", "ashtecpay", "sendavapay",
-                        "gateway_return", "admin_validate", "manual_reprocess"):
+                        "gateway_return", "manual_reprocess"):
                 with pytest.raises(ValueError, match="aucun paiement ou demande"):
                     await activate_level(db, uid, 1, source=src)
             u = await db.users.find_one({"id": uid}, {"_id": 0})
             assert u["status"] == "pending", f"account was activated without payment: {u}"
             assert u["max_level"] == 0
+        finally:
+            await _cleanup(db, uid)
+            cli.close()
+
+    asyncio.get_event_loop().run_until_complete(run())
+
+
+def test_admin_validate_bypasses_payment_check():
+    """Spec 2026-07-30 : « Le système ne doit plus vérifier lui-même si le
+    paiement existe... L'administrateur est l'autorité de validation. »
+    Calling activate_level with source='admin_validate' must succeed even
+    without any db.payments / db.activations record."""
+    async def run():
+        cli = AsyncIOMotorClient(os.environ.get("MONGO_URL", "mongodb://localhost:27017"))
+        db = cli[os.environ.get("DB_NAME", "spilivere")]
+        admin = await db.users.find_one({"role": "admin"}, {"_id": 0})
+        uid = str(uuid.uuid4())
+        await db.users.insert_one(_mk_user(uid, admin["id"]))
+        try:
+            await activate_level(db, uid, 1, source="admin_validate")
+            u = await db.users.find_one({"id": uid}, {"_id": 0})
+            assert u["status"] == "active"
+            assert u["max_level"] == 1
         finally:
             await _cleanup(db, uid)
             cli.close()

@@ -1,0 +1,22 @@
+{
+  "summary": "Verified spec 2026-07-30: admin 'Valider' now bypasses payment-existence check while automated sources still enforce it. Backend: all 5 pytest cases in test_activation_guard.py pass (unknown source refused, automated sources still refused without payment, admin_validate succeeds without payment/activation record, payment-row-exists path still works, admin_manual still works). Frontend E2E: created a fresh user (tst_adm_addf5782) with a pending manual activation and ZERO db.payments row; logged in as admin, clicked Valider; native dialog 'Succès ✅ Opération réussie' fired, row disappeared from En attente (16→15), Activées incremented (3→4), and DB confirms user.status='active', max_level=1 with 0 payments. Regression paths (reject, hacker_input, whitelisted external without payment) all still refuse.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_activation_guard.py",
+    "/app/test_reports/pytest/activation_guard.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "matrix.py::activate_level: the ALLOWED_SOURCES set docstring still lists 'admin_validate' under PAID sources needing an external payment row — the header comment is slightly stale vs the actual _PAID_EXTERNAL set (which correctly excludes admin_validate). Consider updating the docstring section labels to match the runtime enforcement.",
+    "Consider adding an admin audit log entry when admin_validate is used without any matching payment/activation row so the bypass path is traceable for compliance (currently the row exists in db.activations because /activations/request created it, so this is minor)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (5/5 pytest)", "frontend": "100% (login + admin panel + Valider dialog + DB persistence + counters update)"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006",
+  "seed_data_creation": "Created user tst_adm_addf5782 (email tst_adm_addf5782@example.com) with a pending manual activation and NO payment record; then validated via admin UI. User is now active max_level=1. Safe to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "To reproduce a pending activation without a payment row: register user (requires password_confirm field), POST /api/auth/confirm-password to get confirm_token, then POST /api/activations/request {level:1, payment_method:'manual'} with header X-Password-Confirm=<confirm_token>. Do NOT touch db.payments. Then admin can click Valider and it must succeed.",
+  "rca of the issue": "Removed 'admin_validate' from _PAID_EXTERNAL guard set in matrix.py::activate_level (lines ~294-295). Guard now only applies to soleaspay/ashtecpay/sendavapay/gateway_return/manual_reprocess. Admin's Valider click on an existing db.activations row is treated as authoritative — the admin has already reconciled the payment on Wave/MTN/Moov gateway. Fully verified via pytest + E2E UI test with a zero-payment user."
+}
