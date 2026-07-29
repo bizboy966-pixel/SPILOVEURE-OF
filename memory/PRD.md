@@ -20,6 +20,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-29 — 🔒 Verrouillage activation + 👥 Onglet Administrateurs
+
+**Chantier #1 — Activation « no payment = no activation » (RENFORCÉ)**
+- `matrix.py::activate_level()` :
+  - Whitelist stricte des `source` autorisées : `{soleaspay, ashtecpay, sendavapay, gateway_return, admin_validate, manual_reprocess, auto_upgrade, manual, admin_manual}`. Toute autre valeur → `ValueError` avant tout accès BDD.
+  - **Vérification obligatoire d'un paiement valide** pour toutes les sources externes : la fonction cherche un `payments.status ∈ {paid, validated}` OU un `activations.status ∈ {pending, validated}` pour le même `user_id/level`. Sans preuve : `ValueError` et activation refusée.
+  - `admin_manual` reste le seul chemin exempt pour L1 (override admin explicite documenté).
+- Audit intégrité : `/api/admin/audit/free-activations` → **0 findings** confirme aucune activation frauduleuse en BDD.
+- Tests : `test_activation_guard.py` (4 nouveaux cas) + adaptation `test_soleaspay_activation.py` + `test_manual_upgrade_debit.py` → **30/30 PASS**.
+
+**Chantier #2 — Onglet Administrateurs**
+- Backend : `GET /api/admin/admins` (auth admin, optional `q` search) → renvoie tous les comptes avec `role=admin` avec normalisation des champs legacy.
+- Frontend `/(admin)` : nouvel onglet **« Administrateurs »** entre Utilisateurs et Activations (icône `shield-checkmark`). Affiche pour chaque admin : avatar bouclier, badge statut, KV grid (nom d'utilisateur, email, téléphone, pays, niveau d'accès, statut, promoteur, retraits, date de création). Barre de recherche live (username/email/téléphone).
+- data-testids : `admin-tab-admins`, `admins-search`, `admins-search-btn`, `admin-row-<id>`.
+
+**Chantier #3 — Audit commissions** : *en attente des règles officielles de rémunération de la part du product owner avant toute modification du code.*
+
+
 ### 2026-07-25 — 🎥 Marketplace media : Vidéos + Musique de fond
 - **Backend** (`/app/backend/marketplace.py`) : `ListingCreate` accepte désormais `videos: List[str]` (max 5) + `audio: Optional[str]`. Doc persisté et exposé sur GET public + admin.
 - **Uploads** (`/app/backend/ads.py`) : `ALLOWED_UPLOAD` étendu avec `.mp3/.m4a/.aac/.ogg/.wav`.

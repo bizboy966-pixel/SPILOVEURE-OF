@@ -1789,6 +1789,38 @@ async def admin_list_users(request: Request, q: Optional[str] = None, limit: int
     return items
 
 
+@admin_router.get("/admins")
+async def admin_list_admins(request: Request, q: Optional[str] = None):
+    """List every account with `role='admin'`. Used by the admin panel's
+    dedicated 'Administrateurs' tab so admins are easy to audit at a glance.
+
+    Returns username, email, phone, country, status, max_level (access-level
+    proxy), created_at, is_promoter, withdrawals_disabled and a small
+    activity summary."""
+    db = request.app.state.db
+    query: dict = {"role": "admin"}
+    if q:
+        query = {"$and": [query, {"$or": [
+            {"username": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+            {"phone": {"$regex": q, "$options": "i"}},
+        ]}]}
+    items = await db.users.find(
+        query,
+        {"_id": 0, "password_hash": 0},
+    ).sort("created_at", -1).to_list(200)
+    # Normalise fields so the frontend never crashes on legacy docs missing
+    # some columns.
+    for u in items:
+        u.setdefault("phone", "")
+        u.setdefault("country", "")
+        u.setdefault("status", "active")
+        u.setdefault("max_level", 12)  # admin bootstrap default
+        u.setdefault("is_promoter", False)
+        u.setdefault("withdrawals_disabled", False)
+    return {"items": items, "total": len(items)}
+
+
 @admin_router.post("/users/{user_id}/action")
 async def admin_user_action(user_id: str, data: AdminUserActionIn, request: Request, admin=Depends(require_admin)):
     db = request.app.state.db

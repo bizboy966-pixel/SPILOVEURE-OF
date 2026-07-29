@@ -109,16 +109,24 @@ def test_user_manual_upgrade_insufficient_reserve_raises(db, admin_id):
         _cleanup(db, uid)
 
 
-@pytest.mark.parametrize("src", ["secure_pay", "gateway_return", "sendavapay", "manual_reprocess", "admin_validate"])
+@pytest.mark.parametrize("src", ["soleaspay", "gateway_return", "sendavapay", "manual_reprocess", "admin_validate"])
 def test_external_payment_does_not_debit_reserve(db, admin_id, src):
     """External payment sources MUST keep reserve intact."""
     uid = _make_user(db, admin_id, balance_upgrade=1500)
+    # Insert a matching paid payment row so the security guard added in
+    # matrix.py::activate_level (2026-07-29) lets the call through.
+    _run(db.payments.insert_one({
+        "reference": f"UPGT_{uid[:6]}", "user_id": uid, "level": 2,
+        "status": "paid", "amount": 1500,
+        "created_at": datetime.now(timezone.utc),
+    }))
     try:
         _run(activate_level(db, uid, 2, source=src))
         u = _run(db.users.find_one({"id": uid}, {"_id": 0}))
         assert u["balance_upgrade"] == 1500, f"source={src} must NOT debit, got {u['balance_upgrade']}"
         assert u["max_level"] == 2
     finally:
+        _run(db.payments.delete_many({"user_id": uid}))
         _cleanup(db, uid)
 
 

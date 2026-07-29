@@ -15,7 +15,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 
-type Tab = "dashboard" | "users" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -61,6 +61,9 @@ export default function AdminHome() {
   // Feature flags admin state
   const [flags, setFlags] = useState<any[]>([]);
   const [flagBusy, setFlagBusy] = useState<string | null>(null);
+  // Admins tab state
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [adminQ, setAdminQ] = useState("");
   const openChallengeParticipants = useCallback(async (challengeId: string) => {
     setChgParticipantsLoading(true);
     try {
@@ -209,6 +212,11 @@ export default function AdminHome() {
         const r = await api.get<any>("/admin/feature-flags");
         setFlags(r?.items || []);
       }
+      if (tab === "admins") {
+        const url = adminQ ? `/admin/admins?q=${encodeURIComponent(adminQ)}` : "/admin/admins";
+        const r = await api.get<any>(url);
+        setAdmins(r?.items || []);
+      }
       if (tab === "payment") {
         try {
           const conf = await api.get<{ countries: any[] }>("/config", { auth: false });
@@ -307,6 +315,7 @@ export default function AdminHome() {
   const TABS: { key: Tab; label: string; icon: any }[] = [
     { key: "dashboard", label: "Dashboard", icon: "stats-chart" },
     { key: "users", label: "Utilisateurs", icon: "people" },
+    { key: "admins", label: "Administrateurs", icon: "shield-checkmark" },
     { key: "activations", label: "Activations", icon: "checkmark-circle" },
     { key: "withdrawals", label: "Retraits", icon: "cash" },
     { key: "challenges", label: "Challenges", icon: "trophy" },
@@ -1438,6 +1447,81 @@ export default function AdminHome() {
                 )}
               </Card>
             ))}
+          </>
+        )}
+
+        {tab === "admins" && (
+          <>
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="shield-checkmark" size={22} color={theme.colors.primary} />
+                <Text style={styles.section}>Administrateurs</Text>
+                <View style={{ marginLeft: "auto", backgroundColor: theme.colors.primary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+                  <Text style={{ color: "#fff", fontWeight: "900", fontSize: 12 }}>{admins.length}</Text>
+                </View>
+              </View>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                Seuls les comptes possédant le rôle Administrateur sont listés ici.
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                <View style={styles.searchBox}>
+                  <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+                  <TextInput
+                    value={adminQ}
+                    onChangeText={setAdminQ}
+                    onSubmitEditing={load}
+                    placeholder="Rechercher un admin (username, email, téléphone)…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    style={styles.searchI}
+                    testID="admins-search"
+                  />
+                </View>
+                <TouchableOpacity onPress={load} style={styles.refreshBtn} testID="admins-search-btn">
+                  <Ionicons name="search" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </Card>
+
+            {admins.length === 0 ? (
+              <Card style={{ marginTop: 10 }}>
+                <Text style={{ color: theme.colors.textSecondary }}>Aucun administrateur trouvé.</Text>
+              </Card>
+            ) : (
+              admins.map((a: any) => (
+                <Card key={a.id} style={{ marginTop: 10 }} testID={`admin-row-${a.id}`}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name="shield" size={20} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: "900", color: theme.colors.textPrimary }}>
+                        @{a.username}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>
+                        {a.email}
+                      </Text>
+                    </View>
+                    <View style={{
+                      paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999,
+                      backgroundColor: a.status === "active" ? theme.colors.success : theme.colors.warning,
+                    }}>
+                      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>{a.status}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.kvBox}>
+                    <KvRow k="Nom d'utilisateur" v={a.username} />
+                    <KvRow k="Email" v={a.email} />
+                    <KvRow k="Téléphone" v={a.phone || "—"} />
+                    <KvRow k="Pays" v={a.country || "—"} />
+                    <KvRow k="Niveau d'accès" v={`L${a.max_level ?? 0}`} />
+                    <KvRow k="Statut" v={a.status} />
+                    <KvRow k="Promoteur" v={a.is_promoter ? "Oui" : "Non"} />
+                    <KvRow k="Retraits" v={a.withdrawals_disabled ? "Désactivés" : "Autorisés"} />
+                    <KvRow k="Créé le" v={a.created_at ? new Date(a.created_at).toLocaleString("fr-FR") : "—"} />
+                  </View>
+                </Card>
+              ))
+            )}
           </>
         )}
 

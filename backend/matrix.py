@@ -252,7 +252,25 @@ async def _count_descendants(db, root_user_id: str, level: int) -> int:
 
 
 async def activate_level(db, user_id: str, level: int, source: str = "manual") -> int:
-    """Activate `level` for user: place in matrix, deduct upgrade balance if level>1, distribute commission to sponsor."""
+    """Activate `level` for user: place in matrix, deduct upgrade balance if level>1, distribute commission to sponsor.
+
+    SECURITY: `source` MUST belong to one of the whitelisted origins. Any
+    other value → raises immediately, closing the "activation without payment"
+    loophole once and for all.
+      - PAID sources     (external payments): soleaspay, ashtecpay, sendavapay,
+                                              gateway_return, admin_validate,
+                                              manual_reprocess
+      - RESERVE sources  (internal upgrades):  auto_upgrade, manual, admin_manual
+    """
+    ALLOWED_SOURCES = {
+        # External payments — must reference a settled db.payments/db.activations row
+        "soleaspay", "ashtecpay", "sendavapay", "gateway_return",
+        "admin_validate", "manual_reprocess",
+        # Internal / operator overrides
+        "auto_upgrade", "manual", "admin_manual",
+    }
+    if source not in ALLOWED_SOURCES:
+        raise ValueError(f"Source d'activation invalide : {source!r}. Activation refusée.")
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user:
         raise ValueError("Utilisateur introuvable")
@@ -260,6 +278,33 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
         return level  # already activated
     if level != user.get("max_level", 0) + 1:
         raise ValueError("Vous devez activer les niveaux dans l'ordre")
+
+    # ────────────────────────────────────────────────────────────────────
+    # SECURITY GUARD — "Sans paiement valide = aucune activation".
+    # For external-payment sources at L1, verify a matching validated payment
+    # exists in db.payments (or a validated db.activations doc). This closes
+    # any theoretical bug where a caller could invoke activate_level(..., 1,
+    # source="soleaspay") without ever having a paid transaction on record.
+    # For L≥2 external sources the same principle applies.
+    # `admin_manual` and internal reserve sources are exempt (they're either
+    # explicit admin overrides or funded by a previously-debited reserve).
+    # ────────────────────────────────────────────────────────────────────
+    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay", "gateway_return",
+                      "admin_validate", "manual_reprocess"}
+    if source in _PAID_EXTERNAL:
+        pay = await db.payments.find_one({
+            "user_id": user_id, "level": level,
+            "status": {"$in": ["paid", "validated"]},
+        }, {"_id": 0, "reference": 1})
+        act = await db.activations.find_one({
+            "user_id": user_id, "level": level,
+            "status": {"$in": ["pending", "validated"]},
+        }, {"_id": 0, "id": 1})
+        if not pay and not act:
+            raise ValueError(
+                f"Activation refusée : aucun paiement ou demande d'activation "
+                f"trouvé pour l'utilisateur au niveau {level} (source={source})."
+            )
     lv = LEVELS_BY_NUM[level]
     sponsor_id = user.get("sponsor_id")
     # Deduct from balance_upgrade when the activation is paid from the

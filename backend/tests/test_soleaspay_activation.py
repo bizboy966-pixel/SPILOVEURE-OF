@@ -58,6 +58,14 @@ def test_user_account_activated_via_soleaspay_source():
             'total_earned': 0, 'total_withdrawn': 0,
             'created_at': datetime.now(timezone.utc),
         })
+        # Insert a matching paid payment record — the security guard added
+        # in matrix.py::activate_level now requires this for source="soleaspay".
+        pay_ref = f"TEST_{uid[:6]}"
+        await db.payments.insert_one({
+            'reference': pay_ref, 'user_id': uid, 'level': 1,
+            'status': 'paid', 'amount': 5000, 'currency': 'FCFA',
+            'created_at': datetime.now(timezone.utc),
+        })
         try:
             await activate_level(db, uid, 1, source="soleaspay")
             u = await db.users.find_one({'id': uid}, {'_id': 0})
@@ -65,6 +73,7 @@ def test_user_account_activated_via_soleaspay_source():
             assert u['max_level'] == 1, f"max_level must be 1, got {u['max_level']}"
         finally:
             await db.users.delete_one({'id': uid})
+            await db.payments.delete_many({'user_id': uid})
             await db.matrix_placements.delete_many({'user_id': uid})
             await db.commissions.delete_many({'$or': [{'user_id': uid}, {'from_user_id': uid}]})
         cli.close()
