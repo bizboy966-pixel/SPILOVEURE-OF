@@ -41,9 +41,12 @@ export default function AdminHome() {
   const [chgTarget, setChgTarget] = useState("100");
   const [chgReward, setChgReward] = useState("30000");
   const [chgCurrency, setChgCurrency] = useState("FCFA");
-  const [chgStart, setChgStart] = useState("");
-  const [chgEnd, setChgEnd] = useState("");
+  const [chgStartDate, setChgStartDate] = useState("");
+  const [chgStartTime, setChgStartTime] = useState("00:00");
+  const [chgEndDate, setChgEndDate] = useState("");
+  const [chgEndTime, setChgEndTime] = useState("23:59");
   const [chgActive, setChgActive] = useState(true);
+  const [chgBusy, setChgBusy] = useState(false);
   const [chgParticipants, setChgParticipants] = useState<{ challenge: any; participants: any[]; winners_count: number } | null>(null);
   const [chgParticipantsLoading, setChgParticipantsLoading] = useState(false);
   // Ads state
@@ -1084,14 +1087,55 @@ export default function AdminHome() {
                   <Input label="Devise" value={chgCurrency} onChangeText={setChgCurrency} testID="chg-currency" />
                 </View>
               </View>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Input label="Début (YYYY-MM-DD HH:mm)" value={chgStart} onChangeText={setChgStart} placeholder="2026-07-20 00:00" testID="chg-start" />
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                <View style={{ flex: 1, minWidth: 180 }}>
+                  <Text style={styles.lbl}>Date de début *</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="date"
+                    value={chgStartDate}
+                    onChange={(e: any) => setChgStartDate(e.target.value)}
+                    data-testid="chg-start-date"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Input label="Fin (YYYY-MM-DD HH:mm)" value={chgEnd} onChangeText={setChgEnd} placeholder="2026-08-31 23:59" testID="chg-end" />
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={styles.lbl}>Heure de début *</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="time"
+                    value={chgStartTime}
+                    onChange={(e: any) => setChgStartTime(e.target.value)}
+                    data-testid="chg-start-time"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
                 </View>
               </View>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                <View style={{ flex: 1, minWidth: 180 }}>
+                  <Text style={styles.lbl}>Date de fin *</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="date"
+                    value={chgEndDate}
+                    onChange={(e: any) => setChgEndDate(e.target.value)}
+                    data-testid="chg-end-date"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={styles.lbl}>Heure de fin *</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="time"
+                    value={chgEndTime}
+                    onChange={(e: any) => setChgEndTime(e.target.value)}
+                    data-testid="chg-end-time"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+              </View>
+              <View style={{ height: 12 }} />
               <TouchableOpacity
                 onPress={() => setChgActive(!chgActive)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}
@@ -1107,24 +1151,56 @@ export default function AdminHome() {
                 </Text>
               </TouchableOpacity>
               <Button
-                title="Créer le challenge"
-                onPress={() => action(async () => {
-                  const toIso = (s: string) => {
-                    // Accept "YYYY-MM-DD HH:mm" or "YYYY-MM-DDTHH:mm[:ss]"
-                    const cleaned = s.trim().replace(" ", "T");
-                    return new Date(cleaned).toISOString();
-                  };
-                  await api.post("/admin/challenges", {
-                    name: chgName.trim(),
-                    target: Number(chgTarget) || 100,
-                    reward_amount: Number(chgReward) || 0,
-                    reward_currency: chgCurrency.trim() || "FCFA",
-                    start_at: toIso(chgStart),
-                    end_at: toIso(chgEnd),
-                    active: chgActive,
-                  });
-                  setChgName(""); setChgStart(""); setChgEnd("");
-                })}
+                title={chgBusy ? "Création en cours…" : "Créer le challenge"}
+                disabled={chgBusy}
+                onPress={async () => {
+                  // ── Validation client-side ─────────────────────────────
+                  const errs: string[] = [];
+                  if (!chgName.trim()) errs.push("• Le nom du challenge est requis.");
+                  const targetN = Number(chgTarget);
+                  if (!targetN || targetN < 1) errs.push("• L'objectif doit être ≥ 1.");
+                  const rewardN = Number(chgReward);
+                  if (Number.isNaN(rewardN) || rewardN < 0) errs.push("• La récompense doit être ≥ 0.");
+                  if (!chgStartDate) errs.push("• La date de début est requise.");
+                  if (!chgEndDate) errs.push("• La date de fin est requise.");
+                  if (!chgStartTime) errs.push("• L'heure de début est requise.");
+                  if (!chgEndTime) errs.push("• L'heure de fin est requise.");
+                  if (errs.length) {
+                    if (typeof window !== "undefined") window.alert(`❌ Formulaire incomplet :\n\n${errs.join("\n")}`);
+                    return;
+                  }
+                  // ── Build ISO strings from the pickers ─────────────────
+                  const startISO = new Date(`${chgStartDate}T${chgStartTime}:00`);
+                  const endISO = new Date(`${chgEndDate}T${chgEndTime}:00`);
+                  if (Number.isNaN(startISO.getTime()) || Number.isNaN(endISO.getTime())) {
+                    if (typeof window !== "undefined") window.alert("❌ Dates ou heures invalides.");
+                    return;
+                  }
+                  if (endISO <= startISO) {
+                    if (typeof window !== "undefined") window.alert("❌ La date/heure de fin doit être postérieure au début.");
+                    return;
+                  }
+                  setChgBusy(true);
+                  try {
+                    await api.post("/admin/challenges", {
+                      name: chgName.trim(),
+                      target: targetN,
+                      reward_amount: rewardN,
+                      reward_currency: chgCurrency.trim() || "FCFA",
+                      start_at: startISO.toISOString(),
+                      end_at: endISO.toISOString(),
+                      active: chgActive,
+                    });
+                    if (typeof window !== "undefined") window.alert("✅ Challenge créé avec succès.");
+                    setChgName(""); setChgStartDate(""); setChgEndDate("");
+                    setChgStartTime("00:00"); setChgEndTime("23:59");
+                    await load();
+                  } catch (e: any) {
+                    if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec de la création du challenge."}`);
+                  } finally {
+                    setChgBusy(false);
+                  }
+                }}
                 testID="chg-create"
               />
             </Card>

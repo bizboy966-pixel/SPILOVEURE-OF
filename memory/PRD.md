@@ -20,6 +20,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-29 (2) — 🏆 Fix bouton « Créer le challenge » + Date/Time pickers
+**Problème** : Bouton silencieux — le wrapper `action()` utilisait `Alert.alert()` (RN natif) qui est no-op sur Expo Web. Combinée à `new Date("").toISOString()` qui lançait un `RangeError` si les champs texte étaient vides ou mal formatés, la création du challenge échouait sans feedback.
+
+**Fix** (`/app/frontend/app/(admin)/index.tsx`) :
+- Remplacement des 2 champs texte `chgStart` / `chgEnd` par **4 champs pickers natifs** : `chgStartDate` (`<input type=date>`) · `chgStartTime` (`<input type=time>`) · `chgEndDate` · `chgEndTime`. Plus de saisie manuelle possible → format garanti.
+- Nouveau handler `onPress` du bouton **avec validation client-side complète** :
+  - Nom requis, target ≥ 1, reward ≥ 0, 4 dates/heures requises.
+  - Vérification `endISO > startISO`.
+  - Construction ISO robuste : `new Date(\`${date}T${time}:00\`).toISOString()`.
+  - Feedback via `window.alert()` (natif Web) → messages clairs succès / erreur.
+  - Bouton `disabled` + libellé « Création en cours… » pendant l'appel réseau (état `chgBusy`).
+- data-testids ajoutés : `chg-start-date`, `chg-start-time`, `chg-end-date`, `chg-end-time`.
+- Verifié E2E : formulaire vide → alerte de validation listant les champs manquants ; formulaire rempli → « ✅ Challenge créé avec succès » + nouveau challenge affiché avec badge ACTIF, ancien challenge automatiquement basculé en INACTIF.
+
+
 ### 2026-07-29 — 🔒 Verrouillage activation + 👥 Onglet Administrateurs
 
 **Chantier #1 — Activation « no payment = no activation » (RENFORCÉ)**
