@@ -20,6 +20,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-30 — 🔓 Admin Valider = décision autoritaire (bypass du check de paiement)
+**Spec** : « L'administrateur est l'autorité de validation. Le système ne doit plus vérifier le paiement au moment du clic sur Valider — l'admin l'a déjà fait sur sa passerelle (Wave/MTN/Moov). »
+
+**Fix** (`/app/backend/matrix.py::activate_level`) :
+- `admin_validate` retiré du set `_PAID_EXTERNAL`. Le guard de vérification (payments/activations existence) **ne s'applique plus** à cette source.
+- Guard toujours actif pour les 5 sources automatisées : `soleaspay, ashtecpay, sendavapay, gateway_return, manual_reprocess` (les bots doivent prouver le paiement).
+- Docstring mise à jour pour distinguer clairement 3 catégories : AUTOMATED PAID / ADMIN OVERRIDE / INTERNAL RESERVE.
+
+**Tests** : `test_activation_guard.py` — nouveau test `test_admin_validate_bypasses_payment_check` (activation réussie sans aucune ligne payments/activations) + tests existants confirment que les sources automatisées restent verrouillées → **5/5 PASS**.
+
+**Testing agent (iter_27) — 100 % PASS** :
+✅ Backend 5/5 pytest ✅ Frontend E2E : utilisateur `tst_adm_addf5782` créé avec activation pending et 0 ligne payments → clic Valider → alerte « Succès ✅ Opération réussie » → user status=active, max_level=1 ✅ Régressions (reject, hacker_input, sources automatisées) intactes.
+
+
 ### 2026-07-29 (3) — 🛠 Fix bouton « Valider » activations (Alert.alert silent-fail)
 **Bug** : Cliquer « Valider » sur une activation en attente ne montrait aucun retour et laissait croire que rien ne se passait — l'API réussissait pourtant en arrière-plan.
 

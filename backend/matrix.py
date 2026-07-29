@@ -256,10 +256,13 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     SECURITY: `source` MUST belong to one of the whitelisted origins. Any
     other value → raises immediately, closing the "activation without payment"
     loophole once and for all.
-      - PAID sources     (external payments): soleaspay, ashtecpay, sendavapay,
-                                              gateway_return, admin_validate,
-                                              manual_reprocess
-      - RESERVE sources  (internal upgrades):  auto_upgrade, manual, admin_manual
+      - AUTOMATED PAID sources (must have matching db.payments/db.activations):
+            soleaspay, ashtecpay, sendavapay, gateway_return, manual_reprocess
+      - ADMIN OVERRIDE sources (authoritative — no payment lookup):
+            admin_validate  → admin has reconciled payment on gateway
+            admin_manual    → complimentary L1 grant
+      - INTERNAL RESERVE sources (upgrades funded by previously-earned reserve):
+            auto_upgrade, manual
     """
     ALLOWED_SOURCES = {
         # External payments — must reference a settled db.payments/db.activations row
