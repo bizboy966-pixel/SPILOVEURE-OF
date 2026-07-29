@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useAuth } from "@/src/auth";
 import { useFeature, useFeatures } from "@/src/features";
@@ -11,6 +11,8 @@ export default function Index() {
   const { user, loading: authLoading } = useAuth();
   const { loading: featLoading } = useFeatures();
   const landingEnabled = useFeature("landing_page");
+  const params = useLocalSearchParams<{ ref?: string }>();
+  const refCode = typeof params.ref === "string" ? params.ref : "";
   const router = useRouter();
 
   useEffect(() => {
@@ -25,11 +27,13 @@ export default function Index() {
       }
       return;
     }
-    // Public visitor + landing DISABLED → send them straight to /login.
+    // Public visitor + landing DISABLED → send them straight to /login
+    // (preserving the referral code so /login can pass it along to register).
     if (!landingEnabled) {
-      router.replace("/(auth)/login");
+      const q = refCode ? `?ref=${encodeURIComponent(refCode)}` : "";
+      router.replace(`/(auth)/login${q}` as any);
     }
-  }, [user, authLoading, featLoading, landingEnabled, router]);
+  }, [user, authLoading, featLoading, landingEnabled, router, refCode]);
 
   const stillLoading = authLoading || featLoading;
   if (stillLoading || user || !landingEnabled) {
@@ -40,8 +44,8 @@ export default function Index() {
     );
   }
 
-  // Public visitor + landing ENABLED → render the marketing page.
-  return <LandingPage />;
+  // Public visitor + landing ENABLED → render the marketing page with the ref.
+  return <LandingPage refCode={refCode} />;
 }
 
 const styles = StyleSheet.create({

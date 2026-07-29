@@ -5,8 +5,9 @@ import { theme } from "@/src/theme";
 
 /**
  * Public referral landing route: /u/<username>
- * On web, redirects via `window.location.replace` to /register?ref=<username>
- * so the sponsor is auto-filled (and locked, see register.tsx).
+ * Redirects to the marketing Landing Page while preserving the ref code, so
+ * every referral visitor first sees the SPILOVEURE presentation before being
+ * offered the "Commencer maintenant" CTA to reach the registration form.
  */
 export default function ReferralRedirect() {
   const { username } = useLocalSearchParams<{ username: string }>();
@@ -14,7 +15,7 @@ export default function ReferralRedirect() {
   useEffect(() => {
     const ref = (typeof username === "string" ? username : "admin").trim() || "admin";
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.replace(`/register?ref=${encodeURIComponent(ref)}`);
+      window.location.replace(`/?ref=${encodeURIComponent(ref)}`);
     }
   }, [username]);
 

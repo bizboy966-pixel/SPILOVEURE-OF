@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { useAuth } from "@/src/auth";
+import { useFeature, useFeatures } from "@/src/features";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 
@@ -17,8 +18,22 @@ type Country = { code: string; name: string; dial: string; flag: string };
 
 export default function Register() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ ref?: string }>();
+  const params = useLocalSearchParams<{ ref?: string; via?: string }>();
   const { signUp } = useAuth();
+  const landingEnabled = useFeature("landing_page");
+  const { loading: featLoading } = useFeatures();
+
+  // Referral-first UX: whenever the marketing landing page is enabled AND the
+  // user did NOT arrive via the "Commencer maintenant" CTA, bounce them to
+  // the landing page carrying the ?ref=… along. They can then click through
+  // to return here.
+  useEffect(() => {
+    if (featLoading) return;
+    if (landingEnabled && params.via !== "landing") {
+      const q = params.ref ? `?ref=${encodeURIComponent(String(params.ref))}` : "";
+      router.replace(`/${q}` as any);
+    }
+  }, [featLoading, landingEnabled, params.via, params.ref, router]);
 
   const [countries, setCountries] = useState<Country[]>([]);
   const [showCountryPicker, setShowCountryPicker] = useState(false);

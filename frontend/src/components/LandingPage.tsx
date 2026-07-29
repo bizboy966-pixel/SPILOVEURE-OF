@@ -47,7 +47,7 @@ const STEPS: { icon: IconName; key: string }[] = [
   { key: "step3", icon: "cash-outline" },
 ];
 
-export default function LandingPage() {
+export default function LandingPage({ refCode = "" }: { refCode?: string }) {
   const router = useRouter();
   const { t, lang, setLang } = useI18n();
   const { width } = useWindowDimensions();
@@ -55,8 +55,12 @@ export default function LandingPage() {
   const isTablet = width >= 720;
   const isDesktop = width >= 1080;
 
-  const goRegister = () => router.push("/(auth)/register");
-  const goLogin = () => router.push("/(auth)/login");
+  // Preserve the referral code through the landing → register/login flow.
+  // `via=landing` marks that the user came from the CTA so the register
+  // screen doesn't redirect them back to the landing (infinite loop).
+  const refQS = refCode ? `&ref=${encodeURIComponent(refCode)}` : "";
+  const goRegister = () => router.push(`/(auth)/register?via=landing${refQS}` as any);
+  const goLogin = () => router.push(`/(auth)/login${refCode ? `?ref=${encodeURIComponent(refCode)}` : ""}` as any);
   const toggleLang = () => setLang(lang === "fr" ? "en" : "fr");
 
   return (
