@@ -264,6 +264,22 @@ async def set_quantity(task_id: str, data: TaskQuantity, request: Request, user=
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
 
 
+@admin.post("/special-tasks/{task_id}/force-activate")
+async def admin_force_activate_task(task_id: str, request: Request):
+    """Admin override — flip a `pending_payment` task to `active` without
+    a real payment (useful for tests + manual reconciliation)."""
+    db = request.app.state.db
+    r = await db.special_tasks.update_one(
+        {"id": task_id, "status": "pending_payment"},
+        {"$set": {"status": "active",
+                  "payment_confirmed_at": datetime.now(timezone.utc),
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
+    if r.modified_count == 0:
+        raise HTTPException(400, "Tâche introuvable ou déjà activée.")
+    return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
 @public.post("/special-tasks/{task_id}/publish")
 async def publish_task(task_id: str, request: Request, user=Depends(get_current_user)):
     """Mark task ready for payment. Next step: /special-tasks/{id}/pay."""
@@ -475,6 +491,20 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
         "meta": {"task_id": task_id, "action_type": t["action_type"], "network": t["network"]},
         "created_at": now,
     })
+    # In-app notification for the worker
+    try:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "special_task_reward",
+            "title": f"+{reward:g} FCFA gagnés 🎯",
+            "body": f"Vous avez complété une tâche « {t.get('action_type')} » sur {t.get('network')}.",
+            "meta": {"task_id": task_id, "amount": reward},
+            "read": False,
+            "created_at": now,
+        })
+    except Exception:
+        pass
     # Close campaign if reached target
     fresh = await db.special_tasks.find_one({"id": task_id})
     if fresh and fresh["quantity_completed"] >= fresh["quantity_target"]:

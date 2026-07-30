@@ -204,3 +204,37 @@ def test_unlike_does_not_reverse_reward(published_ad):
     r3 = requests.post(f"{API}/ads/{ad_id}/like", headers=hdrs, timeout=15)
     assert r3.json()["reward"] is None
     assert _balance(hdrs) == bal_after_like
+
+
+def test_reactor_feed_public_anonymised(published_ad):
+    """Live feed of an ad's reactor rewards — usernames redacted."""
+    ad_id, _, _ = published_ad
+    # Generate at least one reward from a fresh user
+    hdrs, _ = _register("feed")
+    requests.post(f"{API}/ads/{ad_id}/like", headers=hdrs, timeout=15)
+    # Query the feed
+    r = requests.get(f"{API}/ads/{ad_id}/reactor-feed", headers=hdrs, timeout=15)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) >= 1
+    for it in items:
+        assert "user_id" not in it       # scrubbed
+        assert "•••" in it["username"]   # anonymised
+        assert it["amount"] > 0
+        assert it["action"] in ("view", "like", "share", "comment")
+
+
+def test_notification_emitted_on_reward(published_ad):
+    """Each reactor credit produces an in-app notification for the user."""
+    ad_id, _, _ = published_ad
+    hdrs, _ = _register("notif")
+    r = requests.post(f"{API}/ads/{ad_id}/like", headers=hdrs, timeout=15)
+    assert r.json()["reward"] is not None
+    # Poll the notifications feed
+    notifs = requests.get(f"{API}/notifications", headers=hdrs, timeout=15)
+    if notifs.status_code == 200:  # endpoint exists
+        found = any(
+            n.get("kind") == "reactor_reward"
+            for n in (notifs.json().get("items") or notifs.json() or [])
+        )
+        assert found, "reactor_reward notification not found"

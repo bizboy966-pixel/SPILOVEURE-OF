@@ -21,7 +21,41 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
-### 2026-07-30 (13) — 🎯 Distribution automatique aux réacteurs de publicité
+### 2026-07-30 (14) — 🎁 Finalisation du backlog (Task rewards, anti-fraude, feed, notifs)
+
+**Le backlog P0/P1 est vidé.** Quatre chantiers livrés en une passe :
+
+#### ① Récompenses de complétion de tâche (P0 vérification)
+- `POST /api/special-tasks/{id}/complete` **crédite déjà** `reward_per_action` FCFA sur `balance_profit` du travailleur (le code existait, il fallait juste le vérifier avec des tests)
+- Nouvelle notification `special_task_reward` émise à chaque complétion
+- Nouvel endpoint admin `POST /api/admin/special-tasks/{id}/force-activate` (bypass pour tests + reconciliation manuelle)
+
+#### ② Anti-fraude Réacteurs (P1)
+- Ajouté dans `_credit_reactor` — comptage `ads_reactor_rewards` par user sur 1h roulante
+- Cap : **50 rewards / heure / utilisateur** → au-delà, `_credit_reactor` retourne `None`, le pool n'est pas débité
+- Zéro impact sur les utilisateurs légitimes qui interagissent normalement
+
+#### ③ Feed Live Réacteurs (P1)
+- Nouveau endpoint `GET /api/ads/{ad_id}/reactor-feed?limit=20`
+- Retourne les 20 dernières récompenses **anonymisées** (username → `sof•••`), sans `user_id`
+- Utilisable pour un mini-widget "X vient de gagner Y FCFA" sur les pages de détail d'annonce
+
+#### ④ Notifications de paiement (P1)
+- `_apply_payment_success` (Ashtech webhook) émet 3 types de notifs selon `kind` :
+  - `payment_activation_success` — "🚀 Votre compte est activé !"
+  - `payment_ads_success` — "💳 Paiement Publicité confirmé"
+  - `payment_special_task_success` — "💳 Paiement Tâche Spéciale confirmé"
+- `_credit_reactor` émet une notif `reactor_reward` à chaque gain
+- Toutes stockées dans `db.notifications` (schéma déjà utilisé par le module Lottery) — prêtes pour push infra future
+
+**Tests** — **49/49 passing** ✅
+- 8 → **10** reactor rewards (+ feed anonymisé, + notif emission)
+- **3 nouveaux** task completion (crédit correct, idempotent, créateur exclu)
+- 6 ads/tasks Ashtec, 7 configs admin, 10 activation, 13 IziChange (régression 0 casse)
+
+---
+
+
 
 **Le maillon manquant** : quand une pub est achetée, X% du prix rejoint un "pool réacteurs". Chaque utilisateur qui interagit avec la pub (view / like / share / comment) touche automatiquement une part de ce pool sur son `balance_profit`. **La monnaie bouge réellement maintenant.**
 

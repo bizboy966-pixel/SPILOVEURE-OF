@@ -9,6 +9,7 @@ webhook.
 from __future__ import annotations
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -389,9 +390,23 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
       • activation  → matrix.activate_level(user_id, level)
       • ads         → flip ad status to "pending_admin_review"
       • special_task → flip task status to "active"
+    Also emits an in-app notification for the payer.
     """
     ref = p["reference"]
     kind = p.get("kind") or "activation"
+
+    async def _notify(title: str, body: str, meta: dict):
+        try:
+            await db.notifications.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": p["user_id"],
+                "kind": f"payment_{kind}_success",
+                "title": title, "body": body, "meta": meta,
+                "read": False,
+                "created_at": datetime.now(timezone.utc),
+            })
+        except Exception:
+            pass
 
     if kind == "ads":
         try:
@@ -409,6 +424,11 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                           "ashtecpay_status": sp_status,
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
+            )
+            await _notify(
+                "💳 Paiement Publicité confirmé",
+                f"Votre paiement de {p.get('amount')} {p.get('currency', 'FCFA')} a été reçu. Publicité en attente de validation admin.",
+                {"ad_id": p.get("ad_id"), "reference": ref},
             )
         except Exception as exc:
             log.exception("ashtec ads confirm failed for ref=%s: %s", ref, exc)
@@ -437,6 +457,11 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                           "ashtecpay_status": sp_status,
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
+            )
+            await _notify(
+                "💳 Paiement Tâche Spéciale confirmé",
+                f"Votre tâche est maintenant active et visible par les travailleurs. Montant : {p.get('amount')} {p.get('currency', 'FCFA')}.",
+                {"task_id": p.get("special_task_id"), "reference": ref},
             )
         except Exception as exc:
             log.exception("ashtec task confirm failed for ref=%s: %s", ref, exc)
@@ -474,6 +499,11 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                       "ashtecpay_status": sp_status,
                       "updated_at": datetime.now(timezone.utc)},
              "$unset": {"activation_error": ""}},
+        )
+        await _notify(
+            "🚀 Votre compte est activé !",
+            f"Bienvenue au Niveau {p.get('level')} — vous êtes désormais placé dans la matrice.",
+            {"level": p.get("level"), "reference": ref},
         )
     except Exception as exc:
         log.exception("ashtec _apply_payment_success failed for ref=%s: %s", ref, exc)

@@ -601,6 +601,7 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
     • same user already rewarded for this action on this ad (idempotent skip)
     • pool is exhausted
     • user is the ad's creator (no self-reward)
+    • user has exceeded anti-fraud rate limit (50 rewards / hour)
     • reward < min bound or > max bound (clamped instead)
     """
     if not ad or ad.get("status") != "published":
@@ -617,6 +618,14 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
         {"_id": 1},
     )
     if existing:
+        return None
+
+    # Anti-fraud: cap credited rewards to 50 per rolling hour per user.
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent = await db.ads_reactor_rewards.count_documents(
+        {"user_id": user_id, "created_at": {"$gte": one_hour_ago}}
+    )
+    if recent >= 50:
         return None
 
     cfg = await _get_reactor_config(db)
@@ -656,6 +665,20 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
         "currency": "FCFA",
         "created_at": now,
     })
+    # Fire-and-forget notification (lightweight — no push infra, just in-app feed)
+    try:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "kind": "reactor_reward",
+            "title": f"+{reward:g} FCFA gagnés 🎯",
+            "body": f"Vous avez été récompensé pour votre {action} sur une publicité.",
+            "meta": {"ad_id": ad["id"], "action": action, "amount": reward},
+            "read": False,
+            "created_at": now,
+        })
+    except Exception:
+        pass
     return reward
 
 
@@ -705,6 +728,27 @@ async def my_reactor_rewards(request: Request, user=Depends(get_current_user),
         "items": items,
         "total_earned": float(total_agg[0]["total"]) if total_agg else 0.0,
     }
+
+
+@public.get("/ads/{ad_id}/reactor-feed")
+async def reactor_feed(ad_id: str, request: Request, user=Depends(get_current_user),
+                       limit: int = 20):
+    """Public live feed for a specific ad — anonymised (only shows the
+    first 3 letters of the username) so we can display social proof
+    without leaking exact identities. Used as a bottom mini-feed on the
+    ad view screen: "sof••• vient de gagner 42 FCFA · like · il y a 2 min".
+    """
+    db = request.app.state.db
+    items = []
+    async for r in db.ads_reactor_rewards.find(
+        {"ad_id": ad_id}, {"_id": 0, "user_id": 0}
+    ).sort("created_at", -1).limit(min(limit, 100)):
+        uname = r.get("username") or "anon"
+        r["username"] = uname[:3] + "•••" if len(uname) > 3 else uname + "•••"
+        r["created_at"] = r["created_at"].astimezone(timezone.utc).isoformat() \
+            if isinstance(r.get("created_at"), datetime) else r.get("created_at")
+        items.append(r)
+    return {"items": items}
 
 
 @public.get("/ads-reactor-config")
