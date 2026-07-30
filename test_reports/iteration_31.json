@@ -1,0 +1,22 @@
+{
+  "summary": "Validated the biz-transPay hosted-checkout fix end-to-end. Backend pytest (11/11) passes. Backend POST /api/activations/crypto-auto/create returns 200 with hosted_checkout=true + payment_url (checkout.pay.izichange.com/...) when biz-transPay does not allocate an inline address. Frontend correctly renders the hosted_checkout branch: 'Ouvrir la page de paiement sécurisée' button (testID=cauto-open-checkout) visible and clickable, cauto-reference shows SPLV_CRYPTO_..., no 'null' text on screen, no React crashes. Clicking cauto-open-checkout triggers window.open with the correct payment_url. Admin flow correctly shows French error 'Votre compte est déjà activé.' and does NOT crash.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_biz_transpay.py", "/app/test_reports/pytest/biz_transpay.xml"],
+  "action_items": [
+    "Metro bundler was serving a stale bundle for /(app)/activation-crypto-auto.tsx after the .tsx edit — hot reload did not pick up the new hosted_checkout branch until 'sudo supervisorctl restart frontend'. Recommend main agent verify Metro fast-refresh works reliably OR document a manual restart as part of deployment when touching (app)/ route files."
+  ],
+  "critical_code_review_comments": [
+    "biz_transpay.py: the polling loop opens 5 sequential httpx.AsyncClient GETs with 2s sleep each — total endpoint latency can reach ~10s+ (plus initial POST). This is intentional for UX but consumers should be aware the response can take up to 15s. Consider surfacing a smaller poll count (e.g. 3×1.5s) if the gateway rarely allocates the address inline; current probability of the poll succeeding appears near-zero from live traffic (all observed calls returned hosted_checkout=true).",
+    "biz_transpay.py line 163: HTTPException(400, ...) is technically a client error but here it represents an upstream gateway unavailability. Consider 503 semantically (Service Unavailable) — the comment says 400 chosen to survive CF edge; if that's still an active concern for 503, keep as-is but add a comment explaining why.",
+    "activation-crypto-auto.tsx inline branch (line 169-171): the `cauto-address` Text lacks a fallback surrounding when deposit_address is falsy — falls back to '— Adresse indisponible —' but the copy button remains disabled. This is defensive and fine; however this branch is now effectively dead in production (gateway always uses hosted-checkout). Consider deleting the inline branch or gating it behind a feature flag to reduce dead-code maintenance."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006. Pending users created dynamically with sponsor=admin.",
+  "seed_data_creation": "5 pending users registered via /api/auth/register during testing (tst_ui/tst_ui2..tst_ui5/tst_smoke/tst_crypto*). Plus 1 underpaid user seeded by webhook full-flow test. Non-critical residue; DB=spilivere.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The fix is confirmed working. Only quirk observed: after editing /(app)/activation-crypto-auto.tsx, Metro/Expo may serve a stale bundle — supervisorctl restart frontend clears it. If retesting, ensure Metro is fresh (or verify by looking for the exact string 'Ouvrir la page de paiement sécurisée' in the DOM before running assertions). Backend POST latency is up to ~13s due to polling; use ≥20s Playwright timeout.",
+  "rca of the issue": "Root cause was that biz-transPay uses a HOSTED-CHECKOUT payment model: the initial POST /api/v1/payments returns { id, payment_url, ... } but deposit_address is null (allocated only after the customer opens payment_url). Fix applied by main agent: (1) after the POST, backend polls GET /api/v1/payments/{id} 5×2s to catch an inline address early; (2) if still null, falls back to hosted_checkout=true and returns payment_url. (3) Frontend added a second UI branch for hosted_checkout that renders 'Ouvrir la page de paiement sécurisée' → window.open(payment_url). Verified: all 11 backend pytest pass, live curl returns proper JSON, UI renders correct branch, window.open called with valid checkout URL, admin path yields French error without crash."
+}

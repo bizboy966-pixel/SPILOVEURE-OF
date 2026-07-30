@@ -121,19 +121,27 @@ class TestCreateCharge:
         _set_flag(s, admin_headers, "crypto_auto", True)
         r = s.post(f"{BASE_URL}/api/activations/crypto-auto/create",
                    headers=pending_user["headers"], json={"level": 1}, timeout=45)
-        # Either 200 with valid payload OR 502 (gateway unreachable in test env).
-        assert r.status_code in (200, 502), f"unexpected {r.status_code} {r.text}"
+        # Accepted outcomes:
+        #   200 + real deposit_address (inline QR flow)
+        #   200 + hosted_checkout=True + payment_url (hosted-checkout fallback)
+        #   400 if gateway is unreachable / rejects the request in test env
+        assert r.status_code in (200, 400), f"unexpected {r.status_code} {r.text}"
         if r.status_code == 200:
             body = r.json()
-            for k in ("reference", "deposit_address", "amount_to_send", "coin", "network"):
+            for k in ("reference", "amount_to_send", "coin", "network"):
                 assert k in body, f"missing {k}"
             assert body["coin"] == "USDT"
             assert body["network"] == "BEP20"
-            # Bug P0 regression: deposit_address must never be null/empty.
-            assert isinstance(body["deposit_address"], str) and body["deposit_address"].strip(), \
-                f"deposit_address must be non-empty string, got {body['deposit_address']!r}"
-            assert body["amount_to_send"] not in (None, "", 0)
             assert body["reference"].startswith("SPLV_CRYPTO_")
+            assert body["amount_to_send"] not in (None, "", 0)
+            if body.get("hosted_checkout"):
+                # Hosted-checkout mode: user is redirected to payment_url; the
+                # inline deposit_address may be null but a checkout URL MUST exist.
+                assert body.get("payment_url"), "hosted_checkout requires payment_url"
+            else:
+                # Inline mode: address must be a non-empty string.
+                assert isinstance(body.get("deposit_address"), str) and body["deposit_address"].strip(), \
+                    f"deposit_address must be non-empty string, got {body.get('deposit_address')!r}"
 
     def test_level_not_1_rejected(self, s, admin_headers, pending_user):
         _set_flag(s, admin_headers, "crypto_auto", True)

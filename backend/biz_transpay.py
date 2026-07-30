@@ -12,6 +12,7 @@ Flow:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -74,10 +75,10 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
             )
     except Exception as e:
         log.exception(f"biz-transpay create failed: {e}")
-        raise HTTPException(502, "Impossible de contacter la passerelle Crypto. Réessayez dans quelques instants.")
+        raise HTTPException(400, "Impossible de contacter la passerelle Crypto. Réessayez dans quelques instants.")
     if r.status_code >= 400:
         log.error(f"biz-transpay {r.status_code}: {r.text[:400]}")
-        raise HTTPException(502, "La passerelle Crypto a refusé la demande. Réessayez plus tard.")
+        raise HTTPException(400, "La passerelle Crypto a refusé la demande. Réessayez plus tard.")
     raw = r.json()
     # biz-transPay may wrap the useful fields under `data`, `result` or `payment`
     # depending on the version. Flatten so downstream keys always work.
@@ -106,8 +107,62 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     provider_id = pick("id", "payment_id", "transaction_id", "reference_id")
 
     if not deposit_address:
-        log.error(f"biz-transpay response missing address ref={reference} raw={str(raw)[:400]}")
-        raise HTTPException(502, "La passerelle Crypto n'a pas retourné d'adresse de dépôt. Réessayez plus tard.")
+        # Hosted-checkout model: biz-transPay allocates the deposit address
+        # asynchronously (once the user opens payment_url). Poll GET
+        # /api/v1/payments/{id} for a few seconds to catch it early.
+        if provider_id:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    for _ in range(5):
+                        await asyncio.sleep(2)
+                        pr = await client.get(
+                            f"{BASE_URL}/api/v1/payments/{provider_id}",
+                            headers={"Authorization": f"Bearer {SECRET_KEY}"},
+                        )
+                        if pr.status_code >= 400:
+                            continue
+                        pr_raw = pr.json()
+                        pr_payload = pr_raw
+                        for key in ("data", "result", "payment"):
+                            if isinstance(pr_raw.get(key), dict):
+                                pr_payload = {**pr_raw, **pr_raw[key]}
+                                break
+                        addr = None
+                        for a in ("deposit_address", "address", "wallet_address",
+                                  "pay_address", "receive_address", "to_address",
+                                  "crypto_address", "walletAddress"):
+                            v = pr_payload.get(a)
+                            if v:
+                                addr = v
+                                break
+                        if addr:
+                            deposit_address = addr
+                            for a in ("amount_to_send", "amount", "pay_amount", "crypto_amount"):
+                                v = pr_payload.get(a)
+                                if v:
+                                    amount_to_send = v
+                                    break
+                            for a in ("qr_code", "qrcode", "qr", "qr_url", "qrCodeUrl"):
+                                v = pr_payload.get(a)
+                                if v:
+                                    qr_code = v
+                                    break
+                            log.info(f"biz-transpay poll got address ref={reference}")
+                            break
+            except Exception as e:
+                log.warning(f"biz-transpay poll failed ref={reference}: {e}")
+
+    # If STILL no address after polling, fall back to hosted checkout via
+    # payment_url — the gateway will collect USDT on its own page and fire the
+    # webhook once paid.
+    hosted_checkout = False
+    if not deposit_address:
+        if not payment_url:
+            log.error(f"biz-transpay no address AND no payment_url ref={reference} raw={str(raw)[:400]}")
+            # Use 400 (not 502) so the JSON detail is not swallowed by the CF edge.
+            raise HTTPException(400, "La passerelle Crypto est momentanément indisponible. Réessayez dans quelques minutes.")
+        hosted_checkout = True
+        log.info(f"biz-transpay falling back to hosted-checkout ref={reference} url={payment_url}")
 
     # Persist a pending payment row so the webhook can reconcile it later and
     # so `activate_level` security guard finds it.
@@ -144,6 +199,7 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         "expires_at": expires_at,
         "payment_url": payment_url,
         "qr_code": qr_code,
+        "hosted_checkout": hosted_checkout,
     }
 
 

@@ -10,13 +10,14 @@ import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 type Charge = {
   reference: string;
-  deposit_address: string;
+  deposit_address: string | null;
   amount_to_send: number | string;
   coin: string;
   network: string;
   expires_at?: string;
   payment_url?: string;
   qr_code?: string | null;
+  hosted_checkout?: boolean;
 };
 
 function CryptoAutoInner() {
@@ -113,9 +114,43 @@ function CryptoAutoInner() {
               )}
             </TouchableOpacity>
           </View>
+        ) : charge.hosted_checkout ? (
+          <View style={styles.card}>
+            <Text style={styles.section}>Finalisez votre paiement</Text>
+            <Text style={styles.hint}>
+              La passerelle biz-transPay génère votre adresse USDT BEP20 sur sa page sécurisée.
+              Cliquez sur le bouton ci-dessous pour ouvrir la page de paiement, puis envoyez
+              exactement {String(charge.amount_to_send)} USDT sur le réseau BEP20.
+              Votre compte sera activé automatiquement dès réception du paiement.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.payBtn, { backgroundColor: theme.colors.primary }]}
+              onPress={() => {
+                if (Platform.OS === "web" && typeof window !== "undefined" && charge.payment_url) {
+                  window.open(charge.payment_url, "_blank");
+                }
+              }}
+              testID="cauto-open-checkout"
+            >
+              <Ionicons name="open-outline" size={18} color="#fff" />
+              <Text style={styles.payTxt}>Ouvrir la page de paiement sécurisée</Text>
+            </TouchableOpacity>
+
+            <View style={styles.kv}><Text style={styles.k}>Montant à envoyer</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{String(charge.amount_to_send)} USDT</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>Réseau</Text><Text style={styles.v}>{charge.network}</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>Référence</Text><Text style={styles.v} selectable testID="cauto-reference">{charge.reference}</Text></View>
+
+            <View style={styles.waitBox}>
+              {checking ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
+              <Text style={styles.waitTxt}>
+                {checking ? " En attente de la confirmation du paiement (webhook)…" : "Envoi confirmé — patientez"}
+              </Text>
+            </View>
+          </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.section}>Envoyez exactement 5 USDT (BEP20)</Text>
+            <Text style={styles.section}>Envoyez exactement {String(charge.amount_to_send)} USDT (BEP20)</Text>
             <Text style={styles.hint}>Utilisez UNIQUEMENT le réseau BEP20 (Binance Smart Chain). Tout autre réseau entraînera une perte.</Text>
 
             <View style={{ alignItems: "center", marginVertical: 12 }}>
