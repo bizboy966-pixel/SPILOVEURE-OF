@@ -621,6 +621,13 @@ export default function Activation() {
                           country_code: soleasCountry,
                           service_id: soleasServiceId,
                         });
+                        // FedaPay flow — the backend returns a payment_url
+                        // pointing to the hosted checkout page. Open it in a
+                        // new tab so the user can complete via Mobile Money;
+                        // polling continues in parallel for auto-activation.
+                        if (res.payment_url && typeof window !== "undefined") {
+                          window.open(res.payment_url, "_blank");
+                        }
                         setSoleasOrderId(res.order_id);
                         setSoleasStatus("pending");
                         setSoleasMessage(res.message || "Vérifiez votre téléphone pour confirmer le paiement");

@@ -21,6 +21,52 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-06-19)
 
+### 2026-07-30 (7) — 🆕 Intégration FedaPay (Mobile Money) + Retraits auto
+
+**Nouvelle passerelle Mobile Money** (aux côtés de SoleasPay et AshtecPay/Htech) via `api.fedapay.com/v1/*`.
+
+**Nouveau module `/app/backend/fedapay.py`** :
+- Helpers : `create_transaction` (POST /transactions), `generate_token`, `send_mobile_money`, `verify_transaction`, `create_payout` (POST /payouts), `start_payouts` (PUT /payouts/start), `verify_webhook_signature`
+- Signature webhook Stripe-like : `X-FEDAPAY-SIGNATURE: t=<ts>,s=<hex_hmac>` avec HMAC-SHA256 sur `{ts}.{raw_body}` + tolérance 5 min anti-replay
+- Modes Mobile Money par pays (BJ→mtn/moov/celtiis, CI→mtn/moov/wave, TG→togocom/moov…)
+
+**Flow d'activation FedaPay** (via dispatcher `/api/payments/soleaspay/initiate`) :
+1. `POST /v1/transactions` (auth Bearer sk_live_) → renvoie `payment_token` + `payment_url` inline dans `v1/transaction`
+2. Client redirigé vers `payment_url` (page hébergée FedaPay — l'API directe `/transactions/{mode}` n'est pas activée sur tous les comptes)
+3. Utilisateur complète Mobile Money sur la page FedaPay
+4. Webhook `transaction.approved` → activation auto au Niveau 1 via `matrix.activate_level(source="fedapay")`
+5. Polling `/api/payments/soleaspay/status/{order_id}` fonctionne en parallèle (dispatcher détecte `provider="fedapay"`)
+
+**Retraits automatiques FedaPay (Mobile Money)** :
+- Nouveau flag `fedapay_withdrawal` — quand ON + `method=mobile_money`, `admin_validate_withdrawal` appelle `create_payout` puis `start_payouts` pour dispatcher immédiatement
+- Webhook `payout.sent/transferred` → statut `completed` ; `payout.failed` → rollback `total_withdrawn`
+
+**Admin config** :
+- `db.app_settings.payment_gateway` étend `active` pour accepter `soleas|ashtec|fedapay` + nouveau flag `fedapay_enabled`
+- 2 nouveaux feature flags dans le catalogue : `fedapay_activation`, `fedapay_withdrawal`
+- Fallback en chaîne si la gateway active est désactivée
+
+**Frontend** :
+- `activation.tsx` — si la réponse initiate contient `payment_url` (FedaPay) : ouverture automatique de la page hébergée dans un nouvel onglet, polling parallèle en fond
+- Le nouveau flag apparaît automatiquement dans le panneau Feature Flags admin
+
+**Env vars ajoutées** :
+```
+FEDAPAY_BASE_URL=https://api.fedapay.com/v1
+FEDAPAY_PUBLIC_KEY=pk_live_7ICnky_xeWZiFyBP-QcjWHdQ
+FEDAPAY_SECRET_KEY=sk_live_56edLRLN6BJQO9PwjYPjEPV7
+FEDAPAY_WEBHOOK_SECRET=wh_live_kAAsROT7Vi9Mszn4QuSkOLyG
+```
+
+**URL webhook à enregistrer sur dashboard FedaPay** :
+```
+https://spiloveure.com/api/webhooks/fedapay
+```
+
+**Tests** : **20/20 pytest PASS** (7 fedapay + 13 izichange). Signature valide/invalide/stale/idempotency tous OK. Adresse admin config expose bien `fedapay`. Flags exposés dans `/api/features`. Curl E2E : `payment_url` reçu (`https://process.fedapay.com/eyJ…`), transaction créée (id 112245831).
+
+
+
 ### 2026-07-30 (6) — 🔴→✅ Migration biz-transPay → IziChangePay DIRECT + Retraits automatiques
 
 **Changement majeur** : abandon du proxy biz-transppayy.com, intégration DIRECTE avec **api.pay.izichange.com** (doc officielle : https://docs.pay.izichange.com/).
