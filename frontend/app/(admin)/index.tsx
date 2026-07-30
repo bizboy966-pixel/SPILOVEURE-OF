@@ -756,33 +756,11 @@ export default function AdminHome() {
                 <View style={styles.kvBox}>
                   <KvRow k="Niveau" v={`Niveau ${a.level}`} />
                   {a.email ? <KvRow k="E-mail" v={a.email} /> : null}
-                  <KvRow k="Mode de paiement" v={
-                    isAuto ? "Automatique (SoleasPay)" :
-                    a.payment_method === "crypto_auto" ? "Automatique (Crypto USDT BEP20)" :
-                    (a.payment_method?.replace("_", " ") || "—")
-                  } />
+                  <KvRow k="Mode de paiement" v={isAuto ? "Automatique (SoleasPay)" : (a.payment_method?.replace("_", " ") || "—")} />
                   {a.payer_country ? <KvRow k="Pays" v={a.payer_country} /> : null}
                   {a.operator ? <KvRow k="Opérateur" v={a.operator} /> : null}
                   <KvRow k="Numéro paiement" v={a.payment_phone || "—"} />
                   {a.network ? <KvRow k="Réseau crypto" v={a.network} /> : null}
-                  {a.deposit_address ? (
-                    <View style={{ marginTop: 4 }}>
-                      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>Adresse USDT générée (cliquer pour copier)</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
-                            (navigator as any).clipboard.writeText(a.deposit_address);
-                            if (typeof window !== "undefined") window.alert("Adresse copiée ✅");
-                          }
-                        }}
-                        testID={`admin-copy-addr-${a.id}`}
-                      >
-                        <Text selectable style={{ color: theme.colors.primary, fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
-                          {a.deposit_address}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
                   {a.amount_usdt ? <KvRow k="Montant USDT" v={`${a.amount_usdt} USDT`} /> : null}
                   {a.tx_hash ? (
                     <View style={{ marginTop: 4 }}>
@@ -802,10 +780,7 @@ export default function AdminHome() {
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  <KvRow k="Montant" v={
-                    a.payment_method === "crypto_auto" ? `${a.amount || 5} USDT` :
-                    (isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount))
-                  } />
+                  <KvRow k="Montant" v={isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount)} />
                   <KvRow k="Date/Heure" v={formatDateTime(a.created_at)} />
                   {a.transaction_ref ? <KvRow k="Réf. transaction" v={a.transaction_ref} /> : null}
                   {a.reference && isAuto ? <KvRow k="Référence interne" v={a.reference} /> : null}
@@ -2484,7 +2459,6 @@ function MethodBadge({ method, stuck }: { method?: string; stuck?: boolean }) {
     automatic: { bg: "#DBEAFE", color: "#1E40AF", icon: "flash", label: "AUTO" },
     manual: { bg: "#D1FAE5", color: "#065F46", icon: "card", label: "MANUEL" },
     crypto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO" },
-    crypto_auto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO AUTO" },
   } as any)[method || "manual"] || { bg: "#E5E7EB", color: "#374151", icon: "help-circle", label: (method || "—").toUpperCase() };
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: cfg.bg }}>

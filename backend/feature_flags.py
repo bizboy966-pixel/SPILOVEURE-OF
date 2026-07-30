@@ -25,7 +25,6 @@ from pydantic import BaseModel
 # product owner.
 DEFAULT_FLAGS: List[Dict[str, str]] = [
     {"key": "landing_page",       "label": "Landing Page publique",          "category": "public"},
-    {"key": "crypto_auto",        "label": "Auto-activation Crypto (USDT BEP20)", "category": "activation"},
     {"key": "ads",                "label": "Publicité (module complet)",      "category": "ads"},
     {"key": "ads_create_video",   "label": "Ajouter une vidéo publicitaire",  "category": "ads"},
     {"key": "ads_create_poster",  "label": "Ajouter une affiche publicitaire","category": "ads"},
