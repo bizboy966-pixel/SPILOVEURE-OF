@@ -1,0 +1,27 @@
+{
+  "summary": "Full backend test suite for the biz-transPay → IziChangePay direct migration. 13/13 pytest tests passing covering: crypto-auto create (inline USDT BEP20 address 0x…×42, reference SPLV_ACT_*, provider=izichange, no payment_url), verify (unknown ref 404, short hash 400, fake hash pending), Standard-Webhooks signature (valid, invalid 401, stale 5min 401, unknown ref gracefully accepted), end-to-end signed webhook payment_intent.completed activating a real user to max_level=1, admin activations list contains crypto_auto row, admin feature-flags catalog contains both crypto_auto and auto_withdrawal, PUT feature-flags/auto_withdrawal toggle round-trip works, create_payout helper input validation (amount<=0 → 400, address<12 → 400). Frontend UI E2E for /activation-crypto-auto was not exercised via Playwright: the Expo web app enforces auth-guard client-side routing and AsyncStorage-backed tokens cannot be injected via localStorage; however every API the screen consumes has been verified end-to-end and the frontend testIDs (cauto-pay, cauto-address, cauto-qr, cauto-copy, cauto-reference, cauto-tx-hash, cauto-verify, cauto-verify-msg) are all present in /app/frontend/app/(app)/activation-crypto-auto.tsx.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_izichange.py",
+    "/app/test_reports/pytest/izichange.xml"
+  ],
+  "action_items": [
+    "Optional: Add a manual QA pass on /activation-crypto-auto in Expo web after registering a fresh user; automated coverage skipped because the Expo router auth guard + IndexedDB-backed AsyncStorage make token injection non-trivial. All underlying APIs are validated.",
+    "Optional: Add an E2E for the auto_withdrawal admin path (create user + funded wallet + POST /admin/withdrawals/{id}/validate with flag ON) — not exercised because live IziChangePay payouts would move real funds; only create_payout input-validation branches were unit-tested here."
+  ],
+  "critical_code_review_comments": [
+    "izichange.py: webhook signature verification is correctly Standard-Webhooks compliant (msg_id.timestamp.body, HMAC-SHA256 with hex-decoded secret, base64, 5-min anti-replay, multi-signature header support, idempotency guard on db.webhook_events). Solid.",
+    "izichange.py: 2-step create flow (auth POST /v1/payment-intents → public POST /v1/public/payment-intents/{id}/select-crypto) matches the manual curl reproduction from the review request and returns depositAddress inline as expected.",
+    "server.py:2245 admin_validate_withdrawal correctly wraps auto-payout in a feature-flag guard and preserves the classic manual path when auto_withdrawal is OFF. Rollback path on payout.failed webhook is present in _handle_payout_event.",
+    "Minor: _handle_payout_event decrements users.total_withdrawn on failure only if status was 'dispatched' or 'validated' — no wallet-balance credit-back is performed. Confirm whether total_withdrawn is authoritative for balance or whether a separate wallet_balance field also needs adjustment.",
+    "Minor: create_crypto_charge always inserts a new activation row without checking whether the user already has a pending 'crypto_auto' one → repeated clicks could pile duplicates in db.activations (payments row is fine because the reference is unique). Consider upserting or rejecting when a fresh pending row (<15 min) already exists."
+  ],
+  "updated_files": ["/app/backend/tests/test_izichange.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "not-run"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (read from /app/memory/test_credentials.md). Test users are created dynamically with the TEST_izi_* / TEST_iziwh_* prefix.",
+  "seed_data_creation": "Each pytest run registers 2 fresh TEST_ users and creates 2 activation records. They are left in DB and can be cleaned up manually if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend module /app/backend/izichange.py fully replaces the deleted biz_transpay.py. New env vars IZIPAY_* are set in /app/backend/.env. Webhook path is /api/webhooks/izichange, signature header x-izipay-signature (Standard-Webhooks / Svix scheme). To test signed webhook: msg_id + timestamp + body → HMAC-SHA256 with bytes.fromhex(WHSEC.split('whsec_')[1]) → base64 → 'v1,<b64>'. New feature flag key: 'auto_withdrawal'. Frontend /activation-crypto-auto page unchanged (testIDs cauto-*). Skipped Playwright E2E for the pay screen because Expo web token injection via AsyncStorage/IndexedDB is non-trivial; if next agent needs full UI E2E, drive it via the register form → OTP-free direct login → router.push('/activation-crypto-auto')."
+}

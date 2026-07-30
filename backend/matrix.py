@@ -266,7 +266,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     """
     ALLOWED_SOURCES = {
         # External payments — must reference a settled db.payments/db.activations row
-        "soleaspay", "ashtecpay", "sendavapay", "biz_transpay", "gateway_return",
+        "soleaspay", "ashtecpay", "sendavapay", "izichange", "gateway_return",
         "admin_validate", "manual_reprocess",
         # Internal / operator overrides
         "auto_upgrade", "manual", "admin_manual",
@@ -294,7 +294,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     # the source of truth and the system MUST NOT second-guess it. Same
     # rationale applies to `admin_manual` for complimentary L1 activations.
     # ────────────────────────────────────────────────────────────────────
-    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay", "biz_transpay",
+    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay", "izichange",
                       "gateway_return", "manual_reprocess"}
     if source in _PAID_EXTERNAL:
         pay = await db.payments.find_one({

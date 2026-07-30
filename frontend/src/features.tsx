@@ -12,6 +12,7 @@ import { api } from "./api";
 export type FeatureKey =
   | "landing_page"
   | "crypto_auto"
+  | "auto_withdrawal"
   | "ads"
   | "ads_create_video"
   | "ads_create_poster"
@@ -26,6 +27,7 @@ type FeaturesMap = Record<FeatureKey, boolean>;
 const DEFAULT: FeaturesMap = {
   landing_page: false,
   crypto_auto: false,
+  auto_withdrawal: false,
   ads: false,
   ads_create_video: false,
   ads_create_poster: false,

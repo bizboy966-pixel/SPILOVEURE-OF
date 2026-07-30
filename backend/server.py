@@ -1963,7 +1963,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
     crypto_refs = [it.get("reference") for it in items if it.get("payment_method") == "crypto_auto" and it.get("reference")]
     if crypto_refs:
         pay_map = {}
-        async for p in db.payments.find({"reference": {"$in": crypto_refs}, "provider": "biz_transpay"}, {"_id": 0}):
+        async for p in db.payments.find({"reference": {"$in": crypto_refs}, "provider": "izichange"}, {"_id": 0}):
             pay_map[p["reference"]] = p
         for it in items:
             if it.get("payment_method") != "crypto_auto":
@@ -1974,7 +1974,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             it["deposit_address"] = p.get("deposit_address")
             it["tx_hash"] = p.get("tx_hash") or it.get("tx_hash")
             it["network"] = p.get("network") or "BEP20"
-            it["provider"] = "biz_transpay"
+            it["provider"] = "izichange"
             it["gateway_status"] = p.get("status")
             it["expires_at"] = p.get("expires_at")
 
@@ -2249,6 +2249,57 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
     if wd:
         if wd["status"] != "pending":
             raise HTTPException(400, "Déjà traité.")
+
+        # Auto-payout via IziChangePay if the withdrawal is a crypto one AND
+        # the admin has enabled `auto_withdrawal`. Otherwise fall through to
+        # the classic manual validation (status=validated, admin credits by
+        # hand off-platform).
+        from feature_flags import is_enabled as _flag_on
+        from izichange import create_payout, USDT_XOF_RATE
+        auto_ok = (
+            wd.get("method") == "crypto"
+            and wd.get("wallet_address")
+            and (wd.get("network") or "").upper().replace(" ", "").endswith("BEP20")
+            and await _flag_on(db, "auto_withdrawal")
+        )
+        if auto_ok:
+            net_xof = float(wd.get("net_payout") or wd.get("amount") or 0)
+            usdt_amount = round(net_xof / USDT_XOF_RATE, 6)
+            try:
+                payout = await create_payout(
+                    db,
+                    reference=wd_id,
+                    amount_usdt=usdt_amount,
+                    destination_address=wd["wallet_address"],
+                    metadata={"user_id": wd["user_id"], "network": "BEP20",
+                              "xof_amount": net_xof, "rate": USDT_XOF_RATE},
+                )
+            except HTTPException as e:
+                # Surface the gateway error to the admin — do NOT mark validated.
+                raise
+            await db.withdrawals.update_one(
+                {"id": wd_id},
+                {"$set": {"status": "dispatched",
+                          "gateway": "izichange",
+                          "payout_id": payout.get("id"),
+                          "gateway_status": payout.get("status"),
+                          "usdt_amount": usdt_amount,
+                          "usdt_rate": USDT_XOF_RATE,
+                          "dispatched_at": datetime.now(timezone.utc),
+                          "dispatched_by": admin["id"]}},
+            )
+            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
+            await db.admin_logs.insert_one({
+                "id": str(uuid.uuid4()), "admin_id": admin["id"],
+                "action": "auto_dispatch_withdrawal",
+                "target": wd_id, "payout_id": payout.get("id"),
+                "at": datetime.now(timezone.utc),
+            })
+            return {"ok": True, "auto_dispatched": True,
+                    "payout_id": payout.get("id"),
+                    "usdt_amount": usdt_amount}
+
+        # Classic manual path.
         await db.withdrawals.update_one(
             {"id": wd_id},
             {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
@@ -3349,10 +3400,10 @@ app.include_router(ff_public)
 # include-time — mutating router.dependencies after decoration is a no-op.
 app.include_router(ff_admin, dependencies=[Depends(require_admin)])
 
-# Biz-transPay — crypto auto-activation (USDT BEP20).
-from biz_transpay import api as bt_api, webhook as bt_webhook  # noqa: E402
-app.include_router(bt_api)
-app.include_router(bt_webhook)
+# IziChangePay — direct crypto integration (deposits + payouts).
+from izichange import api as izi_api, webhook as izi_webhook  # noqa: E402
+app.include_router(izi_api)
+app.include_router(izi_webhook)
 
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
