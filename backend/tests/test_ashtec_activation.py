@@ -161,3 +161,55 @@ def test_webhook_ignores_empty_body():
     r = requests.post(f"{API}/webhooks/ashtec", json={}, timeout=15)
     assert r.status_code == 200
     assert r.json()["ignored"] == "no_reference_or_txid"
+
+
+# ─── E2E activation via direct dispatch call ────────────────────────────
+def test_activation_actually_lifts_max_level(new_user):
+    """Regression: verifies that `_apply_payment_success` actually updates
+    users.max_level. Prior to the ordering fix, activate_level was called
+    BEFORE the payment row was marked 'paid', so the security guard in
+    matrix.activate_level rejected it and users saw a bogus 'activated!'
+    UI while remaining at max_level=0.
+    """
+    import subprocess, uuid as _uuid
+    hdrs, _ = new_user
+    me = requests.get(f"{API}/auth/me", headers=hdrs, timeout=15).json()
+    uid = me["id"]
+    assert me.get("max_level", 0) == 0
+
+    # Directly invoke the dispatcher over the running app's DB.
+    ref = f"SPV-AT-TEST-{_uuid.uuid4().hex[:8].upper()}"
+    script = f"""
+import asyncio, sys, os
+from dotenv import load_dotenv
+load_dotenv('/app/backend/.env')
+sys.path.insert(0, '/app/backend')
+from motor.motor_asyncio import AsyncIOMotorClient
+import ashtec_activation as ac
+from datetime import datetime, timezone, timedelta
+
+async def main():
+    db = AsyncIOMotorClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']]
+    now = datetime.now(timezone.utc)
+    await db.payments.insert_one({{
+        'reference': '{ref}', 'provider': 'ashtecpay',
+        'kind': 'activation', 'level': 1,
+        'user_id': '{uid}', 'username': 'test',
+        'amount': 2500, 'currency': 'XOF',
+        'phone': '+22890000001', 'country_code': 'TG', 'operator': 'T-Money',
+        'transaction_id': 'tx_test',
+        'status': 'pending', 'activation_done': False,
+        'created_at': now, 'expires_at': now + timedelta(minutes=10),
+    }})
+    p = await db.payments.find_one({{'reference': '{ref}'}})
+    await ac._apply_payment_success(db, p, 'success', source='ashtecpay')
+
+asyncio.run(main())
+"""
+    r = subprocess.run(["python3", "-c", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, f"stderr: {{r.stderr}}"
+
+    me2 = requests.get(f"{API}/auth/me", headers=hdrs, timeout=15).json()
+    assert me2.get("max_level", 0) == 1, (
+        f"❌ Activation did NOT lift max_level. me2={me2}"
+    )

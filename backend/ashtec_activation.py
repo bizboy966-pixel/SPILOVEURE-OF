@@ -429,9 +429,19 @@ async def ashtec_status(
         sp_status = resp.get("status") or ""
         new_status = ashtecpay.normalize_status(sp_status)
         if new_status == "paid" and not p.get("activation_done"):
-            await _apply_activation(db, p, sp_status, source="ashtecpay")
-            return {"status": "paid", "activation_done": True,
-                    "level": p.get("level"), "reference": reference}
+            await _apply_payment_success(db, p, sp_status, source="ashtecpay")
+            # Re-read the payment row — `_apply_payment_success` may have
+            # failed to activate (e.g., matrix guard rejected) and set
+            # `activation_error` instead of `activation_done`. We MUST NOT
+            # lie to the client here.
+            p2 = await db.payments.find_one({"reference": reference}, {"_id": 0})
+            if p2 and p2.get("activation_done"):
+                return {"status": "paid", "activation_done": True,
+                        "level": p2.get("level"), "reference": reference}
+            if p2 and p2.get("activation_error"):
+                return {"status": "failed", "reference": reference,
+                        "error": f"Paiement reçu mais activation échouée : {p2.get('activation_error')}. Contactez le support avec la référence {reference}."}
+            # Fallthrough — still processing
         # NOTE: we deliberately DO NOT flip to `failed` based on a
         # verify_payment result. Ashtech's /v1/transaction endpoint can
         # return a transient "failed"/"cancelled" status while the user
@@ -555,6 +565,16 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
              "$unset": {"activation_error": ""}},
         )
         return
+    # ORDER MATTERS: mark payment as "paid" FIRST so that matrix.activate_level's
+    # security guard finds a paid record and lets the activation through.
+    # If activate_level fails afterwards we surface the error but keep the
+    # payment paid so admins can reconcile manually.
+    await db.payments.update_one(
+        {"reference": ref},
+        {"$set": {"status": "paid",
+                  "ashtecpay_status": sp_status,
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
     try:
         await activate_level(db, p["user_id"], int(p["level"]), source=source)
         await db.users.update_one(
@@ -563,8 +583,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
         )
         await db.payments.update_one(
             {"reference": ref},
-            {"$set": {"status": "paid", "activation_done": True,
-                      "ashtecpay_status": sp_status,
+            {"$set": {"activation_done": True,
                       "updated_at": datetime.now(timezone.utc)},
              "$unset": {"activation_error": ""}},
         )
@@ -577,9 +596,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
         log.exception("ashtec _apply_payment_success failed for ref=%s: %s", ref, exc)
         await db.payments.update_one(
             {"reference": ref},
-            {"$set": {"status": "paid",  # payment IS in, but activation code failed
-                      "activation_error": str(exc),
-                      "ashtecpay_status": sp_status,
+            {"$set": {"activation_error": str(exc),
                       "updated_at": datetime.now(timezone.utc)}},
         )
 
