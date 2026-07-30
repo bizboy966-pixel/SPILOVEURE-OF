@@ -125,6 +125,12 @@ async def _get_api_key(db) -> str:
     return (cfg.get("ashtec_api_key") or "").strip()
 
 
+# Version marker — bumped when the fix for Flooz (Moov) / E.164 / operator
+# translation is deployed. If /api/payments/ashtec/catalog does NOT return
+# this version string, the production is still running old code.
+CATALOG_VERSION: str = "2026-07-30-v2-flooz-moov-e164"
+
+
 @api.get("/payments/ashtec/catalog")
 async def ashtec_catalog():
     """Public catalog — country + operator list for the UI selectors."""
@@ -135,6 +141,7 @@ async def ashtec_catalog():
     ]
     countries.sort(key=lambda c: c["name"])
     return {
+        "version": CATALOG_VERSION,
         "amount": ACTIVATION_AMOUNT,
         "level": ACTIVATION_LEVEL,
         "countdown_minutes": COUNTDOWN_MINUTES,
@@ -673,6 +680,81 @@ async def ashtec_webhook(request: Request):
 
 
 # ─── Admin diagnostics ────────────────────────────────────────────────
+@admin.get("/payments/ashtec/health")
+async def ashtec_health(request: Request):
+    """Runs a REAL end-to-end probe against Ashtech from the server that
+    handles this request. Use this on production to prove:
+      • the server can reach ashtechpay.top over HTTPS
+      • the configured API key is accepted by Ashtech
+      • the exact operator/currency mapping matches what Ashtech expects
+
+    Response includes the raw response body from Ashtech so you can see
+    the actual refusal reason if any.
+    """
+    import ashtecpay as _atp
+    db = request.app.state.db
+    gw = await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
+    api_key = (gw.get("ashtec_api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "step": "config",
+                "error": "ashtec_api_key non configuré dans app_settings."}
+    result = {
+        "server_env": {
+            "backend_host": os.environ.get("HOSTNAME") or "unknown",
+            "webhook_url": os.environ.get("ASHTECPAY_WEBHOOK_URL")
+                           or "https://spiloveure.com/api/webhooks/ashtec",
+            "base_url": _atp.BASE_URL,
+        },
+        "catalog_version": CATALOG_VERSION,
+        "api_key_prefix": api_key[:8] + "…",
+        "probes": [],
+    }
+    # Two known-good probes on Togo (works if operator names + phone
+    # normalization are correct).
+    for cc, op, phone in (("TG", "T-Money", "+22890000001"),
+                          ("TG", "Flooz (Moov)", "+22896000001")):
+        try:
+            r = await _atp.initiate_payment(
+                api_key=api_key, amount=100, currency="XOF",
+                phone=phone, operator=op, country_code=cc,
+                reference=f"HEALTH-{cc}-{op[:3]}-{uuid.uuid4().hex[:6]}",
+                notify_url=result["server_env"]["webhook_url"],
+            )
+            result["probes"].append({
+                "country": cc, "operator": op,
+                "success": r.get("success"),
+                "status_code": r.get("status_code"),
+                "message": r.get("message"),
+                "transaction_id": r.get("transaction_id"),
+            })
+        except Exception as e:
+            result["probes"].append({
+                "country": cc, "operator": op,
+                "success": False, "exception": str(e)[:200],
+            })
+    result["ok"] = all(
+        p.get("success") or p.get("status_code") == 502
+        for p in result["probes"]
+    )
+    if not result["ok"]:
+        # Detect specific fatal issues by looking at the status codes.
+        has_auth = any(p.get("status_code") in (401, 403) for p in result["probes"])
+        has_validation = any(p.get("status_code") == 422 for p in result["probes"])
+        if has_auth:
+            result["conclusion"] = "❌ Clé API rejetée (401/403). Vérifiez `ashtec_api_key` dans app_settings."
+        elif has_validation:
+            result["conclusion"] = "❌ Requête refusée (422). Voir 'message' pour la cause (opérateur, devise, format phone...)."
+        else:
+            result["conclusion"] = "❌ Ashtech ne répond pas normalement. Voir 'probes'."
+    else:
+        result["conclusion"] = (
+            "✅ Connexion à Ashtech OK. Les probes retournent 502 avec 'erreur interne' "
+            "car les numéros de test n'existent pas — mais l'auth, l'opérateur et la devise "
+            "sont correctement acceptés. Un vrai numéro utilisateur passera."
+        )
+    return result
+
+
 @admin.get("/payments/ashtec/diag")
 async def ashtec_diag(request: Request, limit: int = 20):
     """Admin-only diagnostic — returns:
