@@ -20,6 +20,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-30 (4) — 🔴→✅ Crypto Auto INLINE (NO REDIRECT) — flow définitif
+**Correction utilisateur** : la précédente implémentation (2026-07-30 #3) redirigeait vers `checkout.pay.izichange.com`, ce qui violait la règle « L'utilisateur ne quitte jamais SPILOVEURE ». **Le bon flow biz-transPay** a été découvert par inspection du SPA izichange :
+
+**Flow (2 appels backend, 0 redirect)** :
+1. `POST https://biz-transppayy.com/api/v1/payments` (Bearer secret) → renvoie `{id, payment_url:".../pay/<publicId>?lang=fr"}`.
+2. Extraction du `<publicId>` depuis `payment_url` via regex.
+3. `POST https://api.pay.izichange.com/v1/public/payment-intents/<publicId>/select-crypto` avec `{assetCode:"USDT.BEP20", customer:{firstName,lastName,email}}` → renvoie **`depositAddress` inline** (adresse BEP20 réelle `0x…42 chars`) + `amountToSend` + `memo` + `expiresAt`.
+4. Backend persiste `db.payments` (reference `SPLV_CRYPTO_…`, deposit_address filled) et `db.activations` (pending).
+5. Frontend affiche QR (qrserver.com) + adresse + montant + bouton Copier — **aucun bouton de redirection**.
+6. Webhook `payment.completed` déclenche `matrix.activate_level` (inchangé).
+
+**Backend `biz_transpay.py`** : réécriture complète du 2-step flow, suppression du polling et du hosted_checkout fallback. Nouveaux env : `IZICHANGE_API_BASE`. Ajout de `izichange_public_id` en base pour reconciliation.
+
+**Frontend `activation-crypto-auto.tsx`** : type `Charge` simplifié (plus de `payment_url`/`hosted_checkout`/`qr_code`), suppression de la branche hosted-checkout et du bouton « Portail ». Une seule branche UI QR+address+Copier. Nouveau testID `cauto-qr`, `cauto-status`.
+
+**Tests** : `test_flag_on_pending_user_hits_gateway` renforcé — asserte adresse BEP20 `0x…42 chars` + **absence** de `payment_url` dans la réponse. **11/11 pytest PASS**. Testing agent iter_32 → **100% backend + frontend PASS** ; confirmé qu'aucun testID `cauto-open-checkout` ni texte « Portail »/« Ouvrir la page » n'existe dans le DOM.
+
+
 ### 2026-07-30 (3) — 🔴→✅ P0 fix: Crypto auto address `null` bug (hosted-checkout)
 **Root cause** : biz-transPay `/api/v1/payments` renvoie `deposit_address=null` — l'adresse n'est allouée qu'après ouverture de `payment_url` (hosted-checkout izichange). Le frontend affichait donc `null` et copiait une chaîne vide.
 
