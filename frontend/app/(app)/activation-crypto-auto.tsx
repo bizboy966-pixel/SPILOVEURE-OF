@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
@@ -25,6 +25,10 @@ function CryptoAutoInner() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [txHash, setTxHash] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifyErr, setVerifyErr] = useState<string | null>(null);
 
   const startPayment = async () => {
     setLoading(true); setErr(null);
@@ -34,6 +38,31 @@ function CryptoAutoInner() {
     } catch (e: any) {
       setErr(e?.detail || "Impossible de démarrer le paiement.");
     } finally { setLoading(false); }
+  };
+
+  const verifyPayment = async () => {
+    if (!charge) return;
+    const t = txHash.trim();
+    if (t.length < 10) {
+      setVerifyErr("Veuillez coller un hash de transaction valide.");
+      return;
+    }
+    setVerifying(true); setVerifyErr(null); setVerifyMsg(null);
+    try {
+      const r = await api.post<{ ok: boolean; activated?: boolean; message?: string; status?: string }>(
+        "/activations/crypto-auto/verify",
+        { reference: charge.reference, tx_hash: t },
+      );
+      if (r.ok && r.activated) {
+        setVerifyMsg(r.message || "Compte activé.");
+        if (typeof window !== "undefined") window.alert("✅ " + (r.message || "Compte activé au Niveau 1 !"));
+        setTimeout(() => router.replace("/(app)/dashboard" as any), 1200);
+      } else {
+        setVerifyMsg(r.message || "Vérification en cours…");
+      }
+    } catch (e: any) {
+      setVerifyErr(e?.detail || "Impossible de vérifier le paiement. Réessayez.");
+    } finally { setVerifying(false); }
   };
 
   // Poll payment status while a charge is pending — the webhook is the real
@@ -153,6 +182,38 @@ function CryptoAutoInner() {
                 {checking ? " En attente de la confirmation du paiement…" : "Envoi confirmé — patientez"}
               </Text>
             </View>
+
+            {/* ── Section « Hash de transaction » — vérification manuelle ── */}
+            <View style={styles.hashBox}>
+              <Text style={styles.section}>Hash de transaction (Tx Hash)</Text>
+              <Text style={styles.hint}>
+                Après avoir envoyé les {String(charge.amount_to_send)} USDT depuis votre portefeuille,
+                collez ci-dessous le hash de transaction pour vérifier et activer votre compte
+                immédiatement.
+              </Text>
+              <TextInput
+                style={styles.hashInput}
+                placeholder="0x…"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={txHash}
+                onChangeText={setTxHash}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!verifying}
+                testID="cauto-tx-hash"
+              />
+              {verifyErr ? <Text style={styles.err} testID="cauto-verify-error">{verifyErr}</Text> : null}
+              {verifyMsg ? <Text style={styles.okMsg} testID="cauto-verify-msg">{verifyMsg}</Text> : null}
+              <TouchableOpacity
+                style={[styles.payBtn, { backgroundColor: theme.colors.success, opacity: verifying ? 0.6 : 1 }]}
+                onPress={verifyPayment}
+                disabled={verifying}
+                testID="cauto-verify"
+              >
+                {verifying ? <ActivityIndicator color="#fff" /> : <Ionicons name="checkmark-circle" size={18} color="#fff" />}
+                <Text style={styles.payTxt}>{verifying ? "Vérification…" : "Vérifier le paiement"}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -179,6 +240,13 @@ const styles = StyleSheet.create({
   copyBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: theme.colors.success, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   copyTxt: { color: "#fff", fontWeight: "800", fontSize: 11 },
   waitBox: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, padding: 10, backgroundColor: "#EFEAFF", borderRadius: 8 },
+  hashBox: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderColor: theme.colors.border },
+  hashInput: {
+    marginTop: 8, padding: 12, borderWidth: 1, borderColor: theme.colors.border,
+    borderRadius: 10, color: theme.colors.textPrimary, backgroundColor: theme.colors.background,
+    fontSize: 13, fontFamily: Platform.select({ web: "monospace", default: undefined }),
+  },
+  okMsg: { color: theme.colors.success, marginTop: 8, fontWeight: "700" },
   waitTxt: { color: "#7B61FF", fontSize: 12, fontWeight: "700" },
 });
 

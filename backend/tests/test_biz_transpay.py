@@ -25,7 +25,9 @@ BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "test_database")
 WEBHOOK_SECRET = os.environ.get("BIZ_TRANSPAY_WEBHOOK_SECRET",
-                                "sk_live_dGWquLqO7Sm-IS5fKS7r8Zm5ufNqltJDk81f-ZqVnSI")
+                                "sk_live_u0AYopb6VDIwhTT-jx-7VyX9znCpjrlobxY_BvwzxFc")
+WEBHOOK_ID = os.environ.get("BIZ_TRANSPAY_WEBHOOK_ID",
+                            "4055dfdd-33f2-43d4-ab7e-58a9c6c6810b")
 
 ADMIN_EMAIL = "kossikotokou4@gmail.com"
 ADMIN_PASSWORD = "@Emma91972006"
@@ -156,6 +158,67 @@ class TestCreateCharge:
         r = s.post(f"{BASE_URL}/api/activations/crypto-auto/create",
                    headers=admin_headers, json={"level": 1}, timeout=15)
         assert r.status_code == 400, f"expected 400, got {r.status_code} {r.text}"
+
+
+# ─── /activations/crypto-auto/verify (manual tx_hash verification) ────────────
+class TestVerify:
+    URL = None
+
+    @pytest.fixture(autouse=True)
+    def _url(self):
+        TestVerify.URL = f"{BASE_URL}/api/activations/crypto-auto/verify"
+
+    def test_400_when_hash_too_short(self, s, pending_user, admin_headers):
+        _set_flag(s, admin_headers, "crypto_auto", True)
+        # First create a charge so we have a valid reference.
+        cr = s.post(f"{BASE_URL}/api/activations/crypto-auto/create",
+                    headers=pending_user["headers"], json={"level": 1}, timeout=45)
+        if cr.status_code != 200:
+            pytest.skip(f"gateway unavailable ({cr.status_code}) — skipping verify tests")
+        ref = cr.json()["reference"]
+        r = s.post(self.URL, headers=pending_user["headers"],
+                   json={"reference": ref, "tx_hash": "short"}, timeout=10)
+        assert r.status_code == 400
+        assert "invalide" in r.text.lower()
+
+    def test_404_when_reference_unknown(self, s, pending_user):
+        r = s.post(self.URL, headers=pending_user["headers"],
+                   json={"reference": "SPLV_CRYPTO_unknown",
+                         "tx_hash": "0x" + "a" * 64}, timeout=10)
+        assert r.status_code == 404
+
+    def test_pending_when_gateway_not_yet_confirmed(self, s, admin_headers):
+        """After create, before the customer actually sends USDT, the gateway
+        status stays `initiated`. Verify must respond ok=false with a helpful
+        French message, NOT crash and NOT activate the account."""
+        _set_flag(s, admin_headers, "crypto_auto", True)
+        # Fresh user so we have a valid state.
+        suffix = uuid.uuid4().hex[:8]
+        email = f"vfy_pending_{suffix}@example.com"
+        pw = "Passw0rd!"
+        rr = s.post(f"{BASE_URL}/api/auth/register",
+                    json={"username": f"vfy_pending_{suffix}", "email": email,
+                          "password": pw, "password_confirm": pw,
+                          "sponsor_username": "admin", "country": "TG",
+                          "phone": "+22890000000", "accept_terms": True}, timeout=15)
+        assert rr.status_code in (200, 201), rr.text
+        lg = s.post(f"{BASE_URL}/api/auth/login",
+                    json={"email": email, "password": pw}, timeout=15).json()
+        tok = lg.get("access_token") or lg.get("token")
+        h = {"Authorization": f"Bearer {tok}"}
+        cr = s.post(f"{BASE_URL}/api/activations/crypto-auto/create",
+                    headers=h, json={"level": 1}, timeout=45)
+        if cr.status_code != 200:
+            pytest.skip(f"gateway unavailable ({cr.status_code}) — skipping verify test")
+        ref = cr.json()["reference"]
+        vr = s.post(self.URL, headers=h,
+                    json={"reference": ref, "tx_hash": "0x" + "a" * 64}, timeout=30)
+        assert vr.status_code == 200
+        body = vr.json()
+        assert body["ok"] is False
+        assert body.get("status") in ("initiated", "pending", "confirming")
+        assert "blockchain" in body.get("message", "").lower() or "confirm" in body.get("message", "").lower()
+
 
 
 # ─── Webhook signature enforcement ────────────────────────────────────────────

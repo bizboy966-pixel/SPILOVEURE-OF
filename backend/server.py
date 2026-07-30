@@ -1958,6 +1958,26 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
         it.setdefault("payment_method", "manual")
         it["source"] = "activation"
 
+    # Enrich crypto_auto activations with the matching payment row so the admin
+    # sees the deposit_address, tx_hash and gateway status inline.
+    crypto_refs = [it.get("reference") for it in items if it.get("payment_method") == "crypto_auto" and it.get("reference")]
+    if crypto_refs:
+        pay_map = {}
+        async for p in db.payments.find({"reference": {"$in": crypto_refs}, "provider": "biz_transpay"}, {"_id": 0}):
+            pay_map[p["reference"]] = p
+        for it in items:
+            if it.get("payment_method") != "crypto_auto":
+                continue
+            p = pay_map.get(it.get("reference"))
+            if not p:
+                continue
+            it["deposit_address"] = p.get("deposit_address")
+            it["tx_hash"] = p.get("tx_hash") or it.get("tx_hash")
+            it["network"] = p.get("network") or "BEP20"
+            it["provider"] = "biz_transpay"
+            it["gateway_status"] = p.get("status")
+            it["expires_at"] = p.get("expires_at")
+
     # Merge automatic SoleasPay payments
     auto_cursor = db.payments.find({"provider": "soleaspay"}, {"_id": 0}).sort("created_at", -1).limit(500)
     async for p in auto_cursor:
