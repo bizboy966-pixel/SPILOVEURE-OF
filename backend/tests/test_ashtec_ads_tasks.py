@@ -142,12 +142,13 @@ def enable_special_tasks(admin_headers):
 
 @pytest.fixture(scope="module")
 def draft_task(new_user, enable_special_tasks, admin_headers):
-    # Ensure a config exists for `video`
+    # Configure `video` action with new model (no more price_per_action)
     requests.put(f"{API}/admin/special-tasks/config",
                  json={"action_types": {"video": {
-                     "enabled": True, "price_per_action": 10,
-                     "reward_per_action": 5, "min_qty": 5, "max_qty": 100,
-                 }}}, headers=admin_headers, timeout=15)
+                     "enabled": True,
+                     "reward_per_action": 10,
+                     "min_qty": 5, "max_qty": 100,
+                 }}, "distribution_percentage": 50}, headers=admin_headers, timeout=15)
     hdrs, _ = new_user
     r = requests.post(f"{API}/special-tasks", headers=hdrs, json={
         "action_type": "video", "network": "tiktok",
@@ -167,10 +168,11 @@ def draft_task(new_user, enable_special_tasks, admin_headers):
     return tid
 
 
-def test_task_pay_requires_mobile_money(new_user, draft_task):
+def test_task_pay_rejects_unsupported_method(new_user, draft_task):
     hdrs, _ = new_user
+    # method='paypal' is unsupported → 400
     r = requests.post(f"{API}/special-tasks/{draft_task}/pay", headers=hdrs,
-                      json={"method": "crypto", "country_code": "TG",
+                      json={"method": "paypal", "country_code": "TG",
                             "operator": "T-Money", "phone": "70000000"},
                       timeout=15)
     assert r.status_code == 400

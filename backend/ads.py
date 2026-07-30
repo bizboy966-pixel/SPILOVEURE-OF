@@ -532,6 +532,55 @@ async def admin_set_pricing(data: AdPricingUpdate, request: Request):
     return await _get_pricing(db)
 
 
+# ─── Reactor pool config (share of ad payment redistributed to reactors) ─
+class AdReactorConfig(BaseModel):
+    # % of the ad's total price that goes into the reactor pool.
+    share_percentage: float = Field(default=60.0, ge=0, le=100)
+    # Min/max FCFA that a single reactor can earn on a given ad.
+    min_reward: float = Field(default=25.0, ge=0)
+    max_reward: float = Field(default=500.0, ge=0)
+
+
+async def _get_reactor_config(db) -> dict:
+    doc = await db.ads_reactor_config.find_one({"key": "singleton"}) or {}
+    return {
+        "share_percentage": float(doc.get("share_percentage") or 60.0),
+        "min_reward": float(doc.get("min_reward") or 25.0),
+        "max_reward": float(doc.get("max_reward") or 500.0),
+        "currency": "FCFA",
+    }
+
+
+@public.get("/ads-reactor-config")
+async def public_get_reactor_config(request: Request):
+    """Public read — creators / reactors can see the split rules."""
+    return await _get_reactor_config(request.app.state.db)
+
+
+@admin.get("/ads-reactor-config")
+async def admin_get_reactor_config(request: Request):
+    return await _get_reactor_config(request.app.state.db)
+
+
+@admin.put("/ads-reactor-config")
+async def admin_set_reactor_config(data: AdReactorConfig, request: Request):
+    if data.max_reward < data.min_reward:
+        raise HTTPException(400, "max_reward doit être ≥ min_reward.")
+    db = request.app.state.db
+    await db.ads_reactor_config.update_one(
+        {"key": "singleton"},
+        {"$set": {
+            "key": "singleton",
+            "share_percentage": float(data.share_percentage),
+            "min_reward": float(data.min_reward),
+            "max_reward": float(data.max_reward),
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    return await _get_reactor_config(db)
+
+
 @admin.get("/ads")
 async def admin_list_ads(request: Request, status: Optional[str] = None):
     db = request.app.state.db

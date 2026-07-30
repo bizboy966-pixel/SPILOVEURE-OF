@@ -61,14 +61,16 @@ class TaskComplete(BaseModel):
 
 class ActionTypeConfig(BaseModel):
     enabled: bool = True
-    price_per_action: float = Field(..., ge=0)
-    reward_per_action: float = Field(..., ge=0)
+    reward_per_action: float = Field(..., ge=0)     # user earns per action
     min_qty: int = Field(default=10, ge=1)
     max_qty: int = Field(default=10000, ge=1)
 
 
 class ConfigUpdate(BaseModel):
     action_types: dict
+    # % of what the creator pays that is distributed to workers.
+    # (100 - this) stays with the platform. Range: 1..100.
+    distribution_percentage: float = Field(default=70.0, ge=1, le=100)
 
 
 def _serialize(doc: dict) -> dict:
@@ -82,9 +84,22 @@ def _serialize(doc: dict) -> dict:
 
 async def _get_config(db) -> dict:
     doc = await db.special_tasks_config.find_one({"key": "singleton"}) or {}
+    pct = float(doc.get("distribution_percentage") or 70.0)
+    action_types = doc.get("action_types") or {}
+    # For each action_type, expose the computed price_per_action so the
+    # admin UI + task creation flow can show the creator's cost.
+    enriched = {}
+    for at, cfg in action_types.items():
+        r = float(cfg.get("reward_per_action") or 0)
+        enriched[at] = {
+            **cfg,
+            "reward_per_action": r,
+            "price_per_action": round(r / (pct / 100.0), 2) if pct > 0 else 0,
+        }
     return {
-        "action_types": doc.get("action_types") or {},
-        "configured": bool(doc.get("action_types")),
+        "action_types": enriched,
+        "distribution_percentage": pct,
+        "configured": bool(action_types),
     }
 
 
@@ -122,7 +137,12 @@ async def admin_set_config(data: ConfigUpdate, request: Request):
     db = request.app.state.db
     await db.special_tasks_config.update_one(
         {"key": "singleton"},
-        {"$set": {"key": "singleton", "action_types": normalised, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {
+            "key": "singleton",
+            "action_types": normalised,
+            "distribution_percentage": float(data.distribution_percentage),
+            "updated_at": datetime.now(timezone.utc),
+        }},
         upsert=True,
     )
     return await _get_config(db)
@@ -165,6 +185,9 @@ async def create_task(data: TaskCreate, request: Request, user=Depends(get_curre
     action_cfg = (cfg["action_types"] or {}).get(data.action_type)
     if not action_cfg or not action_cfg.get("enabled"):
         raise HTTPException(400, "Ce type de tâche n'est pas disponible pour le moment.")
+    distribution_pct = float(cfg.get("distribution_percentage") or 70.0)
+    reward = float(action_cfg.get("reward_per_action") or 0)
+    price_per_action = round(reward / (distribution_pct / 100.0), 2) if distribution_pct > 0 else 0
     # Network compatibility
     if data.action_type == "group" and data.network not in NETWORKS_GROUP:
         raise HTTPException(400, "Ce réseau n'accepte pas ce type de tâche.")
@@ -186,8 +209,9 @@ async def create_task(data: TaskCreate, request: Request, user=Depends(get_curre
         "quantity_target": 0,
         "quantity_completed": 0,
         "price_amount": 0.0,
-        "reward_per_action": float(action_cfg.get("reward_per_action") or 0),
-        "price_per_action": float(action_cfg.get("price_per_action") or 0),
+        "reward_per_action": reward,
+        "price_per_action": price_per_action,
+        "distribution_percentage": distribution_pct,
         "min_qty": int(action_cfg.get("min_qty") or 1),
         "max_qty": int(action_cfg.get("max_qty") or 10000),
         "currency": "FCFA",
@@ -242,7 +266,7 @@ async def set_quantity(task_id: str, data: TaskQuantity, request: Request, user=
 
 @public.post("/special-tasks/{task_id}/publish")
 async def publish_task(task_id: str, request: Request, user=Depends(get_current_user)):
-    """Mark task ready for payment. Next step = /confirm-payment goes live."""
+    """Mark task ready for payment. Next step: /special-tasks/{id}/pay."""
     db = request.app.state.db
     t = await _get_task(db, task_id, user["id"])
     if t["status"] != "draft":
@@ -257,41 +281,18 @@ async def publish_task(task_id: str, request: Request, user=Depends(get_current_
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
 
 
-@public.post("/special-tasks/{task_id}/confirm-payment")
-async def confirm_payment(task_id: str, request: Request, user=Depends(get_current_user)):
-    """Legacy manual "I have paid" confirmation — kept for backward compat.
-    New flow uses `/special-tasks/{task_id}/pay` (Ashtec Mobile Money) which
-    activates on webhook `payment.completed`."""
-    db = request.app.state.db
-    t = await _get_task(db, task_id, user["id"])
-    if t["status"] not in ("pending_payment", "active"):
-        raise HTTPException(400, "Statut invalide.")
-    if t["status"] == "pending_payment":
-        await db.special_tasks.update_one(
-            {"id": task_id, "status": "pending_payment"},
-            {"$set": {
-                "status": "active",
-                "payment_confirmed_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc),
-            }},
-        )
-    return _serialize(await db.special_tasks.find_one({"id": task_id}))
-
-
 class TaskPayIn(BaseModel):
-    method: str = Field(default="mobile_money")  # only mobile_money for now
-    country_code: str = Field(..., min_length=2, max_length=2)
-    operator: str = Field(..., min_length=1)
-    phone: str = Field(..., min_length=6)
+    method: str = Field(default="mobile_money")  # "mobile_money" | "crypto"
+    country_code: Optional[str] = None
+    operator: Optional[str] = None
+    phone: Optional[str] = None
 
 
 @public.post("/special-tasks/{task_id}/pay")
 async def pay_task(task_id: str, data: TaskPayIn, request: Request, user=Depends(get_current_user)):
-    """Kick off Ashtec Mobile Money payment for a special task.
-
-    The task moves to `active` only when the Ashtech webhook fires
-    `payment.completed`. Amount comes from `task.price_amount` (already
-    computed as price_per_action × quantity).
+    """Kick off payment for a special task — Mobile Money (Ashtech) OR
+    Crypto USDT (IziChangePay). The task moves to `active` only when the
+    corresponding webhook fires.
     """
     db = request.app.state.db
     t = await _get_task(db, task_id, user["id"])
@@ -300,22 +301,84 @@ async def pay_task(task_id: str, data: TaskPayIn, request: Request, user=Depends
     amount = float(t.get("price_amount") or 0)
     if amount <= 0:
         raise HTTPException(400, "Montant à payer invalide.")
-    if data.method != "mobile_money":
-        raise HTTPException(400, "Seul le Mobile Money (Ashtech) est supporté ici.")
 
-    from ashtec_activation import create_ashtec_payment
-    result = await create_ashtec_payment(
-        db=db, user=user, kind="special_task", amount=amount,
-        country_code=data.country_code, operator=data.operator, phone=data.phone,
-        extra_row={"special_task_id": task_id},
-    )
-    await db.special_tasks.update_one(
-        {"id": task_id},
-        {"$set": {"payment_reference": result["reference"],
-                  "payment_method": "mobile_money",
-                  "updated_at": datetime.now(timezone.utc)}},
-    )
-    return {"method": "mobile_money", **result}
+    method = (data.method or "mobile_money").lower()
+
+    # ── Mobile Money via Ashtech ──────────────────────────────────────
+    if method == "mobile_money":
+        if not data.country_code or not data.operator or not data.phone:
+            raise HTTPException(400, "country_code, operator et phone sont requis.")
+        from ashtec_activation import create_ashtec_payment
+        result = await create_ashtec_payment(
+            db=db, user=user, kind="special_task", amount=amount,
+            country_code=data.country_code, operator=data.operator, phone=data.phone,
+            extra_row={"special_task_id": task_id},
+        )
+        await db.special_tasks.update_one(
+            {"id": task_id},
+            {"$set": {"payment_reference": result["reference"],
+                      "payment_method": "mobile_money",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"method": "mobile_money", **result}
+
+    # ── Crypto USDT via IziChangePay ──────────────────────────────────
+    if method == "crypto":
+        import izichange
+        reference = f"TSK-{task_id[:8]}-{uuid.uuid4().hex[:8]}"
+        amount_usdt = round(amount / izichange.USDT_XOF_RATE, 6)
+        resp = await izichange._api_post("/v1/payment-intents", {
+            "requestedCurrencyType": "crypto",
+            "currencyRequested": izichange.ASSET_CODE,
+            "amountRequested": f"{amount_usdt:g}",
+            "acceptedCoins": [izichange.ASSET_CODE],
+            "merchantReference": reference,
+            "customerEmail": user.get("email"),
+            "metadata": {"kind": "special_task", "special_task_id": task_id, "user_id": user["id"]},
+        }, idempotency_key=reference)
+        if resp.status_code >= 400:
+            raise HTTPException(400, "La passerelle Crypto a refusé la demande.")
+        intent = resp.json()
+        intent_id = intent.get("id")
+        if not intent_id:
+            raise HTTPException(400, "Réponse invalide de la passerelle Crypto.")
+        sr = await izichange._public_post(
+            f"/v1/public/payment-intents/{intent_id}/select-crypto",
+            {"assetCode": izichange.ASSET_CODE,
+             "customer": {"firstName": (user.get("first_name") or user.get("username") or "SPILOVEURE")[:32],
+                          "lastName": (user.get("last_name") or "USER")[:32],
+                          "email": user.get("email") or "user@spiloveure.com"}})
+        if sr.status_code >= 400:
+            raise HTTPException(400, "La passerelle Crypto n'a pas généré l'adresse.")
+        sel = sr.json()
+        deposit_address = sel.get("depositAddress")
+        if not deposit_address:
+            raise HTTPException(400, "Adresse Crypto indisponible.")
+        await db.payments.insert_one({
+            "reference": reference, "provider": "izichange",
+            "provider_intent_id": intent_id,
+            "user_id": user["id"], "kind": "special_task",
+            "special_task_id": task_id, "amount": amount, "currency": "XOF",
+            "usdt_amount": amount_usdt, "usdt_rate": izichange.USDT_XOF_RATE,
+            "deposit_address": deposit_address,
+            "amount_to_send": sel.get("amountToSend") or amount_usdt,
+            "network": "BEP20", "status": "pending", "activation_done": False,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        })
+        await db.special_tasks.update_one(
+            {"id": task_id},
+            {"$set": {"payment_reference": reference, "payment_method": "crypto",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"method": "crypto", "reference": reference,
+                "deposit_address": deposit_address,
+                "amount_to_send": sel.get("amountToSend") or amount_usdt,
+                "coin": "USDT", "network": "BEP20",
+                "xof_amount": amount, "usdt_amount": amount_usdt,
+                "usdt_rate": izichange.USDT_XOF_RATE}
+
+    raise HTTPException(400, "Méthode non supportée.")
 
 
 # ---------- FEED + completion ----------

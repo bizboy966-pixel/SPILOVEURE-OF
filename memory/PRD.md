@@ -21,7 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
-### 2026-07-30 (11) — 💳 Ashtech Pay sur toutes les surfaces (Ads + Special Tasks)
+### 2026-07-30 (12) — 🎯 Configs admin : Réacteurs Pub + % distribution Tâches
+
+**Publicités — Récompense des réacteurs** (nouveau)
+- Endpoints : `GET /api/ads-reactor-config` (public read), `GET/PUT /api/admin/ads-reactor-config`
+- Modèle : `share_percentage` (0-100) + `min_reward` + `max_reward` (FCFA par réacteur)
+- UI admin : nouvelle carte "🎯 Récompense des réacteurs" dans le tab Publicités, avec calcul dynamique du pool (10 000 FCFA × X% = pool)
+- Validation : max_reward ≥ min_reward, share_percentage bornée 0-100
+
+**Tâches spéciales — % de distribution global** (refonte)
+- Ancien modèle : `price_per_action` + `reward_per_action` (2 valeurs indépendantes)
+- Nouveau modèle : `distribution_percentage` global (1-100%) + `reward_per_action` par type → `price_per_action` **auto-calculé** = `reward / (%/100)`
+- Endpoint mis à jour : `PUT /api/admin/special-tasks/config` accepte `{"action_types": {...}, "distribution_percentage": 70}`
+- UI admin : bandeau jaune en haut avec % + exemple, carte par action avec récompense éditable et "Prix / action (auto)" en lecture seule
+- L'ancien champ `price_per_action` a disparu de la config (mais reste stocké/retourné en lecture pour rétro-compat)
+
+**Ajout Crypto sur Tâches spéciales** (P0 secondaire)
+- `POST /api/special-tasks/{id}/pay` accepte désormais `method="crypto"` (IziChangePay USDT BEP20) en plus de `mobile_money` (Ashtech)
+- UI : bouton "Payer en USDT (BEP20)" ajouté à côté de "⚡ Mobile Money — Ashtech Pay" sur step 5 du wizard
+- Ancien endpoint `POST /special-tasks/{id}/confirm-payment` **supprimé** (mock qui auto-activait sans encaisser). Frontend `stc-payment-confirm` → remplacé par `stc-pay-mobile-money` + `stc-pay-crypto`
+- Webhook IziChange étend son dispatcher : `kind="special_task"` → flip `task.status = "active"`
+
+**Tests** — 4 fichiers, **36/36 passing** ✅
+- `test_ashtec_activation.py` (10/10)
+- `test_ashtec_ads_tasks.py` (6/6)
+- `test_ads_reactor_and_st_pct.py` (7/7) — **NEW** : validations config + calcul auto price
+- `test_izichange.py` (13/13)
+
+---
+
+
 
 Extension du flow Ashtech Pay au-delà de l'auto-activation :
 

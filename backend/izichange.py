@@ -555,6 +555,15 @@ async def _handle_payment_intent_event(db, event_type: str, data: dict):
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {"ok": True, "ad_paid": True, "ad_id": pay["ad_id"]}
+    # Special task payment path: flip task to active.
+    if pay.get("kind") == "special_task" and pay.get("special_task_id"):
+        await db.special_tasks.update_one(
+            {"id": pay["special_task_id"], "status": "pending_payment"},
+            {"$set": {"status": "active",
+                      "payment_confirmed_at": datetime.now(timezone.utc),
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"ok": True, "task_paid": True, "task_id": pay["special_task_id"]}
     try:
         await activate_level(db, pay["user_id"], 1, source="izichange")
         return {"ok": True, "activated": True}

@@ -96,14 +96,16 @@ function SpecialTaskCreateInner() {
     finally { setSaving(false); }
   };
 
-  const confirmPayment = async () => {
+  const payCrypto = async () => {
     if (!taskId) return;
     setSaving(true);
     try {
-      await api.post(`/special-tasks/${taskId}/confirm-payment`);
-      window.alert("✅ Paiement confirmé. Votre tâche est maintenant active !");
+      const r = await api.post<any>(`/special-tasks/${taskId}/pay`, { method: "crypto" });
+      // Show deposit info via alert (short-term). For nicer UX, could route to a dedicated screen.
+      const msg = `📮 Envoyez ${r.amount_to_send} ${r.coin} sur le réseau ${r.network} à l'adresse suivante :\n\n${r.deposit_address}\n\nRéférence : ${r.reference}\n\nLa tâche s'active automatiquement dès confirmation on-chain.`;
+      window.alert(msg);
       router.replace("/(app)/tasks" as any);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec paiement Crypto"}`); }
     finally { setSaving(false); }
   };
 
@@ -223,8 +225,10 @@ function SpecialTaskCreateInner() {
             <Text style={styles.section}>💳 Paiement</Text>
             <Text style={styles.priceTot}>{totalPrice} FCFA</Text>
             <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>
-              Payez par Mobile Money — la tâche s'active automatiquement dès réception du paiement.
+              Choisissez votre mode de paiement — la tâche s'active automatiquement dès réception.
             </Text>
+
+            {/* Mobile Money (Ashtech) — priority */}
             <TouchableOpacity
               style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
               onPress={() => router.push({
@@ -240,7 +244,21 @@ function SpecialTaskCreateInner() {
               testID="stc-pay-mobile-money"
             >
               <Ionicons name="phone-portrait" size={16} color="#FBBF24" />
-              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Payer via Mobile Money (Ashtech)</Text>
+              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
+            </TouchableOpacity>
+
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>— ou —</Text>
+
+            {/* Crypto USDT (IziChangePay) */}
+            <TouchableOpacity
+              style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
+              onPress={payCrypto}
+              disabled={saving}
+              testID="stc-pay-crypto"
+            >
+              {saving ? <ActivityIndicator color="#fff" /> : (
+                <><Ionicons name="logo-bitcoin" size={16} color="#fff" /><Text style={styles.nextT}>Payer en USDT (BEP20)</Text></>
+              )}
             </TouchableOpacity>
           </View>
         )}

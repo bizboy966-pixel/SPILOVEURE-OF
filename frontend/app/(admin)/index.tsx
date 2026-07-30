@@ -75,6 +75,8 @@ export default function AdminHome() {
   const [adFilter, setAdFilter] = useState<"pending_admin_review" | "published" | "rejected" | "all">("pending_admin_review");
   // Special tasks admin state
   const [stCfg, setStCfg] = useState<any>({});
+  const [stDistPct, setStDistPct] = useState<number>(70);
+  const [adsReactor, setAdsReactor] = useState<any>({ share_percentage: 60, min_reward: 25, max_reward: 500 });
   // Marketplace admin state
   const [mkCfg, setMkCfg] = useState<any>({});
   const [mkList, setMkList] = useState<any[]>([]);
@@ -211,16 +213,19 @@ export default function AdminHome() {
         setChallenges(r?.items || []);
       }
       if (tab === "ads") {
-        const [pr, ls] = await Promise.all([
+        const [pr, ls, rc] = await Promise.all([
           api.get<any>("/admin/ads/pricing"),
           api.get<any>("/admin/ads"),
+          api.get<any>("/admin/ads-reactor-config"),
         ]);
         setAdsPricing(pr);
         setAdsList(ls?.items || []);
+        setAdsReactor(rc || { share_percentage: 60, min_reward: 25, max_reward: 500 });
       }
       if (tab === "special_tasks") {
         const cfg = await api.get<any>("/admin/special-tasks/config");
         setStCfg(cfg?.action_types || {});
+        setStDistPct(Number(cfg?.distribution_percentage) || 70);
       }
       if (tab === "marketplace") {
         const [c, ls] = await Promise.all([
@@ -1362,6 +1367,62 @@ export default function AdminHome() {
             <View style={{ height: 12 }} />
 
             <Card>
+              <Text style={styles.section}>🎯 Récompense des réacteurs (like / comment / share / view)</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
+                Définissez le <Text style={{ fontWeight: "800" }}>% du prix payé par l'annonceur</Text> qui sera
+                partagé entre les utilisateurs qui réagissent sur la publicité, ainsi que la borne
+                minimale et maximale de récompense par réacteur.
+              </Text>
+              <Input
+                label="% distribué aux réacteurs (1–100)"
+                value={String(adsReactor.share_percentage)}
+                onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, share_percentage: Math.max(0, Math.min(100, Number(v) || 0)) }))}
+                keyboardType="numeric"
+                testID="ads-reactor-pct"
+              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    label="Min par réacteur (FCFA)"
+                    value={String(adsReactor.min_reward)}
+                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, min_reward: Number(v) || 0 }))}
+                    keyboardType="numeric"
+                    testID="ads-reactor-min"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    label="Max par réacteur (FCFA)"
+                    value={String(adsReactor.max_reward)}
+                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, max_reward: Number(v) || 0 }))}
+                    keyboardType="numeric"
+                    testID="ads-reactor-max"
+                  />
+                </View>
+              </View>
+              <Button
+                title="💾 Enregistrer récompense réacteurs"
+                onPress={() => action(async () => {
+                  const r = await api.put<any>("/admin/ads-reactor-config", {
+                    share_percentage: Number(adsReactor.share_percentage) || 0,
+                    min_reward: Number(adsReactor.min_reward) || 0,
+                    max_reward: Number(adsReactor.max_reward) || 0,
+                  });
+                  setAdsReactor(r);
+                })}
+                testID="ads-reactor-save"
+              />
+              <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                <Text style={{ fontSize: 11 }}>
+                  📊 Exemple : Pub à 10 000 FCFA → pool réacteurs = {(10000 * (Number(adsReactor.share_percentage) || 0) / 100).toFixed(0)} FCFA
+                  (min {adsReactor.min_reward} / max {adsReactor.max_reward} par réacteur)
+                </Text>
+              </View>
+            </Card>
+
+            <View style={{ height: 12 }} />
+
+            <Card>
               <Text style={styles.section}>📣 Publicités soumises</Text>
               <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
                 {(["pending_admin_review", "published", "rejected", "all"] as const).map((k) => (
@@ -1431,11 +1492,36 @@ export default function AdminHome() {
           <Card>
             <Text style={styles.section}>🎯 Config des tâches spéciales</Text>
             <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
-              Prix payé par le créateur × quantité = coût total. Récompense reversée à chaque utilisateur qui complète la tâche.
+              Définissez la <Text style={{ fontWeight: "800" }}>récompense reçue par action</Text> et le
+              <Text style={{ fontWeight: "800" }}> pourcentage global</Text> redistribué aux utilisateurs.
+              Le prix payé par le créateur est calculé automatiquement.
             </Text>
+
+            <View style={{ backgroundColor: "#FEF3C7", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+              <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E", marginBottom: 6 }}>
+                💰 Pourcentage global distribué (1–100 %)
+              </Text>
+              <Input
+                label="% distribué aux utilisateurs"
+                value={String(stDistPct)}
+                onChangeText={(v: string) => {
+                  const n = Math.max(1, Math.min(100, Number(v) || 0));
+                  setStDistPct(n);
+                }}
+                keyboardType="numeric"
+                testID="st-distribution-pct"
+              />
+              <Text style={{ fontSize: 10, color: "#78350F" }}>
+                Exemple : {stDistPct}% → si récompense = 100 FCFA, le créateur paie {(100 / (stDistPct / 100)).toFixed(0)} FCFA par action ({(100 - stDistPct)}% frais plateforme).
+              </Text>
+            </View>
+
             {["video", "subscribe", "share", "like", "comment", "group"].map((at) => {
-              const c = stCfg[at] || { enabled: false, price_per_action: 0, reward_per_action: 0, min_qty: 10, max_qty: 1000 };
+              const c = stCfg[at] || { enabled: false, reward_per_action: 0, min_qty: 10, max_qty: 1000 };
               const labels: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre un groupe" };
+              const computedPrice = stDistPct > 0
+                ? (Number(c.reward_per_action) / (stDistPct / 100)).toFixed(0)
+                : "—";
               return (
                 <View key={at} style={{ borderBottomWidth: 1, borderColor: theme.colors.border, paddingVertical: 8 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1448,9 +1534,20 @@ export default function AdminHome() {
                       <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>{c.enabled ? "ACTIF" : "INACTIF"}</Text>
                     </TouchableOpacity>
                   </View>
-                  <View style={{ flexDirection: "row", gap: 6 }}>
-                    <View style={{ flex: 1 }}><Input label="Prix / action" value={String(c.price_per_action)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, price_per_action: Number(v) || 0 } }))} keyboardType="numeric" testID={`st-price-${at}`} /></View>
-                    <View style={{ flex: 1 }}><Input label="Récompense / action" value={String(c.reward_per_action)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, reward_per_action: Number(v) || 0 } }))} keyboardType="numeric" testID={`st-reward-${at}`} /></View>
+                  <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-end" }}>
+                    <View style={{ flex: 1 }}>
+                      <Input label="Récompense / action (FCFA)" value={String(c.reward_per_action)}
+                        onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, reward_per_action: Number(v) || 0 } }))}
+                        keyboardType="numeric" testID={`st-reward-${at}`} />
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: "#F1F5F9", borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: "700" }}>Prix / action (auto)</Text>
+                      <Text style={{ fontSize: 14, fontWeight: "900", color: "#0F172A" }} testID={`st-price-computed-${at}`}>
+                        {computedPrice} FCFA
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
                     <View style={{ flex: 1 }}><Input label="Min qty" value={String(c.min_qty)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, min_qty: Number(v) || 1 } }))} keyboardType="numeric" testID={`st-min-${at}`} /></View>
                     <View style={{ flex: 1 }}><Input label="Max qty" value={String(c.max_qty)} onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, max_qty: Number(v) || 10000 } }))} keyboardType="numeric" testID={`st-max-${at}`} /></View>
                   </View>
@@ -1458,7 +1555,10 @@ export default function AdminHome() {
               );
             })}
             <Button title="Enregistrer la configuration" onPress={() => action(async () => {
-              await api.put("/admin/special-tasks/config", { action_types: stCfg });
+              await api.put("/admin/special-tasks/config", {
+                action_types: stCfg,
+                distribution_percentage: stDistPct,
+              });
             })} testID="st-save" />
           </Card>
         )}
