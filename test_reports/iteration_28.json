@@ -1,0 +1,39 @@
+{
+  "summary": "Backend for the new biz-transPay crypto auto-activation feature is fully functional (10/10 pytest cases pass including feature-flag catalog, admin toggle, 503 when flag off, 400 when already activated, real gateway call returning 200 with deposit_address, webhook signature enforcement — missing headers → 401 and invalid signature → 401, full webhook happy path with real HMAC-SHA256 signing, idempotency via X-BizTransPay-Event-Id, and underpayment protection). Frontend integration is BLOCKED by a critical routing bug in /app/frontend/app/(app)/_layout.tsx: the ALLOWED_FOR_PENDING whitelist does NOT include 'activation-crypto-auto', so any pending user (i.e. the ONLY users who need this feature) is immediately redirected back to /activation by the layout guard. This means (a) clicking the 4th tile navigates to /activation-crypto-auto and is instantly bounced back to /activation, and (b) direct-URL visit with flag OFF never renders the FeatureGuard placeholder because of the same bounce. The tile itself renders correctly when flag ON and is absent when flag OFF — verified. Flag has been reset to false per policy.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Pending user → /(app)/activation-crypto-auto",
+        "issue": "Layout guard (/app/frontend/app/(app)/_layout.tsx:12-15) whitelist ALLOWED_FOR_PENDING does not include 'activation-crypto-auto'. Pending users clicking the mode-crypto-auto tile OR visiting the URL directly are immediately redirected to /activation by the useEffect at line 46-47. Consequence: the entire crypto-auto flow is unreachable, and the FeatureGuard 'Fonctionnalité désactivée' placeholder (testid=feature-disabled-crypto_auto) is never rendered even with flag OFF.",
+        "affected_selectors": ["[data-testid=mode-crypto-auto]", "[data-testid=cauto-pay]", "[data-testid=cauto-address]", "[data-testid=cauto-copy]", "[data-testid=feature-disabled-crypto_auto]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_biz_transpay.py",
+    "/app/test_reports/pytest/biz_transpay.xml"
+  ],
+  "action_items": [
+    "URGENT — Add 'activation-crypto-auto' to ALLOWED_FOR_PENDING in /app/frontend/app/(app)/_layout.tsx (line 13). One-line fix: `\"activation\", \"activation-crypto-auto\", \"profile\", …`. Without it the feature is 100% unreachable from the UI for the users who need it.",
+    "Inform user to configure their biz-transPay dashboard webhook URL to: https://spiloveure.com/api/webhooks/biz-transppayy (note the /api prefix — required by k8s ingress; without it the webhook will 404).",
+    "Reset policy honored: crypto_auto flag left = false in DB."
+  ],
+  "critical_code_review_comments": [
+    "biz_transpay.py::create_crypto_charge inserts db.payments + db.activations then returns to client. If the DB inserts happen but the response fails to reach the client (network hiccup), the user has no way to recover — consider making the endpoint idempotent per (user_id, provider='biz_transpay', status='pending') so a retry reuses the existing charge instead of creating parallel pending references.",
+    "biz_transpay.py line 155: the event_type check allows only 'payment.completed'. If biz-transPay ever sends 'charge.completed' or a slightly different string, the webhook will silently ignore the payment. Recommend logging the exact event_type distribution during first days in production.",
+    "biz_transpay.py::_verify_signature — no timestamp freshness check. An attacker who ever obtains a valid signed webhook body could replay it indefinitely (idempotency via event_id partially mitigates this, but not for events without event_id). Recommend rejecting timestamps older than 5 minutes.",
+    "feature_flags.py DEFAULT_FLAGS list ordering: 'crypto_auto' is now the 2nd entry (activation category) — good; keep this ordering stable because the admin UI likely relies on it.",
+    "Frontend activation.tsx: clicking mode-crypto-auto uses `router.push('/(app)/activation-crypto-auto' as any)`. The `as any` cast masks the fact that expo-router's typed routes do not know about the new file; if typegen is later enabled, this cast will hide compile-time detection of similar routing bugs."
+  ],
+  "updated_files": ["/app/backend/tests/test_biz_transpay.py"],
+  "success_rate": {"backend": "100% (10/10 pytest)", "frontend": "40% — tile shown/hidden by flag works; navigation + payment screen + FeatureGuard placeholder all blocked by pending-user redirect"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006",
+  "seed_data_creation": "Registered several fresh pending users (tst_crypto_*, tst_ui_*, tst_under_*) via /api/auth/register for backend + UI testing. One user was activated to L1 via the synthetic webhook flow (SPLV_TEST_<hex>). db.payments contains a handful of TEST_/SPLV_TEST_/SPLV_CRYPTO_ rows and db.webhook_events contains the corresponding evt_* entries. Non-critical, safe to leave or purge.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent adds 'activation-crypto-auto' to ALLOWED_FOR_PENDING, retest: (1) enable crypto_auto flag via admin, (2) login as fresh pending user, (3) click mode-crypto-auto tile — URL should become /activation-crypto-auto, (4) verify email + username + '5 USDT 🔒' + 'BEP20 🔒' labels, (5) click cauto-pay, (6) verify cauto-address + cauto-copy appear (real gateway is reachable — returns HTTP 200), (7) disable flag, revisit URL, verify feature-disabled-crypto_auto placeholder. Registration payload requires `accept_terms: true`. Login response key is `access_token` (not `token`).",
+  "rca of the issue": "AppLayout at /app/frontend/app/(app)/_layout.tsx enforces a hard redirect back to /activation for pending users trying to reach any route not in ALLOWED_FOR_PENDING. When E1 added the new /activation-crypto-auto screen, they forgot to whitelist it. Because the crypto-auto feature is by definition consumed only by pending users (max_level=0), 100% of the target audience is blocked. Reproduction: login as any user with status='pending', visit /(app)/activation-crypto-auto in the browser → immediate redirect to /(app)/activation. Fix: append 'activation-crypto-auto' to the whitelist on line 13."
+}

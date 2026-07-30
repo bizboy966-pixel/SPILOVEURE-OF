@@ -3329,6 +3329,11 @@ app.include_router(ff_public)
 # include-time — mutating router.dependencies after decoration is a no-op.
 app.include_router(ff_admin, dependencies=[Depends(require_admin)])
 
+# Biz-transPay — crypto auto-activation (USDT BEP20).
+from biz_transpay import api as bt_api, webhook as bt_webhook  # noqa: E402
+app.include_router(bt_api)
+app.include_router(bt_webhook)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

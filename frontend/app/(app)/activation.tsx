@@ -11,6 +11,7 @@ import { Button } from "@/src/components/Button";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { useFeature } from "@/src/features";
 import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
 
@@ -165,6 +166,7 @@ export default function Activation() {
   }
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
+  const cryptoAutoEnabled = useFeature("crypto_auto");
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
 
   // Active payment method (user choice)
@@ -513,6 +515,23 @@ export default function Activation() {
                     </Text>
                   </View>
                   {paymentMode === "crypto" ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} /> : null}
+                </TouchableOpacity>
+              )}
+
+              {cryptoAutoEnabled && (
+                <TouchableOpacity
+                  style={styles.modeCard}
+                  onPress={() => router.push("/(app)/activation-crypto-auto" as any)}
+                  testID="mode-crypto-auto"
+                >
+                  <View style={[styles.modeIcon, { backgroundColor: "#7B61FF" }]}><Ionicons name="flash" size={22} color="#fff" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modeTitle}>4️⃣ Activation automatique (Crypto)</Text>
+                    <Text style={styles.modeBody}>
+                      Payez 5 USDT (BEP20) — confirmation automatique via Webhook, aucune action admin requise.
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
               )}
             </View>
