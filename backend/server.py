@@ -1124,19 +1124,20 @@ def _register_payment_gateway_routes(router):
                 new["ashtec_api_key"] = key
         if body.fedapay_enabled is not None:
             new["fedapay_enabled"] = bool(body.fedapay_enabled)
-        if not new["soleas_enabled"] and not new["ashtec_enabled"] and not new.get("fedapay_enabled"):
-            raise HTTPException(400, "Au moins une passerelle doit rester activée.")
-        # Fallback active gateway if the selected one is disabled.
-        for _ in range(3):
-            act = new["active"]
-            if act == "soleas" and not new["soleas_enabled"]:
-                new["active"] = "ashtec" if new["ashtec_enabled"] else "fedapay"
-            elif act == "ashtec" and not new["ashtec_enabled"]:
-                new["active"] = "soleas" if new["soleas_enabled"] else "fedapay"
-            elif act == "fedapay" and not new.get("fedapay_enabled"):
-                new["active"] = "soleas" if new["soleas_enabled"] else "ashtec"
-            else:
-                break
+        # Allow any subset of gateways to be enabled — including FedaPay alone
+        # or none at all (in which case automatic payment is entirely disabled
+        # and users can only use manual methods). Fallback: if the currently
+        # active gateway is disabled, pick another enabled one; if none, keep
+        # the current selection so admin sees what was previously chosen.
+        act = new["active"]
+        chain = [("soleas", new.get("soleas_enabled")),
+                 ("ashtec", new.get("ashtec_enabled")),
+                 ("fedapay", new.get("fedapay_enabled"))]
+        active_enabled = next((en for k, en in chain if k == act), False)
+        if not active_enabled:
+            first_enabled = next((k for k, en in chain if en), None)
+            if first_enabled:
+                new["active"] = first_enabled
         await db.app_settings.update_one(
             {"key": "payment_gateway"},
             {"$set": {
@@ -3064,7 +3065,9 @@ async def soleaspay_initiate(
         ("fedapay", gw.get("fedapay_enabled")),
     ]
     if not next((en for k, en in priority if k == active and en), False):
-        active = next((k for k, en in priority if en), "soleas")
+        active = next((k for k, en in priority if en), None)
+    if active is None:
+        raise HTTPException(503, "Aucune passerelle automatique n'est activée. Contactez l'administrateur.")
     if active == "ashtec":
         return await _initiate_via_ashtec(data, request, user, gw)
     if active == "fedapay":
@@ -3685,6 +3688,16 @@ async def _fedapay_handle_transaction_event(db, event_name: str, tx: dict) -> di
     )
     if upd.modified_count == 0:
         return {"ok": True, "race_ignored": True}
+    # Ads payment → flip ad status
+    if p.get("kind") == "ads" and p.get("ad_id"):
+        await db.ads.update_one(
+            {"id": p["ad_id"], "status": "pending_payment"},
+            {"$set": {"status": "pending_admin_review",
+                      "payment_confirmed_at": datetime.now(timezone.utc),
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"ok": True, "ad_paid": True, "ad_id": p["ad_id"]}
+    # Account activation
     try:
         await activate_level(db, p["user_id"], int(p["level"]), source="fedapay")
         await db.users.update_one({"id": p["user_id"], "status": {"$ne": "active"}},

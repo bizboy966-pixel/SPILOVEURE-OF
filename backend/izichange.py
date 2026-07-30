@@ -546,6 +546,15 @@ async def _handle_payment_intent_event(db, event_type: str, data: dict):
         {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc),
                   "validated_by": "izichange_webhook", "tx_hash": tx_hash}},
     )
+    # Ads payment path: skip activate_level, flip the ad status instead.
+    if pay.get("kind") == "ads" and pay.get("ad_id"):
+        await db.ads.update_one(
+            {"id": pay["ad_id"], "status": "pending_payment"},
+            {"$set": {"status": "pending_admin_review",
+                      "payment_confirmed_at": datetime.now(timezone.utc),
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"ok": True, "ad_paid": True, "ad_id": pay["ad_id"]}
     try:
         await activate_level(db, pay["user_id"], 1, source="izichange")
         return {"ok": True, "activated": True}

@@ -275,6 +275,138 @@ async def publish_ad(ad_id: str, request: Request, user=Depends(get_current_user
     return _serialize(await db.ads.find_one({"id": ad_id}))
 
 
+
+class AdPayIn(BaseModel):
+    method: Optional[str] = None      # "mobile_money" | "crypto" | None (auto)
+    country_code: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@public.post("/ads/{ad_id}/pay")
+async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_current_user)):
+    """Initiate payment for an ad — routes to FedaPay Mobile Money if the
+    user's country is supported and the gateway is active, else falls back to
+    IziChangePay (USDT.BEP20) so every user can pay regardless of country.
+    """
+    db = request.app.state.db
+    ad = await _get_ad(db, ad_id, user["id"])
+    if ad["status"] not in ("pending_payment", "draft"):
+        raise HTTPException(400, "Cette publicité n'est pas en attente de paiement.")
+    amount_xof = float(ad.get("price_amount") or 0)
+    if amount_xof <= 0:
+        raise HTTPException(400, "Montant à payer invalide (recalculez la durée).")
+
+    # Auto-detect method if not specified.
+    country = (data.country_code or user.get("country") or "").upper()
+    from feature_flags import is_enabled as _flag_on
+    import fedapay
+    fedapay_ok = fedapay.is_configured() and await _flag_on(db, "fedapay_activation") \
+        and country in fedapay.COUNTRY_MODES
+    izi_ok = await _flag_on(db, "crypto_auto")
+
+    method = (data.method or "").lower() or ("mobile_money" if fedapay_ok else "crypto" if izi_ok else "")
+    if method == "mobile_money" and not fedapay_ok:
+        raise HTTPException(400, "FedaPay indisponible pour votre pays. Utilisez le paiement Crypto.")
+    if method == "crypto" and not izi_ok:
+        raise HTTPException(400, "Le paiement Crypto est momentanément désactivé. Réessayez plus tard.")
+    if not method:
+        raise HTTPException(503, "Aucune méthode de paiement disponible pour votre pays.")
+
+    reference = f"ADS-{ad_id[:8]}-{uuid.uuid4().hex[:8]}"
+    await db.ads.update_one(
+        {"id": ad_id},
+        {"$set": {"status": "pending_payment", "payment_reference": reference,
+                  "payment_method": method, "updated_at": datetime.now(timezone.utc)}},
+    )
+
+    if method == "mobile_money":
+        phone = data.phone or user.get("phone") or ""
+        if not phone:
+            raise HTTPException(400, "Numéro Mobile Money requis.")
+        resp = await fedapay.create_transaction(
+            amount=int(amount_xof), currency_iso=(ad.get("currency") or "XOF"),
+            description=f"SPILOVEURE Ad {ad_id[:8]}",
+            callback_url=os.environ.get("FEDAPAY_CALLBACK_URL", "https://spiloveure.com/ads"),
+            email=user.get("email") or "user@spiloveure.com",
+            firstname=user.get("first_name") or user.get("username") or "SPILOVEURE",
+            lastname=user.get("last_name") or "USER",
+            phone_number=str(phone).strip().lstrip("+"),
+            country_iso=country or "BJ",
+            merchant_reference=reference,
+        )
+        tx_obj = resp.get("v1/transaction") or resp.get("transaction") or resp
+        if resp.get("error") or not isinstance(tx_obj, dict) or not tx_obj.get("id"):
+            raise HTTPException(400, "FedaPay a refusé la création de la transaction.")
+        await db.payments.insert_one({
+            "reference": reference, "provider": "fedapay",
+            "user_id": user["id"], "kind": "ads",
+            "ad_id": ad_id, "amount": amount_xof,
+            "currency": ad.get("currency") or "XOF",
+            "transaction_id": str(tx_obj["id"]),
+            "status": "pending", "activation_done": False,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        })
+        return {"method": "mobile_money", "reference": reference,
+                "transaction_id": str(tx_obj["id"]),
+                "payment_url": tx_obj.get("payment_url"),
+                "amount": amount_xof, "currency": ad.get("currency") or "XOF"}
+
+    # Crypto path — mirror the activation-crypto-auto flow but for ads.
+    import izichange
+    amount_usdt = round(amount_xof / izichange.USDT_XOF_RATE, 6)
+    resp = await izichange._api_post("/v1/payment-intents", {
+        "requestedCurrencyType": "crypto",
+        "currencyRequested": izichange.ASSET_CODE,
+        "amountRequested": f"{amount_usdt:g}",
+        "acceptedCoins": [izichange.ASSET_CODE],
+        "merchantReference": reference,
+        "customerEmail": user.get("email"),
+        "metadata": {"kind": "ads", "ad_id": ad_id, "user_id": user["id"]},
+    }, idempotency_key=reference)
+    if resp.status_code >= 400:
+        raise HTTPException(400, "La passerelle Crypto a refusé la demande.")
+    intent = resp.json()
+    intent_id = intent.get("id")
+    if not intent_id:
+        raise HTTPException(400, "Réponse invalide de la passerelle Crypto.")
+    sr = await izichange._public_post(
+        f"/v1/public/payment-intents/{intent_id}/select-crypto",
+        {"assetCode": izichange.ASSET_CODE,
+         "customer": {"firstName": (user.get("first_name") or user.get("username") or "SPILOVEURE")[:32],
+                      "lastName": (user.get("last_name") or "USER")[:32],
+                      "email": user.get("email") or "user@spiloveure.com"}})
+    if sr.status_code >= 400:
+        raise HTTPException(400, "La passerelle Crypto n'a pas généré l'adresse.")
+    sel = sr.json()
+    deposit_address = sel.get("depositAddress")
+    if not deposit_address:
+        raise HTTPException(400, "Adresse Crypto indisponible.")
+    await db.payments.insert_one({
+        "reference": reference, "provider": "izichange",
+        "provider_intent_id": intent_id,
+        "user_id": user["id"], "kind": "ads",
+        "ad_id": ad_id, "amount": amount_xof,
+        "currency": ad.get("currency") or "XOF",
+        "usdt_amount": amount_usdt,
+        "usdt_rate": izichange.USDT_XOF_RATE,
+        "deposit_address": deposit_address,
+        "amount_to_send": sel.get("amountToSend") or amount_usdt,
+        "network": "BEP20",
+        "status": "pending", "activation_done": False,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    })
+    return {"method": "crypto", "reference": reference,
+            "deposit_address": deposit_address,
+            "amount_to_send": sel.get("amountToSend") or amount_usdt,
+            "coin": "USDT", "network": "BEP20",
+            "xof_amount": amount_xof, "usdt_amount": amount_usdt,
+            "usdt_rate": izichange.USDT_XOF_RATE}
+
+
+
+
 @public.post("/ads/{ad_id}/confirm-payment")
 async def confirm_payment_manual(ad_id: str, request: Request, user=Depends(get_current_user)):
     """Simulated payment confirmation — flips ad to `pending_admin_review`.

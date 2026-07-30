@@ -2690,10 +2690,17 @@ function PaymentGatewaysCard() {
     );
   }
 
-  const renderGw = (gwKey: "soleas" | "ashtec") => {
+  const renderGw = (gwKey: "soleas" | "ashtec" | "fedapay") => {
     const meta = cfg[gwKey] || {};
     const isActive = cfg.active === gwKey;
-    const label = gwKey === "soleas" ? "🔹 Soles Pay" : "🔹 AshtecPay";
+    const label =
+      gwKey === "soleas"  ? "🔹 Soles Pay"
+    : gwKey === "ashtec"  ? "🔹 AshtecPay (Htech Pay)"
+                          : "🔹 FedaPay";
+    const enabledKey =
+      gwKey === "soleas"  ? "soleas_enabled"
+    : gwKey === "ashtec"  ? "ashtec_enabled"
+                          : "fedapay_enabled";
     return (
       <View key={gwKey} style={{ padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -2748,7 +2755,7 @@ function PaymentGatewaysCard() {
         <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
           <TouchableOpacity
             style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: meta.enabled ? theme.colors.danger : theme.colors.success, alignItems: "center" }}
-            onPress={() => save(gwKey === "soleas" ? { soleas_enabled: !meta.enabled } : { ashtec_enabled: !meta.enabled })}
+            onPress={() => save({ [enabledKey]: !meta.enabled })}
             disabled={saving}
             testID={`gw-toggle-${gwKey}`}
           >
@@ -2782,6 +2789,7 @@ function PaymentGatewaysCard() {
       </Text>
       {renderGw("soleas")}
       {renderGw("ashtec")}
+      {renderGw("fedapay")}
     </Card>
   );
 }

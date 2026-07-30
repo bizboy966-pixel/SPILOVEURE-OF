@@ -21,6 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-06-19)
 
+### 2026-07-30 (8) — 🔧 Corrections FedaPay + Ads paiement dual (Mobile Money / Crypto)
+
+**Problèmes résolus** :
+
+1. **Passerelles indépendantes** — retrait de la contrainte "au moins une passerelle doit être activée" côté backend. On peut désormais désactiver SoleasPay + AshtecPay et laisser uniquement FedaPay actif. Fallback intelligent : si l'active est désactivée, le système bascule sur la première activée ; si aucune, l'endpoint `/initiate` retourne un 503 clair.
+
+2. **FedaPay exposé dans l'admin panel** — la fonction `renderGw` n'affichait que "soleas" et "ashtec" côté frontend, ce qui bloquait le toggle FedaPay et créait l'illusion qu'il ne pouvait pas fonctionner. Maintenant les 3 gateways ont le même bouton toggle + "Rendre active".
+
+3. **Endpoint `POST /api/ads/{ad_id}/pay`** — nouveau flow universel :
+   - Auto-détection : si le pays du user est dans `fedapay.COUNTRY_MODES` (BJ, CI, SN, TG, BF, ML, NE, GN) ET flag `fedapay_activation` ON → Mobile Money via FedaPay
+   - Sinon (pays non-supporté OU utilisateur préfère) → Crypto via IziChangePay (USDT.BEP20), conversion XOF → USDT à taux 600
+   - Payloads distincts selon la méthode : `payment_url` pour FedaPay hosted checkout, `deposit_address + amount_to_send` pour crypto inline
+   - Webhooks Fedapay + IziChange étendus pour détecter `kind:"ads"` dans les payments et flip `db.ads.status → pending_admin_review` au lieu d'activer un level
+
+4. **Sécurité renforcée** — les webhooks garantissent l'idempotence (`db.webhook_events`) et rejettent les signatures invalides/périmées, quel que soit le kind (activation compte OU paiement pub).
+
+**Tests** : **20/20 pytest PASS**. Curl E2E :
+- FedaPay activation solo (soleas+ashtec off) → OK
+- Ads pay BJ → `payment_url` FedaPay retourné
+- Ads pay US → adresse USDT BEP20 inline (`0x6Ba774…`, 0.83 USDT)
+- Ads pay auto-détect US → bascule automatique sur crypto
+
+**Fichiers modifiés** :
+- `/app/backend/server.py` : constraint gateway retirée + dispatcher tolerant, webhook FedaPay détecte `kind=ads`
+- `/app/backend/ads.py` : nouvel endpoint `/ads/{ad_id}/pay` avec fallback FedaPay↔Crypto
+- `/app/backend/izichange.py` : webhook handle `kind=ads`
+- `/app/frontend/app/(admin)/index.tsx` : `renderGw` étendu pour "fedapay"
+
+
+
 ### 2026-07-30 (7) — 🆕 Intégration FedaPay (Mobile Money) + Retraits auto
 
 **Nouvelle passerelle Mobile Money** (aux côtés de SoleasPay et AshtecPay/Htech) via `api.fedapay.com/v1/*`.
