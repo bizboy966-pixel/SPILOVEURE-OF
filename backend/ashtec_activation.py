@@ -95,8 +95,24 @@ COUNTRIES: dict[str, dict] = {
     "TD": {"name": "Tchad",         "currency": "XAF",
            "operators": ["Airtel Money", "Moov Money"]},
     "TG": {"name": "Togo",          "currency": "XOF",
-           "operators": ["Flooz", "T-Money"]},
+           "operators": ["Flooz (Moov)", "T-Money"]},
 }
+
+
+# Some operator names shown in the UI don't match the exact string Ashtech's
+# API expects on the wire. Use this table to translate before every /v1/collect
+# call. If not present, the display name is sent as-is.
+ASHTECH_OPERATOR_MAP: dict[str, dict[str, str]] = {
+    # country_code → { display_name : api_name }
+    # (Only entries known to differ from the display name.)
+    # Populated from Ashtech 422 responses like:
+    #   "Opérateur non supporté. Disponibles : Flooz (Moov), T-Money"
+}
+
+
+def _ashtech_operator(country_code: str, operator: str) -> str:
+    """Translate the UI operator label to the exact string Ashtech expects."""
+    return ASHTECH_OPERATOR_MAP.get(country_code.upper(), {}).get(operator, operator)
 
 
 def _new_ref() -> str:
