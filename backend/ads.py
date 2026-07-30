@@ -279,14 +279,14 @@ async def publish_ad(ad_id: str, request: Request, user=Depends(get_current_user
 class AdPayIn(BaseModel):
     method: Optional[str] = None      # "mobile_money" | "crypto" | None (auto)
     country_code: Optional[str] = None
+    operator: Optional[str] = None
     phone: Optional[str] = None
 
 
 @public.post("/ads/{ad_id}/pay")
 async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_current_user)):
-    """Initiate payment for an ad — currently supports Crypto (USDT.BEP20) via
-    IziChangePay. Mobile Money support has been removed; a new gateway will be
-    plugged back in later.
+    """Initiate payment for an ad — supports Crypto (USDT.BEP20) via
+    IziChangePay OR Mobile Money via Ashtech Pay.
     """
     db = request.app.state.db
     ad = await _get_ad(db, ad_id, user["id"])
@@ -296,11 +296,32 @@ async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_c
     if amount_xof <= 0:
         raise HTTPException(400, "Montant à payer invalide (recalculez la durée).")
 
+    method = (data.method or "crypto").lower()
+
+    # ── Mobile Money via Ashtech Pay ──────────────────────────────────
+    if method == "mobile_money":
+        if not data.country_code or not data.operator or not data.phone:
+            raise HTTPException(400, "country_code, operator et phone sont requis.")
+        from ashtec_activation import create_ashtec_payment
+        result = await create_ashtec_payment(
+            db=db, user=user, kind="ads", amount=amount_xof,
+            country_code=data.country_code, operator=data.operator, phone=data.phone,
+            extra_row={"ad_id": ad_id},
+        )
+        await db.ads.update_one(
+            {"id": ad_id},
+            {"$set": {"status": "pending_payment",
+                      "payment_reference": result["reference"],
+                      "payment_method": "mobile_money",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"method": "mobile_money", **result}
+
+    # ── Crypto via IziChangePay ───────────────────────────────────────
     from feature_flags import is_enabled as _flag_on
     izi_ok = await _flag_on(db, "crypto_auto")
-    method = (data.method or "crypto").lower()
     if method != "crypto":
-        raise HTTPException(400, "Seul le paiement Crypto USDT (BEP20) est disponible actuellement.")
+        raise HTTPException(400, "Méthode non supportée.")
     if not izi_ok:
         raise HTTPException(503, "Le paiement Crypto est momentanément désactivé.")
 

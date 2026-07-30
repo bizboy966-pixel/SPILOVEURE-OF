@@ -259,7 +259,9 @@ async def publish_task(task_id: str, request: Request, user=Depends(get_current_
 
 @public.post("/special-tasks/{task_id}/confirm-payment")
 async def confirm_payment(task_id: str, request: Request, user=Depends(get_current_user)):
-    """Auto-activate task after payment (no admin review, per spec)."""
+    """Legacy manual "I have paid" confirmation — kept for backward compat.
+    New flow uses `/special-tasks/{task_id}/pay` (Ashtec Mobile Money) which
+    activates on webhook `payment.completed`."""
     db = request.app.state.db
     t = await _get_task(db, task_id, user["id"])
     if t["status"] not in ("pending_payment", "active"):
@@ -274,6 +276,46 @@ async def confirm_payment(task_id: str, request: Request, user=Depends(get_curre
             }},
         )
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
+
+
+class TaskPayIn(BaseModel):
+    method: str = Field(default="mobile_money")  # only mobile_money for now
+    country_code: str = Field(..., min_length=2, max_length=2)
+    operator: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=6)
+
+
+@public.post("/special-tasks/{task_id}/pay")
+async def pay_task(task_id: str, data: TaskPayIn, request: Request, user=Depends(get_current_user)):
+    """Kick off Ashtec Mobile Money payment for a special task.
+
+    The task moves to `active` only when the Ashtech webhook fires
+    `payment.completed`. Amount comes from `task.price_amount` (already
+    computed as price_per_action × quantity).
+    """
+    db = request.app.state.db
+    t = await _get_task(db, task_id, user["id"])
+    if t["status"] != "pending_payment":
+        raise HTTPException(400, "Cette tâche n'est pas en attente de paiement.")
+    amount = float(t.get("price_amount") or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Montant à payer invalide.")
+    if data.method != "mobile_money":
+        raise HTTPException(400, "Seul le Mobile Money (Ashtech) est supporté ici.")
+
+    from ashtec_activation import create_ashtec_payment
+    result = await create_ashtec_payment(
+        db=db, user=user, kind="special_task", amount=amount,
+        country_code=data.country_code, operator=data.operator, phone=data.phone,
+        extra_row={"special_task_id": task_id},
+    )
+    await db.special_tasks.update_one(
+        {"id": task_id},
+        {"$set": {"payment_reference": result["reference"],
+                  "payment_method": "mobile_money",
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"method": "mobile_money", **result}
 
 
 # ---------- FEED + completion ----------

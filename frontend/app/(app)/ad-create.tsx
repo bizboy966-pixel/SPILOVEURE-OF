@@ -372,8 +372,32 @@ function AdCreateScreenInner() {
             {!payInit && (
               <>
                 <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginBottom: 8 }}>
-                  Payez votre publicité en USDT (BEP20). L'activation est automatique dès confirmation on-chain.
+                  Choisissez votre mode de paiement.
                 </Text>
+
+                {/* ⚡ Mobile Money Ashtech Pay (priority) */}
+                <TouchableOpacity
+                  style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
+                  onPress={() => router.push({
+                    pathname: "/(app)/pay-ashtec" as any,
+                    params: {
+                      kind: "ads",
+                      target_id: adId!,
+                      amount: String(totalPrice),
+                      title: "Paiement Publicité",
+                      return_to: "/(app)/ads",
+                    },
+                  })}
+                  testID="ad-pay-mobile-money"
+                >
+                  <Ionicons name="phone-portrait" size={18} color="#FBBF24" />
+                  <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
+                </TouchableOpacity>
+
+                <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginVertical: 8, fontSize: 12 }}>
+                  — ou —
+                </Text>
+
                 <TouchableOpacity
                   style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
                   onPress={() => startPayment()}
@@ -381,7 +405,7 @@ function AdCreateScreenInner() {
                   testID="ad-pay-crypto"
                 >
                   {saving ? <ActivityIndicator color="#fff" /> : (
-                    <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer maintenant — USDT (BEP20)</Text></>
+                    <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer en USDT (BEP20)</Text></>
                   )}
                 </TouchableOpacity>
                 {payErr ? (

@@ -90,34 +90,34 @@ async def ashtec_catalog():
     }
 
 
-class AshtecInitiateIn(BaseModel):
-    country_code: str = Field(..., min_length=2, max_length=2)
-    operator: str = Field(..., min_length=1)
-    phone: str = Field(..., min_length=6)
+# ─── Shared helper (usable by ads.py + special_tasks.py) ────────────────
+def validate_country_operator(cc: str, operator: str) -> dict:
+    """Raise HTTPException on bad country/operator, return country info."""
+    info = COUNTRIES.get(cc.upper())
+    if not info:
+        raise HTTPException(400, f"Pays {cc} non disponible.")
+    if operator not in info["operators"]:
+        raise HTTPException(400, f"Opérateur '{operator}' invalide pour {cc}.")
+    return info
 
 
-@api.post("/payments/ashtec/initiate")
-async def ashtec_initiate(
-    data: AshtecInitiateIn, request: Request, user=Depends(get_current_user),
-):
-    """Kick off the 2500 FCFA auto-activation.
+async def create_ashtec_payment(
+    *, db, user, kind: str, amount: float, country_code: str,
+    operator: str, phone: str, extra_row: dict | None = None,
+) -> dict:
+    """Create a payments row + call Ashtech /v1/collect. Returns a dict
+    suitable to return to the frontend (reference, status, expires_at, ...).
 
-    Validates the country/operator against the built-in XOF/XAF catalog,
-    forces amount=2500, sets expires_at=now+10min, and calls Ashtech's
-    /v1/collect. Handles the OTP fork by preserving the reference.
+    Used by:
+    - Activation (Level 1) — kind='activation'
+    - Ads          — kind='ads' (extra_row must contain ad_id)
+    - Special task — kind='special_task' (extra_row must contain special_task_id)
     """
-    db = request.app.state.db
     api_key = await _get_api_key(db)
     if not api_key:
         raise HTTPException(503, "AshtecPay non configuré (clé API manquante).")
-    cc = data.country_code.upper()
-    info = COUNTRIES.get(cc)
-    if not info:
-        raise HTTPException(400, f"Pays {cc} non disponible en Auto-Activation.")
-    if data.operator not in info["operators"]:
-        raise HTTPException(400, f"Opérateur '{data.operator}' invalide pour {cc}.")
-    if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
-        raise HTTPException(400, "Votre compte est déjà activé.")
+    cc = country_code.upper()
+    info = validate_country_operator(cc, operator)
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=COUNTDOWN_MINUTES)
@@ -125,37 +125,38 @@ async def ashtec_initiate(
     notify_url = os.environ.get("ASHTECPAY_WEBHOOK_URL") \
         or "https://spiloveure.com/api/webhooks/ashtec"
 
-    await db.payments.insert_one({
+    row = {
         "reference": ref,
         "provider": "ashtecpay",
-        "kind": "activation",
+        "kind": kind,
         "user_id": user["id"],
         "username": user.get("username"),
-        "level": ACTIVATION_LEVEL,
-        "amount": ACTIVATION_AMOUNT,
+        "amount": float(amount),
         "currency": info["currency"],
-        "phone": data.phone.strip(),
+        "phone": phone.strip(),
         "country_code": cc,
-        "operator": data.operator,
+        "operator": operator,
         "status": "pending",
         "activation_done": False,
         "created_at": now,
         "expires_at": expires_at,
         "updated_at": now,
-    })
+    }
+    if extra_row:
+        row.update(extra_row)
+    await db.payments.insert_one(row)
 
     resp = await ashtecpay.initiate_payment(
         api_key=api_key,
-        amount=ACTIVATION_AMOUNT,
+        amount=float(amount),
         currency=info["currency"],
-        phone=data.phone.strip(),
-        operator=data.operator,
+        phone=phone.strip(),
+        operator=operator,
         country_code=cc,
         reference=ref,
         notify_url=notify_url,
     )
 
-    # OTP fork
     if not resp.get("success") and resp.get("error") == "otp_required":
         await db.payments.update_one(
             {"reference": ref},
@@ -164,16 +165,13 @@ async def ashtec_initiate(
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {
-            "reference": ref,
-            "status": "otp_required",
-            "amount": ACTIVATION_AMOUNT,
-            "currency": info["currency"],
-            "operator": data.operator,
-            "country_code": cc,
+            "reference": ref, "status": "otp_required",
+            "amount": float(amount), "currency": info["currency"],
+            "operator": operator, "country_code": cc,
             "expires_at": expires_at.isoformat(),
             "ussd_code": resp.get("ussd_code"),
             "message": resp.get("message")
-                or "Un code OTP a été envoyé sur votre téléphone. Saisissez-le pour valider.",
+                or "Un code OTP a été envoyé sur votre téléphone.",
         }
 
     if not resp.get("success"):
@@ -196,19 +194,38 @@ async def ashtec_initiate(
                   "updated_at": datetime.now(timezone.utc)}},
     )
     return {
-        "reference": ref,
-        "transaction_id": txid,
+        "reference": ref, "transaction_id": txid,
         "status": "pending",
-        "amount": ACTIVATION_AMOUNT,
-        "currency": info["currency"],
-        "operator": data.operator,
-        "country_code": cc,
+        "amount": float(amount), "currency": info["currency"],
+        "operator": operator, "country_code": cc,
         "expires_at": expires_at.isoformat(),
-        "flow": resp.get("flow"),
-        "wave_url": resp.get("wave_url"),
+        "flow": resp.get("flow"), "wave_url": resp.get("wave_url"),
         "message": resp.get("message")
             or "Confirmez le paiement sur votre téléphone.",
     }
+# ────────────────────────────────────────────────────────────────────────
+
+
+class AshtecInitiateIn(BaseModel):
+    country_code: str = Field(..., min_length=2, max_length=2)
+    operator: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=6)
+
+
+@api.post("/payments/ashtec/initiate")
+async def ashtec_initiate(
+    data: AshtecInitiateIn, request: Request, user=Depends(get_current_user),
+):
+    """Kick off the 2500 FCFA Level-1 auto-activation."""
+    db = request.app.state.db
+    if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+        raise HTTPException(400, "Votre compte est déjà activé.")
+    return await create_ashtec_payment(
+        db=db, user=user, kind="activation",
+        amount=ACTIVATION_AMOUNT,
+        country_code=data.country_code, operator=data.operator, phone=data.phone,
+        extra_row={"level": ACTIVATION_LEVEL},
+    )
 
 
 class AshtecOtpIn(BaseModel):
@@ -365,13 +382,78 @@ async def ashtec_status(
     }
 
 
-async def _apply_activation(db, p: dict, sp_status: str, *, source: str):
-    """Idempotent activation applier — used by both polling and webhook."""
+async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
+    """Idempotent payment-success dispatcher — called by both polling and webhook.
+
+    Routes based on `p["kind"]`:
+      • activation  → matrix.activate_level(user_id, level)
+      • ads         → flip ad status to "pending_admin_review"
+      • special_task → flip task status to "active"
+    """
     ref = p["reference"]
+    kind = p.get("kind") or "activation"
+
+    if kind == "ads":
+        try:
+            await db.ads.update_one(
+                {"id": p.get("ad_id"), "status": {"$ne": "active"}},
+                {"$set": {
+                    "status": "pending_admin_review",
+                    "payment_confirmed_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+        except Exception as exc:
+            log.exception("ashtec ads confirm failed for ref=%s: %s", ref, exc)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "paid",
+                          "activation_error": str(exc),
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+        return
+
+    if kind == "special_task":
+        try:
+            await db.special_tasks.update_one(
+                {"id": p.get("special_task_id"), "status": "pending_payment"},
+                {"$set": {
+                    "status": "active",
+                    "payment_confirmed_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+        except Exception as exc:
+            log.exception("ashtec task confirm failed for ref=%s: %s", ref, exc)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "paid",
+                          "activation_error": str(exc),
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+        return
+
+    # Default: activation (Level 1 or upgrade)
     # Guard: if user is already at that level, just reconcile the row.
     u_now = await db.users.find_one({"id": p["user_id"]},
                                     {"_id": 0, "max_level": 1, "status": 1}) or {}
-    if int(u_now.get("max_level") or 0) >= int(p["level"]):
+    if int(u_now.get("max_level") or 0) >= int(p.get("level") or 1):
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "paid", "activation_done": True,
@@ -394,7 +476,7 @@ async def _apply_activation(db, p: dict, sp_status: str, *, source: str):
              "$unset": {"activation_error": ""}},
         )
     except Exception as exc:
-        log.exception("ashtec _apply_activation failed for ref=%s: %s", ref, exc)
+        log.exception("ashtec _apply_payment_success failed for ref=%s: %s", ref, exc)
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "paid",  # payment IS in, but activation code failed
@@ -402,6 +484,10 @@ async def _apply_activation(db, p: dict, sp_status: str, *, source: str):
                       "ashtecpay_status": sp_status,
                       "updated_at": datetime.now(timezone.utc)}},
         )
+
+
+# Backward-compat alias
+_apply_activation = _apply_payment_success
 
 
 @webhook.post("/ashtec")

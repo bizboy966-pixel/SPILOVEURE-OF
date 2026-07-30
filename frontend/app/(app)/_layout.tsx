@@ -10,7 +10,7 @@ import { CommunityPopup } from "@/src/components/CommunityPopup";
 // their activation — those pages act as the platform's storefront and must
 // not redirect them back to /activation automatically.
 const ALLOWED_FOR_PENDING = new Set([
-  "activation", "activation-crypto-auto", "activation-ashtec", "profile", "settings",
+  "activation", "activation-crypto-auto", "activation-ashtec", "pay-ashtec", "profile", "settings",
   "services", "formations", "ebooks", "premium-apps", "trading",
 ]);
 

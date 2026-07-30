@@ -222,9 +222,25 @@ function SpecialTaskCreateInner() {
             <Ionicons name="card" size={64} color={theme.colors.primary} />
             <Text style={styles.section}>💳 Paiement</Text>
             <Text style={styles.priceTot}>{totalPrice} FCFA</Text>
-            <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>Paiement via SoleasPay/AshtechPay. Après confirmation, la tâche est activée automatiquement (aucune validation admin requise).</Text>
-            <TouchableOpacity style={styles.next} onPress={confirmPayment} disabled={saving} testID="stc-payment-confirm">
-              {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-circle" size={16} color="#fff" /><Text style={styles.nextT}>J'ai payé — activer la tâche</Text></>}
+            <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>
+              Payez par Mobile Money — la tâche s'active automatiquement dès réception du paiement.
+            </Text>
+            <TouchableOpacity
+              style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
+              onPress={() => router.push({
+                pathname: "/(app)/pay-ashtec" as any,
+                params: {
+                  kind: "special_task",
+                  target_id: taskId!,
+                  amount: String(totalPrice),
+                  title: "Paiement Tâche Spéciale",
+                  return_to: "/(app)/tasks",
+                },
+              })}
+              testID="stc-pay-mobile-money"
+            >
+              <Ionicons name="phone-portrait" size={16} color="#FBBF24" />
+              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Payer via Mobile Money (Ashtech)</Text>
             </TouchableOpacity>
           </View>
         )}

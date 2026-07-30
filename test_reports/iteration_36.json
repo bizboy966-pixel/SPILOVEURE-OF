@@ -1,0 +1,30 @@
+{
+  "summary": "Full backend + frontend test of Ashtech Pay extension to Ads and Special Tasks. Backend pytest suite: 29/29 PASS (6 new ads/tasks + 10 activation + 13 izichange). Frontend: fresh test user registered → /pay-ashtec?kind=ads&target_id=…&amount=5000&title=Test+Publicité renders exactly as spec — header 'Test Publicité' + amount '5 000 FCFA' + 14 XOF/XAF country chips (GN & CD absent) + operator chips revealed on country select (T-Money + Flooz for TG) + payash-phone input + payash-submit button showing '🚀 PAYER 5 000 FCFA' + payash-back visible. Regression: activation-ashtec still locked at 2 500 FCFA with 14 country chips, no GN/CD. All required test IDs present.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ashtec_ads_tasks.py",
+    "/app/backend/tests/test_ashtec_activation.py",
+    "/app/backend/tests/test_izichange.py",
+    "/app/test_reports/pytest/iter36_ashtec.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "pay-ashtec.tsx: uses `catalog` from /payments/ashtec/catalog (auth=false) which is fine. However the countdown/verify_payment loop shares the same sandbox-flake issue reported in iteration_35 (first status poll may resolve to 'failed' in Ashtech sandbox). Consider grace window on first poll to preserve UX.",
+    "ad-create.tsx L136-147: PayInit type declares method as 'crypto' only; when in future mobile_money returns from /pay it'd break the type. Since Mobile Money now navigates AWAY to /pay-ashtec instead, this is fine for now but worth a comment.",
+    "special-task-create.tsx: `confirmPayment` function (L99-108) is defined but no longer wired to any button — dead code after Ashtec Mobile Money migration; safe to remove.",
+    "pay-ashtec.tsx L86-89: operator auto-select useEffect depends on `selectedCountry` object identity — memo will recompute on every catalog change but works correctly. Minor: could add `operator` to deps to avoid the missing-dep lint warning."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Fresh test users created via /api/auth/register (TEST_uipay_*, TEST_reg_* — TG country, sponsor=admin).",
+  "seed_data_creation": "2 fresh TEST_ users registered during frontend testing (via /api/auth/register).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest for Ashtec ads/tasks lives at /app/backend/tests/test_ashtec_ads_tasks.py (6 tests). Generic pay-ashtec.tsx test IDs: payash-back, payash-country-{code}, payash-op-{name}, payash-phone, payash-submit, payash-cancel, payash-otp, payash-otp-submit, payash-wave, payash-done, payash-failed, payash-retry. Route is /(app)/pay-ashtec → deep link URL drops the (app) prefix on web. Login flow: /(auth)/login with data-testid login-email, login-password, click 'SE CONNECTER'. Ads pay dispatch at L378-395 ad-create.tsx; Special tasks pay dispatch at L228-244 special-task-create.tsx. Sandbox flakiness on /v1/transaction/{id} still exists — pytest cases already accept 200 or 400+'ashtec/erreur/refus/interne' as valid.",
+  "rca of the issue": "N/A — no bugs found in this iteration."
+}
