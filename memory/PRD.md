@@ -21,7 +21,41 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
-### 2026-07-30 (10) — ⚡ Ashtech Pay AUTO-ACTIVATION (Mobile Money direct)
+### 2026-07-30 (11) — 💳 Ashtech Pay sur toutes les surfaces (Ads + Special Tasks)
+
+Extension du flow Ashtech Pay au-delà de l'auto-activation :
+
+**Surfaces couvertes** :
+1. **Auto-activation Niveau 1** (2 500 FCFA verrouillé) — via `/payments/ashtec/initiate` — déjà en place
+2. **Ads / Publicité** (montant dynamique = `ad.price_amount`) — via `POST /api/ads/{ad_id}/pay` avec `method="mobile_money"` — **NOUVEAU**
+3. **Tâches spéciales** (montant dynamique = `price_per_action × quantity`) — via `POST /api/special-tasks/{task_id}/pay` — **NOUVEAU** (remplace le mock `confirm-payment` qui auto-activait sans encaisser)
+
+**Architecture backend** :
+- Helper partagé `create_ashtec_payment(db, user, kind, amount, cc, op, phone, extra_row)` dans `ashtec_activation.py` — utilisé par activation, ads.py, special_tasks.py
+- Dispatcher `_apply_payment_success(p)` dans le webhook route par `p["kind"]` :
+  - `activation` → `matrix.activate_level(user_id, level)`
+  - `ads` → `ad.status = "pending_admin_review"`
+  - `special_task` → `task.status = "active"` (+ `payment_confirmed_at`)
+- Webhook idempotent via `db.webhook_events.transaction_id`
+
+**Frontend** :
+- Nouvelle page générique `/(app)/pay-ashtec.tsx` (paramètres URL : `kind`, `target_id`, `amount`, `title`, `return_to`)
+  - Mêmes 4 étapes que `activation-ashtec.tsx` : Pays → Opérateur → Téléphone → Chrono 10 min
+  - Data-testids : `payash-back`, `payash-country-{code}`, `payash-op-{name}`, `payash-phone`, `payash-submit`, `payash-cancel`, `payash-otp{,-submit}`, `payash-wave`, `payash-done`, `payash-failed`, `payash-retry`
+- `ad-create.tsx` step 4 : Bouton "⚡ Mobile Money — Ashtech Pay" prioritaire (fond sombre, bordure orange) + fallback Crypto USDT (BEP20)
+- `special-task-create.tsx` step 5 : Bouton unique "⚡ Payer via Mobile Money (Ashtech)" (le stub `confirm-payment` reste pour rétro-compat mais n'est plus utilisé par le nouveau flow)
+- `_layout.tsx` : `pay-ashtec` ajouté à `ALLOWED_FOR_PENDING`
+
+**Tests** — 3 fichiers, **29/29 passing** ✅ :
+- `test_ashtec_activation.py` (10/10) — flow activation, catalog, webhook, expiry
+- `test_ashtec_ads_tasks.py` (6/6) — NEW : ads + special_tasks Mobile Money, validation, happy path
+- `test_izichange.py` (13/13) — régression crypto
+
+**Décision utilisateur** : NON aux retraits Mobile Money via Ashtech — les retraits restent Crypto USDT via IziChange payout API.
+
+---
+
+
 
 Intégration complète Ashtech Pay Direct v1 comme gateway Mobile Money **unique** pour l'auto-activation Niveau 1 verrouillée à **2 500 FCFA**. Flow strict : sélecteur pays (XOF/XAF, 14 pays), sélecteur opérateur, écran chrono 10 min, OTP fork, webhook idempotent.
 
