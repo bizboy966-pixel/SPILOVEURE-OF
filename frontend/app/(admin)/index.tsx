@@ -802,7 +802,10 @@ export default function AdminHome() {
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  <KvRow k="Montant" v={isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount)} />
+                  <KvRow k="Montant" v={
+                    a.payment_method === "crypto_auto" ? `${a.amount || 5} USDT` :
+                    (isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount))
+                  } />
                   <KvRow k="Date/Heure" v={formatDateTime(a.created_at)} />
                   {a.transaction_ref ? <KvRow k="Réf. transaction" v={a.transaction_ref} /> : null}
                   {a.reference && isAuto ? <KvRow k="Référence interne" v={a.reference} /> : null}

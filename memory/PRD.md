@@ -20,6 +20,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+
+### 2026-07-30 (5) — ✅ Crypto Auto : verify tx_hash + webhook v1 + admin enrichi (final)
+
+**Ajouts alignés avec la doc PDF officielle biz-transPay** :
+- Migration vers nouvelles clés live : `pk_live_HKpqLTBS…`, `sk_live_u0AYopb6…`, `WEBHOOK_ID=4055dfdd-…`.
+- Nouvelle route webhook `POST /api/v1/webhooks/{webhook_id}` (l'ancienne `/api/webhooks/biz-transppayy` reste active en alias pour rétrocompat). Signature HMAC-SHA256 sur `{timestamp}.{raw_body}` inchangée. Événements `payment.failed`/`payment.expired` marquent l'activation `rejected` (statut terminal).
+- **Nouveau flow utilisateur** : après paiement, l'utilisateur peut coller son `tx_hash` sur la page et cliquer « Vérifier le paiement » pour activer immédiatement son compte (sans attendre uniquement le webhook).
+- **Nouvel endpoint** `POST /api/activations/crypto-auto/verify` — vérifie : ownership, non-double-utilisation du hash, appel `GET /api/v1/payments/{id}` sur biz-transPay, status=completed, hash match, amount≥5USDT, coin=USDT. En cas de mismatch → statut `rejected` avec raison enregistrée. En cas de succès → activate_level(1) automatique.
+- **Admin panel enrichi** : activations `crypto_auto` affichent maintenant badge « CRYPTO AUTO » (jaune), libellé « Automatique (Crypto USDT BEP20) », bloc « Adresse USDT générée » cliquable-pour-copier, réseau, tx_hash. Montant affiché en USDT (au lieu du FCFA générique).
+
+**Tests** : **19/19 pytest PASS** (14 originaux + 5 nouveaux couvrant verify + nouveau webhook alias + admin enrichment). Testing agent iter_33 → **100% backend + frontend PASS**. TestIDs frontend : `cauto-tx-hash`, `cauto-verify`, `cauto-verify-msg`, `cauto-verify-error`. TestIDs admin : `admin-copy-addr-{id}`.
+
+**Sécurité** : clé secrète uniquement côté serveur, HMAC-SHA256 vérifié sur chaque webhook, tx_hash unique par activation en DB, activate_done flag empêche double activation, tous les événements loggués.
+
+
 ### 2026-07-30 (4) — 🔴→✅ Crypto Auto INLINE (NO REDIRECT) — flow définitif
 **Correction utilisateur** : la précédente implémentation (2026-07-30 #3) redirigeait vers `checkout.pay.izichange.com`, ce qui violait la règle « L'utilisateur ne quitte jamais SPILOVEURE ». **Le bon flow biz-transPay** a été découvert par inspection du SPA izichange :
 
