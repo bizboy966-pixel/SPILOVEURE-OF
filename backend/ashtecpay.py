@@ -7,9 +7,12 @@ The API key is admin-configured via `app_settings.payment_gateway.ashtec_api_key
 and passed explicitly at every call — never imported from .env.
 """
 from __future__ import annotations
+import logging
 import os
 from typing import Optional
 import httpx
+
+log = logging.getLogger("ashtecpay")
 
 # Base URL is fixed per the API spec. Allow override via .env for staging/sandbox.
 BASE_URL = os.environ.get("ASHTECPAY_BASE_URL") or "https://ashtechpay.top"
@@ -21,6 +24,45 @@ def _headers(api_key: str) -> dict:
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
+
+def _extract_error(data, status_code: int, raw_text: str) -> str:
+    """Try hard to surface a useful error message from any Ashtech response
+    shape (JSON with `message`/`error`/`detail`/`errors`, non-JSON HTML, etc.).
+    """
+    if isinstance(data, dict):
+        # 1. Direct message field
+        for k in ("message", "detail", "description"):
+            v = data.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        # 2. Error as string
+        err = data.get("error")
+        if isinstance(err, str) and err.strip():
+            return err.strip()
+        # 3. Error as dict with .message
+        if isinstance(err, dict):
+            for k in ("message", "detail"):
+                v = err.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        # 4. Errors array (pydantic-style)
+        errs = data.get("errors")
+        if isinstance(errs, list) and errs:
+            first = errs[0]
+            if isinstance(first, dict):
+                for k in ("message", "detail", "msg"):
+                    v = first.get(k)
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
+            elif isinstance(first, str):
+                return first
+    # 5. Fall back to raw body (trimmed) — helpful when the API returned HTML
+    if raw_text:
+        trimmed = raw_text.strip()[:200]
+        if trimmed:
+            return f"[HTTP {status_code}] {trimmed}"
+    return f"AshtecPay a refusé la requête (HTTP {status_code})."
 
 
 async def initiate_payment(
@@ -66,11 +108,9 @@ async def initiate_payment(
     try:
         data = r.json()
     except Exception:
-        return {"success": False, "status_code": r.status_code,
-                "error": "invalid_response", "message": "Réponse invalide AshtecPay",
-                "raw": raw}
-    # Map response shape into our normalized format
-    if r.status_code == 202:
+        data = None
+    # 2xx success path
+    if r.status_code == 202 and isinstance(data, dict):
         return {
             "success": True, "status_code": 202,
             "transaction_id": data.get("transaction_id"),
@@ -90,13 +130,25 @@ async def initiate_payment(
                        or "Confirmez le paiement sur votre téléphone.",
             "raw": data,
         }
-    # Error or otp_required
+    # Error path — extract message from all common shapes, log the raw body
+    err_msg = _extract_error(data, r.status_code, raw)
+    err_code = "error"
+    if isinstance(data, dict):
+        _e = data.get("error")
+        if isinstance(_e, str) and _e:
+            err_code = _e
+    log.warning(
+        "AshtecPay /v1/collect refused: status=%s payload=%s response=%s",
+        r.status_code,
+        {k: v for k, v in payload.items() if k not in ("otp",)},
+        raw[:500],
+    )
     return {
         "success": False, "status_code": r.status_code,
-        "error": data.get("error") or "error",
-        "message": data.get("message") or f"Erreur HTTP {r.status_code}",
-        "ussd_code": data.get("ussd_code"),
-        "raw": data,
+        "error": err_code,
+        "message": err_msg,
+        "ussd_code": (data or {}).get("ussd_code") if isinstance(data, dict) else None,
+        "raw": data if data is not None else raw[:500],
     }
 
 

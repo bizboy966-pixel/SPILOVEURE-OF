@@ -18,12 +18,47 @@ from pydantic import BaseModel, Field
 
 import ashtecpay
 from matrix import activate_level
-from auth import get_current_user  # type: ignore
+from auth import get_current_user, require_admin  # type: ignore
 
 log = logging.getLogger("ashtec_activation")
 
 api = APIRouter(prefix="/api", tags=["ashtec-auto"])
 webhook = APIRouter(prefix="/api/webhooks", tags=["ashtec-webhook"])
+admin = APIRouter(prefix="/api/admin", tags=["ashtec-admin"],
+                  dependencies=[Depends(require_admin)])
+
+# International dial codes for the countries we support — used to normalize
+# a bare local number ("91978352") to E.164 ("+22891978352") which is what
+# Ashtech's /v1/collect expects for reliable delivery.
+DIAL_CODES: dict[str, str] = {
+    "BJ": "229", "BF": "226", "CM": "237", "CF": "236", "CG": "242",
+    "CI": "225", "GA": "241", "GQ": "240", "GW": "245", "ML": "223",
+    "NE": "227", "SN": "221", "TD": "235", "TG": "228",
+}
+
+
+def _normalize_phone(phone: str, country_code: str) -> str:
+    """Coerce any user-typed phone into E.164 (`+CC...`).
+    Accepts:
+      • "+22891978352"       → kept as-is
+      • "22891978352"        → prefixed with "+"
+      • "91978352" (bare)    → prefixed with "+" + dial code for country
+      • "091978352"          → leading zero stripped, then prefixed
+    """
+    p = (phone or "").strip().replace(" ", "").replace("-", "").replace(".", "")
+    if not p:
+        return p
+    if p.startswith("+"):
+        return p
+    dial = DIAL_CODES.get(country_code.upper(), "")
+    # If starts with the dial code already, just prepend +
+    if dial and p.startswith(dial):
+        return "+" + p
+    # Strip a single leading zero (common local convention)
+    if p.startswith("0"):
+        p = p.lstrip("0")
+    return f"+{dial}{p}" if dial else f"+{p}"
+
 
 # Locked activation params (product decision)
 ACTIVATION_AMOUNT: float = 2500.0
@@ -125,6 +160,9 @@ async def create_ashtec_payment(
     ref = _new_ref()
     notify_url = os.environ.get("ASHTECPAY_WEBHOOK_URL") \
         or "https://spiloveure.com/api/webhooks/ashtec"
+    # Normalize to E.164 — Ashtech's /v1/collect returns 502 "erreur interne"
+    # when given a bare local number like "91978352" instead of "+22891978352".
+    e164_phone = _normalize_phone(phone, cc)
 
     row = {
         "reference": ref,
@@ -134,7 +172,8 @@ async def create_ashtec_payment(
         "username": user.get("username"),
         "amount": float(amount),
         "currency": info["currency"],
-        "phone": phone.strip(),
+        "phone": e164_phone,
+        "phone_original": phone.strip(),
         "country_code": cc,
         "operator": operator,
         "status": "pending",
@@ -151,7 +190,7 @@ async def create_ashtec_payment(
         api_key=api_key,
         amount=float(amount),
         currency=info["currency"],
-        phone=phone.strip(),
+        phone=e164_phone,
         operator=operator,
         country_code=cc,
         reference=ref,
@@ -181,9 +220,15 @@ async def create_ashtec_payment(
             {"$set": {"status": "failed",
                       "activation_error": resp.get("message") or "Échec initiation",
                       "ashtecpay_response": resp,
+                      "ashtecpay_status_code": resp.get("status_code"),
                       "updated_at": datetime.now(timezone.utc)}},
         )
-        raise HTTPException(400, resp.get("message") or "AshtecPay a refusé la requête.")
+        msg = resp.get("message") or "AshtecPay a refusé la requête."
+        # Include the HTTP status code hint if useful (helps debug prod issues)
+        sc = resp.get("status_code")
+        if sc and sc >= 400 and str(sc) not in msg:
+            msg = f"{msg} (HTTP {sc})"
+        raise HTTPException(400, msg)
 
     txid = resp.get("transaction_id")
     await db.payments.update_one(
@@ -609,3 +654,55 @@ async def ashtec_webhook(request: Request):
         })
 
     return {"ok": True, "status": norm}
+
+
+# ─── Admin diagnostics ────────────────────────────────────────────────
+@admin.get("/payments/ashtec/diag")
+async def ashtec_diag(request: Request, limit: int = 20):
+    """Admin-only diagnostic — returns:
+    • current gateway config (is api_key set + first 8 chars, no secret leak)
+    • last N failed Ashtech payments with the raw error captured
+    • last N Ashtech webhook events
+    Very useful to debug production issues like "AshtecPay a refusé la requête".
+    """
+    db = request.app.state.db
+    gw = await db.app_settings.find_one({"_id": "payment_gateway"}, {"_id": 0}) or {}
+    api_key = gw.get("ashtec_api_key") or ""
+    key_info = {
+        "configured": bool(api_key),
+        "length": len(api_key),
+        "prefix": (api_key[:8] + "…") if api_key else None,
+    }
+
+    failures = []
+    async for p in db.payments.find(
+        {"provider": "ashtecpay", "status": "failed"},
+        {"_id": 0, "reference": 1, "kind": 1, "amount": 1, "currency": 1,
+         "phone": 1, "operator": 1, "country_code": 1,
+         "activation_error": 1, "ashtecpay_response": 1, "ashtecpay_status_code": 1,
+         "created_at": 1},
+    ).sort("created_at", -1).limit(min(limit, 50)):
+        for k in ("created_at",):
+            if isinstance(p.get(k), datetime):
+                p[k] = p[k].isoformat()
+        failures.append(p)
+
+    webhooks = []
+    async for wh in db.webhook_logs.find(
+        {"gateway": "ashtec"}, {"_id": 0}
+    ).sort("received_at", -1).limit(min(limit, 50)):
+        v = wh.get("received_at")
+        if isinstance(v, datetime):
+            wh["received_at"] = v.isoformat()
+        webhooks.append(wh)
+
+    return {
+        "gateway_active": gw.get("active"),
+        "ashtec_enabled": gw.get("ashtec_enabled", False),
+        "api_key": key_info,
+        "webhook_url": os.environ.get("ASHTECPAY_WEBHOOK_URL")
+                       or "https://spiloveure.com/api/webhooks/ashtec",
+        "recent_failures": failures,
+        "recent_webhooks": webhooks,
+    }
+
