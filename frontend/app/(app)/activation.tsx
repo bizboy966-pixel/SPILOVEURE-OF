@@ -434,6 +434,46 @@ export default function Activation() {
         {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
+
+            {/* PRIORITY: Ashtech Pay AUTO-ACTIVATION (2500 FCFA, 10 min chrono) */}
+            <TouchableOpacity
+              style={styles.autoActivateBtn}
+              onPress={() => router.push("/(app)/activation-ashtec" as any)}
+              testID="btn-auto-activation"
+              activeOpacity={0.85}
+            >
+              <View style={styles.autoActivateHeader}>
+                <View style={styles.autoActivateIcon}>
+                  <Ionicons name="rocket" size={26} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.autoActivateTitle}>⚡ AUTO-ACTIVATION</Text>
+                  <Text style={styles.autoActivateSub}>
+                    Mobile Money instantané — 2 500 FCFA, activation en 10 min
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={26} color="#fff" />
+              </View>
+              <View style={styles.autoActivateFooter}>
+                <View style={styles.autoActivateChip}>
+                  <Ionicons name="time-outline" size={12} color="#fff" />
+                  <Text style={styles.autoActivateChipText}>Chrono 10 min</Text>
+                </View>
+                <View style={styles.autoActivateChip}>
+                  <Ionicons name="shield-checkmark-outline" size={12} color="#fff" />
+                  <Text style={styles.autoActivateChipText}>100% automatique</Text>
+                </View>
+                <View style={styles.autoActivateChip}>
+                  <Ionicons name="cash-outline" size={12} color="#fff" />
+                  <Text style={styles.autoActivateChipText}>2 500 FCFA</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            <Text style={[styles.helper, { textAlign: "center", marginTop: 12, marginBottom: 4 }]}>
+              — ou choisissez un autre mode ci-dessous —
+            </Text>
+
             <View style={styles.modesCol}>
               {soleasEnabled && (
                 <TouchableOpacity
@@ -1148,4 +1188,37 @@ const styles = StyleSheet.create({
   modeTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
   modeBody: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2, lineHeight: 15 },
   copyBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.primary },
+
+  // AUTO-ACTIVATION priority CTA (Ashtech Pay)
+  autoActivateBtn: {
+    marginTop: 8,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: "#0F172A",
+    borderWidth: 2,
+    borderColor: "#F59E0B",
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  autoActivateHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  autoActivateIcon: {
+    width: 48, height: 48, borderRadius: 14,
+    backgroundColor: "#F59E0B",
+    alignItems: "center", justifyContent: "center",
+  },
+  autoActivateTitle: { color: "#fff", fontWeight: "900", fontSize: 18, letterSpacing: 0.5 },
+  autoActivateSub: { color: "#E2E8F0", fontSize: 12, marginTop: 2 },
+  autoActivateFooter: {
+    marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8,
+  },
+  autoActivateChip: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(245, 158, 11, 0.18)",
+    borderWidth: 1, borderColor: "rgba(245, 158, 11, 0.5)",
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+  },
+  autoActivateChipText: { color: "#FBBF24", fontSize: 11, fontWeight: "700" },
 });

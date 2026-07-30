@@ -3385,6 +3385,11 @@ from izichange import api as izi_api, webhook as izi_webhook  # noqa: E402
 app.include_router(izi_api)
 app.include_router(izi_webhook)
 
+# AshtecPay AUTO-ACTIVATION — dedicated 2500 FCFA flow with 10-min countdown.
+from ashtec_activation import api as ashtec_api, webhook as ashtec_webhook  # noqa: E402
+app.include_router(ashtec_api)
+app.include_router(ashtec_webhook)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

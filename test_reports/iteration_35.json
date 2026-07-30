@@ -1,0 +1,39 @@
+{
+  "summary": "Full backend + frontend test of Ashtech Pay Direct AUTO-ACTIVATION integration. Backend: 10/10 new pytest cases pass, 13/13 IziChangePay regression tests pass. Frontend: registration + login work; AUTO-ACTIVATION button is at TOP of 'Choisir un mode de paiement' with orange/dark theme and correct chips; /activation-ashtec renders header/2 500 FCFA/14 XOF-XAF countries (GN & CD excluded); TG selection reveals Flooz & T-Money; phone input + submit call POST /api/payments/ashtec/initiate returning 200 with SPV-AT- reference, expires_at 10 min ahead and real Ashtech txid. ashtec-back returns to /(app)/activation; other 4 payment modes remain visible & functional (no regression).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/payments/ashtec/status/{ref}", "issue": "In Ashtech sandbox, verify_payment on a fresh transaction_id returns a status normalized to 'failed', so the very first status poll after initiate transitions the payment to failed and the UI instantly jumps to the 'Paiement non abouti' screen without showing the 10-min countdown. In production this should stay 'pending' until user confirms on phone, but worth double-checking sandbox behaviour or short-circuiting the first poll for a grace period (e.g. skip verify_payment during the first 30s after initiate)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "AUTO-ACTIVATION submit → waiting/countdown", "issue": "Countdown UI (10:00 ticking) is not observable in sandbox because the first poll immediately returns status=failed (see backend minor issue). The waiting state is technically implemented (headers/chips render on ashtec page) but never displayed in current sandbox conditions.", "affected_selectors": ["ashtec-cancel"]}
+    ],
+    "design_issues": [
+      {"screen": "activation-ashtec header", "issues": ["Header lock emoji + gold '2 500 FCFA' on dark brown card is legible; no contrast issue."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ashtec_activation.py",
+    "/app/backend/tests/test_izichange.py",
+    "/app/test_reports/pytest/ashtec_1785436540.xml"
+  ],
+  "action_items": [
+    "Verify Ashtech sandbox behaviour of GET /v1/transaction/{id}: it appears to return an immediate failed status which causes the countdown UI to be bypassed. Consider deferring the first verify_payment call (e.g. first status poll returns cached DB 'pending' if payment is <30s old) so users always see the countdown."
+  ],
+  "critical_code_review_comments": [
+    "ashtec_activation.py: _apply_activation swallows activate_level errors and marks the row 'paid' with activation_error — good for audit but means an admin has to reconcile manually; ensure alerting is wired.",
+    "ashtec_activation.py L124: notify_url fallback to https://spiloveure.com/api/webhooks/ashtec is fine but consider raising if ASHTECPAY_WEBHOOK_URL missing in production to avoid silent misroute.",
+    "verify_payment normalize_status maps 'expired' to failed — combined with sandbox behaviour, produces the countdown-skip issue above."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "90%"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Test user created: TEST_uiash_e4409e36@example.com / Passw0rd!123 (username testashe4409e36, sponsor=admin, TG).",
+  "seed_data_creation": "Registered 2 fresh TEST_ users during testing (one via UI login, one via API for direct API test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All new ashtec pytest cases live in /app/backend/tests/test_ashtec_activation.py. The Ashtech sandbox returns immediate 'failed' from /v1/transaction/{id} so any UI test relying on observing the countdown state should either mock verify_payment or delete the transaction_id from the payment row before hitting /status. Frontend uses AsyncStorage; auth via /login form (data-testid login-email/login-password + text 'SE CONNECTER'). All requested data-testids exist on the ashtec page (ashtec-country-{code}, ashtec-op-{name}, ashtec-phone, ashtec-submit, ashtec-back, ashtec-retry — the 'Recommencer' button on the failed screen).",
+  "rca of the issue": "Countdown never displays: GET /api/payments/ashtec/status/{ref} in ashtec_activation.py L323 immediately calls ashtecpay.verify_payment on the just-created transaction_id. Ashtech sandbox returns a status which normalize_status maps to 'failed', so the endpoint writes status=failed and the frontend's polling loop transitions to the failed UI on the very first poll (well before the 10-min timer starts ticking). Mitigation: add a grace window (e.g. `if (now - created_at) < 30s: skip verify_payment` and just return the DB 'pending' state) OR only call verify_payment when p['ashtecpay_flow'] indicates the user acknowledged the USSD prompt."
+}
