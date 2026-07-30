@@ -1,0 +1,26 @@
+{
+  "summary": "Frontend retest of the crypto-auto activation flow after E1's fix to ALLOWED_FOR_PENDING whitelist. ALL 5 previously-blocked scenarios now PASS end-to-end: (1) Fresh pending user (registered via API with sponsor=admin, accept_terms=true) sees the 4th tile 'mode-crypto-auto' on /activation when crypto_auto flag is ON. (2) Clicking the tile navigates to /(app)/activation-crypto-auto and the page renders correctly — email, @username, '5 USDT 🔒', 'USDT BEP20 🔒', and 'Payer maintenant' button all visible. NO bounce back to /activation. (3) Clicking 'cauto-pay' triggers the real biz-transPay gateway; after ~15s cauto-address, cauto-copy button, QR code, reference 'SPLV_CRYPTO_...', BEP20 network label and the 'En attente de la confirmation du paiement (webhook)…' spinner are all rendered. (4) When crypto_auto is toggled OFF via admin API and the URL is visited directly, the FeatureGuard placeholder (data-testid='feature-disabled-crypto_auto') renders with the padlock icon and 'Activation automatique (Crypto) désactivée' message — NOT redirected to /activation. (5) With flag OFF, the mode-crypto-auto tile is absent from /activation. Cleanup: crypto_auto flag left = false per default policy. The iter_28 blocker is fully resolved.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_biz_transpay.py",
+    "/app/test_reports/pytest/biz_transpay.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "The fix is minimal and correct: 'activation-crypto-auto' added to ALLOWED_FOR_PENDING set in /app/frontend/app/(app)/_layout.tsx line 13. No regressions observed on the other allowed routes.",
+    "Suggestion (non-blocking): the ALLOWED_FOR_PENDING pattern is fragile — every new pending-user-only screen needs a manual whitelist edit and there is no compile-time safeguard. Consider colocating the 'pending-allowed' flag with each route (e.g. an export const `allowedForPending = true` picked up at build time) so this class of bug cannot recur."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (10/10 pytest, unchanged from iter_28)", "frontend": "100% (5/5 previously-blocked scenarios now pass)"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Test pending users registered on-the-fly with sponsor=admin.",
+  "seed_data_creation": "One fresh pending user tst_c3_ef55c5b3@example.com / tstc3ef55c5b3 registered via /api/auth/register for this run. One pending crypto charge (SPLV_CRYPTO_03404884_af6a0970) created via the real biz-transPay gateway sits in db.payments. Non-critical, safe to leave or purge.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter_28 blocker is CLOSED. If future changes touch /app/frontend/app/(app)/_layout.tsx (ALLOWED_FOR_PENDING) or the crypto-auto flow, rerun this same 5-step sequence: login as pending → tile visible with flag ON → click → page renders with USDT+BEP20+Payer → click cauto-pay → address+copy+spinner → toggle flag OFF → direct visit shows FeatureGuard placeholder (not bounce) → tile absent on /activation. Registration payload requires country, country_code, password, password_confirm, sponsor_username, accept_terms=true. Login response key is access_token.",
+  "rca of the issue": "iter_28's bug was that AppLayout redirected pending users away from /activation-crypto-auto because it was not in the ALLOWED_FOR_PENDING whitelist. E1's one-line fix (adding the string to the Set in _layout.tsx line 13) resolves it. Verified in this iteration that (a) navigation from tile works, (b) direct URL visit works, (c) FeatureGuard placeholder now reachable when flag OFF, all without regression."
+}
