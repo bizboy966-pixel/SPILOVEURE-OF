@@ -21,7 +21,42 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
-### 2026-07-30 (12) — 🎯 Configs admin : Réacteurs Pub + % distribution Tâches
+### 2026-07-30 (13) — 🎯 Distribution automatique aux réacteurs de publicité
+
+**Le maillon manquant** : quand une pub est achetée, X% du prix rejoint un "pool réacteurs". Chaque utilisateur qui interagit avec la pub (view / like / share / comment) touche automatiquement une part de ce pool sur son `balance_profit`. **La monnaie bouge réellement maintenant.**
+
+**Backend** (`ads.py`)
+- Nouvelle collection `ads_reactor_rewards` (idempotency via `(ad_id, user_id, action)`)
+- Nouveaux champs sur `ads` : `reactor_pool`, `reactor_pool_remaining`
+- Helper `_credit_reactor(db, ad, user_id, username, action)` : idempotent, débite le pool, crédite `balance_profit`, log dans `ads_reactor_rewards`
+- Barème de récompense pondéré : view=10%, like=20%, share=30%, comment=40% (min_reward + weight × (max−min))
+- Créateur ne peut pas se récompenser sur sa propre pub
+- Défaire un like ne rembourse **pas** le pool (idempotency preservée)
+- Pool exhausté → nouveaux réacteurs ne reçoivent rien (0 FCFA)
+- Hooks : `POST /ads/{id}/view`, `/like`, `/comment`, `/share` retournent `reward` dans la réponse
+
+**Nouveaux endpoints**
+- `GET /api/ads/{ad_id}/reactor-status` — pool total + restant + gains de l'utilisateur sur cette pub
+- `GET /api/me/reactor-rewards` — historique complet des récompenses + total
+
+**Frontend**
+- Nouvelle page `/(app)/reactor-rewards.tsx` — carte header dorée avec "Total gagné", timeline chronologique des gains (view/like/share/comment), empty state avec CTA "Voir les publicités"
+- Entry point ajouté sur `/(app)/advertising` : gros bandeau prioritaire "🎯 Mes récompenses réacteur" en tête de liste
+
+**Tests** — 8 nouveaux tests dans `test_reactor_rewards.py` ✅
+- First view credits balance, idempotence (pas de double crédit)
+- Comment paye plus que view (pondération correcte)
+- Créateur ne peut pas s'auto-récompenser
+- Share crédite + log correct
+- `reactor-status` retourne pool + gains user
+- `me/reactor-rewards` retourne historique + total
+- Défaire un like ne rembourse pas
+
+**Total suite Ashtec/Ads/Config/Rewards** : **44/44 tests passing** ✅
+
+---
+
+
 
 **Publicités — Récompense des réacteurs** (nouveau)
 - Endpoints : `GET /api/ads-reactor-config` (public read), `GET/PUT /api/admin/ads-reactor-config`

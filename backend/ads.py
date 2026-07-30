@@ -457,13 +457,19 @@ async def public_feed(request: Request, user=Depends(get_current_user)):
 
 @public.post("/ads/{ad_id}/view")
 async def register_view(ad_id: str, request: Request, user=Depends(get_current_user)):
-    """Increment view counter — idempotent per user via unique `viewers` array."""
+    """Increment view counter — idempotent per user via unique `viewers`
+    array — and credit the reactor reward for the first view."""
     db = request.app.state.db
     r = await db.ads.update_one(
         {"id": ad_id, "status": "published", "viewers": {"$ne": user["id"]}},
         {"$addToSet": {"viewers": user["id"]}, "$inc": {"views_count": 1}},
     )
-    return {"ok": True, "counted": r.modified_count > 0}
+    counted = r.modified_count > 0
+    reward = None
+    if counted:
+        ad = await db.ads.find_one({"id": ad_id}, {"_id": 0})
+        reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "view")
+    return {"ok": True, "counted": counted, "reward": reward}
 
 
 @public.post("/ads/{ad_id}/like")
@@ -473,10 +479,13 @@ async def toggle_like(ad_id: str, request: Request, user=Depends(get_current_use
     if not ad:
         raise HTTPException(404, "Publicité introuvable ou non publiée.")
     if user["id"] in (ad.get("likes") or []):
+        # Unlike — do NOT reverse the reward (idempotency table already
+        # blocks a second credit, so removing the like doesn't re-open it).
         await db.ads.update_one({"id": ad_id}, {"$pull": {"likes": user["id"]}})
-        return {"liked": False, "likes_count": len((ad.get("likes") or [])) - 1}
+        return {"liked": False, "likes_count": len((ad.get("likes") or [])) - 1, "reward": None}
     await db.ads.update_one({"id": ad_id}, {"$addToSet": {"likes": user["id"]}})
-    return {"liked": True, "likes_count": len((ad.get("likes") or [])) + 1}
+    reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "like")
+    return {"liked": True, "likes_count": len((ad.get("likes") or [])) + 1, "reward": reward}
 
 
 @public.post("/ads/{ad_id}/comment")
@@ -493,8 +502,9 @@ async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depend
         "at": datetime.now(timezone.utc),
     }
     await db.ads.update_one({"id": ad_id}, {"$push": {"comments": comment}})
+    reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "comment")
     comment["at"] = comment["at"].isoformat()
-    return {"comment": comment}
+    return {"comment": comment, "reward": reward}
 
 
 @public.post("/ads/{ad_id}/share")
@@ -506,7 +516,9 @@ async def share_ad(ad_id: str, request: Request, user=Depends(get_current_user))
     )
     if r.matched_count == 0:
         raise HTTPException(404, "Publicité introuvable ou non publiée.")
-    return {"ok": True}
+    ad = await db.ads.find_one({"id": ad_id}, {"_id": 0})
+    reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "share")
+    return {"ok": True, "reward": reward}
 
 
 # ---------- ADMIN endpoints ----------
@@ -548,6 +560,150 @@ async def _get_reactor_config(db) -> dict:
         "min_reward": float(doc.get("min_reward") or 25.0),
         "max_reward": float(doc.get("max_reward") or 500.0),
         "currency": "FCFA",
+    }
+
+
+# ─── Reactor reward engine ────────────────────────────────────────────
+# Weights let us reward "harder" interactions more than passive ones.
+# Sum of all four weights = 1.0 (fractions of a base unit reward).
+REACTOR_WEIGHTS: dict[str, float] = {
+    "view":    0.10,
+    "like":    0.20,
+    "share":   0.30,
+    "comment": 0.40,
+}
+
+
+async def _initialise_reactor_pool(db, ad: dict) -> float:
+    """Compute and persist the reactor pool for an ad. Idempotent —
+    the pool is set exactly once per ad (on the first reactor action).
+    Returns the pool amount in FCFA.
+    """
+    if ad.get("reactor_pool") is not None:
+        return float(ad["reactor_pool"])
+    cfg = await _get_reactor_config(db)
+    pool = round(float(ad.get("price_amount") or 0) * (cfg["share_percentage"] / 100.0), 2)
+    await db.ads.update_one(
+        {"id": ad["id"], "reactor_pool": {"$exists": False}},
+        {"$set": {"reactor_pool": pool,
+                  "reactor_pool_remaining": pool,
+                  "reactor_pool_initialised_at": datetime.now(timezone.utc)}},
+    )
+    # Re-read in case another concurrent request beat us to it.
+    fresh = await db.ads.find_one({"id": ad["id"]}, {"reactor_pool": 1, "_id": 0}) or {}
+    return float(fresh.get("reactor_pool") or pool)
+
+
+async def _credit_reactor(db, ad: dict, user_id: str, username: str,
+                          action: str) -> Optional[float]:
+    """Idempotently credit a reactor's balance_profit for a given (ad, user,
+    action) tuple. Returns the amount credited, or None if:
+    • same user already rewarded for this action on this ad (idempotent skip)
+    • pool is exhausted
+    • user is the ad's creator (no self-reward)
+    • reward < min bound or > max bound (clamped instead)
+    """
+    if not ad or ad.get("status") != "published":
+        return None
+    if user_id == ad.get("user_id"):
+        return None  # creator can't earn on their own ad
+    action = action.lower()
+    if action not in REACTOR_WEIGHTS:
+        return None
+
+    # Idempotency guard: refuse if this (ad, user, action) has already been paid
+    existing = await db.ads_reactor_rewards.find_one(
+        {"ad_id": ad["id"], "user_id": user_id, "action": action},
+        {"_id": 1},
+    )
+    if existing:
+        return None
+
+    cfg = await _get_reactor_config(db)
+    pool = await _initialise_reactor_pool(db, ad)
+    if pool <= 0:
+        return None
+
+    # Base unit = min bound; scale up by action weight and clamp to max.
+    weight = REACTOR_WEIGHTS[action]
+    base = float(cfg["min_reward"])
+    reward = round(base + (float(cfg["max_reward"]) - base) * weight, 2)
+    # Never credit more than what's still in the pool.
+    remaining_doc = await db.ads.find_one({"id": ad["id"]},
+                                          {"reactor_pool_remaining": 1, "_id": 0}) or {}
+    remaining = float(remaining_doc.get("reactor_pool_remaining") or 0)
+    if remaining <= 0:
+        return None
+    reward = min(reward, remaining)
+
+    # Atomically decrement the pool (guards against race + exhaustion).
+    r = await db.ads.update_one(
+        {"id": ad["id"], "reactor_pool_remaining": {"$gte": reward}},
+        {"$inc": {"reactor_pool_remaining": -reward}},
+    )
+    if r.modified_count == 0:
+        return None  # pool exhausted mid-transaction
+
+    # Credit the user + log the reward.
+    now = datetime.now(timezone.utc)
+    await db.users.update_one({"id": user_id}, {"$inc": {"balance_profit": reward}})
+    await db.ads_reactor_rewards.insert_one({
+        "id": str(uuid.uuid4()),
+        "ad_id": ad["id"],
+        "user_id": user_id, "username": username,
+        "action": action,
+        "amount": reward,
+        "currency": "FCFA",
+        "created_at": now,
+    })
+    return reward
+
+
+@public.get("/ads/{ad_id}/reactor-status")
+async def reactor_status(ad_id: str, request: Request, user=Depends(get_current_user)):
+    """Read-only helper for the reactor UI — returns the current pool state
+    and, if provided, how much the calling user has already earned on this ad.
+    """
+    db = request.app.state.db
+    ad = await db.ads.find_one({"id": ad_id}, {"_id": 0, "reactor_pool": 1,
+                                                "reactor_pool_remaining": 1,
+                                                "user_id": 1, "status": 1,
+                                                "price_amount": 1})
+    if not ad:
+        raise HTTPException(404, "Publicité introuvable.")
+    earned_agg = await db.ads_reactor_rewards.aggregate([
+        {"$match": {"ad_id": ad_id, "user_id": user["id"]}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    earned = float(earned_agg[0]["total"]) if earned_agg else 0.0
+    return {
+        "pool": float(ad.get("reactor_pool") or 0),
+        "remaining": float(ad.get("reactor_pool_remaining") or 0),
+        "you_earned": earned,
+        "is_creator": ad.get("user_id") == user["id"],
+    }
+
+
+@public.get("/me/reactor-rewards")
+async def my_reactor_rewards(request: Request, user=Depends(get_current_user),
+                             limit: int = 100):
+    """Return the calling user's reactor reward history (used by the
+    "Mes récompenses réacteur" tab)."""
+    db = request.app.state.db
+    items = []
+    async for r in db.ads_reactor_rewards.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(min(limit, 500)):
+        r["created_at"] = r["created_at"].astimezone(timezone.utc).isoformat() \
+            if isinstance(r.get("created_at"), datetime) else r.get("created_at")
+        items.append(r)
+    total_agg = await db.ads_reactor_rewards.aggregate([
+        {"$match": {"user_id": user["id"]}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    return {
+        "items": items,
+        "total_earned": float(total_agg[0]["total"]) if total_agg else 0.0,
     }
 
 

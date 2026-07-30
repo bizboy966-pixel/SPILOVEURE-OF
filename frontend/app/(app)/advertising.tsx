@@ -51,6 +51,25 @@ function AdvertisingScreenInner() {
         <Text style={styles.intro}>
           Boostez votre visibilité : publiez du contenu publicitaire ou lancez une campagne rémunérée à destination de nos membres.
         </Text>
+
+        {/* Reactor rewards entry point — earn money by interacting with ads */}
+        <TouchableOpacity
+          style={[styles.card, { backgroundColor: "#0F172A", borderColor: "#F59E0B", borderWidth: 2 }]}
+          onPress={() => router.push("/(app)/reactor-rewards" as any)}
+          testID="adv-reactor-rewards"
+        >
+          <View style={[styles.iconBox, { backgroundColor: "#F59E0B" }]}>
+            <Ionicons name="trophy" size={22} color="#0F172A" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, { color: "#fff" }]}>🎯 Mes récompenses réacteur</Text>
+            <Text style={[styles.cardSub, { color: "#CBD5E1" }]}>
+              Gagnez de l'argent réel en likant, partageant et commentant les publicités.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#FBBF24" />
+        </TouchableOpacity>
+
         {options.map((o) => (
           <TouchableOpacity
             key={o.key}
