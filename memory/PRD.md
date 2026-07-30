@@ -20,6 +20,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-30 (3) — 🔴→✅ P0 fix: Crypto auto address `null` bug (hosted-checkout)
+**Root cause** : biz-transPay `/api/v1/payments` renvoie `deposit_address=null` — l'adresse n'est allouée qu'après ouverture de `payment_url` (hosted-checkout izichange). Le frontend affichait donc `null` et copiait une chaîne vide.
+
+**Backend `/app/backend/biz_transpay.py`** :
+- Réponse aplatie (unwrap `data`/`result`/`payment`) + extraction multi-alias (`deposit_address`/`address`/`wallet_address`/… + `qr_code`, `payment_url`, `expires_at`, `provider_id`).
+- Si address null → poll `GET /api/v1/payments/{id}` 5×2s pour tenter d'attraper l'adresse allouée après ouverture du checkout.
+- Si toujours null → fallback `hosted_checkout=true` + `payment_url` retourné au client (au lieu du 502 précédent).
+- `HTTPException(502)` → `400` sur les erreurs passerelle (Cloudflare edge n'avale plus le JSON detail).
+
+**Frontend `/app/frontend/app/(app)/activation-crypto-auto.tsx`** :
+- Nouveau branche UI `hosted_checkout=true` : bouton « Ouvrir la page de paiement sécurisée » (testID `cauto-open-checkout`) qui redirige vers `payment_url` via `window.open`. Reference + montant + réseau restent affichés, polling `/auth/me` continue.
+- Bouton Copier désactivé + opacité si `deposit_address` null.
+- `copyAddr` : fallback textarea/execCommand pour navigateurs anciens, alert de confirmation.
+- QR display gardé si `charge.qr_code` fourni sinon fallback qrserver.com.
+
+**Tests** : `tests/test_biz_transpay.py` mis à jour — 11/11 pytest PASS (accepte 200 avec `deposit_address` réel OU 200 `hosted_checkout=true` + `payment_url` OU 400 si passerelle down).
+
+**Testing agent iter_31 — 100 % PASS backend + frontend.** Bug P0 résolu.
+
+
 ### 2026-07-30 (2) — ⚡ Auto-activation Crypto (USDT BEP20) via biz-transPay
 **Nouveau module `/app/backend/biz_transpay.py`** :
 - `POST /api/activations/crypto-auto/create` (user auth) : crée un charge biz-transPay (Bearer secret), enregistre `db.payments` + `db.activations` avec `reference=SPLV_CRYPTO_<uid>_<hex>`, retourne `{deposit_address, amount_to_send, coin, network, payment_url, reference}`.
