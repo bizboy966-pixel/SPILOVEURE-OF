@@ -109,9 +109,7 @@ export default function ActivationAshtec() {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [session?.expires_at]);
-
-  // Polling — every 6s while in waiting state
+  }, [session?.expires_at]);  // Polling — every 6s while in waiting state
   useEffect(() => {
     if (step !== "waiting" || !session?.reference) return;
     let stopped = false;
@@ -142,9 +140,14 @@ export default function ActivationAshtec() {
     return () => { stopped = true; clearInterval(id); };
   }, [step, session?.reference]);
 
-  // Force fail when countdown hits 0
+  // Force fail when countdown hits 0 (checked against real wall clock to
+  // avoid firing on the initial `remaining=0` React state before the
+  // ticker useEffect has run its first tick).
   useEffect(() => {
-    if (step === "waiting" && session && remaining === 0 && session.expires_at) {
+    if (step !== "waiting" || !session?.expires_at) return;
+    if (remaining !== 0) return;
+    const ms = new Date(session.expires_at).getTime() - Date.now();
+    if (ms <= 0) {
       setErrMsg("Délai de 10 minutes dépassé — recommencez.");
       setStep("failed");
     }

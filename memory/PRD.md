@@ -19,7 +19,45 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
-## Implementation Status (à jour 2026-06-19)
+## Implementation Status (à jour 2026-07-30)
+
+### 2026-07-30 (10) — ⚡ Ashtech Pay AUTO-ACTIVATION (Mobile Money direct)
+
+Intégration complète Ashtech Pay Direct v1 comme gateway Mobile Money **unique** pour l'auto-activation Niveau 1 verrouillée à **2 500 FCFA**. Flow strict : sélecteur pays (XOF/XAF, 14 pays), sélecteur opérateur, écran chrono 10 min, OTP fork, webhook idempotent.
+
+**Backend** — `/app/backend/ashtec_activation.py` (module dédié, 350 lignes) :
+- `GET /api/payments/ashtec/catalog` — 14 pays XOF/XAF + opérateurs (Guinée GNF & RDC CDF exclus)
+- `POST /api/payments/ashtec/initiate` — montant verrouillé 2500, TTL 10 min, appelle `/v1/collect`
+- `POST /api/payments/ashtec/otp` — retry avec code OTP pour Orange/USSD flows
+- `GET /api/payments/ashtec/status/{ref}` — polling par le front, avec **fenêtre de grâce 30s** avant le premier `verify_payment` (contourne la latence Ashtech sandbox)
+- `POST /api/webhooks/ashtec` — idempotent (via `webhook_events.transaction_id`), re-vérifie via `verify_payment` avant activation, applique `matrix.activate_level(source="ashtecpay")`
+- URL webhook : `https://spiloveure.com/api/webhooks/ashtec` (env `ASHTECPAY_WEBHOOK_URL`)
+
+**Frontend** — Nouvelle route `/(app)/activation-ashtec.tsx` + gros bouton prioritaire sur `activation.tsx` :
+- Étapes : Pays → Opérateur → Téléphone → Chrono 10 min live (mm:ss)
+- `data-testid` : `btn-auto-activation`, `ashtec-back`, `ashtec-country-{code}`, `ashtec-op-{name}`, `ashtec-phone`, `ashtec-submit`, `ashtec-otp{,-submit}`, `ashtec-cancel`, `ashtec-retry`, `ashtec-done`, `ashtec-failed`, `ashtec-wave`
+- Failure UX : à l'expiration → carte rouge + bouton "Recommencer"
+- Guard `_layout.tsx` : `activation-ashtec` autorisé pour utilisateurs `pending`
+
+**Design decisions (avec accord user)** :
+1. Montant 2500 XOF/XAF **uniquement** (Guinée & RDC exclus).
+2. Ashtech = tuile prioritaire ; soleas conservé en secondaire.
+3. Webhook URL prod = `https://spiloveure.com/api/webhooks/ashtec`.
+4. À l'expiration du chrono : marquer `failed` + bouton "Recommencer".
+
+**Tests** — `/app/backend/tests/test_ashtec_activation.py` : **10/10 passing**.
+- Catalog XOF/XAF only, no GN/CD
+- Initiate rejects bad country/operator, requires auth
+- Happy path returns SPV-AT- ref, amount=2500, expires_at, real Ashtech txid
+- Status ownership guard (autre user → 404)
+- Webhook ignore unknown / empty / idempotent duplicate txid
+
+Regression `test_izichange.py` : 13/13 ✅.
+
+**Bug résolu en cours d'implémentation** :
+- Sandbox Ashtech renvoyait `failed` sur `verify_payment` d'une transaction fraîche → écran "Paiement non abouti" s'affichait immédiatement. Fix : (a) fenêtre de grâce 30s avant le premier appel `verify_payment` ; (b) le polling ne bascule plus jamais `failed` sur signal `verify_payment` (seuls le webhook `payment.failed` et la deadline 10 min font foi).
+
+---
 
 ### 2026-07-30 (9) — 🗑 Suppression totale FedaPay
 

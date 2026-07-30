@@ -317,10 +317,28 @@ async def ashtec_status(
         return {"status": "failed", "reference": reference, "expired": True,
                 "error": "Délai de 10 minutes dépassé"}
 
-    # Pull live status from Ashtech if we have a transaction_id
+    # Pull live status from Ashtech if we have a transaction_id.
+    # Grace window: for the first 30s after `created_at`, skip the remote
+    # verify call and just return the DB `pending` state — the Ashtech
+    # sandbox/production /v1/transaction endpoint can briefly return a
+    # transient "failed" status on freshly-created transactions before the
+    # user has had a chance to confirm on their phone, and that would
+    # prematurely short-circuit the 10-minute countdown UI.
     api_key = await _get_api_key(db)
     txid = p.get("transaction_id")
-    if api_key and txid:
+    created_at = p.get("created_at")
+    if isinstance(created_at, str):
+        try:
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except Exception:
+            created_at = None
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    within_grace = (
+        created_at is not None
+        and (datetime.now(timezone.utc) - created_at).total_seconds() < 30
+    )
+    if api_key and txid and not within_grace:
         resp = await ashtecpay.verify_payment(api_key=api_key, transaction_id=txid)
         sp_status = resp.get("status") or ""
         new_status = ashtecpay.normalize_status(sp_status)
@@ -328,16 +346,12 @@ async def ashtec_status(
             await _apply_activation(db, p, sp_status, source="ashtecpay")
             return {"status": "paid", "activation_done": True,
                     "level": p.get("level"), "reference": reference}
-        if new_status == "failed":
-            await db.payments.update_one(
-                {"reference": reference},
-                {"$set": {"status": "failed",
-                          "ashtecpay_status": sp_status,
-                          "activation_error": resp.get("message") or "Paiement refusé",
-                          "updated_at": datetime.now(timezone.utc)}},
-            )
-            return {"status": "failed", "reference": reference,
-                    "error": resp.get("message") or "Paiement refusé"}
+        # NOTE: we deliberately DO NOT flip to `failed` based on a
+        # verify_payment result. Ashtech's /v1/transaction endpoint can
+        # return a transient "failed"/"cancelled" status while the user
+        # is still confirming on their phone. Authoritative failure comes
+        # only from (a) the 10-minute deadline (handled above) or
+        # (b) the webhook receiving `payment.failed`.
 
     return {
         "status": p.get("status") or "pending",
