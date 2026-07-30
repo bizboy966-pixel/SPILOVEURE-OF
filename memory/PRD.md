@@ -20,6 +20,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-06-19)
+### 2026-07-30 (2) — ⚡ Auto-activation Crypto (USDT BEP20) via biz-transPay
+**Nouveau module `/app/backend/biz_transpay.py`** :
+- `POST /api/activations/crypto-auto/create` (user auth) : crée un charge biz-transPay (Bearer secret), enregistre `db.payments` + `db.activations` avec `reference=SPLV_CRYPTO_<uid>_<hex>`, retourne `{deposit_address, amount_to_send, coin, network, payment_url, reference}`.
+- `POST /api/webhooks/biz-transppayy` : vérifie signature HMAC-SHA256 (`<ts>.<raw_body>`), idempotency via `X-BizTransPay-Event-Id` (collection `db.webhook_events`), refuse sous-paiement, marque atomiquement `activation_done=true`, appelle `activate_level(source="biz_transpay")`.
+- Source `biz_transpay` ajoutée à la whitelist `matrix.py` (guard paiement toujours actif — nécessite le row payments qu'on vient d'insérer).
+- Flag `crypto_auto` ajouté à `DEFAULT_FLAGS` (default OFF).
+
+**Frontend** :
+- 4e tuile « ⚡ Activation automatique (Crypto) » sur `/(app)/activation`, `useFeature("crypto_auto")` (`mode-crypto-auto`).
+- Nouvelle page `/(app)/activation-crypto-auto` avec email/username pré-remplis, **5 USDT 🔒**, **USDT BEP20 🔒**, bouton « Payer maintenant » → affichage QR (api.qrserver.com) + adresse + Copier + poll `auth/me` toutes les 6 s pour redirection dashboard dès activation. Écran wrapé dans `FeatureGuard`.
+- `ALLOWED_FOR_PENDING` (`(app)/_layout.tsx`) inclut désormais `activation-crypto-auto` (fix bug pending-redirect).
+- `FeatureKey` union étendue.
+
+**Env backend** : `BIZ_TRANSPAY_BASE_URL/PUBLIC_KEY/SECRET_KEY/WEBHOOK_SECRET/AMOUNT_USDT`.
+
+**Tests** : `tests/test_biz_transpay.py` — **10/10 pytest PASS** (catalogue flag, toggle admin, 503 flag off, 400 déjà activé, appel gateway réel 200, webhook missing headers → 401, sig invalide → 401, happy path avec HMAC réel, idempotency event_id, sous-paiement).
+
+**Testing agent iter_28 + retest iter_29 — 100 % PASS backend + frontend.**
+
+**⚠️ Config webhook côté biz-transPay** : URL à configurer = `https://spiloveure.com/api/webhooks/biz-transppayy` (avec préfixe `/api` — obligatoire pour le routing k8s ingress).
+
+
 ### 2026-07-30 — 🔓 Admin Valider = décision autoritaire (bypass du check de paiement)
 **Spec** : « L'administrateur est l'autorité de validation. Le système ne doit plus vérifier le paiement au moment du clic sur Valider — l'admin l'a déjà fait sur sa passerelle (Wave/MTN/Moov). »
 
