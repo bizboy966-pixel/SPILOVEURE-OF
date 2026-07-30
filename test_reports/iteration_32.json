@@ -1,0 +1,27 @@
+{
+  "summary": "Verified new INLINE deposit-address flow (no external redirect). All 11 backend pytest pass with the reinforced assertion (deposit_address must be 0x + 42 hex chars, no payment_url in response). Live curl smoke as pending user returns a real BEP20 address (e.g. 0x5B2fe264dE18CC6e05C2108D3400F1a06ACB3080), coin=USDT, network=BEP20, no payment_url, no hosted_checkout. Frontend E2E for pending user on /(app)/activation-crypto-auto: clicking cauto-pay produces cauto-qr (QR image naturalWidth=260 loaded from api.qrserver.com), cauto-address contains a valid 0x…42-char BEP20 address, cauto-reference starts with SPLV_CRYPTO_, cauto-status shows 'En attente de la confirmation du paiement…', cauto-copy triggers browser alert 'Adresse copiée dans le presse-papiers.'. No element with testID cauto-open-checkout exists, and no 'Portail' / 'Ouvrir la page' text is present anywhere in the DOM — confirming the redirect UI has been removed. Admin (max_level=12) API path correctly returns 400 { detail: 'Votre compte est déjà activé.' } — verified via direct API call.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_biz_transpay.py",
+    "/app/test_reports/pytest/biz_transpay.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "biz_transpay.py performs 2 sequential outbound HTTP calls (biz-transPay create + izichange select-crypto) — total endpoint latency ~2-3s. UI startPayment has no explicit user-visible timer/spinner beyond the button's ActivityIndicator; acceptable for MVP but consider a skeleton state to reduce perceived latency.",
+    "activation-crypto-auto.tsx line 152-154: cauto-status text '{checking ? \" En attente…\" : \"Envoi confirmé — patientez\"}' — the fallback branch ('Envoi confirmé — patientez') is misleading because it fires when the polling interval is cleared (either after unmount OR after successful activation). Consider tri-state (idle/polling/confirmed) to avoid showing 'Envoi confirmé' during a race where interval clears without activation success. Non-blocking.",
+    "biz_transpay.py silently swallows the memo field returned by izichange but never surfaces it in the UI — for BEP20 there's no memo so this is fine, but if the flow is ever extended to networks that require memos, the UI will need to render it prominently."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006. Pending users created dynamically with sponsor=admin. Latest UI test user: tst_ui_0e00f9@example.com / Passw0rd!",
+  "seed_data_creation": "Several TEST_/tst_* pending users registered (tst_smoke_*, tst_ui_0e00f9, tst_crypto_*) and 1 underpaid seeded via webhook full-flow test. All benign — DB=spilivere.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The INLINE deposit-address flow (no redirect) is fully working end-to-end. Regressions to guard: (1) response must NOT contain payment_url; (2) deposit_address must always be 0x…42 chars; (3) frontend must NOT render any 'Portail' / 'Ouvrir la page' button or testID cauto-open-checkout. All three are asserted in tests/test_biz_transpay.py::test_flag_on_pending_user_hits_gateway. If retesting the admin UI branch specifically, note that Playwright's synthetic click on RN Web TouchableOpacity was flaky in the admin session in this run — the backend correctly returns 400 with 'Votre compte est déjà activé.' (verified via direct API); the frontend already routes `err.detail` into the inline error Text so admins won't see a crash. If UI admin retest is needed, prefer dispatching a real pointer event via JS (element.click()) or reload the page after modal dismiss.",
+  "rca of the issue": "N/A — no active bugs found this iteration. Previous hosted-checkout redirect flow (iterations 30–31) has been fully replaced by inline flow: backend calls biz-transPay POST /api/v1/payments then extracts publicId from payment_url and POSTs to api.pay.izichange.com/v1/public/payment-intents/<publicId>/select-crypto with { assetCode:'USDT.BEP20', customer:{firstName,lastName,email} }, receiving depositAddress inline. Frontend .tsx simplified to a single branch (QR + address + Copier), matching user requirement."
+}

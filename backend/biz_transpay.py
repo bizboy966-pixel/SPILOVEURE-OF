@@ -1,22 +1,27 @@
-"""Biz-transPay crypto auto-activation (USDT BEP20).
+"""Biz-transPay crypto auto-activation (USDT BEP20) — INLINE deposit address.
 
-Flow:
-  1. User clicks "Activation automatique (Crypto)" and confirms the locked 5 USDT amount.
-  2. Backend POSTs to https://biz-transppayy.com/api/v1/payments with Bearer secret key.
-  3. Response returns { id, deposit_address, amount_to_send, payment_url, ... } which
-     is stored in db.payments (reference=SPLV_CRYPTO_<uuid>) and returned to the client.
-  4. Client displays QR + address; user sends USDT on BEP20.
-  5. biz-transPay POSTs webhook payment.completed → we verify signature + idempotency
-     + amount then call matrix.activate_level(source="biz_transpay") which unlocks
-     level 1 for the user (guard passes because a matching db.payments row exists).
+Flow (no external redirect — user never leaves SPILIVERE):
+  1. User clicks "Payer maintenant" on /(app)/activation-crypto-auto.
+  2. Backend POSTs to biz-transppayy.com/api/v1/payments (Bearer secret) → returns
+     { id, payment_url:"https://checkout.pay.izichange.com/pay/<publicId>?lang=fr" }.
+  3. Backend extracts <publicId> from payment_url, then POSTs to
+     api.pay.izichange.com/v1/public/payment-intents/<publicId>/select-crypto
+     with { assetCode:"USDT.BEP20", customer:{firstName,lastName,email} } →
+     returns { depositAddress:"0x…", amountToSend:"5", amountCryptoExpected:"5", memo }.
+  4. Backend persists db.payments (reference=SPLV_CRYPTO_…, deposit_address filled)
+     and db.activations (pending), then returns everything inline to the client.
+  5. Client renders the address + QR code + amount + Copier button. NO redirect.
+  6. User sends USDT.BEP20 from their wallet to the address.
+  7. biz-transPay POSTs webhook payment.completed → verify HMAC signature +
+     idempotency + amount, then call matrix.activate_level(source="biz_transpay").
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -35,6 +40,12 @@ BASE_URL = os.environ.get("BIZ_TRANSPAY_BASE_URL", "https://biz-transppayy.com")
 SECRET_KEY = os.environ.get("BIZ_TRANSPAY_SECRET_KEY", "")
 WEBHOOK_SECRET = os.environ.get("BIZ_TRANSPAY_WEBHOOK_SECRET", SECRET_KEY)
 AMOUNT_USDT = float(os.environ.get("BIZ_TRANSPAY_AMOUNT_USDT", "5"))
+# izichange (biz-transPay's downstream partner) exposes the address-selection
+# endpoint publicly for the SPA. We call it server-side to keep the whole flow
+# inline in SPILIVERE.
+IZICHANGE_API = os.environ.get("IZICHANGE_API_BASE", "https://api.pay.izichange.com")
+ASSET_CODE = "USDT.BEP20"
+_PUBLIC_ID_RE = re.compile(r"/pay/([a-f0-9-]{8,})")
 
 api = APIRouter(prefix="/api", tags=["crypto-auto"])
 webhook = APIRouter(prefix="/api", tags=["crypto-auto-webhook"])
@@ -66,6 +77,7 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         "customer_email": user.get("email"),
         "accepted_networks": ["BEP20"],
     }
+    # ── Step 1: create payment on biz-transPay (Bearer secret).
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
@@ -79,98 +91,61 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     if r.status_code >= 400:
         log.error(f"biz-transpay {r.status_code}: {r.text[:400]}")
         raise HTTPException(400, "La passerelle Crypto a refusé la demande. Réessayez plus tard.")
-    raw = r.json()
-    # biz-transPay may wrap the useful fields under `data`, `result` or `payment`
-    # depending on the version. Flatten so downstream keys always work.
-    payload = raw
-    for key in ("data", "result", "payment"):
-        if isinstance(raw.get(key), dict):
-            payload = {**raw, **raw[key]}
-            break
-    log.info(f"biz-transpay create OK ref={reference} keys={list(payload.keys())[:12]}")
+    payload = r.json()
+    provider_id = payload.get("id")
+    payment_url = payload.get("payment_url") or ""
+    m = _PUBLIC_ID_RE.search(payment_url)
+    if not m:
+        log.error(f"biz-transpay create OK but no publicId in payment_url ref={reference} url={payment_url}")
+        raise HTTPException(400, "Réponse invalide de la passerelle Crypto. Réessayez.")
+    public_id = m.group(1)
 
-    def pick(*aliases):
-        for a in aliases:
-            v = payload.get(a)
-            if v not in (None, "", 0):
-                return v
-        return None
-
-    deposit_address = pick(
-        "deposit_address", "address", "wallet_address", "pay_address",
-        "receive_address", "to_address", "crypto_address", "walletAddress",
-    )
-    amount_to_send = pick("amount_to_send", "amount", "pay_amount", "crypto_amount") or AMOUNT_USDT
-    payment_url = pick("payment_url", "checkout_url", "pay_url", "url")
-    expires_at = pick("expires_at", "expire_at", "expiration", "expiredAt")
-    qr_code = pick("qr_code", "qrcode", "qr", "qr_url", "qrCodeUrl")
-    provider_id = pick("id", "payment_id", "transaction_id", "reference_id")
-
+    # ── Step 2: select USDT.BEP20 + push customer info → returns the inline
+    #           deposit address so the user never leaves SPILIVERE.
+    username = user.get("username") or "SPILOVEURE"
+    email = user.get("email") or "user@spiloveure.com"
+    # izichange requires firstName + lastName; fall back to username/USER.
+    first_name = user.get("first_name") or username or "SPILOVEURE"
+    last_name = user.get("last_name") or "USER"
+    select_body = {
+        "assetCode": ASSET_CODE,
+        "customer": {
+            "firstName": (first_name or "SPILOVEURE")[:32],
+            "lastName": (last_name or "USER")[:32],
+            "email": email,
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            sr = await client.post(
+                f"{IZICHANGE_API}/v1/public/payment-intents/{public_id}/select-crypto",
+                headers={"Content-Type": "application/json"},
+                json=select_body,
+            )
+    except Exception as e:
+        log.exception(f"izichange select-crypto failed: {e}")
+        raise HTTPException(400, "Impossible d'obtenir l'adresse de dépôt. Réessayez dans quelques instants.")
+    if sr.status_code >= 400:
+        log.error(f"izichange select-crypto {sr.status_code}: {sr.text[:400]}")
+        raise HTTPException(400, "La passerelle Crypto n'a pas généré l'adresse. Réessayez plus tard.")
+    intent = sr.json()
+    deposit_address = intent.get("depositAddress")
+    amount_to_send = intent.get("amountToSend") or intent.get("amountCryptoExpected") or AMOUNT_USDT
+    memo = intent.get("memo")
+    expires_at = intent.get("expiresAt")
     if not deposit_address:
-        # Hosted-checkout model: biz-transPay allocates the deposit address
-        # asynchronously (once the user opens payment_url). Poll GET
-        # /api/v1/payments/{id} for a few seconds to catch it early.
-        if provider_id:
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    for _ in range(5):
-                        await asyncio.sleep(2)
-                        pr = await client.get(
-                            f"{BASE_URL}/api/v1/payments/{provider_id}",
-                            headers={"Authorization": f"Bearer {SECRET_KEY}"},
-                        )
-                        if pr.status_code >= 400:
-                            continue
-                        pr_raw = pr.json()
-                        pr_payload = pr_raw
-                        for key in ("data", "result", "payment"):
-                            if isinstance(pr_raw.get(key), dict):
-                                pr_payload = {**pr_raw, **pr_raw[key]}
-                                break
-                        addr = None
-                        for a in ("deposit_address", "address", "wallet_address",
-                                  "pay_address", "receive_address", "to_address",
-                                  "crypto_address", "walletAddress"):
-                            v = pr_payload.get(a)
-                            if v:
-                                addr = v
-                                break
-                        if addr:
-                            deposit_address = addr
-                            for a in ("amount_to_send", "amount", "pay_amount", "crypto_amount"):
-                                v = pr_payload.get(a)
-                                if v:
-                                    amount_to_send = v
-                                    break
-                            for a in ("qr_code", "qrcode", "qr", "qr_url", "qrCodeUrl"):
-                                v = pr_payload.get(a)
-                                if v:
-                                    qr_code = v
-                                    break
-                            log.info(f"biz-transpay poll got address ref={reference}")
-                            break
-            except Exception as e:
-                log.warning(f"biz-transpay poll failed ref={reference}: {e}")
+        log.error(f"izichange select-crypto returned no depositAddress ref={reference} intent={str(intent)[:400]}")
+        raise HTTPException(400, "La passerelle Crypto n'a pas retourné d'adresse. Réessayez plus tard.")
+    log.info(f"biz-transpay+izichange OK ref={reference} address={deposit_address[:10]}…")
 
-    # If STILL no address after polling, fall back to hosted checkout via
-    # payment_url — the gateway will collect USDT on its own page and fire the
-    # webhook once paid.
-    hosted_checkout = False
-    if not deposit_address:
-        if not payment_url:
-            log.error(f"biz-transpay no address AND no payment_url ref={reference} raw={str(raw)[:400]}")
-            # Use 400 (not 502) so the JSON detail is not swallowed by the CF edge.
-            raise HTTPException(400, "La passerelle Crypto est momentanément indisponible. Réessayez dans quelques minutes.")
-        hosted_checkout = True
-        log.info(f"biz-transpay falling back to hosted-checkout ref={reference} url={payment_url}")
-
-    # Persist a pending payment row so the webhook can reconcile it later and
-    # so `activate_level` security guard finds it.
+    # ── Persist a pending payment row so the webhook can reconcile it later
+    # and so `activate_level` security guard finds it.
     now = datetime.now(timezone.utc)
     await db.payments.insert_one({
         "reference": reference,
         "provider": "biz_transpay",
         "provider_id": provider_id,
+        "izichange_public_id": public_id,
         "user_id": user["id"], "level": 1,
         "status": "pending",
         "amount": AMOUNT_USDT,
@@ -178,7 +153,7 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         "network": "BEP20",
         "deposit_address": deposit_address,
         "amount_to_send": amount_to_send,
-        "payment_url": payment_url,
+        "memo": memo,
         "expires_at": expires_at,
         "created_at": now, "updated_at": now,
     })
@@ -196,10 +171,8 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         "amount_to_send": amount_to_send,
         "coin": "USDT",
         "network": "BEP20",
+        "memo": memo,
         "expires_at": expires_at,
-        "payment_url": payment_url,
-        "qr_code": qr_code,
-        "hosted_checkout": hosted_checkout,
     }
 
 

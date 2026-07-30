@@ -10,14 +10,12 @@ import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 type Charge = {
   reference: string;
-  deposit_address: string | null;
+  deposit_address: string;
   amount_to_send: number | string;
   coin: string;
   network: string;
+  memo?: string | null;
   expires_at?: string;
-  payment_url?: string;
-  qr_code?: string | null;
-  hosted_checkout?: boolean;
 };
 
 function CryptoAutoInner() {
@@ -79,9 +77,7 @@ function CryptoAutoInner() {
     }
   };
 
-  const qrUri = charge?.qr_code
-    ? charge.qr_code
-    : charge?.deposit_address
+  const qrUri = charge?.deposit_address
     ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(charge.deposit_address)}`
     : "";
 
@@ -114,40 +110,6 @@ function CryptoAutoInner() {
               )}
             </TouchableOpacity>
           </View>
-        ) : charge.hosted_checkout ? (
-          <View style={styles.card}>
-            <Text style={styles.section}>Finalisez votre paiement</Text>
-            <Text style={styles.hint}>
-              La passerelle biz-transPay génère votre adresse USDT BEP20 sur sa page sécurisée.
-              Cliquez sur le bouton ci-dessous pour ouvrir la page de paiement, puis envoyez
-              exactement {String(charge.amount_to_send)} USDT sur le réseau BEP20.
-              Votre compte sera activé automatiquement dès réception du paiement.
-            </Text>
-
-            <TouchableOpacity
-              style={[styles.payBtn, { backgroundColor: theme.colors.primary }]}
-              onPress={() => {
-                if (Platform.OS === "web" && typeof window !== "undefined" && charge.payment_url) {
-                  window.open(charge.payment_url, "_blank");
-                }
-              }}
-              testID="cauto-open-checkout"
-            >
-              <Ionicons name="open-outline" size={18} color="#fff" />
-              <Text style={styles.payTxt}>Ouvrir la page de paiement sécurisée</Text>
-            </TouchableOpacity>
-
-            <View style={styles.kv}><Text style={styles.k}>Montant à envoyer</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{String(charge.amount_to_send)} USDT</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Réseau</Text><Text style={styles.v}>{charge.network}</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Référence</Text><Text style={styles.v} selectable testID="cauto-reference">{charge.reference}</Text></View>
-
-            <View style={styles.waitBox}>
-              {checking ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
-              <Text style={styles.waitTxt}>
-                {checking ? " En attente de la confirmation du paiement (webhook)…" : "Envoi confirmé — patientez"}
-              </Text>
-            </View>
-          </View>
         ) : (
           <View style={styles.card}>
             <Text style={styles.section}>Envoyez exactement {String(charge.amount_to_send)} USDT (BEP20)</Text>
@@ -155,7 +117,7 @@ function CryptoAutoInner() {
 
             <View style={{ alignItems: "center", marginVertical: 12 }}>
               {Platform.OS === "web" && qrUri ? (
-                <Image source={{ uri: qrUri }} style={{ width: 240, height: 240, backgroundColor: "#fff" }} />
+                <Image source={{ uri: qrUri }} style={{ width: 240, height: 240, backgroundColor: "#fff" }} testID="cauto-qr" />
               ) : (
                 <View style={{ width: 240, height: 240, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
                   <Ionicons name="qr-code" size={64} color={theme.colors.primary} />
@@ -167,38 +129,28 @@ function CryptoAutoInner() {
             <View style={styles.addrBox}>
               <Text style={styles.addrLabel}>Adresse USDT BEP20</Text>
               <Text style={styles.addrValue} selectable testID="cauto-address">
-                {charge.deposit_address || "— Adresse indisponible —"}
+                {charge.deposit_address}
               </Text>
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
                 <TouchableOpacity
-                  style={[styles.copyBtn, !charge.deposit_address && { opacity: 0.5 }]}
+                  style={styles.copyBtn}
                   onPress={copyAddr}
-                  disabled={!charge.deposit_address}
                   testID="cauto-copy"
                 >
                   <Ionicons name="copy" size={14} color="#fff" />
-                  <Text style={styles.copyTxt}>Copier</Text>
+                  <Text style={styles.copyTxt}>Copier l'adresse</Text>
                 </TouchableOpacity>
-                {charge.payment_url ? (
-                  <TouchableOpacity
-                    style={[styles.copyBtn, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => Platform.OS === "web" && typeof window !== "undefined" && window.open(charge.payment_url, "_blank")}
-                  >
-                    <Ionicons name="open-outline" size={14} color="#fff" />
-                    <Text style={styles.copyTxt}>Portail</Text>
-                  </TouchableOpacity>
-                ) : null}
               </View>
             </View>
 
-            <View style={styles.kv}><Text style={styles.k}>Montant à envoyer</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{charge.amount_to_send} USDT</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>Montant à envoyer</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{String(charge.amount_to_send)} USDT</Text></View>
             <View style={styles.kv}><Text style={styles.k}>Réseau</Text><Text style={styles.v}>{charge.network}</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Référence</Text><Text style={styles.v} selectable>{charge.reference}</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>Référence</Text><Text style={styles.v} selectable testID="cauto-reference">{charge.reference}</Text></View>
 
             <View style={styles.waitBox}>
               {checking ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
-              <Text style={styles.waitTxt}>
-                {checking ? " En attente de la confirmation du paiement (webhook)…" : "Envoi confirmé — patientez"}
+              <Text style={styles.waitTxt} testID="cauto-status">
+                {checking ? " En attente de la confirmation du paiement…" : "Envoi confirmé — patientez"}
               </Text>
             </View>
           </View>
