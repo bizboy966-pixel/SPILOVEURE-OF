@@ -1,15 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Image, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { theme } from "../../src/theme";
@@ -143,19 +133,71 @@ function AdCreateScreenInner() {
     } finally { setSaving(false); }
   };
 
-  const confirmPayment = async () => {
+  // Payment state (step 4).
+  type PayInit = {
+    method: "mobile_money" | "crypto";
+    reference: string;
+    // FedaPay
+    payment_url?: string;
+    transaction_id?: string;
+    // Crypto
+    deposit_address?: string;
+    amount_to_send?: string | number;
+    coin?: string;
+    network?: string;
+    usdt_amount?: number;
+    xof_amount?: number;
+  };
+  const [payInit, setPayInit] = useState<PayInit | null>(null);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  const [adStatus, setAdStatus] = useState<string>("pending_payment");
+
+  const startPayment = async (method?: "mobile_money" | "crypto") => {
     if (!adId) return;
-    setSaving(true);
+    setSaving(true); setPayErr(null);
     try {
-      await api.post(`/ads/${adId}/confirm-payment`);
-      if (typeof window !== "undefined") {
-        window.alert("✅ Paiement confirmé. Votre publicité est en attente de validation par l'administrateur.");
+      const r = await api.post<PayInit>(`/ads/${adId}/pay`, {
+        method: method || null,
+      });
+      setPayInit(r);
+      if (r.method === "mobile_money" && r.payment_url && typeof window !== "undefined") {
+        window.open(r.payment_url, "_blank");
       }
-      router.replace("/(app)/ads" as any);
     } catch (e: any) {
-      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
+      setPayErr(e?.detail || "Impossible de démarrer le paiement.");
     } finally { setSaving(false); }
   };
+
+  const copyAddr = async () => {
+    if (!payInit?.deposit_address) return;
+    try {
+      if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+        await (navigator as any).clipboard.writeText(payInit.deposit_address);
+      }
+      if (typeof window !== "undefined") window.alert("Adresse copiée ✅");
+    } catch { /* noop */ }
+  };
+
+  // Poll ad status every 4s while on step 4 with a payment initiated.
+  useEffect(() => {
+    if (step !== 4 || !adId || !payInit) return;
+    const iv = setInterval(async () => {
+      try {
+        const r = await api.get<any>(`/ads/${adId}`);
+        const s = r?.status || "";
+        setAdStatus(s);
+        if (s && s !== "pending_payment") {
+          clearInterval(iv);
+          if (typeof window !== "undefined") {
+            window.alert("✅ Paiement confirmé. Votre publicité est soumise à validation.");
+          }
+          router.replace("/(app)/ads" as any);
+        }
+      } catch { /* ignore */ }
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [step, adId, payInit, router]);
+
 
   const totalPrice = duration && pricing ? pricing.price_per_day * duration : 0;
 
@@ -328,19 +370,103 @@ function AdCreateScreenInner() {
         )}
 
         {step === 4 && (
-          <View style={{ alignItems: "center", padding: 20, gap: 12 }}>
-            <Ionicons name="card" size={64} color={theme.colors.primary} />
-            <Text style={styles.section}>💳 Paiement</Text>
-            <Text style={{ textAlign: "center", color: theme.colors.textSecondary }}>
-              Le paiement s'effectue via SoleasPay / AshtechPay pour un montant total de :
-            </Text>
-            <Text style={styles.priceTotal}>{totalPrice} FCFA</Text>
-            <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>
-              Cliquez ci-dessous après avoir effectué votre paiement. Votre publicité sera soumise à validation par l'administrateur.
-            </Text>
-            <TouchableOpacity style={styles.next} onPress={confirmPayment} disabled={saving} testID="adcreate-payment-confirm">
-              {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-circle" size={18} color="#fff" /><Text style={styles.nextT}>J'ai payé — soumettre pour validation</Text></>}
-            </TouchableOpacity>
+          <View style={{ padding: 16, gap: 12 }}>
+            <View style={{ alignItems: "center", gap: 6 }}>
+              <Ionicons name="card" size={54} color={theme.colors.primary} />
+              <Text style={styles.section}>💳 Paiement</Text>
+              <Text style={styles.priceTotal}>{totalPrice} FCFA</Text>
+            </View>
+
+            {!payInit && (
+              <>
+                <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginBottom: 8 }}>
+                  Choisissez votre méthode de paiement — après confirmation, votre publicité passe en validation.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.next, saving && { opacity: 0.6 }]}
+                  onPress={() => startPayment("mobile_money")}
+                  disabled={saving}
+                  testID="ad-pay-fedapay"
+                >
+                  {saving ? <ActivityIndicator color="#fff" /> : (
+                    <><Ionicons name="phone-portrait" size={18} color="#fff" /><Text style={styles.nextT}>Payer maintenant — Mobile Money (FedaPay)</Text></>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
+                  onPress={() => startPayment("crypto")}
+                  disabled={saving}
+                  testID="ad-pay-crypto"
+                >
+                  {saving ? <ActivityIndicator color="#fff" /> : (
+                    <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer avec USDT (BEP20)</Text></>
+                  )}
+                </TouchableOpacity>
+                {payErr ? (
+                  <Text style={{ color: "#DC2626", textAlign: "center", marginTop: 8 }} testID="ad-pay-error">{payErr}</Text>
+                ) : null}
+              </>
+            )}
+
+            {payInit?.method === "mobile_money" && (
+              <View style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 10 }}>
+                <Text style={{ fontWeight: "800", color: theme.colors.textPrimary }}>Paiement Mobile Money via FedaPay</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
+                  Un onglet s'est ouvert sur la page sécurisée FedaPay. Validez le paiement Mobile Money sur votre téléphone —
+                  votre publicité sera automatiquement soumise à validation dès confirmation.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.next, { backgroundColor: theme.colors.primary }]}
+                  onPress={() => {
+                    if (payInit.payment_url && typeof window !== "undefined") window.open(payInit.payment_url, "_blank");
+                  }}
+                  testID="ad-pay-open"
+                >
+                  <Ionicons name="open-outline" size={18} color="#fff" />
+                  <Text style={styles.nextT}>Rouvrir la page de paiement</Text>
+                </TouchableOpacity>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: "center" }}>
+                  {adStatus === "pending_payment" ? "⏳ En attente de la confirmation FedaPay…" : `✅ Statut: ${adStatus}`}
+                </Text>
+              </View>
+            )}
+
+            {payInit?.method === "crypto" && payInit.deposit_address && (
+              <View style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 10 }}>
+                <Text style={{ fontWeight: "800", color: theme.colors.textPrimary }}>
+                  Envoyez {String(payInit.amount_to_send)} USDT (BEP20)
+                </Text>
+                <View style={{ alignItems: "center" }}>
+                  {Platform.OS === "web" ? (
+                    <Image
+                      source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payInit.deposit_address)}` }}
+                      style={{ width: 220, height: 220, backgroundColor: "#fff" }}
+                      testID="ad-pay-qr"
+                    />
+                  ) : (
+                    <View style={{ width: 220, height: 220, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                      <Ionicons name="qr-code" size={60} color={theme.colors.primary} />
+                    </View>
+                  )}
+                </View>
+                <View style={{ padding: 10, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700" }}>Adresse USDT BEP20</Text>
+                  <Text selectable style={{ fontSize: 12, fontFamily: Platform.select({ web: "monospace", default: undefined }), color: theme.colors.textPrimary, marginTop: 4 }} testID="ad-pay-address">
+                    {payInit.deposit_address}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.next} onPress={copyAddr} testID="ad-pay-copy">
+                  <Ionicons name="copy" size={18} color="#fff" />
+                  <Text style={styles.nextT}>Copier l'adresse</Text>
+                </TouchableOpacity>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: "center" }}>
+                  {payInit.xof_amount} FCFA = {payInit.usdt_amount} USDT · Envoyez UNIQUEMENT sur BEP20.
+                </Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: "center" }}>
+                  {adStatus === "pending_payment" ? "⏳ En attente de la confirmation on-chain…" : `✅ Statut: ${adStatus}`}
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>

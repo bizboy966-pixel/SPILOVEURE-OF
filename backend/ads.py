@@ -440,6 +440,24 @@ async def my_ads(request: Request, user=Depends(get_current_user)):
     return {"items": items}
 
 
+@public.get("/ads/{ad_id}")
+async def get_ad_by_id(ad_id: str, request: Request, user=Depends(get_current_user)):
+    """Fetch a single ad. Owners can see any of their ads; others only
+    published & non-expired ones. Used by the payment page to poll status."""
+    db = request.app.state.db
+    a = await db.ads.find_one({"id": ad_id})
+    if not a:
+        raise HTTPException(404, "Publicité introuvable.")
+    if a.get("user_id") != user["id"]:
+        # Non-owner: only expose the ad if it's live.
+        now = datetime.now(timezone.utc)
+        if a.get("status") != "published" or (a.get("expires_at") and a["expires_at"] < now):
+            raise HTTPException(404, "Publicité introuvable.")
+    return _serialize(a)
+
+
+
+
 @public.get("/ads")
 async def public_feed(request: Request, user=Depends(get_current_user)):
     """Public ad feed — only approved + not expired. Returns empty if the ads
