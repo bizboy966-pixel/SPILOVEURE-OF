@@ -129,6 +129,18 @@ class TestCreateCharge:
                 assert k in body, f"missing {k}"
             assert body["coin"] == "USDT"
             assert body["network"] == "BEP20"
+            # Bug P0 regression: deposit_address must never be null/empty.
+            assert isinstance(body["deposit_address"], str) and body["deposit_address"].strip(), \
+                f"deposit_address must be non-empty string, got {body['deposit_address']!r}"
+            assert body["amount_to_send"] not in (None, "", 0)
+            assert body["reference"].startswith("SPLV_CRYPTO_")
+
+    def test_level_not_1_rejected(self, s, admin_headers, pending_user):
+        _set_flag(s, admin_headers, "crypto_auto", True)
+        r = s.post(f"{BASE_URL}/api/activations/crypto-auto/create",
+                   headers=pending_user["headers"], json={"level": 2}, timeout=15)
+        assert r.status_code == 400
+        assert "niveau 1" in r.text.lower() or "level" in r.text.lower()
 
     def test_400_when_already_activated(self, s, admin_headers):
         """Admin (max_level=12) should always be refused with 400."""

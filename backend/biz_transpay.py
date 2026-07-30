@@ -78,7 +78,36 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     if r.status_code >= 400:
         log.error(f"biz-transpay {r.status_code}: {r.text[:400]}")
         raise HTTPException(502, "La passerelle Crypto a refusé la demande. Réessayez plus tard.")
-    payload = r.json()
+    raw = r.json()
+    # biz-transPay may wrap the useful fields under `data`, `result` or `payment`
+    # depending on the version. Flatten so downstream keys always work.
+    payload = raw
+    for key in ("data", "result", "payment"):
+        if isinstance(raw.get(key), dict):
+            payload = {**raw, **raw[key]}
+            break
+    log.info(f"biz-transpay create OK ref={reference} keys={list(payload.keys())[:12]}")
+
+    def pick(*aliases):
+        for a in aliases:
+            v = payload.get(a)
+            if v not in (None, "", 0):
+                return v
+        return None
+
+    deposit_address = pick(
+        "deposit_address", "address", "wallet_address", "pay_address",
+        "receive_address", "to_address", "crypto_address", "walletAddress",
+    )
+    amount_to_send = pick("amount_to_send", "amount", "pay_amount", "crypto_amount") or AMOUNT_USDT
+    payment_url = pick("payment_url", "checkout_url", "pay_url", "url")
+    expires_at = pick("expires_at", "expire_at", "expiration", "expiredAt")
+    qr_code = pick("qr_code", "qrcode", "qr", "qr_url", "qrCodeUrl")
+    provider_id = pick("id", "payment_id", "transaction_id", "reference_id")
+
+    if not deposit_address:
+        log.error(f"biz-transpay response missing address ref={reference} raw={str(raw)[:400]}")
+        raise HTTPException(502, "La passerelle Crypto n'a pas retourné d'adresse de dépôt. Réessayez plus tard.")
 
     # Persist a pending payment row so the webhook can reconcile it later and
     # so `activate_level` security guard finds it.
@@ -86,16 +115,16 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     await db.payments.insert_one({
         "reference": reference,
         "provider": "biz_transpay",
-        "provider_id": payload.get("id"),
+        "provider_id": provider_id,
         "user_id": user["id"], "level": 1,
         "status": "pending",
         "amount": AMOUNT_USDT,
         "currency": "USDT",
         "network": "BEP20",
-        "deposit_address": payload.get("deposit_address"),
-        "amount_to_send": payload.get("amount_to_send"),
-        "payment_url": payload.get("payment_url"),
-        "expires_at": payload.get("expires_at"),
+        "deposit_address": deposit_address,
+        "amount_to_send": amount_to_send,
+        "payment_url": payment_url,
+        "expires_at": expires_at,
         "created_at": now, "updated_at": now,
     })
     # Also record an activations doc so it appears in the admin panel.
@@ -108,12 +137,13 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
 
     return {
         "reference": reference,
-        "deposit_address": payload.get("deposit_address"),
-        "amount_to_send": payload.get("amount_to_send") or AMOUNT_USDT,
+        "deposit_address": deposit_address,
+        "amount_to_send": amount_to_send,
         "coin": "USDT",
         "network": "BEP20",
-        "expires_at": payload.get("expires_at"),
-        "payment_url": payload.get("payment_url"),
+        "expires_at": expires_at,
+        "payment_url": payment_url,
+        "qr_code": qr_code,
     }
 
 

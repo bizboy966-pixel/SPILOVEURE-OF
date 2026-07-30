@@ -1,0 +1,39 @@
+{
+  "summary": "Retest of the P0 'copy null address' bug on crypto-auto activation. Ran 11 pytest backend cases (all PASS) including a new assertion that deposit_address MUST be a non-empty string when the endpoint returns 200, and a new test for level!=1 rejection. Frontend graceful-degradation is CONFIRMED WORKING: pending user reaches the page, clicks 'Payer maintenant', backend returns 502 (proxied as Cloudflare HTML), UI displays 'Erreur serveur' and NEVER renders the literal 'null'. cauto-address and cauto-copy are simply not mounted because no charge object is set on 502 → correct behaviour. HOWEVER, backend logs prove a distinct BUSINESS-LOGIC issue that the applied fix cannot solve: the biz-transPay gateway /api/v1/payments endpoint responds 200 with deposit_address=None and amount_to_send=None on every call, providing only a payment_url pointing to hosted checkout (checkout.pay.izichange.com/pay/...). Consequently NO real user can ever get an in-app QR/address — every attempt now surfaces as 502 'Erreur serveur'. The applied multi-alias extraction is correct defensively but the gateway simply uses a hosted-checkout model, not an inline-address model. Real fix requires either (a) polling a follow-up gateway endpoint (e.g. GET /api/v1/payments/{id}) once the address is generated, or (b) redirecting the user to payment_url (hosted checkout) and treating the current flow as web-checkout instead of in-app QR.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/activations/crypto-auto/create", "issue": "biz-transPay gateway returns deposit_address=null on every create call (uses hosted-checkout via payment_url at checkout.pay.izichange.com). Current backend now correctly returns 502 in that case, but that means the in-app QR flow is unreachable for real users — every attempt shows 'Erreur serveur'. Needs either polling GET /api/v1/payments/{id} for the address once initiated, or switching UX to redirect user to payment_url (hosted checkout).", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/activations/crypto-auto/create (502 path)", "issue": "The 502 raised via raise HTTPException(502, 'La passerelle Crypto n'a pas retourné d'adresse…') is intercepted by the emergent/Cloudflare edge which serves its own HTML 502 page. Frontend cannot parse detail → falls back to generic 'Erreur serveur' instead of the specific French message. Consider returning 200 with an explicit error envelope, or 400/409, so the JSON body reaches the client."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Crypto-auto payment", "issue": "Because backend always 502s (see backend/critical), user always sees 'Erreur serveur' and cannot proceed. Frontend behaviour itself is correct (no crash, no null rendered, button state consistent) but the feature is de-facto broken end-to-end.", "affected_selectors": ["[data-testid=cauto-pay]", "[data-testid=cauto-address]", "[data-testid=cauto-copy]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_biz_transpay.py",
+    "/app/test_reports/pytest/biz_transpay.xml"
+  ],
+  "action_items": [
+    "Main agent: change biz_transpay.create_crypto_charge to handle the hosted-checkout response — either (a) poll GET /api/v1/payments/{id} up to N seconds until deposit_address is populated, or (b) return the payment_url with a UI change so the frontend redirects the user to the hosted checkout instead of showing an inline QR. Verify against a real request; logs show deposit_address is always null on /api/v1/payments create.",
+    "Main agent: replace HTTPException(502, ...) with JSONResponse(status_code=200, content={'error':'gateway_no_address', 'message':...}) or use a 4xx code so the emergent edge does not swallow the JSON body and the frontend can display the specific French message."
+  ],
+  "critical_code_review_comments": [
+    "biz_transpay.py L98-110 — multi-alias extraction is well-written but is a bandage: the actual gateway payload keys are 'deposit_address'/'amount_to_send' (already present as first alias) but their VALUES are null. Aliases will never help; the fix must instead poll for a filled value or use payment_url.",
+    "biz_transpay.py L108-110 — raise HTTPException(502, ...) is proxied to HTML by Cloudflare, so the localized French detail never reaches the frontend. Prefer 4xx or a 200 JSON error envelope for user-facing gateway errors.",
+    "activation-crypto-auto.tsx L36 — 'e?.detail' relies on api.post rejecting with an object that has 'detail'; when 502 comes back as HTML, e.detail is undefined and we fall back to a generic message. Fine, but consider a per-status branch to show 'Passerelle Crypto indisponible' vs 'Erreur serveur'."
+  ],
+  "updated_files": ["/app/backend/tests/test_biz_transpay.py"],
+  "success_rate": {"backend": "100% (11/11 pytest — all pass)", "frontend": "100% for the graceful-degradation UI contract (no crash, no null); 0% for the actual e2e activation because the gateway never returns an address"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Pending user tst_ui_21d30d67@example.com / Passw0rd! (sponsor=admin) created during this run.",
+  "seed_data_creation": "Several SPLV_TEST_/SPLV_CRYPTO_ payment rows created by tests (pending/paid/underpaid) + activations. crypto_auto flag reset to false at end (per policy).",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "The applied fix (multi-alias extraction + frontend disable-copy-when-null) is CORRECT for its stated goal but does NOT solve the P0 user-visible bug because biz-transPay returns null address on the create endpoint (hosted-checkout model). After main agent updates biz_transpay.py to either poll for the address or use payment_url, re-run: pytest /app/backend/tests/test_biz_transpay.py -v (should still be green — the tests explicitly allow either 200 with real address OR 502) then Playwright: login as fresh pending user → open /activation-crypto-auto → click cauto-pay → within ~20s cauto-address must be a real BSC address (starts with 0x…) and cauto-copy must be enabled and copy it. Or, if hosted-checkout path is chosen, verify redirect to checkout.pay.izichange.com happens with reference in URL. Reference registration payload: username/email/password/password_confirm/sponsor_username=admin/country=TG/phone/accept_terms=true. Login response key: access_token.",
+  "rca of the issue": "Root cause of user report 'l'adresse copiée est null/vide': biz-transPay's /api/v1/payments returns a JSON body where deposit_address and amount_to_send are always null on initial create (status='initiated') because the gateway only allocates a deposit address once the user opens payment_url (hosted checkout at checkout.pay.izichange.com). Before the fix, backend blindly persisted these nulls and returned them to the client, so the frontend rendered 'null' and the copy button copied the literal string. E1's fix (a) unwraps data/result/payment, (b) tries multiple aliases and (c) 502s if still null — this is a correct defensive fix but insufficient because the gateway will never fill those fields on this endpoint. Mitigation required in code: after POST create, either poll GET /api/v1/payments/{id} for up to ~15s until deposit_address is non-null and persist that, or send the user to payment_url and treat the whole flow as web-checkout."
+}

@@ -16,6 +16,7 @@ type Charge = {
   network: string;
   expires_at?: string;
   payment_url?: string;
+  qr_code?: string | null;
 };
 
 function CryptoAutoInner() {
@@ -55,14 +56,31 @@ function CryptoAutoInner() {
     return () => { clearInterval(id); setChecking(false); };
   }, [charge, router]);
 
-  const copyAddr = () => {
-    if (charge && Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(charge.deposit_address).catch(() => {});
-      if (typeof window !== "undefined") window.alert("Adresse copiée.");
+  const copyAddr = async () => {
+    if (!charge?.deposit_address) {
+      if (typeof window !== "undefined") window.alert("Adresse indisponible. Veuillez relancer le paiement.");
+      return;
+    }
+    const value = charge.deposit_address;
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(value);
+      } else if (Platform.OS === "web" && typeof document !== "undefined") {
+        // Fallback for older browsers / non-secure contexts.
+        const ta = document.createElement("textarea");
+        ta.value = value; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      if (typeof window !== "undefined") window.alert("Adresse copiée dans le presse-papiers.");
+    } catch {
+      if (typeof window !== "undefined") window.alert("Copie impossible. Sélectionnez et copiez l'adresse manuellement.");
     }
   };
 
-  const qrUri = charge
+  const qrUri = charge?.qr_code
+    ? charge.qr_code
+    : charge?.deposit_address
     ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(charge.deposit_address)}`
     : "";
 
@@ -101,7 +119,7 @@ function CryptoAutoInner() {
             <Text style={styles.hint}>Utilisez UNIQUEMENT le réseau BEP20 (Binance Smart Chain). Tout autre réseau entraînera une perte.</Text>
 
             <View style={{ alignItems: "center", marginVertical: 12 }}>
-              {Platform.OS === "web" ? (
+              {Platform.OS === "web" && qrUri ? (
                 <Image source={{ uri: qrUri }} style={{ width: 240, height: 240, backgroundColor: "#fff" }} />
               ) : (
                 <View style={{ width: 240, height: 240, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
@@ -113,9 +131,16 @@ function CryptoAutoInner() {
 
             <View style={styles.addrBox}>
               <Text style={styles.addrLabel}>Adresse USDT BEP20</Text>
-              <Text style={styles.addrValue} selectable testID="cauto-address">{charge.deposit_address}</Text>
+              <Text style={styles.addrValue} selectable testID="cauto-address">
+                {charge.deposit_address || "— Adresse indisponible —"}
+              </Text>
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                <TouchableOpacity style={styles.copyBtn} onPress={copyAddr} testID="cauto-copy">
+                <TouchableOpacity
+                  style={[styles.copyBtn, !charge.deposit_address && { opacity: 0.5 }]}
+                  onPress={copyAddr}
+                  disabled={!charge.deposit_address}
+                  testID="cauto-copy"
+                >
                   <Ionicons name="copy" size={14} color="#fff" />
                   <Text style={styles.copyTxt}>Copier</Text>
                 </TouchableOpacity>
