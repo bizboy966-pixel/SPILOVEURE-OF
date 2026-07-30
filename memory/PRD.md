@@ -21,6 +21,52 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-06-19)
 
+### 2026-07-30 (6) — 🔴→✅ Migration biz-transPay → IziChangePay DIRECT + Retraits automatiques
+
+**Changement majeur** : abandon du proxy biz-transppayy.com, intégration DIRECTE avec **api.pay.izichange.com** (doc officielle : https://docs.pay.izichange.com/).
+
+**Nouveau module `/app/backend/izichange.py`** (remplace `biz_transpay.py` supprimé) :
+- **Flow inline sans redirection** : `POST /v1/payment-intents` (Bearer sk_live_) → `POST /v1/public/payment-intents/{id}/select-crypto` (public, no auth) → adresse USDT BEP20 inline.
+- **Webhook Standard-Webhooks (Svix-style)** : header `x-izipay-signature: v1,<base64(HMAC-SHA256(msg_id.ts.body, whsec_bytes))>` avec anti-replay 5 min + idempotency guard (`db.webhook_events`).
+- **Endpoint POST /api/webhooks/izichange** (remplace l'ancien `/api/webhooks/biz-transppayy`).
+- **Helper `create_payout(...)`** — appelle `POST /v1/payouts` pour les retraits automatiques.
+- **Dedup** : si l'utilisateur a une pending activation < 15 min, on retourne la même adresse au lieu de créer un nouvel intent (évite les doublons DB sur clics multiples).
+
+**Retraits automatiques (NOUVEAU flag `auto_withdrawal`)** :
+- Toggle admin dans `/api/admin/feature-flags`.
+- Sur `POST /api/admin/withdrawals/{id}/validate` : si flag ON + method=crypto + network=BEP20 → `create_payout` avec montant XOF converti en USDT via taux fixe **1 USDT = 600 XOF** (`IZIPAY_USDT_XOF_RATE`). Statut passe à `dispatched` + `payout_id` stocké.
+- Webhook `payout.completed` → statut `completed`. Webhook `payout.failed` → rollback `total_withdrawn` + statut `rejected`.
+- Si flag OFF → chemin manuel classique inchangé.
+
+**Env vars mis à jour** :
+```
+IZIPAY_BASE_URL=https://api.pay.izichange.com
+IZIPAY_API_KEY=sk_live_d3c6a393…
+IZIPAY_WEBHOOK_SECRET=whsec_1c84623b…
+IZIPAY_ACTIVATION_AMOUNT_USDT=5
+IZIPAY_USDT_XOF_RATE=600
+```
+
+**Fichiers touchés** :
+- 🆕 `/app/backend/izichange.py` (nouveau, ~470 lignes)
+- 🆕 `/app/backend/tests/test_izichange.py` (13 tests)
+- ✏ `/app/backend/server.py` : include_router izichange + admin_validate_withdrawal auto-payout
+- ✏ `/app/backend/feature_flags.py` : ajout `auto_withdrawal`
+- ✏ `/app/backend/matrix.py` : source `izichange` (au lieu de `biz_transpay`)
+- ✏ `/app/backend/.env` : nouvelles vars IZIPAY_*
+- ✏ `/app/frontend/src/features.tsx` : type `auto_withdrawal`
+- 🗑 SUPPRIMÉ `/app/backend/biz_transpay.py` + 2 fichiers de tests
+- Purge DB : 9 payments + 6 activations + 5 webhook_logs + 24 webhook_events biz_transpay
+
+**Tests** : **13/13 pytest PASS** (izichange). Adresse BEP20 réelle validée par curl : `0x761Ff9C1Ab8d101a1efd7c6bfF9360336919B7EE`. Webhook signature valid/invalid/stale tous OK. Testing agent iter_34 → 100% backend PASS.
+
+**URL webhook à enregistrer sur dashboard IziChangePay** :
+```
+https://spiloveure.com/api/webhooks/izichange
+```
+
+
+
 ### 2026-07-30 (5) — ✅ Crypto Auto : verify tx_hash + webhook v1 + admin enrichi (final)
 
 **Ajouts alignés avec la doc PDF officielle biz-transPay** :

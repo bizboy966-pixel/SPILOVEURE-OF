@@ -187,6 +187,24 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     if not API_KEY:
         raise HTTPException(500, "Passerelle Crypto non configurée.")
 
+    # Dedupe: if the user already has a FRESH pending crypto_auto activation
+    # (< 15 min old), return that one instead of creating a new intent.
+    fresh_cutoff = datetime.now(timezone.utc).timestamp() - 15 * 60
+    existing = await db.payments.find_one({
+        "user_id": user["id"], "provider": "izichange", "status": "pending",
+    }, sort=[("created_at", -1)])
+    if existing and existing.get("deposit_address") \
+            and existing.get("created_at") \
+            and existing["created_at"].timestamp() > fresh_cutoff:
+        return {
+            "reference": existing["reference"],
+            "deposit_address": existing["deposit_address"],
+            "amount_to_send": existing.get("amount_to_send") or AMOUNT_USDT,
+            "coin": "USDT", "network": "BEP20",
+            "memo": existing.get("memo"),
+            "expires_at": existing.get("expires_at"),
+        }
+
     reference = f"SPLV_ACT_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
     email = user.get("email") or "user@spiloveure.com"
     username = user.get("username") or "SPILOVEURE"
