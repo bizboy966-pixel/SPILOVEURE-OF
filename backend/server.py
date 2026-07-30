@@ -1017,7 +1017,6 @@ async def list_channels(request: Request, user=Depends(get_current_user)):
 
 import soleaspay  # noqa: E402
 import ashtecpay  # noqa: E402
-import fedapay  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Payment gateway selector — admin configurable.
@@ -1038,7 +1037,6 @@ _PG_DEFAULTS = {
     "soleas_enabled": True,
     "ashtec_enabled": False,
     "ashtec_api_key": "",
-    "fedapay_enabled": False,
 }
 
 
@@ -1067,11 +1065,10 @@ from pydantic import BaseModel as _PGBaseModel  # noqa: E402
 
 
 class PaymentGatewayUpdate(_PGBaseModel):
-    active: Optional[str] = None              # "soleas" | "ashtec" | "fedapay"
+    active: Optional[str] = None              # "soleas" | "ashtec"
     soleas_enabled: Optional[bool] = None
     ashtec_enabled: Optional[bool] = None
     ashtec_api_key: Optional[str] = None      # new key, or "" to keep, "DELETE" to clear
-    fedapay_enabled: Optional[bool] = None
 
 
 # Note: the actual @admin_router routes are registered later in the file
@@ -1095,10 +1092,6 @@ def _register_payment_gateway_routes(router):
                 "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
                 "api_key_masked": _mask_key(cfg.get("ashtec_api_key") or ""),
             },
-            "fedapay": {
-                "enabled": bool(cfg.get("fedapay_enabled")),
-                "configured": bool(fedapay.is_configured()),
-            },
         }
 
     @router.put("/payment-gateways")
@@ -1109,8 +1102,8 @@ def _register_payment_gateway_routes(router):
         current = await _load_payment_gateway(db)
         new = dict(current)
         if body.active is not None:
-            if body.active not in ("soleas", "ashtec", "fedapay"):
-                raise HTTPException(400, "active must be 'soleas', 'ashtec' or 'fedapay'")
+            if body.active not in ("soleas", "ashtec"):
+                raise HTTPException(400, "active must be 'soleas' or 'ashtec'")
             new["active"] = body.active
         if body.soleas_enabled is not None:
             new["soleas_enabled"] = bool(body.soleas_enabled)
@@ -1122,17 +1115,10 @@ def _register_payment_gateway_routes(router):
                 new["ashtec_api_key"] = ""
             elif key:
                 new["ashtec_api_key"] = key
-        if body.fedapay_enabled is not None:
-            new["fedapay_enabled"] = bool(body.fedapay_enabled)
-        # Allow any subset of gateways to be enabled — including FedaPay alone
-        # or none at all (in which case automatic payment is entirely disabled
-        # and users can only use manual methods). Fallback: if the currently
-        # active gateway is disabled, pick another enabled one; if none, keep
-        # the current selection so admin sees what was previously chosen.
+        # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [("soleas", new.get("soleas_enabled")),
-                 ("ashtec", new.get("ashtec_enabled")),
-                 ("fedapay", new.get("fedapay_enabled"))]
+                 ("ashtec", new.get("ashtec_enabled"))]
         active_enabled = next((en for k, en in chain if k == act), False)
         if not active_enabled:
             first_enabled = next((k for k, en in chain if en), None)
@@ -2268,8 +2254,7 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
             raise HTTPException(400, "Déjà traité.")
 
         # Auto-payout via IziChangePay if the withdrawal is a crypto one AND
-        # the admin has enabled `auto_withdrawal`. Or via FedaPay for Mobile
-        # Money if `fedapay_withdrawal` is on. Otherwise fall through to
+        # the admin has enabled `auto_withdrawal`. Otherwise fall through to
         # the classic manual validation (status=validated, admin credits by
         # hand off-platform).
         from feature_flags import is_enabled as _flag_on
@@ -2316,59 +2301,6 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
             return {"ok": True, "auto_dispatched": True,
                     "payout_id": payout.get("id"),
                     "usdt_amount": usdt_amount}
-
-        # FedaPay auto-payout (Mobile Money).
-        fp_ok = (
-            wd.get("method") in ("mobile_money", "momo", "mobile")
-            and wd.get("wallet_phone") or wd.get("phone")
-        ) and await _flag_on(db, "fedapay_withdrawal") and fedapay.is_configured()
-        if fp_ok:
-            net_xof = float(wd.get("net_payout") or wd.get("amount") or 0)
-            u_doc = await db.users.find_one({"id": wd["user_id"]}, {"_id": 0,
-                "first_name": 1, "last_name": 1, "username": 1,
-                "email": 1, "country": 1}) or {}
-            phone = wd.get("wallet_phone") or wd.get("phone") or ""
-            country = (wd.get("country_code") or u_doc.get("country") or "BJ").upper()
-            payout = await fedapay.create_payout(
-                amount=int(net_xof),
-                currency_iso=(wd.get("currency") or "XOF").upper(),
-                firstname=u_doc.get("first_name") or u_doc.get("username") or "SPILOVEURE",
-                lastname=u_doc.get("last_name") or "USER",
-                email=u_doc.get("email") or "user@spiloveure.com",
-                phone=str(phone).strip().lstrip("+"),
-                country_iso=country,
-                mode="mobile_money",
-                merchant_reference=wd_id,
-            )
-            if payout.get("error"):
-                raise HTTPException(400, "FedaPay a refusé le retrait automatique. Réessayez ou validez manuellement.")
-            payout_obj = payout.get("v1/payout") or payout.get("v1.payout") \
-                or (payout.get("v1", {}) if isinstance(payout.get("v1"), dict) else {}).get("payout") \
-                or payout.get("payout") or payout
-            payout_id = str(payout_obj.get("id") or "") if isinstance(payout_obj, dict) else ""
-            # Dispatch the payout so FedaPay actually sends it (payouts are created in `pending`).
-            if payout_id:
-                try:
-                    await fedapay.start_payouts([int(payout_id)])
-                except Exception as se:
-                    log.warning("fedapay start_payouts failed for %s: %s", payout_id, se)
-            await db.withdrawals.update_one(
-                {"id": wd_id},
-                {"$set": {"status": "dispatched",
-                          "gateway": "fedapay",
-                          "payout_id": payout_id,
-                          "gateway_status": (payout_obj.get("status") if isinstance(payout_obj, dict) else None),
-                          "dispatched_at": datetime.now(timezone.utc),
-                          "dispatched_by": admin["id"]}},
-            )
-            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
-            await db.admin_logs.insert_one({
-                "id": str(uuid.uuid4()), "admin_id": admin["id"],
-                "action": "fedapay_dispatch_withdrawal",
-                "target": wd_id, "payout_id": payout_id,
-                "at": datetime.now(timezone.utc),
-            })
-            return {"ok": True, "auto_dispatched": True, "gateway": "fedapay", "payout_id": payout_id}
 
         # Classic manual path.
         await db.withdrawals.update_one(
@@ -3062,7 +2994,6 @@ async def soleaspay_initiate(
     priority = [
         ("soleas", gw.get("soleas_enabled")),
         ("ashtec", gw.get("ashtec_enabled")),
-        ("fedapay", gw.get("fedapay_enabled")),
     ]
     if not next((en for k, en in priority if k == active and en), False):
         active = next((k for k, en in priority if en), None)
@@ -3070,8 +3001,6 @@ async def soleaspay_initiate(
         raise HTTPException(503, "Aucune passerelle automatique n'est activée. Contactez l'administrateur.")
     if active == "ashtec":
         return await _initiate_via_ashtec(data, request, user, gw)
-    if active == "fedapay":
-        return await _initiate_via_fedapay(data, request, user)
     # Default: SoleasPay (existing behavior — unchanged)
     return await _initiate_via_soleas(data, request, user)
 
@@ -3269,152 +3198,6 @@ async def _initiate_via_ashtec(
     }
 
 
-async def _initiate_via_fedapay(
-    data: "SoleaspayInitiateIn", request: Request, user: dict,
-) -> dict:
-    """FedaPay Mobile Money initiation flow.
-
-    3-step FedaPay pattern: (1) POST /transactions, (2) POST /transactions/{id}/token
-    then (3) POST /transactions/{mode} to push the USSD prompt to the payer.
-    """
-    db = request.app.state.db
-    if not fedapay.is_configured():
-        raise HTTPException(503, "FedaPay non configuré (clé secrète ou webhook manquant)")
-    country = (data.country_code or "").upper()
-    level = int(data.level)
-    if level <= (user.get("max_level") or 0):
-        raise HTTPException(400, "Niveau déjà activé")
-    lv = LEVELS_BY_NUM.get(level)
-    if not lv:
-        raise HTTPException(400, f"Niveau {level} invalide")
-    svc = soleaspay.find_service(country, data.service_id)
-    operator_label = (svc or {}).get("label") or ""
-    currency = (svc or {}).get("currency") or "XOF"
-    amount_xof = int(lv["price"])
-    order_id = _new_order_id()
-
-    await db.payments.insert_one({
-        "reference": order_id,
-        "provider": "fedapay",
-        "service_id": (svc or {}).get("id"),
-        "service_label": operator_label,
-        "user_id": user["id"],
-        "username": user.get("username"),
-        "level": level,
-        "amount": float(amount_xof),
-        "currency": currency,
-        "phone": str(data.phone),
-        "country_code": country,
-        "status": "pending",
-        "activation_done": False,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    })
-
-    # (1) Create the transaction.
-    tx_resp = await fedapay.create_transaction(
-        amount=amount_xof, currency_iso=currency,
-        description=f"SPILOVEURE activation niveau {level}",
-        callback_url=os.environ.get("FEDAPAY_CALLBACK_URL", "https://spiloveure.com/services"),
-        email=user.get("email") or "user@spiloveure.com",
-        firstname=user.get("first_name") or user.get("username") or "SPILOVEURE",
-        lastname=user.get("last_name") or "USER",
-        phone_number=str(data.phone).strip().lstrip("+"),
-        country_iso=country,
-        merchant_reference=order_id,
-    )
-    # FedaPay wraps the payload under either "v1/transaction" (slash!) or
-    # "v1.transaction"/"transaction". Extract robustly.
-    tx_obj = tx_resp.get("v1/transaction") or tx_resp.get("v1.transaction") \
-        or (tx_resp.get("v1", {}) if isinstance(tx_resp.get("v1"), dict) else {}).get("transaction") \
-        or tx_resp.get("transaction") or tx_resp
-    if tx_resp.get("error") or not isinstance(tx_obj, dict) or not tx_obj.get("id"):
-        await db.payments.update_one({"reference": order_id},
-                                     {"$set": {"status": "failed",
-                                               "activation_error": "FedaPay a refusé la création de la transaction",
-                                               "fedapay_response": tx_resp,
-                                               "updated_at": datetime.now(timezone.utc)}})
-        raise HTTPException(400, "FedaPay a refusé la requête. Réessayez plus tard.")
-    tx_id = tx_obj["id"]
-    # FedaPay already returns the payment_token + payment_url in the create
-    # response. Use them directly (no need to call /token).
-    token_val = tx_obj.get("payment_token")
-    pay_url = tx_obj.get("payment_url")
-
-    # (2) Fallback: legacy token endpoint if the create response didn't include one.
-    if not token_val:
-        tok_resp = await fedapay.generate_token(tx_id)
-        token_val = tok_resp.get("token") if isinstance(tok_resp.get("token"), str) else None
-        if not token_val and isinstance(tok_resp.get("v1"), dict):
-            token_val = tok_resp["v1"].get("token")
-        pay_url = pay_url or tok_resp.get("url") or (tok_resp.get("v1") or {}).get("url")
-
-    if not token_val:
-        await db.payments.update_one({"reference": order_id},
-                                     {"$set": {"transaction_id": str(tx_id),
-                                               "fedapay_pay_url": pay_url,
-                                               "updated_at": datetime.now(timezone.utc)}})
-        return {"order_id": order_id, "transaction_id": str(tx_id),
-                "status": "pending", "amount": float(amount_xof),
-                "currency": currency, "service_label": operator_label,
-                "payment_url": pay_url,
-                "message": "Continuez le paiement sur la page sécurisée FedaPay."}
-
-    # (3) Ship the hosted-checkout URL back to the client. FedaPay's supported
-    # Mobile Money flow is via the hosted page (the direct /transactions/{mode}
-    # API is not available on all accounts). The client opens payment_url,
-    # completes the USSD flow on FedaPay's page, and returns; the webhook
-    # confirms the payment and activates the account automatically.
-    await db.payments.update_one({"reference": order_id},
-                                 {"$set": {"transaction_id": str(tx_id),
-                                           "fedapay_pay_url": pay_url,
-                                           "fedapay_token": token_val,
-                                           "updated_at": datetime.now(timezone.utc)}})
-    return {
-        "order_id": order_id, "transaction_id": str(tx_id),
-        "status": "pending", "amount": float(amount_xof),
-        "currency": currency, "service_label": operator_label,
-        "payment_url": pay_url,
-        "message": "Ouvrez la page FedaPay pour finaliser votre paiement Mobile Money.",
-    }
-
-
-async def _fedapay_never_called_after_here(*args, **kwargs):
-    """Placeholder — the block below used to try `POST /transactions/{mode}` but
-    this direct-USSD API is not enabled on all merchant accounts, so we rely on
-    the hosted checkout (payment_url) instead. Left as a no-op so the file
-    remains syntactically valid without invasive edits."""
-    return None
-
-
-
-
-@api.get("/payments/soleaspay/status/{order_id}")
-async def soleaspay_status(order_id: str, request: Request, user=Depends(get_current_user)):
-    """Polled by the client every few seconds. Dispatches to the correct
-    gateway verify endpoint based on the stored `provider` field — works
-    transparently for SoleasPay AND AshtecPay payments.
-    """
-    db = request.app.state.db
-    p = await db.payments.find_one({"reference": order_id, "user_id": user["id"]}, {"_id": 0})
-    if not p:
-        raise HTTPException(404, "Paiement introuvable")
-
-    if p.get("status") == "paid" and p.get("activation_done"):
-        return {"status": "paid", "activation_done": True, "level": p["level"]}
-
-    if p.get("status") in ("failed",):
-        return {"status": "failed", "error": p.get("activation_error")}
-
-    provider = p.get("provider") or "soleaspay"
-    if provider == "ashtecpay":
-        return await _verify_ashtec_payment(p, order_id, request)
-    if provider == "fedapay":
-        return await _verify_fedapay_payment(p, order_id, request)
-    # Default: SoleasPay (existing behavior — unchanged)
-    return await _verify_soleas_payment(p, order_id, request)
-
-
 async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> dict:
     db = request.app.state.db
     pay_id = p.get("transaction_id")
@@ -3542,212 +3325,6 @@ async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> di
 
     return {"status": "pending", "ashtecpay_status": sp_status,
             "message": "Confirmation en attente sur le téléphone du client…"}
-
-
-async def _verify_fedapay_payment(p: dict, order_id: str, request: Request) -> dict:
-    db = request.app.state.db
-    txid = p.get("transaction_id")
-    if not txid:
-        return {"status": "pending", "message": "En attente du téléphone…"}
-    resp = await fedapay.verify_transaction(txid)
-    tx_obj = resp.get("v1/transaction") or resp.get("v1.transaction") \
-        or (resp.get("v1", {}) if isinstance(resp.get("v1"), dict) else {}).get("transaction") \
-        or resp.get("transaction") or resp
-    fp_status = (tx_obj.get("status") if isinstance(tx_obj, dict) else "") or ""
-    new_status = fedapay.normalize_status(fp_status)
-    log.info("fedapay status poll ref=%s fp_status=%r → %s", order_id, fp_status, new_status)
-
-    if new_status == "paid" and not p.get("activation_done"):
-        u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
-        if int(u_now.get("max_level") or 0) >= int(p["level"]):
-            if u_now.get("status") != "active":
-                await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
-            await db.payments.update_one(
-                {"reference": order_id},
-                {"$set": {"status": "paid", "activation_done": True,
-                          "fedapay_status": fp_status,
-                          "updated_at": datetime.now(timezone.utc)},
-                 "$unset": {"activation_error": ""}},
-            )
-            return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
-        try:
-            await activate_level(db, p["user_id"], int(p["level"]), source="fedapay")
-            await db.users.update_one(
-                {"id": p["user_id"], "status": {"$ne": "active"}},
-                {"$set": {"status": "active"}},
-            )
-            await db.payments.update_one(
-                {"reference": order_id},
-                {"$set": {"status": "paid", "activation_done": True,
-                          "fedapay_status": fp_status,
-                          "updated_at": datetime.now(timezone.utc)},
-                 "$unset": {"activation_error": ""}},
-            )
-            return {"status": "paid", "activation_done": True, "level": p["level"]}
-        except Exception as exc:
-            log.exception("fedapay activate_level failed for ref=%s: %s", order_id, exc)
-            await db.payments.update_one(
-                {"reference": order_id},
-                {"$set": {"status": "paid", "activation_error": str(exc),
-                          "fedapay_status": fp_status,
-                          "updated_at": datetime.now(timezone.utc)}},
-            )
-            return {"status": "paid", "activation_done": False, "error": str(exc)}
-
-    if new_status == "failed":
-        await db.payments.update_one(
-            {"reference": order_id},
-            {"$set": {"status": "failed",
-                      "activation_error": "Paiement FedaPay refusé/annulé",
-                      "fedapay_status": fp_status,
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        return {"status": "failed", "error": "Paiement FedaPay refusé/annulé"}
-
-    return {"status": "pending", "fedapay_status": fp_status,
-            "message": "Confirmation en attente sur le téléphone du client…"}
-
-
-@api.post("/webhooks/fedapay")
-async def fedapay_webhook(request: Request):
-    """Receive FedaPay events. Verifies X-FEDAPAY-SIGNATURE, applies idempotency
-    then reconciles either the deposit or the payout.
-
-    Header: `X-FEDAPAY-SIGNATURE: t=<ts>,s=<hex_hmac>` with HMAC-SHA256 over
-    `{ts}.{raw_body}` using the endpoint's webhook secret.
-    """
-    raw = await request.body()
-    sig = request.headers.get("x-fedapay-signature") or request.headers.get("X-FEDAPAY-SIGNATURE") or ""
-    ok, reason = fedapay.verify_webhook_signature(raw, sig)
-    if not ok:
-        log.warning("fedapay webhook signature INVALID (%s)", reason)
-        raise HTTPException(401, "Invalid signature.")
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "Invalid JSON payload.")
-    db = request.app.state.db
-    event_name = body.get("name") or body.get("event") or ""
-    event_id = str(body.get("id") or body.get("event_id") or "")
-    obj = body.get("object") or body.get("data") or body.get("entity") or {}
-    log.info("fedapay webhook name=%s event_id=%s", event_name, event_id[:16])
-
-    await db.webhook_logs.insert_one({
-        "source": "fedapay", "event_name": event_name, "event_id": event_id,
-        "payload_snippet": str(body)[:2000],
-        "received_at": datetime.now(timezone.utc),
-    })
-    # Idempotency guard.
-    if event_id:
-        seen = await db.webhook_events.find_one({"source": "fedapay", "event_id": event_id})
-        if seen:
-            return {"ok": True, "duplicate": True}
-        await db.webhook_events.insert_one({
-            "source": "fedapay", "event_id": event_id, "event_name": event_name,
-            "received_at": datetime.now(timezone.utc),
-        })
-
-    if event_name.startswith("transaction."):
-        return await _fedapay_handle_transaction_event(db, event_name, obj)
-    if event_name.startswith("payout."):
-        return await _fedapay_handle_payout_event(db, event_name, obj)
-    return {"ok": True, "ignored": True, "name": event_name}
-
-
-async def _fedapay_handle_transaction_event(db, event_name: str, tx: dict) -> dict:
-    ref = ((tx.get("custom_metadata") or {}).get("merchantReference")
-           or tx.get("reference") or "")
-    if not ref:
-        return {"ok": True, "ignored": True, "reason": "no_reference"}
-    p = await db.payments.find_one({"reference": ref, "provider": "fedapay"})
-    if not p:
-        return {"ok": True, "ignored": True, "reason": "unknown_reference"}
-    fp_status = (tx.get("status") or "").lower()
-    if event_name in ("transaction.declined", "transaction.canceled") or fp_status in ("declined", "canceled"):
-        await db.payments.update_one({"reference": ref},
-                                     {"$set": {"status": "failed",
-                                               "fedapay_status": fp_status,
-                                               "activation_error": "Paiement FedaPay refusé/annulé",
-                                               "updated_at": datetime.now(timezone.utc)}})
-        return {"ok": True, "rejected": True}
-    if event_name not in ("transaction.approved", "transaction.transferred") \
-            and fp_status not in ("approved", "transferred"):
-        await db.payments.update_one({"reference": ref},
-                                     {"$set": {"fedapay_status": fp_status,
-                                               "updated_at": datetime.now(timezone.utc)}})
-        return {"ok": True, "ignored": True}
-    if p.get("activation_done"):
-        return {"ok": True, "already_activated": True}
-    upd = await db.payments.update_one(
-        {"reference": ref, "activation_done": {"$ne": True}},
-        {"$set": {"status": "paid", "activation_done": True,
-                  "fedapay_status": fp_status,
-                  "paid_at": datetime.now(timezone.utc),
-                  "updated_at": datetime.now(timezone.utc)},
-         "$unset": {"activation_error": ""}},
-    )
-    if upd.modified_count == 0:
-        return {"ok": True, "race_ignored": True}
-    # Ads payment → flip ad status
-    if p.get("kind") == "ads" and p.get("ad_id"):
-        await db.ads.update_one(
-            {"id": p["ad_id"], "status": "pending_payment"},
-            {"$set": {"status": "pending_admin_review",
-                      "payment_confirmed_at": datetime.now(timezone.utc),
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        return {"ok": True, "ad_paid": True, "ad_id": p["ad_id"]}
-    # Account activation
-    try:
-        await activate_level(db, p["user_id"], int(p["level"]), source="fedapay")
-        await db.users.update_one({"id": p["user_id"], "status": {"$ne": "active"}},
-                                  {"$set": {"status": "active"}})
-        return {"ok": True, "activated": True}
-    except Exception as e:
-        log.exception("fedapay activate_level failed ref=%s: %s", ref, e)
-        await db.payments.update_one({"reference": ref},
-                                     {"$set": {"activation_error": str(e),
-                                               "updated_at": datetime.now(timezone.utc)}})
-        raise HTTPException(500, f"Activation failed: {e}")
-
-
-async def _fedapay_handle_payout_event(db, event_name: str, payout: dict) -> dict:
-    ref = ((payout.get("custom_metadata") or {}).get("merchantReference")
-           or payout.get("reference") or "")
-    if not ref:
-        return {"ok": True, "ignored": True, "reason": "no_reference"}
-    wd = await db.withdrawals.find_one({"id": ref})
-    if not wd:
-        return {"ok": True, "ignored": True, "reason": "unknown_reference"}
-    now = datetime.now(timezone.utc)
-    fp_status = (payout.get("status") or "").lower()
-    if event_name in ("payout.sent", "payout.transferred") or fp_status in ("sent", "transferred", "success"):
-        await db.withdrawals.update_one(
-            {"id": ref},
-            {"$set": {"status": "completed",
-                      "gateway": "fedapay",
-                      "payout_id": str(payout.get("id") or ""),
-                      "completed_at": now, "updated_at": now}},
-        )
-        return {"ok": True, "completed": True}
-    if event_name in ("payout.failed", "payout.canceled") or fp_status in ("failed", "canceled"):
-        amount = float(wd.get("amount") or 0)
-        if amount and wd.get("status") in ("dispatched", "validated"):
-            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": -amount}})
-        await db.withdrawals.update_one(
-            {"id": ref},
-            {"$set": {"status": "rejected",
-                      "payout_id": str(payout.get("id") or ""),
-                      "rejected_reason": event_name,
-                      "rejected_at": now, "updated_at": now}},
-        )
-        return {"ok": True, "rejected": True}
-    await db.withdrawals.update_one({"id": ref},
-                                    {"$set": {"gateway_status": fp_status, "updated_at": now}})
-    return {"ok": True, "ignored": True}
-
-
-
 
 
 api.include_router(admin_router)

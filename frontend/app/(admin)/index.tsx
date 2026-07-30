@@ -2690,17 +2690,15 @@ function PaymentGatewaysCard() {
     );
   }
 
-  const renderGw = (gwKey: "soleas" | "ashtec" | "fedapay") => {
+  const renderGw = (gwKey: "soleas" | "ashtec") => {
     const meta = cfg[gwKey] || {};
     const isActive = cfg.active === gwKey;
     const label =
       gwKey === "soleas"  ? "🔹 Soles Pay"
-    : gwKey === "ashtec"  ? "🔹 AshtecPay (Htech Pay)"
-                          : "🔹 FedaPay";
+                          : "🔹 AshtecPay (Htech Pay)";
     const enabledKey =
       gwKey === "soleas"  ? "soleas_enabled"
-    : gwKey === "ashtec"  ? "ashtec_enabled"
-                          : "fedapay_enabled";
+                          : "ashtec_enabled";
     return (
       <View key={gwKey} style={{ padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -2789,7 +2787,6 @@ function PaymentGatewaysCard() {
       </Text>
       {renderGw("soleas")}
       {renderGw("ashtec")}
-      {renderGw("fedapay")}
     </Card>
   );
 }

@@ -21,6 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-06-19)
 
+### 2026-07-30 (9) — 🗑 Suppression totale FedaPay
+
+Retrait volontaire complet de FedaPay du projet en vue d'une intégration future de nouvelle passerelle.
+
+**Fichiers supprimés** :
+- `/app/backend/fedapay.py`
+- `/app/backend/tests/test_fedapay.py`
+
+**Fichiers nettoyés (152 → 0 références FedaPay)** :
+- `/app/backend/server.py` : import + 350 lignes de code (dispatcher fedapay, `_initiate_via_fedapay`, `_verify_fedapay_payment`, webhook `/api/webhooks/fedapay`, handlers `_fedapay_handle_transaction_event` / `_fedapay_handle_payout_event`, branche fedapay de `admin_validate_withdrawal`, config `fedapay_enabled` dans `_PG_DEFAULTS` et `PaymentGatewayUpdate`)
+- `/app/backend/ads.py` : branche FedaPay du endpoint `/ads/{id}/pay` (garde uniquement le paiement crypto USDT.BEP20)
+- `/app/backend/feature_flags.py` : suppression des 2 flags `fedapay_activation` + `fedapay_withdrawal`
+- `/app/backend/.env` : suppression des 4 vars `FEDAPAY_*`
+- `/app/frontend/app/(admin)/index.tsx` : `renderGw` restreint à soleas + ashtec, retrait de la 3e carte
+- `/app/frontend/app/(app)/ad-create.tsx` : suppression du bouton "Payer Mobile Money (FedaPay)" + branche `payInit.method === "mobile_money"` — reste uniquement le bouton crypto USDT (BEP20)
+- `/app/frontend/app/(app)/activation.tsx` : suppression du hook `window.open(payment_url)` post-initiate
+
+**Purge DB** : 4 payments provider=fedapay + 7 webhook_logs + 5 webhook_events + 2 feature flags + `payment_gateway.fedapay_enabled` désactivé.
+
+**Vérifications post-suppression** :
+- `grep -rE "fedapay|FedaPay|FEDAPAY" /app` (hors node_modules/git/tests archives) → **0 résultat**
+- `POST /api/webhooks/fedapay` → **404 Not Found** ✅
+- `GET /api/features` : `fedapay_activation`/`fedapay_withdrawal` absents ✅
+- `GET /api/admin/payment-gateways` : plus de clé `fedapay`, seulement `soleas` + `ashtec` ✅
+- **13/13 tests IziChangePay PASS** (aucune régression)
+
+Le système est prêt pour l'intégration d'une nouvelle passerelle de paiement quand vous le souhaitez.
+
+
+
 ### 2026-07-30 (8) — 🔧 Corrections FedaPay + Ads paiement dual (Mobile Money / Crypto)
 
 **Problèmes résolus** :

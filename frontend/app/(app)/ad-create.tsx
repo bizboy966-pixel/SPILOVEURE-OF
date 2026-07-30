@@ -135,11 +135,8 @@ function AdCreateScreenInner() {
 
   // Payment state (step 4).
   type PayInit = {
-    method: "mobile_money" | "crypto";
+    method: "crypto";
     reference: string;
-    // FedaPay
-    payment_url?: string;
-    transaction_id?: string;
     // Crypto
     deposit_address?: string;
     amount_to_send?: string | number;
@@ -152,17 +149,12 @@ function AdCreateScreenInner() {
   const [payErr, setPayErr] = useState<string | null>(null);
   const [adStatus, setAdStatus] = useState<string>("pending_payment");
 
-  const startPayment = async (method?: "mobile_money" | "crypto") => {
+  const startPayment = async () => {
     if (!adId) return;
     setSaving(true); setPayErr(null);
     try {
-      const r = await api.post<PayInit>(`/ads/${adId}/pay`, {
-        method: method || null,
-      });
+      const r = await api.post<PayInit>(`/ads/${adId}/pay`, { method: "crypto" });
       setPayInit(r);
-      if (r.method === "mobile_money" && r.payment_url && typeof window !== "undefined") {
-        window.open(r.payment_url, "_blank");
-      }
     } catch (e: any) {
       setPayErr(e?.detail || "Impossible de démarrer le paiement.");
     } finally { setSaving(false); }
@@ -380,55 +372,22 @@ function AdCreateScreenInner() {
             {!payInit && (
               <>
                 <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginBottom: 8 }}>
-                  Choisissez votre méthode de paiement — après confirmation, votre publicité passe en validation.
+                  Payez votre publicité en USDT (BEP20). L'activation est automatique dès confirmation on-chain.
                 </Text>
                 <TouchableOpacity
-                  style={[styles.next, saving && { opacity: 0.6 }]}
-                  onPress={() => startPayment("mobile_money")}
-                  disabled={saving}
-                  testID="ad-pay-fedapay"
-                >
-                  {saving ? <ActivityIndicator color="#fff" /> : (
-                    <><Ionicons name="phone-portrait" size={18} color="#fff" /><Text style={styles.nextT}>Payer maintenant — Mobile Money (FedaPay)</Text></>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
                   style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
-                  onPress={() => startPayment("crypto")}
+                  onPress={() => startPayment()}
                   disabled={saving}
                   testID="ad-pay-crypto"
                 >
                   {saving ? <ActivityIndicator color="#fff" /> : (
-                    <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer avec USDT (BEP20)</Text></>
+                    <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer maintenant — USDT (BEP20)</Text></>
                   )}
                 </TouchableOpacity>
                 {payErr ? (
                   <Text style={{ color: "#DC2626", textAlign: "center", marginTop: 8 }} testID="ad-pay-error">{payErr}</Text>
                 ) : null}
               </>
-            )}
-
-            {payInit?.method === "mobile_money" && (
-              <View style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 10 }}>
-                <Text style={{ fontWeight: "800", color: theme.colors.textPrimary }}>Paiement Mobile Money via FedaPay</Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                  Un onglet s'est ouvert sur la page sécurisée FedaPay. Validez le paiement Mobile Money sur votre téléphone —
-                  votre publicité sera automatiquement soumise à validation dès confirmation.
-                </Text>
-                <TouchableOpacity
-                  style={[styles.next, { backgroundColor: theme.colors.primary }]}
-                  onPress={() => {
-                    if (payInit.payment_url && typeof window !== "undefined") window.open(payInit.payment_url, "_blank");
-                  }}
-                  testID="ad-pay-open"
-                >
-                  <Ionicons name="open-outline" size={18} color="#fff" />
-                  <Text style={styles.nextT}>Rouvrir la page de paiement</Text>
-                </TouchableOpacity>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: "center" }}>
-                  {adStatus === "pending_payment" ? "⏳ En attente de la confirmation FedaPay…" : `✅ Statut: ${adStatus}`}
-                </Text>
-              </View>
             )}
 
             {payInit?.method === "crypto" && payInit.deposit_address && (

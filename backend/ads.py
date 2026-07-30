@@ -284,9 +284,9 @@ class AdPayIn(BaseModel):
 
 @public.post("/ads/{ad_id}/pay")
 async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_current_user)):
-    """Initiate payment for an ad — routes to FedaPay Mobile Money if the
-    user's country is supported and the gateway is active, else falls back to
-    IziChangePay (USDT.BEP20) so every user can pay regardless of country.
+    """Initiate payment for an ad — currently supports Crypto (USDT.BEP20) via
+    IziChangePay. Mobile Money support has been removed; a new gateway will be
+    plugged back in later.
     """
     db = request.app.state.db
     ad = await _get_ad(db, ad_id, user["id"])
@@ -296,21 +296,13 @@ async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_c
     if amount_xof <= 0:
         raise HTTPException(400, "Montant à payer invalide (recalculez la durée).")
 
-    # Auto-detect method if not specified.
-    country = (data.country_code or user.get("country") or "").upper()
     from feature_flags import is_enabled as _flag_on
-    import fedapay
-    fedapay_ok = fedapay.is_configured() and await _flag_on(db, "fedapay_activation") \
-        and country in fedapay.COUNTRY_MODES
     izi_ok = await _flag_on(db, "crypto_auto")
-
-    method = (data.method or "").lower() or ("mobile_money" if fedapay_ok else "crypto" if izi_ok else "")
-    if method == "mobile_money" and not fedapay_ok:
-        raise HTTPException(400, "FedaPay indisponible pour votre pays. Utilisez le paiement Crypto.")
-    if method == "crypto" and not izi_ok:
-        raise HTTPException(400, "Le paiement Crypto est momentanément désactivé. Réessayez plus tard.")
-    if not method:
-        raise HTTPException(503, "Aucune méthode de paiement disponible pour votre pays.")
+    method = (data.method or "crypto").lower()
+    if method != "crypto":
+        raise HTTPException(400, "Seul le paiement Crypto USDT (BEP20) est disponible actuellement.")
+    if not izi_ok:
+        raise HTTPException(503, "Le paiement Crypto est momentanément désactivé.")
 
     reference = f"ADS-{ad_id[:8]}-{uuid.uuid4().hex[:8]}"
     await db.ads.update_one(
@@ -318,39 +310,6 @@ async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_c
         {"$set": {"status": "pending_payment", "payment_reference": reference,
                   "payment_method": method, "updated_at": datetime.now(timezone.utc)}},
     )
-
-    if method == "mobile_money":
-        phone = data.phone or user.get("phone") or ""
-        if not phone:
-            raise HTTPException(400, "Numéro Mobile Money requis.")
-        resp = await fedapay.create_transaction(
-            amount=int(amount_xof), currency_iso=(ad.get("currency") or "XOF"),
-            description=f"SPILOVEURE Ad {ad_id[:8]}",
-            callback_url=os.environ.get("FEDAPAY_CALLBACK_URL", "https://spiloveure.com/ads"),
-            email=user.get("email") or "user@spiloveure.com",
-            firstname=user.get("first_name") or user.get("username") or "SPILOVEURE",
-            lastname=user.get("last_name") or "USER",
-            phone_number=str(phone).strip().lstrip("+"),
-            country_iso=country or "BJ",
-            merchant_reference=reference,
-        )
-        tx_obj = resp.get("v1/transaction") or resp.get("transaction") or resp
-        if resp.get("error") or not isinstance(tx_obj, dict) or not tx_obj.get("id"):
-            raise HTTPException(400, "FedaPay a refusé la création de la transaction.")
-        await db.payments.insert_one({
-            "reference": reference, "provider": "fedapay",
-            "user_id": user["id"], "kind": "ads",
-            "ad_id": ad_id, "amount": amount_xof,
-            "currency": ad.get("currency") or "XOF",
-            "transaction_id": str(tx_obj["id"]),
-            "status": "pending", "activation_done": False,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        })
-        return {"method": "mobile_money", "reference": reference,
-                "transaction_id": str(tx_obj["id"]),
-                "payment_url": tx_obj.get("payment_url"),
-                "amount": amount_xof, "currency": ad.get("currency") or "XOF"}
 
     # Crypto path — mirror the activation-crypto-auto flow but for ads.
     import izichange
