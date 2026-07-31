@@ -213,7 +213,7 @@ export default function AdminHome() {
         } catch {}
       }
       if (tab === "users") setUsers(await api.get(`/admin/users${usersQ ? `?q=${encodeURIComponent(usersQ)}` : ""}`));
-      if (tab === "activations") setActivations(await api.get("/admin/activations"));
+      if (tab === "activations") setActivations(await api.get(`/admin/activations?status=${actFilter}`));
       if (tab === "withdrawals") setWithdrawals(await api.get("/admin/withdrawals"));
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
@@ -312,7 +312,7 @@ export default function AdminHome() {
     } catch (e: any) {
       console.log("admin load err", e?.detail);
     }
-  }, [tab, usersQ]);
+  }, [tab, usersQ, actFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -735,9 +735,29 @@ export default function AdminHome() {
             </View>
             <SubTabs
               tabs={[
-                { key: "pending", label: "En attente", color: theme.colors.warning, count: activations.filter((a) => a.status === "pending").length },
-                { key: "validated", label: "Activées", color: theme.colors.success, count: activations.filter((a) => a.status === "validated" || a.status === "active").length },
-                { key: "rejected", label: "Rejetées", color: theme.colors.danger, count: activations.filter((a) => a.status === "rejected").length },
+                {
+                  key: "pending",
+                  label: "En attente",
+                  color: theme.colors.warning,
+                  // Always show the server-side authoritative count so
+                  // the badge is guaranteed to match the dashboard.
+                  count: actFilter === "pending"
+                    ? activations.length
+                    : (stats?.activations_pending ?? 0),
+                },
+                {
+                  key: "validated",
+                  label: "Activées",
+                  color: theme.colors.success,
+                  // Only accurate while the tab is active (server filter).
+                  count: actFilter === "validated" ? activations.length : undefined,
+                },
+                {
+                  key: "rejected",
+                  label: "Rejetées",
+                  color: theme.colors.danger,
+                  count: actFilter === "rejected" ? activations.length : undefined,
+                },
               ]}
               active={actFilter}
               onChange={(k) => setActFilter(k as any)}
@@ -2671,7 +2691,7 @@ export default function AdminHome() {
 function SubTabs({
   tabs, active, onChange, testIdPrefix,
 }: {
-  tabs: { key: string; label: string; color: string; count: number }[];
+  tabs: { key: string; label: string; color: string; count?: number }[];
   active: string;
   onChange: (key: string) => void;
   testIdPrefix?: string;
@@ -2689,9 +2709,11 @@ function SubTabs({
           >
             <View style={[styles.subTabDot, { backgroundColor: t.color }]} />
             <Text style={[styles.subTabLbl, on && { color: "#fff" }]}>{t.label}</Text>
-            <View style={[styles.subTabBadge, on ? { backgroundColor: "rgba(255,255,255,0.25)" } : { backgroundColor: theme.colors.surfaceSecondary }]}>
-              <Text style={[styles.subTabBadgeT, on && { color: "#fff" }]}>{t.count}</Text>
-            </View>
+            {typeof t.count === "number" && (
+              <View style={[styles.subTabBadge, on ? { backgroundColor: "rgba(255,255,255,0.25)" } : { backgroundColor: theme.colors.surfaceSecondary }]}>
+                <Text style={[styles.subTabBadgeT, on && { color: "#fff" }]}>{t.count}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         );
       })}

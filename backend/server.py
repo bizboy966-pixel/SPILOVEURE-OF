@@ -2011,10 +2011,23 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
     # Merge automatic payments (SoleasPay legacy + AshtecPay current).
     # Both providers store their payment docs in `db.payments` with the same
     # basic shape, so we can iterate them uniformly.
-    auto_cursor = db.payments.find(
-        {"provider": {"$in": ["soleaspay", "ashtecpay"]}},
-        {"_id": 0},
-    ).sort("created_at", -1).limit(500)
+    #
+    # When the caller asks for a specific status we push the equivalent
+    # filter into the MongoDB query so `.limit(500)` doesn't silently
+    # truncate the result — this was the root cause of the "dashboard
+    # says 108 pending, list only shows 4" discrepancy in prod.
+    payment_query: dict = {"provider": {"$in": ["soleaspay", "ashtecpay"]}}
+    if status_filter == "pending":
+        payment_query["$or"] = [
+            {"status": "pending"},
+            {"status": "paid", "activation_done": {"$ne": True}},
+        ]
+    elif status_filter == "validated":
+        payment_query["status"] = "paid"
+        payment_query["activation_done"] = True
+    elif status_filter == "rejected":
+        payment_query["status"] = "failed"
+    auto_cursor = db.payments.find(payment_query, {"_id": 0}).sort("created_at", -1).limit(500)
     async for p in auto_cursor:
         raw_status = p.get("status") or "pending"
         if raw_status == "paid":

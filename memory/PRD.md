@@ -21,6 +21,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🔢 Fix synchronisation compteur « Activations à valider » (108 vs 4)
+
+**Bug** : le tableau de bord affichait 108 activations en attente mais la liste « En attente » n'en montrait que 4.
+
+**Cause racine** :
+- L'endpoint `GET /admin/activations` acceptait déjà un paramètre `?status=` mais le frontend l'appelait sans → le backend chargeait les 500 dernières activations + 500 derniers paiements TOUTES statuses confondus, puis renvoyait le tout.
+- En prod, les 500 paiements les plus récents étaient dominés par des activations validées → seules quelques activations pending tombaient dans la fenêtre.
+- Le compteur dashboard, lui, utilise `count_documents()` sans limite → il voyait la totalité.
+
+**Fix backend (`server.py` L2015)** :
+- Quand `status_filter` est fourni, la condition MongoDB est poussée directement dans `db.payments.find()` : `pending` → `{"status":"pending"} ∪ {"status":"paid","activation_done":False}`, `validated` → `paid + activation_done`, `rejected` → `failed`. Le `.limit(500)` s'applique donc APRÈS le filtrage.
+
+**Fix frontend (`(admin)/index.tsx`)** :
+- `load()` appelle désormais `/admin/activations?status=${actFilter}` et se relance sur changement de filtre.
+- `SubTabs` : badge « En attente » affiche `stats.activations_pending` (source de vérité serveur) même quand l'utilisateur est sur un autre tab. Badge de type `count?: number` — les tabs inactifs ne rendent aucun badge (évite les zéros trompeurs).
+
+**Vérification live** : dashboard 135 == liste `?status=pending` 135 == aucun autre status leaké dans le payload.
+
+**Tests** : 3/3 `test_admin_activations_pending_sync.py` PASS + 5/5 régression stats.
+
+
+
 ### 2026-07-31 — 📊 Fix Total cumulé Activations (Ashtech invisible dans les stats)
 
 **Bug** : depuis la migration SoleasPay → AshtecPay, les activations Mobile Money automatiques ne remontaient pas dans le « Total cumulé des activations » de l'admin. Le compteur de comptes actifs progressait mais le total en FCFA restait figé.
