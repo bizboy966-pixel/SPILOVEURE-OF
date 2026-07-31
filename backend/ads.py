@@ -484,12 +484,54 @@ async def toggle_like(ad_id: str, request: Request, user=Depends(get_current_use
     return {"liked": True, "likes_count": len((ad.get("likes") or [])) + 1, "reward": reward}
 
 
+def _is_spam_comment(text: str, existing_comments: list) -> tuple[bool, str]:
+    """Cheap anti-spam heuristic for ad comments.
+
+    Returns (is_spam, reason). Kept intentionally rule-based (no LLM call)
+    so it's fast, deterministic, and doesn't burn Emergent LLM Key quota
+    for every single comment. Rules:
+      1. Length ≥ 8 non-whitespace chars.
+      2. At least one letter (block "1234", "!!!!!", pure emoji spam).
+      3. Not just the same word repeated (block "ok ok ok ok ok").
+      4. Not a near-duplicate of a comment already on this ad (case-
+         insensitive substring or Jaccard-similar tokens ≥ 80 %).
+    """
+    t = (text or "").strip()
+    stripped = "".join(t.split())
+    if len(stripped) < 8:
+        return True, "Commentaire trop court (minimum 8 caractères)."
+    if not any(c.isalpha() for c in stripped):
+        return True, "Commentaire non pertinent (aucune lettre détectée)."
+
+    words = [w for w in t.lower().split() if w]
+    if words and len(set(words)) == 1:
+        return True, "Commentaire répétitif détecté."
+
+    norm = " ".join(words)
+    tokens = set(words)
+    for c in existing_comments or []:
+        prev = (c.get("text") or "").lower().strip()
+        if not prev:
+            continue
+        if norm and norm == prev:
+            return True, "Commentaire déjà posté sur cette publicité."
+        prev_tokens = set(prev.split())
+        if tokens and prev_tokens:
+            union = tokens | prev_tokens
+            if union and len(tokens & prev_tokens) / len(union) >= 0.8:
+                return True, "Commentaire trop similaire à un commentaire existant."
+    return False, ""
+
+
 @public.post("/ads/{ad_id}/comment")
 async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     ad = await db.ads.find_one({"id": ad_id, "status": "published"})
     if not ad:
         raise HTTPException(404, "Publicité introuvable ou non publiée.")
+    is_spam, reason = _is_spam_comment(data.text, ad.get("comments") or [])
+    if is_spam:
+        raise HTTPException(400, f"Commentaire refusé : {reason}")
     comment = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
@@ -745,24 +787,72 @@ async def reactor_status(ad_id: str, request: Request, user=Depends(get_current_
 
 @public.get("/me/reactor-rewards")
 async def my_reactor_rewards(request: Request, user=Depends(get_current_user),
-                             limit: int = 100):
+                             limit: int = 100,
+                             action: Optional[str] = None,
+                             from_date: Optional[str] = None,
+                             to_date: Optional[str] = None):
     """Return the calling user's reactor reward history (used by the
-    "Mes récompenses réacteur" tab)."""
+    "Mes récompenses réacteur" tab).
+
+    Query params (all optional):
+        action    : filter to a single action ("like" or "comment")
+        from_date : ISO date lower bound (inclusive)
+        to_date   : ISO date upper bound (inclusive)
+
+    Response includes a `by_day` aggregate: for each day with rewards,
+    a `{date, total, count, likes, comments}` row for the histogram.
+    """
     db = request.app.state.db
+    q: dict = {"user_id": user["id"]}
+    if action in ("like", "comment"):
+        q["action"] = action
+    dt_range: dict = {}
+    for k, v in (("$gte", from_date), ("$lte", to_date)):
+        if not v:
+            continue
+        try:
+            dt_range[k] = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except Exception:
+            pass
+    if dt_range:
+        q["created_at"] = dt_range
+
     items = []
-    async for r in db.ads_reactor_rewards.find(
-        {"user_id": user["id"]}, {"_id": 0}
-    ).sort("created_at", -1).limit(min(limit, 500)):
+    async for r in db.ads_reactor_rewards.find(q, {"_id": 0}) \
+            .sort("created_at", -1).limit(min(limit, 500)):
         r["created_at"] = r["created_at"].astimezone(timezone.utc).isoformat() \
             if isinstance(r.get("created_at"), datetime) else r.get("created_at")
         items.append(r)
+
     total_agg = await db.ads_reactor_rewards.aggregate([
-        {"$match": {"user_id": user["id"]}},
+        {"$match": q},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
+
+    # Per-day aggregate — powers the "Total par jour" histogram / group headers.
+    day_agg = await db.ads_reactor_rewards.aggregate([
+        {"$match": q},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+            "total": {"$sum": "$amount"},
+            "count": {"$sum": 1},
+            "likes": {"$sum": {"$cond": [{"$eq": ["$action", "like"]}, 1, 0]}},
+            "comments": {"$sum": {"$cond": [{"$eq": ["$action", "comment"]}, 1, 0]}},
+        }},
+        {"$sort": {"_id": -1}},
+    ]).to_list(365)
+    by_day = [
+        {"date": d["_id"], "total": float(d["total"]),
+         "count": int(d["count"]), "likes": int(d["likes"]),
+         "comments": int(d["comments"])}
+        for d in day_agg
+    ]
+
     return {
         "items": items,
         "total_earned": float(total_agg[0]["total"]) if total_agg else 0.0,
+        "by_day": by_day,
+        "filters": {"action": action, "from_date": from_date, "to_date": to_date},
     }
 
 

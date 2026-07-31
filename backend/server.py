@@ -3377,6 +3377,10 @@ from marketplace import public as mk_public, admin as mk_admin  # noqa: E402
 app.include_router(mk_public)
 app.include_router(mk_admin)
 
+# In-app notifications API — read / mark-read / unread-count.
+from notifications_api import router as notifications_router  # noqa: E402
+app.include_router(notifications_router)
+
 # Feature Flags — central on/off switches for every recent module.
 from feature_flags import (  # noqa: E402
     public as ff_public,

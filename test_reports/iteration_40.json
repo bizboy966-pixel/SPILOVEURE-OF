@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 40 — E2E validation of the 2026-08 engagement enhancements (Historique Réacteur enrichi + Notifications Push + Anti-Bot Commentaires). Backend: 17/18 pytest pass on the public URL. One SPEC-vs-implementation deviation found: GET /api/me/reactor-rewards?action=<invalid> echoes the raw value in filters.action instead of nulling it (spec: 'silencieusement ignorée, filters.action==null'). All other rules PASS (shape, like/comment filter, by_day row shape, ISO date filter tolerant of Z suffix). Notifications API: list DESC, unread-count int, unread_only=true guard, mark-all-read idempotent (2nd call returns updated=0), unknown id → 404. Anti-spam: too-short / no-letter / repetitif / near-duplicate (Jaccard>=0.8) all correctly return 400 with the expected FR reason strings. Regression on POST /ads/{id}/like|share|view: all healthy (like returns reward key; share/view return reward:null). Frontend (Expo web on https://spiloveure-deploy.preview.emergentagent.com): /(app)/reactor-rewards renders the 3 filter chips (rr-filter-all/like/comment), NotificationToaster mounted globally and actively rendering 3 stacked toasts (from real Lottery Jackpot notifications on the admin account), Toutes/Likes/Commentaires chips clickable → refetch fires without console errors. by_day section not visible for the admin account because admin has zero reactor rewards yet (empty state 'Aucune récompense pour le moment' shown correctly).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/me/reactor-rewards?action=<invalid>",
+        "issue": "Spec says invalid action must be silently ignored with filters.action==null; current impl echoes the raw string back (e.g. filters.action='foobar'). The DB query is correctly not filtered, only the response envelope is wrong. Fix in /app/backend/ads.py L855: replace `\"action\": action` with `\"action\": action if action in (\"like\",\"comment\") else None`."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/(app)/reactor-rewards",
+        "issues": ["The 3 toasts stack overlaps the header — with 3 concurrent toasts on a 1280-wide viewport they cover the top-right of the page. Consider limiting concurrent visible toasts to 2 or reducing toast width on desktop web (mobile-first sizing looks OK on 390px)."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter40_engagement.py",
+    "/app/test_reports/pytest/iter40.xml"
+  ],
+  "action_items": [
+    "Fix /api/me/reactor-rewards filters.action echo — return null when the passed value is not in {like, comment} to match the spec.",
+    "(Optional UX) NotificationToaster: cap visible toasts to 2 on wide viewports OR reduce max width, current stack of 3 overlaps the /(app)/reactor-rewards header."
+  ],
+  "critical_code_review_comments": [
+    "ads.py L855: response `filters` object echoes raw query params without validation — invalid action leaks through. Also from_date/to_date returned as-is (raw strings) even when parsing fails — consider returning null when parse fails so the client knows the range wasn't applied.",
+    "ads.py L487-523 _is_spam_comment: Jaccard threshold 0.8 is aggressive on short French comments (5-6 words) — expect false positives. Consider gating on min token count (e.g. >=5 unique tokens) before applying the Jaccard rule, otherwise legitimate short comments like 'super video top' vs 'super video cool' will trigger 400.",
+    "notifications_api.py L55: `.limit(min(limit, 200))` but `since` filter is applied on the created_at field — combined with the existing user_id index this is fine, but ensure a compound index `(user_id, created_at)` exists on db.notifications for scale; otherwise the DESC sort will scan.",
+    "notifications_api.py: no pagination cursor (only limit) — for a heavy user with 200+ notifications the toaster hook loses history after the cap. Add a `before` cursor or use since for delta polling (already partly supported)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter40_engagement.py"
+  ],
+  "success_rate": {
+    "backend": "94% (17/18 pytest, single spec deviation on filters.action echo)",
+    "frontend": "100% on the target testIDs (rr-filter-all/like/comment present + clickable, notif-toaster mounted and actively rendering toasts)"
+  },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Ephemeral test users created via POST /api/auth/register (sponsor=admin, country=TG) for the reactor-rewards + anti-spam flows.",
+  "seed_data_creation": "Only ephemeral test users (prefix i40_, sp_, sp2_, sp3_). No admin data mutated. Anti-spam near-duplicate test seeded 1 legitimate comment then 1 rejected near-dup on the first published ad found.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 enhancements are functionally live and validated on the public URL. The single backend miss is a cosmetic response field (filters.action echoes the raw invalid string). Frontend testIDs are stable and match the spec: rr-filter-all / rr-filter-like / rr-filter-comment on /(app)/reactor-rewards, notif-toaster + notif-toast-{id} + notif-toast-close-{id} globally mounted via /(app)/_layout. The NotificationToaster does trigger mark-all-read (verified: 2nd mark-all-read call returns updated=0). Anti-spam heuristic is rule-based only (no LLM) — thresholds documented at ads.py L487-523.",
+  "rca of the issue": "For the filters.action echo miss: server code at /app/backend/ads.py L807 correctly gates the DB filter with `if action in ('like','comment'): q['action'] = action` but the returned envelope at L855 uses the raw `action` variable unconditionally: `\"action\": action`. As a result the client sees `filters.action='foobar'` while the DB was queried without any action filter — the data is correct but the UI can't trust filters.action to render the active chip. One-line fix: `\"action\": action if action in ('like','comment') else None`."
+}
