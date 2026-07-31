@@ -1663,9 +1663,21 @@ async def admin_stats(request: Request):
     withdrawals_pending = await db.withdrawals.count_documents({"status": "pending"})
     # Total validated activation amount includes manual + crypto (db.activations)
     # AND validated automatic payments (db.payments with activation_done=true).
+    #
+    # ⚠️ Currency conversion — crypto (crypto_auto / crypto_manual) activations
+    # are stored with `currency:"USDT"` and `amount:5`. For the FCFA dashboard
+    # aggregate we count each USDT activation as its FCFA equivalent using the
+    # canonical business rate 1 USDT = 500 FCFA (i.e. 5 USDT = 2 500 FCFA).
+    USDT_TO_FCFA_RATE = 500  # matches the crypto activation product price
     total_activation_amount_agg = await db.activations.aggregate([
         {"$match": {"status": "validated"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        {"$group": {"_id": None, "total": {"$sum": {
+            "$cond": [
+                {"$eq": ["$currency", "USDT"]},
+                {"$multiply": ["$amount", USDT_TO_FCFA_RATE]},
+                "$amount",
+            ]
+        }}}},
     ]).to_list(1)
     total_activations_manual = total_activation_amount_agg[0]["total"] if total_activation_amount_agg else 0
     total_auto_agg = await db.payments.aggregate([

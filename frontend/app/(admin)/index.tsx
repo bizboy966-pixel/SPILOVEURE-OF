@@ -824,7 +824,17 @@ export default function AdminHome() {
                       </TouchableOpacity>
                     </View>
                   ) : null}
-                  <KvRow k="Montant" v={isAuto && a.currency ? `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}` : formatFCFA(a.amount)} />
+                  <KvRow k="Montant" v={
+                    a.currency === "USDT" ? (
+                      // Crypto activation — show USDT for the user + FCFA equivalent
+                      // (business rate: 5 USDT = 2 500 FCFA) for stats context.
+                      `${Number(a.amount) || 0} USDT (BEP20)  ≈  ${formatFCFA((Number(a.amount) || 0) * 500)}`
+                    ) : isAuto && a.currency ? (
+                      `${Math.round(Number(a.amount) || 0).toLocaleString("fr-FR")} ${a.currency}`
+                    ) : (
+                      formatFCFA(a.amount)
+                    )
+                  } />
                   <KvRow k="Date/Heure" v={formatDateTime(a.created_at)} />
                   {a.transaction_ref ? <KvRow k="Réf. transaction" v={a.transaction_ref} /> : null}
                   {a.reference && isAuto ? <KvRow k="Référence interne" v={a.reference} /> : null}

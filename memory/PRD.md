@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 💱 Fix comptabilité crypto activations (5 USDT = 2 500 FCFA)
+
+**Bug** : les activations crypto étaient stockées avec `amount:5, currency:"USDT"`. Le dashboard admin sommait naïvement `SUM($amount)` → une activation crypto de 5 USDT contribuait **5 FCFA** au « Total des activations » au lieu de **2 500 FCFA**.
+
+**Fix backend (`server.py` L1666-1679)** :
+- Ajout d'une constante métier `USDT_TO_FCFA_RATE = 500` (5 USDT × 500 = 2 500 FCFA).
+- L'agrégation MongoDB applique désormais un `$cond` sur `currency`:
+    - `USDT` → `amount × 500` (converti en FCFA)
+    - autre  → `amount` inchangé
+- Le total dashboard reflète maintenant la valeur FCFA correcte pour toutes les passerelles.
+
+**Fix frontend admin panel (`(admin)/index.tsx` L827)** :
+- La ligne « Montant » de chaque activation affiche désormais `5 USDT (BEP20) ≈ 2 500 FCFA` pour les activations crypto (au lieu de « 5 FCFA » qui trompait l'admin).
+
+**Tests** : 2/2 `test_crypto_activation_stats.py` — vérifient que seed d'1 activation USDT ajoute exactement +2 500 FCFA au total, et qu'une activation FCFA classique reste comptée à sa valeur faciale.
+
+
+
 ### 2026-07-31 — 🔐 Fix « Session expirée » sur toutes actions Admin (Challenge Performance)
 
 **Diagnostic** :
