@@ -2896,6 +2896,11 @@ function PaymentGatewaysCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [keyInput, setKeyInput] = useState("");
+  // Auto-diagnostic: hits /admin/payments/ashtec/health on mount so admin
+  // can see in one glance whether the key is valid, and where it comes
+  // from (env var vs DB fallback).
+  const [health, setHealth] = useState<any>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -2903,7 +2908,20 @@ function PaymentGatewaysCard() {
       setCfg(r);
     } catch {}
   };
-  useEffect(() => { load(); }, []);
+
+  const runHealth = async () => {
+    setHealthLoading(true);
+    try {
+      const r = await api.get<any>("/admin/payments/ashtec/health");
+      setHealth(r);
+    } catch (e: any) {
+      setHealth({ ok: false, step: "network", error: e?.detail || "Impossible de contacter le serveur." });
+    } finally {
+      setHealthLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); runHealth(); }, []);
 
   const save = async (patch: any) => {
     setSaving(true);
@@ -2912,6 +2930,8 @@ function PaymentGatewaysCard() {
       setCfg(r);
       setKeyInput("");
       if (typeof window !== "undefined") window.alert("✅ Configuration sauvegardée");
+      // Immediately re-run health so admin sees the effect.
+      runHealth();
     } catch (e: any) {
       const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
       if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
@@ -3023,6 +3043,69 @@ function PaymentGatewaysCard() {
       <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4, marginBottom: 12 }}>
         L'utilisateur ne voit que "Paiement Automatique". Le système utilise la passerelle marquée comme ACTIVE ci-dessous.
       </Text>
+
+      {/* Auto-diagnostic banner — surfaces the "AshtecPay a refusé la
+          requête" root cause without the admin having to open the
+          separate /(admin)/ashtec-diag screen. */}
+      {health && (
+        <View
+          style={{
+            flexDirection: "row", alignItems: "flex-start", gap: 10,
+            padding: 12, borderRadius: 10, marginBottom: 12,
+            borderWidth: 2,
+            borderColor: health.ok ? theme.colors.success : theme.colors.danger,
+            backgroundColor: health.ok ? "#D1FAE5" : "#FEE2E2",
+          }}
+          testID="ashtec-health-banner"
+        >
+          <Ionicons
+            name={health.ok ? "checkmark-circle" : "alert-circle"}
+            size={24}
+            color={health.ok ? "#065F46" : "#991B1B"}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: "800", fontSize: 13, color: health.ok ? "#065F46" : "#991B1B" }}>
+              {health.ok ? "✅ AshtecPay répond correctement" : "❌ AshtecPay ne répond pas correctement"}
+            </Text>
+            <Text style={{ fontSize: 11, color: health.ok ? "#065F46" : "#991B1B", marginTop: 4, lineHeight: 15 }}>
+              {health.conclusion || health.error || "Diagnostic indisponible."}
+            </Text>
+            {!!health.api_key_source && (
+              <Text style={{ fontSize: 10, color: health.ok ? "#065F46" : "#991B1B", marginTop: 4 }}>
+                Source de la clé : <Text style={{ fontWeight: "800" }}>
+                  {health.api_key_source === "env" ? "variable d'environnement (env)" : "base de données (fallback)"}
+                </Text>
+                {health.api_key_prefix ? `  •  Préfixe : ${health.api_key_prefix}` : ""}
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity
+            onPress={runHealth}
+            disabled={healthLoading}
+            style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.6)" }}
+            testID="ashtec-health-refresh"
+          >
+            <Ionicons name={healthLoading ? "reload" : "refresh"} size={16} color="#111827" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Prominent rescue prompt — shows only when there's NO usable key.
+          Guides the admin straight to the input below without needing to
+          understand env vs DB fallback. */}
+      {health && !health.ok && (health.step === "config" || health.api_key_source === "db" || !health.api_key_source) && (
+        <View style={{ padding: 12, backgroundColor: "#FEF3C7", borderRadius: 10, borderWidth: 2, borderStyle: "dashed", borderColor: "#F59E0B", marginBottom: 12 }} testID="ashtec-rescue-callout">
+          <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E" }}>
+            🔑 Solution rapide — collez votre clé Ashtech ci-dessous
+          </Text>
+          <Text style={{ fontSize: 11, color: "#78350F", marginTop: 4, lineHeight: 15 }}>
+            La clé est probablement absente du serveur (env `ASHTECPAY_API_KEY`) après le redéploiement.
+            En attendant que l'infra restaure la variable d'env, vous pouvez coller votre clé Ashtech ci-dessous.
+            Le serveur l'utilisera automatiquement en fallback jusqu'à ce que la variable d'env soit re-injectée.
+          </Text>
+        </View>
+      )}
+
       {renderGw("soleas")}
       {renderGw("ashtec")}
     </Card>

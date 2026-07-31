@@ -136,13 +136,18 @@ async def _get_api_key(db) -> str:
     """Resolve the Ashtech API key.
 
     Priority (highest first):
-      1. `ASHTECPAY_API_KEY` environment variable — required source in
-         production per user requirement.
+      1. `ASHTECPAY_API_KEY` environment variable — preferred source so
+         operations teams can rotate the key without touching the DB and
+         so keys are never persisted in Mongo dumps.
       2. Admin-panel document (`app_settings.{key:"payment_gateway"}.value.ashtec_api_key`)
-      3. Legacy `app_settings.{_id:"payment_gateway"}.ashtec_api_key`
+         — RESCUE FALLBACK. The admin can paste the key directly in the
+         admin panel when the env var is missing (e.g. right after a
+         redeploy that wiped environment variables). See
+         PaymentGatewaysCard in `(admin)/index.tsx` for the UI entry point.
 
-    The env var wins so operations teams can rotate the key without
-    touching the database.
+    Both sources are kept intentionally so a production outage can be
+    resolved by the admin from within the app, without waiting for infra
+    to re-inject the env variable.
     """
     env_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
     if env_key:

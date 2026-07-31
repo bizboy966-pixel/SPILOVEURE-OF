@@ -21,6 +21,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🚨 Rescue Ashtech Pay depuis l'Admin (perte env var post-déploiement)
+
+**Contexte** : après redéploiement en production, `ASHTECPAY_API_KEY` a été perdu de l'environnement → AshtecPay retourne "refusé la requête" à chaque tentative. Le fallback DB existait déjà dans `_get_api_key()`, mais l'admin ne savait pas comment y accéder ni si le fallback fonctionnait.
+
+**Améliorations UX admin (`(admin)/index.tsx` — `PaymentGatewaysCard`) :**
+- **Auto-diagnostic** : `/api/admin/payments/ashtec/health` est appelé automatiquement au chargement de la carte et affiche un bandeau vert/rouge avec :
+  - ✅/❌ Verdict (`ok`)
+  - Explication (`conclusion` FR précise)
+  - Source de la clé (`env` vs `db` fallback) + préfixe (`ak_xxxxx…`)
+  - Bouton de rafraîchissement instantané.
+- **Rescue callout** : quand la clé manque ou vient du DB, un bandeau jaune "🔑 Solution rapide" guide l'admin vers l'input existant.
+- **Auto re-run** : après enregistrement de la clé, le health check re-tourne automatiquement pour confirmer que ça marche.
+
+**Backend (`ashtec_activation.py`) :**
+- Docstring `_get_api_key()` clarifiée pour prévenir toute suppression future du fallback DB. Le fallback est désormais explicitement documenté comme **RESCUE**.
+
+**Testing preview** : `/api/admin/payments/ashtec/health` retourne `ok:true, api_key_source:"env"`. Le fallback DB est prêt à prendre le relais si `ASHTECPAY_API_KEY` disparaît de l'env.
+
+
+
 ### 2026-07-31 — 🖼️ MediaViewer / MediaLightbox — prévisualisation complète
 
 **Nouveaux composants réutilisables :**
