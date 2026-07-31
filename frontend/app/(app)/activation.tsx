@@ -166,6 +166,7 @@ export default function Activation() {
   }
   const [manualEnabled, setManualEnabled] = useState(false);
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
+  const [ashtecEnabled, setAshtecEnabled] = useState(false);
   const cryptoAutoEnabled = useFeature("crypto_auto");
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
 
@@ -203,6 +204,7 @@ export default function Activation() {
           soleaspay_services_by_country: Record<string, any[]>;
           manual_enabled: boolean;
           crypto_enabled: boolean;
+          ashtec_enabled?: boolean;
           crypto?: any;
         }>("/settings/payments", { auth: false });
         setSoleasEnabled(!!flags.soleaspay_enabled);
@@ -210,6 +212,7 @@ export default function Activation() {
         setSoleasServices(flags.soleaspay_services_by_country || {});
         setManualEnabled(!!flags.manual_enabled);
         setCryptoEnabled(!!flags.crypto_enabled);
+        setAshtecEnabled(!!flags.ashtec_enabled);
         setCryptoCfg(flags.crypto || null);
       } catch {}
     })();
@@ -431,11 +434,12 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled) && (
+        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled || ashtecEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
 
             {/* PRIORITY: Ashtech Pay AUTO-ACTIVATION (2500 FCFA, 10 min chrono) */}
+            {ashtecEnabled && (
             <TouchableOpacity
               style={styles.autoActivateBtn}
               onPress={() => router.push("/(app)/activation-ashtec" as any)}
@@ -469,10 +473,13 @@ export default function Activation() {
                 </View>
               </View>
             </TouchableOpacity>
+            )}
 
-            <Text style={[styles.helper, { textAlign: "center", marginTop: 12, marginBottom: 4 }]}>
-              — ou choisissez un autre mode ci-dessous —
-            </Text>
+            {ashtecEnabled && (soleasEnabled || manualEnabled || cryptoEnabled || secureUIEnabled) && (
+              <Text style={[styles.helper, { textAlign: "center", marginTop: 12, marginBottom: 4 }]}>
+                — ou choisissez un autre mode ci-dessous —
+              </Text>
+            )}
 
             <View style={styles.modesCol}>
               {soleasEnabled && (

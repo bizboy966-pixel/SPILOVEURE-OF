@@ -120,15 +120,26 @@ def _new_ref() -> str:
     return f"SPV-AT-{_uuid.uuid4().hex[:12].upper()}"
 
 
+async def _load_gateway_cfg(db) -> dict:
+    """Read the payment_gateway config from the SAME document used by the
+    admin panel (`{key: 'payment_gateway'}.value`). Falls back to the
+    legacy `{_id: 'payment_gateway'}` shape for older installs.
+    """
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    val = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
+    if val:
+        return val
+    return await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
+
+
 async def _get_api_key(db) -> str:
     """Resolve the Ashtech API key.
 
     Priority (highest first):
       1. `ASHTECPAY_API_KEY` environment variable — required source in
          production per user requirement.
-      2. `app_settings.payment_gateway.ashtec_api_key` in Mongo — legacy
-         fallback so existing deployments keep working while the env var
-         is being rolled out.
+      2. Admin-panel document (`app_settings.{key:"payment_gateway"}.value.ashtec_api_key`)
+      3. Legacy `app_settings.{_id:"payment_gateway"}.ashtec_api_key`
 
     The env var wins so operations teams can rotate the key without
     touching the database.
@@ -136,8 +147,14 @@ async def _get_api_key(db) -> str:
     env_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
     if env_key:
         return env_key
-    cfg = await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
+    cfg = await _load_gateway_cfg(db)
     return (cfg.get("ashtec_api_key") or "").strip()
+
+
+async def _ashtec_enabled(db) -> bool:
+    """Admin master switch for the Ashtech gateway."""
+    cfg = await _load_gateway_cfg(db)
+    return bool(cfg.get("ashtec_enabled"))
 
 
 # Version marker — bumped when the fix for Flooz (Moov) / E.164 / operator
@@ -147,8 +164,19 @@ CATALOG_VERSION: str = "2026-07-30-v2-flooz-moov-e164"
 
 
 @api.get("/payments/ashtec/catalog")
-async def ashtec_catalog():
-    """Public catalog — country + operator list for the UI selectors."""
+async def ashtec_catalog(request: Request):
+    """Public catalog — country + operator list for the UI selectors.
+    Returns `enabled: false` when the admin has disabled Ashtech, so the
+    frontend can hide the entire Auto-Activation flow.
+    """
+    db = request.app.state.db
+    enabled = await _ashtec_enabled(db)
+    if not enabled:
+        return {
+            "enabled": False,
+            "version": CATALOG_VERSION,
+            "countries": [],
+        }
     countries = [
         {"code": code, "name": info["name"], "currency": info["currency"],
          "operators": info["operators"]}
@@ -156,6 +184,7 @@ async def ashtec_catalog():
     ]
     countries.sort(key=lambda c: c["name"])
     return {
+        "enabled": True,
         "version": CATALOG_VERSION,
         "amount": ACTIVATION_AMOUNT,
         "level": ACTIVATION_LEVEL,
@@ -175,6 +204,14 @@ def validate_country_operator(cc: str, operator: str) -> dict:
     return info
 
 
+async def _ashtec_enabled(db) -> bool:
+    """Admin master switch for the Ashtech gateway. Ashtech requests must
+    be refused as long as this is False, regardless of the api_key.
+    """
+    cfg = await _load_gateway_cfg(db)
+    return bool(cfg.get("ashtec_enabled"))
+
+
 async def create_ashtec_payment(
     *, db, user, kind: str, amount: float, country_code: str,
     operator: str, phone: str, extra_row: dict | None = None,
@@ -190,6 +227,8 @@ async def create_ashtec_payment(
     api_key = await _get_api_key(db)
     if not api_key:
         raise HTTPException(503, "AshtecPay non configuré (clé API manquante).")
+    if not await _ashtec_enabled(db):
+        raise HTTPException(503, "AshtecPay est désactivé par l'administrateur.")
     cc = country_code.upper()
     info = validate_country_operator(cc, operator)
 
@@ -799,7 +838,7 @@ async def ashtec_diag(request: Request, limit: int = 20):
     Very useful to debug production issues like "AshtecPay a refusé la requête".
     """
     db = request.app.state.db
-    gw = await db.app_settings.find_one({"_id": "payment_gateway"}, {"_id": 0}) or {}
+    gw = await _load_gateway_cfg(db)
     api_key = await _get_api_key(db)
     env_present = bool((os.environ.get("ASHTECPAY_API_KEY") or "").strip())
     db_present = bool((gw.get("ashtec_api_key") or "").strip())

@@ -53,9 +53,18 @@ function SpecialTaskCreateInner() {
   const [gender, setGender] = useState<"male" | "female" | "both">("both");
 
   const [quantity, setQuantity] = useState("100");
+  const [ashtecEnabled, setAshtecEnabled] = useState<boolean>(false);
+  const [cryptoPayEnabled, setCryptoPayEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     (async () => { try { const r = await api.get<any>("/special-tasks/config"); setCfg(r.action_types || {}); } catch {} })();
+    (async () => {
+      try {
+        const f = await api.get<any>("/settings/payments", { auth: false });
+        setAshtecEnabled(!!f.ashtec_enabled);
+        setCryptoPayEnabled(!!f.crypto_enabled);
+      } catch {}
+    })();
   }, []);
 
   const nets = actionType === "group" ? NETWORKS_GROUP : NETWORKS_STD;
@@ -229,6 +238,7 @@ function SpecialTaskCreateInner() {
             </Text>
 
             {/* Mobile Money (Ashtech) — priority */}
+            {ashtecEnabled && (
             <TouchableOpacity
               style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
               onPress={() => router.push({
@@ -246,10 +256,14 @@ function SpecialTaskCreateInner() {
               <Ionicons name="phone-portrait" size={16} color="#FBBF24" />
               <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
             </TouchableOpacity>
+            )}
 
-            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>— ou —</Text>
+            {ashtecEnabled && cryptoPayEnabled && (
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>— ou —</Text>
+            )}
 
             {/* Crypto USDT (IziChangePay) */}
+            {cryptoPayEnabled && (
             <TouchableOpacity
               style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
               onPress={payCrypto}
@@ -260,6 +274,13 @@ function SpecialTaskCreateInner() {
                 <><Ionicons name="logo-bitcoin" size={16} color="#fff" /><Text style={styles.nextT}>Payer en USDT (BEP20)</Text></>
               )}
             </TouchableOpacity>
+            )}
+
+            {!ashtecEnabled && !cryptoPayEnabled && (
+              <Text style={{ color: "#DC2626", textAlign: "center", fontSize: 12 }}>
+                Aucun moyen de paiement n'est actif. Contactez l'administrateur.
+              </Text>
+            )}
           </View>
         )}
       </ScrollView>

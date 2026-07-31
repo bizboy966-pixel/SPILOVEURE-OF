@@ -84,6 +84,11 @@ export default function ActivationAshtec() {
     (async () => {
       try {
         const c = await api.get<Catalog>("/payments/ashtec/catalog", { auth: false });
+        if ((c as any).enabled === false) {
+          notify("Indisponible", "AshtecPay est actuellement désactivé par l'administrateur.");
+          router.back();
+          return;
+        }
         setCatalog(c);
         if (!country && c.countries.length) setCountry(c.countries[0].code);
       } catch (e: any) {

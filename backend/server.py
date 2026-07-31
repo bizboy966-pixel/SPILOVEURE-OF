@@ -1225,7 +1225,10 @@ async def get_payment_methods_status(request: Request):
         if gw.get("soleas_enabled"):
             active = "soleas"
     soleas_ready = bool(gw.get("soleas_enabled")) and soleaspay.is_configured()
-    ashtec_ready = bool(gw.get("ashtec_enabled")) and bool((gw.get("ashtec_api_key") or "").strip())
+    # Ashtech key can come from either env var (preferred) or DB fallback.
+    ashtec_api_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip() \
+                     or (gw.get("ashtec_api_key") or "").strip()
+    ashtec_ready = bool(gw.get("ashtec_enabled")) and bool(ashtec_api_key)
     if active == "soleas":
         auto_enabled = soleas_ready
     else:
@@ -1240,6 +1243,11 @@ async def get_payment_methods_status(request: Request):
         # Generic, gateway-agnostic auto-payment switch (preferred for new UI):
         "auto_enabled": auto_enabled,
         "active_gateway": active if auto_enabled else None,
+        # Per-gateway toggles — the source of truth for UI visibility.
+        # UI must hide Ashtech / Soleas buttons when the corresponding flag
+        # is False. Backend also enforces these on every initiate call.
+        "ashtec_enabled": ashtec_ready,
+        "soleas_enabled": soleas_ready,
         # Legacy / backward-compat fields (the existing frontend reads these):
         "soleaspay_enabled": auto_enabled,
         "soleaspay_excluded_countries": sorted(list(soleaspay.EXCLUDED_COUNTRIES)),

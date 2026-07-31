@@ -1,0 +1,35 @@
+{
+  "summary": "Verified Ashtech admin-toggle propagation end-to-end. Backend: 25/25 pytest passing (5 new toggle_visibility + 3 new toggle_ads_tasks + 10 activation regression + 6 ads/tasks + 1 misc). Confirmed catalog returns {enabled:false, countries:[]} when ashtec_enabled=false, initiate returns 503 with 'AshtecPay est désactivé par l'administrateur', ads /pay method=mobile_money returns 503, special-tasks /pay method=mobile_money returns 503, /settings/payments exposes both ashtec_enabled and soleas_enabled bool fields. Frontend: after Metro bundle refresh, /activation correctly hides btn-auto-activation when ashtec_enabled=false and shows it when true. Body text 'AUTO-ACTIVATION' is entirely absent in the disabled DOM.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ashtec_toggle_visibility.py",
+    "/app/backend/tests/test_ashtec_toggle_ads_tasks.py",
+    "/app/test_reports/pytest/iter37_toggle.xml",
+    "/app/test_reports/pytest/iter37_ads_tasks.xml",
+    "/app/test_reports/pytest/iter37_full.xml"
+  ],
+  "action_items": [
+    "IMPORTANT: The activation.tsx / ad-create.tsx / special-task-create.tsx fixes were NOT visible in the deployed Metro bundle until we ran `sudo supervisorctl restart frontend`. Expo web hot-reload appears not to have picked up the changes made prior to iteration 37. Main agent should include a frontend restart step in the release checklist whenever conditional-render logic changes."
+  ],
+  "critical_code_review_comments": [
+    "activation.tsx L437: outer visibility gate `(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled || ashtecEnabled)` is correct, but note that the entire 'Choisir un mode de paiement' Card disappears when all methods are off — user is left with no CTA at all. Consider showing a graceful 'Aucun mode de paiement disponible pour le moment' fallback.",
+    "activation.tsx L169 initial state `useState(false)` for ashtecEnabled means the button won't flash before the /settings/payments fetch resolves — good. Same pattern used for cryptoEnabled/soleasEnabled. Consistent.",
+    "ad-create.tsx L392-437 and special-task-create.tsx L228-280 also gate ad-pay-mobile-money/ad-pay-crypto/stc-pay-mobile-money/stc-pay-crypto on the same flags — verified in code, but the running bundle for these pages was NOT re-checked in this iteration since the fix mechanism is identical. Recommend a smoke click-through after the next deploy.",
+    "Backend ashtec_activation._load_gateway_cfg (L37-73) now reads from {key:'payment_gateway'}.value — the same doc admin writes to via PUT /api/admin/payments/gateway. This resolves the two-document drift that was the root cause of the bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ashtec_toggle_ads_tasks.py (NEW - 3 additional regression tests)"
+  ],
+  "success_rate": { "backend": "100% (25/25)", "frontend": "100% (after restart)" },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Ephemeral TEST_fetog[2-5]_* users created via /api/auth/register (TG, sponsor=admin).",
+  "seed_data_creation": "5 TEST_ users created for FE flows; toggle_ashtec fixture idempotently restores app_settings.{key:payment_gateway}.value.ashtec_enabled=true at teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To flip the flag from the DB: mongosh $MONGO_URL/$DB_NAME --eval 'db.app_settings.updateOne({key:\"payment_gateway\"},{$set:{\"value.ashtec_enabled\":false}})'. The FE reads /api/settings/payments (public, no auth) — grep response for `ashtec_enabled`. testIDs: btn-auto-activation, ad-pay-mobile-money, ad-pay-crypto, stc-pay-mobile-money, stc-pay-crypto. IMPORTANT: after any change to activation.tsx / ad-create.tsx / special-task-create.tsx conditional render, run `sudo supervisorctl restart frontend` and wait ~45s for Metro to rebuild — hot-reload alone was not sufficient in iteration 37. Ashtec initiate happy-path can 400 with sandbox flake ('ashtec/erreur/refus/interne' in detail) — that is expected upstream behaviour, tests accept it.",
+  "rca of the issue": "Original bug (ashtec_enabled=false ignored) was caused by two separate app_settings documents storing gateway config; ashtec_activation.py was reading from the wrong one. Fix (already committed by main agent): _load_gateway_cfg helper + _ashtec_enabled() gate in create_ashtec_payment + catalog returns enabled:false when off. Iteration 37 apparent bug (FE still showed button after fix) was actually a stale Metro bundle — resolved by frontend supervisor restart. NO business-logic bug remains."
+}

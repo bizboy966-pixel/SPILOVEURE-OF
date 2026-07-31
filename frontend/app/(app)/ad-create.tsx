@@ -58,6 +58,18 @@ function AdCreateScreenInner() {
   // Step 3
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
+  const [ashtecEnabled, setAshtecEnabled] = useState<boolean>(false);
+  const [cryptoEnabled, setCryptoEnabledLocal] = useState<boolean>(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const f = await api.get<any>("/settings/payments", { auth: false });
+        setAshtecEnabled(!!f.ashtec_enabled);
+        setCryptoEnabledLocal(!!f.crypto_enabled);
+      } catch {}
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -376,6 +388,7 @@ function AdCreateScreenInner() {
                 </Text>
 
                 {/* ⚡ Mobile Money Ashtech Pay (priority) */}
+                {ashtecEnabled && (
                 <TouchableOpacity
                   style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
                   onPress={() => router.push({
@@ -393,11 +406,15 @@ function AdCreateScreenInner() {
                   <Ionicons name="phone-portrait" size={18} color="#FBBF24" />
                   <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
                 </TouchableOpacity>
+                )}
 
-                <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginVertical: 8, fontSize: 12 }}>
-                  — ou —
-                </Text>
+                {ashtecEnabled && cryptoEnabled && (
+                  <Text style={{ textAlign: "center", color: theme.colors.textSecondary, marginVertical: 8, fontSize: 12 }}>
+                    — ou —
+                  </Text>
+                )}
 
+                {cryptoEnabled && (
                 <TouchableOpacity
                   style={[styles.next, { backgroundColor: "#F59E0B" }, saving && { opacity: 0.6 }]}
                   onPress={() => startPayment()}
@@ -408,9 +425,15 @@ function AdCreateScreenInner() {
                     <><Ionicons name="logo-bitcoin" size={18} color="#fff" /><Text style={styles.nextT}>Payer en USDT (BEP20)</Text></>
                   )}
                 </TouchableOpacity>
+                )}
                 {payErr ? (
                   <Text style={{ color: "#DC2626", textAlign: "center", marginTop: 8 }} testID="ad-pay-error">{payErr}</Text>
                 ) : null}
+                {!ashtecEnabled && !cryptoEnabled && (
+                  <Text style={{ color: "#DC2626", textAlign: "center", marginTop: 8 }}>
+                    Aucun moyen de paiement n'est actif actuellement. Contactez l'administrateur.
+                  </Text>
+                )}
               </>
             )}
 
