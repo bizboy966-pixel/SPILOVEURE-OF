@@ -21,6 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🖼️ MediaViewer / MediaLightbox — prévisualisation complète
+
+**Nouveaux composants réutilisables :**
+- `<MediaLightbox />` + hook `useMediaLightbox()` (`src/components/MediaLightbox.tsx`) : Modal transparent, prev/next, zoom (+/-, wheel, click-to-toggle 2×), keyboard shortcuts (Escape, ArrowLeft/Right, +, -, 0), description strip en bas, HTML5 `<video controls autoPlay muted playsInline>` pour compat iOS Safari.
+- `<MediaViewer />` (`src/components/MediaViewer.tsx`) : grille de thumbnails cliquables + description expandable (au-delà de 220 chars), utilise `MediaLightbox` en interne (DRY).
+
+**Intégration admin (`(admin)/index.tsx`) :**
+- Onglet Publicités : chaque carte pending rend un `<MediaViewer>` avec cover_image_url + video_url.
+- Onglet Marketplace : remplace l'ancien rendu `<img>/<video>` par `<MediaViewer>` unifié.
+- Onglet Tâches spé. : nouveau bloc de review avec 5 filtres (Paiement/Actives/Terminées/Annulées/Toutes), affiche description complète + bouton « Ouvrir le lien cible » + « Forcer l'activation » pour pending_payment.
+
+**Intégration publique :**
+- `/(app)/marketplace` : tap sur l'image de couverture → lightbox. Badge « Voir en grand ». Description limitée à 3 lignes avec bouton « Lire la suite ».
+- `/(app)/ads` : tap sur poster → lightbox. Vidéos ads gardent leurs contrôles natifs. Description limitée à 4 lignes avec bouton « Lire la suite ».
+
+**Validation E2E (iter_41) :** 100% des chemins accessibles. Chemins non testés bloqués uniquement par absence de seed data (aucun bug de code).
+
+
+
 ### 2026-07-31 — 🎁 Engagement Enhancements (V2)
 
 **Historique Réacteur Enrichi** — `GET /api/me/reactor-rewards` accepte désormais :

@@ -97,10 +97,10 @@ export function MediaLightbox({
             )
           ) : current?.kind === "video" ? (
             isWeb ? (
-              // @ts-ignore raw web video
+              // @ts-ignore raw web video — muted+playsInline is required for iOS Safari autoplay
               <video
                 src={resolveMediaUrl(current.url)}
-                controls autoPlay
+                controls autoPlay muted playsInline
                 style={{ maxWidth: "90vw", maxHeight: "80vh", background: "#000", display: "block" }}
               />
             ) : (
@@ -206,8 +206,11 @@ const styles = StyleSheet.create({
          backgroundColor: "rgba(255,255,255,0.15)" },
   descStrip: {
     position: "absolute", bottom: 0, left: 0, right: 0,
-    maxHeight: "35%",
+    maxHeight: "30%",
     backgroundColor: "rgba(15, 23, 42, 0.85)",
+    // Leave room above so the strip doesn't overlap the media on tall
+    // images (approximate — the media container caps at 80vh so this
+    // padding keeps ~10vh of clear space between the strip and the image).
   },
   descStripTitle: { color: "#fff", fontWeight: "800", fontSize: 14, marginBottom: 4 },
   descStripBody: { color: "#E2E8F0", fontSize: 12, lineHeight: 18 },
