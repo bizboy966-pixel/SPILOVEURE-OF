@@ -30,7 +30,7 @@ const COLOR_BY_KIND: Record<string, string> = {
   ad_rejected: "#EF4444",
 };
 
-const MAX_STACK = 3;
+const MAX_STACK = 2;
 const AUTO_DISMISS_MS = 5000;
 
 export function NotificationToaster() {

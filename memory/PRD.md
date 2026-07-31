@@ -21,6 +21,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🎁 Engagement Enhancements (V2)
+
+**Historique Réacteur Enrichi** — `GET /api/me/reactor-rewards` accepte désormais :
+- `?action=like|comment` (invalides silencieusement ignorées).
+- `?from_date=...&to_date=...` (ISO, tolère le suffixe `Z`).
+- Retourne un tableau `by_day` (agrégat par jour : `{date, total, count, likes, comments}`) + `filters` echoées après validation.
+- Frontend `/(app)/reactor-rewards` refondu : 3 chips filtre (Toutes / Likes / Commentaires), section "📊 Total par jour" avec barres horizontales, regroupement date + heure dans la liste.
+
+**Notifications Push (in-app)** — nouveau module `notifications_api.py` :
+- `GET /api/me/notifications` (paginé, `?unread_only=true`, `?since=ISO`).
+- `GET /api/me/notifications/unread-count`.
+- `POST /api/me/notifications/{id}/read` + `POST /api/me/notifications/mark-all-read` (idempotent).
+- Hook `useNotificationsFeed.ts` (polling 10 s) + composant global `<NotificationToaster />` (max 2 toasts empilés, auto-dismiss 5 s, marque-lu automatique après affichage).
+
+**Anti-Bot Commentaires** — `_is_spam_comment` dans `ads.py` :
+- Min 8 caractères hors espaces, au moins 1 lettre.
+- Refus si tous les mots sont identiques ("ok ok ok ok").
+- Refus si Jaccard tokens ≥ 0.8 avec un commentaire existant sur la même pub.
+- Retourne 400 « Commentaire refusé : <raison FR> ».
+
+**Tests :** 5/5 `test_engagement_v2.py` + 35/35 régression totale.
+
+⏸️ **Refonte `server.py` reportée** — pure task de refactor mécanique sans valeur utilisateur immédiate ; à planifier sur une itération dédiée.
+
+
+
 ### 2026-07-31 — 🎯 Refonte complète Ads Reactor Rewards (V2)
 
 **Nouveau modèle de récompense pour les campagnes publicitaires :**

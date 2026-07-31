@@ -66,11 +66,12 @@ def test_reactor_rewards_filter_by_action_accepts_valid_values(admin_token):
 
 
 def test_reactor_rewards_ignores_bogus_filter(admin_token):
-    """action=foobar should be silently ignored (no 400)."""
+    """action=foobar should be silently ignored (no 400) and filters.action == null."""
     user = _mk_user()
     r = requests.get(f"{API}/me/reactor-rewards?action=foobar",
                      headers=_hdrs(user["token"]), timeout=15)
     assert r.status_code == 200
+    assert r.json()["filters"]["action"] is None
 
 
 # ── Notifications API ────────────────────────────────────────────────

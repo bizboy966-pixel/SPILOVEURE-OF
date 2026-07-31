@@ -852,7 +852,13 @@ async def my_reactor_rewards(request: Request, user=Depends(get_current_user),
         "items": items,
         "total_earned": float(total_agg[0]["total"]) if total_agg else 0.0,
         "by_day": by_day,
-        "filters": {"action": action, "from_date": from_date, "to_date": to_date},
+        "filters": {
+            # Echo back only *validated* filter values so the client can
+            # trust `filters.action` to render the active chip.
+            "action": action if action in ("like", "comment") else None,
+            "from_date": dt_range.get("$gte").isoformat() if dt_range.get("$gte") else None,
+            "to_date": dt_range.get("$lte").isoformat() if dt_range.get("$lte") else None,
+        },
     }
 
 
