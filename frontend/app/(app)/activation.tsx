@@ -377,6 +377,14 @@ export default function Activation() {
     (manualCfg!.allowed_countries.length === 0 ||
       manualCfg!.allowed_countries.includes(manualCountry || user?.country || "TG"));
 
+  // Extracted for readability + future-proofing: adding a new gateway
+  // only requires appending its flag here rather than editing every
+  // conditional in the JSX below.
+  const anyGatewayEnabled = [
+    secureUIEnabled, soleasEnabled, manualEnabled,
+    cryptoEnabled, ashtecEnabled, cryptoAutoEnabled,
+  ].some(Boolean);
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
@@ -420,7 +428,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureUIEnabled && !soleasEnabled && !manualEnabled && !cryptoEnabled && !ashtecEnabled && !cryptoAutoEnabled && (
+        {!anyGatewayEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -439,7 +447,7 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled || ashtecEnabled || cryptoAutoEnabled) && (
+        {anyGatewayEnabled && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
 
