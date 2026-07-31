@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 📊 Fix Total cumulé Activations (Ashtech invisible dans les stats)
+
+**Bug** : depuis la migration SoleasPay → AshtecPay, les activations Mobile Money automatiques ne remontaient pas dans le « Total cumulé des activations » de l'admin. Le compteur de comptes actifs progressait mais le total en FCFA restait figé.
+
+**Cause** : trois requêtes dans `server.py` filtraient `provider:"soleaspay"` en dur — les paiements Ashtech (`provider:"ashtecpay"`) étaient silencieusement exclus.
+
+**Fix backend (`server.py`)** :
+- L1655-1660 : `activations_pending_auto` inclut désormais les 2 providers via `{"$in": ["soleaspay","ashtecpay"]}`.
+- L1685-1690 : agrégat `total_auto_agg` (dashboard stats) inclut les 2 providers.
+- L2012-2018 : la liste `/admin/activations` fusionne aussi les paiements Ashtech (précédemment inaccessibles dans le tableau).
+- Le champ `provider` du merge conserve la vraie valeur (`ashtecpay` ou `soleaspay`) pour affichage.
+
+**Vérification live** : baseline 95 000 → seed 1 activation Ashtech validée 2 500 FCFA → 97 500 ✅ (+2 500 exact). Cleanup → retour à 95 000.
+
+**Tests** : 3/3 nouveaux `test_ashtec_activation_stats.py` PASS + 2/2 régression `test_crypto_activation_stats.py`.
+
+
+
 ### 2026-07-31 — 💱 Fix comptabilité crypto activations (5 USDT = 2 500 FCFA)
 
 **Bug** : les activations crypto étaient stockées avec `amount:5, currency:"USDT"`. Le dashboard admin sommait naïvement `SUM($amount)` → une activation crypto de 5 USDT contribuait **5 FCFA** au « Total des activations » au lieu de **2 500 FCFA**.

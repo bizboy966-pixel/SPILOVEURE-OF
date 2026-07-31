@@ -1653,7 +1653,7 @@ async def admin_stats(request: Request):
     # activation_done is false (stuck — needs admin attention).
     activations_pending_manual = await db.activations.count_documents({"status": "pending"})
     activations_pending_auto = await db.payments.count_documents({
-        "provider": "soleaspay",
+        "provider": {"$in": ["soleaspay", "ashtecpay"]},
         "$or": [
             {"status": "pending"},
             {"status": "paid", "activation_done": {"$ne": True}},
@@ -1680,8 +1680,15 @@ async def admin_stats(request: Request):
         }}}},
     ]).to_list(1)
     total_activations_manual = total_activation_amount_agg[0]["total"] if total_activation_amount_agg else 0
+    # Auto payment gateways store their activation records in `db.payments`.
+    # We include BOTH SoleasPay (legacy) and AshtecPay (current) so the
+    # dashboard reflects every automatic activation regardless of the
+    # provider dispatched to. All amounts are in FCFA (XOF/XAF).
     total_auto_agg = await db.payments.aggregate([
-        {"$match": {"provider": "soleaspay", "activation_done": True}},
+        {"$match": {
+            "provider": {"$in": ["soleaspay", "ashtecpay"]},
+            "activation_done": True,
+        }},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
     total_activations_auto = total_auto_agg[0]["total"] if total_auto_agg else 0
@@ -2001,8 +2008,13 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             it["gateway_status"] = p.get("status")
             it["expires_at"] = p.get("expires_at")
 
-    # Merge automatic SoleasPay payments
-    auto_cursor = db.payments.find({"provider": "soleaspay"}, {"_id": 0}).sort("created_at", -1).limit(500)
+    # Merge automatic payments (SoleasPay legacy + AshtecPay current).
+    # Both providers store their payment docs in `db.payments` with the same
+    # basic shape, so we can iterate them uniformly.
+    auto_cursor = db.payments.find(
+        {"provider": {"$in": ["soleaspay", "ashtecpay"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(500)
     async for p in auto_cursor:
         raw_status = p.get("status") or "pending"
         if raw_status == "paid":
@@ -2013,6 +2025,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             mapped_status = "pending"
         if status_filter and mapped_status != status_filter:
             continue
+        provider_name = p.get("provider") or "soleaspay"
         merged = {
             "id": p.get("reference"),
             "user_id": p.get("user_id"),
@@ -2022,7 +2035,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             "amount": p.get("amount"),
             "currency": p.get("currency") or "XOF",
             "payment_method": "automatic",
-            "operator": p.get("service_label"),
+            "operator": p.get("operator") or p.get("service_label"),
             "payment_phone": p.get("phone"),
             "payer_country": p.get("country_code"),
             "status": mapped_status,
@@ -2036,7 +2049,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             "activation_error": p.get("activation_error"),
             "soleaspay_status": p.get("soleaspay_status"),
             "source": "payment",
-            "provider": "soleaspay",
+            "provider": provider_name,
             "is_stuck": (raw_status == "paid" and not p.get("activation_done")),
         }
         items.append(merged)
