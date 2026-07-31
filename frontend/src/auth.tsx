@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { storage } from "@/src/utils/storage";
-import { api, setAuthToken } from "@/src/api";
+import { api, setAuthToken, setUnauthorizedHandler } from "@/src/api";
 
 export type User = {
   id: string;
@@ -60,6 +60,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     })();
   }, [refresh]);
+
+  // ── Global sign-out on JWT expiry ────────────────────────────────
+  // Once mounted, register a hook so any API 401 that matches a JWT
+  // failure (Session expirée / Token invalide / Token manquant / ...)
+  // clears the local session and forces a fresh login. Prior to this,
+  // pages with expired tokens produced an endless stream of
+  // "Session expirée" alerts on every action (Challenge Performance
+  // being the most visible offender).
+  useEffect(() => {
+    setUnauthorizedHandler((message) => {
+      setUser(null);
+      setAuthToken(null);
+      // fire-and-forget — no need to block on storage flush
+      storage.secureRemove("auth_token").catch(() => {});
+      if (typeof window !== "undefined") {
+        // Alert once, then let the auth guard redirect the user.
+        // Use a small delay so React finishes the current render.
+        setTimeout(() => {
+          try { window.alert(`⚠️ ${message} Veuillez vous reconnecter.`); } catch {}
+          try { window.location.assign("/(auth)/login"); } catch {}
+        }, 50);
+      }
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   const signIn = async (email: string, password: string) => {
     const r = await api.post<{ access_token: string; user: User }>(

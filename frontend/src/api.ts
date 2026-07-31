@@ -17,6 +17,28 @@ export function getAuthToken(): string | null {
 
 export type ApiError = { detail?: string; status?: number };
 
+// ─── Global 401 handler ─────────────────────────────────────────
+// AuthProvider registers a callback here on mount so that any request
+// hitting an expired / invalid JWT triggers a global sign-out + redirect
+// to the login screen. Prior to this, individual screens would show a
+// stale "Session expirée" alert on every action while the user stayed
+// on the page with a broken token.
+type UnauthorizedHandler = (message: string) => void;
+let _onUnauthorized: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(cb: UnauthorizedHandler | null) {
+  _onUnauthorized = cb;
+}
+
+// Detail strings the backend uses for JWT-related failures (auth.py).
+const AUTH_ERROR_STRINGS = new Set([
+  "Session expirée.",
+  "Token manquant.",
+  "Token invalide.",
+  "Token expiré.",
+  "Type de token invalide.",
+  "Utilisateur introuvable.",
+]);
+
 async function request<T = any>(
   path: string,
   opts: RequestInit & { auth?: boolean; pwdConfirm?: string } = {}
@@ -70,6 +92,16 @@ async function request<T = any>(
         .join(" • ");
     } else if (d && typeof d === "object") {
       message = d.msg || JSON.stringify(d);
+    }
+    // Global auth-expiry hook: any 401 that matches a known JWT failure
+    // string should force a clean sign-out + redirect. Prevents the "user
+    // stays on a page whose every action fails with 'Session expirée'"
+    // dead-end that Challenge Performance was hitting.
+    if (res.status === 401 && AUTH_ERROR_STRINGS.has(message)) {
+      _authToken = null;
+      if (_onUnauthorized) {
+        try { _onUnauthorized(message); } catch { /* ignore handler bugs */ }
+      }
     }
     const err: ApiError = { detail: message, status: res.status };
     throw err;

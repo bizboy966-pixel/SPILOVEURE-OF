@@ -21,6 +21,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🔐 Fix « Session expirée » sur toutes actions Admin (Challenge Performance)
+
+**Diagnostic** :
+- Backend `/api/admin/challenges` (GET/POST/PUT/DELETE) fonctionne parfaitement avec un token valide (curl → 200 OK confirmé).
+- L'erreur « Session expirée » vient du backend `auth.py` L67 → uniquement quand le JWT est **expiré** (12 h de durée de vie) ou **invalide** (JWT_SECRET modifié entre deux déploiements).
+- **Aucun** endpoint challenge n'est cassé. Le vrai bug est que le frontend ne réagissait PAS à un 401 : l'utilisateur restait « connecté » côté UI avec un token mort, chaque action échouait, il devait deviner qu'il fallait se reconnecter manuellement.
+
+**Fix (frontend)** :
+- `src/api.ts` : ajout d'un handler global `setUnauthorizedHandler()` déclenché sur tout 401 dont le détail correspond à une erreur JWT connue (`Session expirée.`, `Token invalide.`, `Token manquant.`, `Token expiré.`, `Type de token invalide.`, `Utilisateur introuvable.`).
+- `src/auth.tsx` : l'`AuthProvider` enregistre un handler qui **vide le token en RAM + storage**, affiche une alerte claire (« ⚠️ ... Veuillez vous reconnecter »), puis redirige vers `/(auth)/login`.
+
+**Résultat** : dès qu'une action admin (créer/modifier/activer/désactiver/supprimer un challenge — ou tout autre appel API) tombe sur un token expiré, l'utilisateur est proprement déconnecté et redirigé vers l'écran de login. Après relogin, TOUTES les opérations Challenge Performance fonctionnent normalement.
+
+
+
 ### 2026-07-31 — 🚨 Rescue Ashtech Pay depuis l'Admin (perte env var post-déploiement)
 
 **Contexte** : après redéploiement en production, `ASHTECPAY_API_KEY` a été perdu de l'environnement → AshtecPay retourne "refusé la requête" à chaque tentative. Le fallback DB existait déjà dans `_get_api_key()`, mais l'admin ne savait pas comment y accéder ni si le fallback fonctionnait.
