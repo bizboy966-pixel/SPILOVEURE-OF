@@ -87,6 +87,14 @@ export default function AshtecDiag() {
             <Text style={styles.txt}>Gateway actif : <Text style={styles.mono}>{diag.gateway_active}</Text></Text>
             <Text style={styles.txt}>Ashtech activé : <Text style={styles.mono}>{String(diag.ashtec_enabled)}</Text></Text>
             <Text style={styles.txt}>Clé configurée : <Text style={styles.mono}>{String(diag.api_key?.configured)} ({diag.api_key?.length} car)</Text></Text>
+            <Text style={styles.txt}>
+              Source de la clé : <Text style={[styles.mono, {
+                color: diag.api_key?.source === "env" ? "#10B981" :
+                       diag.api_key?.source === "db" ? "#F59E0B" : "#EF4444",
+                fontWeight: "800",
+              }]}>{diag.api_key?.source?.toUpperCase() || "MISSING"}</Text>
+              {" "}(env: {String(diag.api_key?.env_var_set)} / db: {String(diag.api_key?.db_fallback_set)})
+            </Text>
             <Text style={styles.txt}>Prefix clé : <Text style={styles.mono}>{diag.api_key?.prefix}</Text></Text>
             <Text style={styles.txt}>Webhook URL : <Text style={styles.mono}>{diag.webhook_url}</Text></Text>
           </Card>

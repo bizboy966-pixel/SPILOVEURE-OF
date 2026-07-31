@@ -121,6 +121,21 @@ def _new_ref() -> str:
 
 
 async def _get_api_key(db) -> str:
+    """Resolve the Ashtech API key.
+
+    Priority (highest first):
+      1. `ASHTECPAY_API_KEY` environment variable — required source in
+         production per user requirement.
+      2. `app_settings.payment_gateway.ashtec_api_key` in Mongo — legacy
+         fallback so existing deployments keep working while the env var
+         is being rolled out.
+
+    The env var wins so operations teams can rotate the key without
+    touching the database.
+    """
+    env_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
+    if env_key:
+        return env_key
     cfg = await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
     return (cfg.get("ashtec_api_key") or "").strip()
 
@@ -710,11 +725,13 @@ async def ashtec_health(request: Request):
     """
     import ashtecpay as _atp
     db = request.app.state.db
-    gw = await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
-    api_key = (gw.get("ashtec_api_key") or "").strip()
+    api_key = await _get_api_key(db)
     if not api_key:
         return {"ok": False, "step": "config",
-                "error": "ashtec_api_key non configuré dans app_settings."}
+                "error": ("Clé API absente. Définissez la variable d'environnement "
+                          "ASHTECPAY_API_KEY sur le serveur, ou configurez "
+                          "app_settings.payment_gateway.ashtec_api_key en fallback.")}
+    env_present = bool((os.environ.get("ASHTECPAY_API_KEY") or "").strip())
     result = {
         "server_env": {
             "backend_host": os.environ.get("HOSTNAME") or "unknown",
@@ -724,6 +741,7 @@ async def ashtec_health(request: Request):
         },
         "catalog_version": CATALOG_VERSION,
         "api_key_prefix": api_key[:8] + "…",
+        "api_key_source": "env" if env_present else "db",
         "probes": [],
     }
     # Two known-good probes on Togo (works if operator names + phone
@@ -782,11 +800,16 @@ async def ashtec_diag(request: Request, limit: int = 20):
     """
     db = request.app.state.db
     gw = await db.app_settings.find_one({"_id": "payment_gateway"}, {"_id": 0}) or {}
-    api_key = gw.get("ashtec_api_key") or ""
+    api_key = await _get_api_key(db)
+    env_present = bool((os.environ.get("ASHTECPAY_API_KEY") or "").strip())
+    db_present = bool((gw.get("ashtec_api_key") or "").strip())
     key_info = {
         "configured": bool(api_key),
         "length": len(api_key),
         "prefix": (api_key[:8] + "…") if api_key else None,
+        "source": "env" if env_present else ("db" if db_present else "missing"),
+        "env_var_set": env_present,
+        "db_fallback_set": db_present,
     }
 
     failures = []
