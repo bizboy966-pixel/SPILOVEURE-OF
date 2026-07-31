@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
+import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
 type Listing = {
@@ -19,9 +20,10 @@ function MarketplaceScreenInner() {
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [imgIdx, setImgIdx] = useState<Record<string, number>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
-  // web-only refs to control audio playback per listing
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+  const lightbox = useMediaLightbox();
 
   const load = useCallback(async () => {
     try { const r = await api.get<{ items: Listing[] }>("/marketplace"); setItems(r.items || []); }
@@ -81,7 +83,26 @@ function MarketplaceScreenInner() {
     return (
       <View style={styles.card} testID={`mk-card-${item.id}`}>
         <View style={{ position: "relative" }}>
-          {src ? <Image source={{ uri: src }} style={styles.img} resizeMode="cover" /> : null}
+          {src ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => lightbox.openAt(
+                [
+                  ...imgs.map((u) => ({ kind: "image" as const, url: u })),
+                  ...vids.map((u) => ({ kind: "video" as const, url: u })),
+                ],
+                idx,
+                { title: item.name, description: item.description },
+              )}
+              testID={`mk-open-media-${item.id}`}
+            >
+              <Image source={{ uri: src }} style={styles.img} resizeMode="cover" />
+              <View style={styles.zoomHint}>
+                <Ionicons name="expand" size={12} color="#fff" />
+                <Text style={styles.zoomHintTxt}>Voir en grand</Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
           {imgs.length > 1 && (
             <>
               <TouchableOpacity style={[styles.navBtn, { left: 4 }]} onPress={() => setImgIdx((s) => ({ ...s, [item.id]: (idx - 1 + imgs.length) % imgs.length }))} testID={`mk-prev-${item.id}`}>
@@ -152,7 +173,27 @@ function MarketplaceScreenInner() {
               <Text style={styles.promo}>{item.price} {item.currency}</Text>
             )}
           </View>
-          {item.description ? <Text style={styles.desc} numberOfLines={2}>{item.description}</Text> : null}
+          {item.description ? (
+            <>
+              <Text
+                style={styles.desc}
+                numberOfLines={expanded[item.id] ? undefined : 3}
+                testID={`mk-desc-${item.id}`}
+              >
+                {item.description}
+              </Text>
+              {item.description.length > 120 && (
+                <TouchableOpacity
+                  onPress={() => setExpanded((s) => ({ ...s, [item.id]: !s[item.id] }))}
+                  testID={`mk-desc-toggle-${item.id}`}
+                >
+                  <Text style={styles.descToggle}>
+                    {expanded[item.id] ? "▲ Voir moins" : "▼ Lire la suite"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : null}
           <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: "#25D366", flex: 1 }]} onPress={() => openWhatsapp(item.whatsapp)} testID={`mk-chat-${item.id}`}>
               <Ionicons name="logo-whatsapp" size={16} color="#fff" />
@@ -193,6 +234,16 @@ function MarketplaceScreenInner() {
           }
         />
       )}
+      <MediaLightbox
+        open={lightbox.open}
+        slides={lightbox.slides}
+        index={lightbox.index}
+        onClose={lightbox.close}
+        onIndexChange={lightbox.setIndex}
+        title={lightbox.title}
+        description={lightbox.description}
+        testID="mk-lightbox"
+      />
     </SafeAreaView>
   );
 }
@@ -221,7 +272,15 @@ const styles = StyleSheet.create({
   catT: { fontSize: 10, fontWeight: "700", color: theme.colors.primary },
   promo: { fontSize: 18, fontWeight: "900", color: theme.colors.primary },
   priceOld: { fontSize: 12, color: theme.colors.textSecondary, textDecorationLine: "line-through" },
-  desc: { fontSize: 12, color: theme.colors.textPrimary, marginTop: 2 },
+  desc: { fontSize: 12, color: theme.colors.textPrimary, marginTop: 2, lineHeight: 17 },
+  descToggle: { marginTop: 4, fontSize: 11, fontWeight: "800", color: theme.colors.primary },
+  zoomHint: {
+    position: "absolute", top: 8, left: 8,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12,
+  },
+  zoomHintTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, padding: 8, borderRadius: 8 },
   btnT: { color: "#fff", fontWeight: "800", fontSize: 12 },
 });

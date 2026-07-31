@@ -28,6 +28,7 @@ import { useRouter } from "expo-router";
 import { Card } from "@/src/components/Card";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
+import { MediaViewer } from "@/src/components/MediaViewer";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
@@ -75,6 +76,8 @@ export default function AdminHome() {
   const [adFilter, setAdFilter] = useState<"pending_admin_review" | "published" | "rejected" | "all">("pending_admin_review");
   // Special tasks admin state
   const [stCfg, setStCfg] = useState<any>({});
+  const [stList, setStList] = useState<any[]>([]);
+  const [stFilter, setStFilter] = useState<"pending_payment" | "active" | "completed" | "cancelled" | "all">("pending_payment");
   const [stDistPct, setStDistPct] = useState<number>(70);
   const [adsReactor, setAdsReactor] = useState<any>({
     distribution_percentage: 70,
@@ -235,6 +238,11 @@ export default function AdminHome() {
         const cfg = await api.get<any>("/admin/special-tasks/config");
         setStCfg(cfg?.action_types || {});
         setStDistPct(Number(cfg?.distribution_percentage) || 70);
+        // List all campaigns so the admin can review their content in full.
+        try {
+          const tl = await api.get<any>("/admin/special-tasks");
+          setStList(tl?.items || []);
+        } catch { setStList([]); }
       }
       if (tab === "marketplace") {
         const [c, ls] = await Promise.all([
@@ -1513,7 +1521,6 @@ export default function AdminHome() {
             ) : adsList.filter((a) => adFilter === "all" || a.status === adFilter).map((a) => (
               <Card key={a.id} style={{ marginBottom: 8 }} testID={`admin-ad-item-${a.id}`}>
                 <Text style={styles.userName}>🎥 @{a.username}</Text>
-                <Text style={styles.userMeta} numberOfLines={2}>{a.description}</Text>
                 <View style={styles.kvBox}>
                   <KvRow k="Durée" v={`${a.duration_days || "?"} jour(s)`} />
                   <KvRow k="Prix payé" v={`${a.price_amount || 0} ${a.currency || "FCFA"}`} />
@@ -1522,6 +1529,16 @@ export default function AdminHome() {
                   <KvRow k="Genre" v={a.target_gender || "—"} />
                   <KvRow k="Statut" v={a.status} />
                 </View>
+                {/* Full-preview media viewer — admin can zoom images,
+                    scrub video, and read the full description before
+                    approving. */}
+                <MediaViewer
+                  images={a.cover_image_url ? [a.cover_image_url] : []}
+                  videos={a.video_url ? [a.video_url] : []}
+                  title={a.title || `Publicité de @${a.username}`}
+                  description={a.description}
+                  testID={`admin-ad-media-${a.id}`}
+                />
                 {a.status === "pending_admin_review" && (
                   <View style={styles.actRow}>
                     <TouchableOpacity
@@ -1634,6 +1651,82 @@ export default function AdminHome() {
           </Card>
         )}
 
+        {tab === "special_tasks" && (
+          <>
+            <View style={{ height: 12 }} />
+            <Card>
+              <Text style={styles.section}>📋 Campagnes de tâches spéciales</Text>
+              <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginTop: 8, marginBottom: 6 }}>
+                {(["pending_payment", "active", "completed", "cancelled", "all"] as const).map((k) => (
+                  <TouchableOpacity
+                    key={k}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: stFilter === k ? theme.colors.primary : theme.colors.background }}
+                    onPress={() => setStFilter(k)}
+                    testID={`st-filter-${k}`}
+                  >
+                    <Text style={{ fontSize: 10, fontWeight: "700", color: stFilter === k ? "#fff" : theme.colors.textPrimary }}>
+                      {{"pending_payment": "Paiement", "active": "Actives", "completed": "Terminées", "cancelled": "Annulées", "all": "Toutes"}[k]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+            <View style={{ height: 8 }} />
+            {stList.filter((t) => stFilter === "all" || t.status === stFilter).length === 0 ? (
+              <Card><Text style={styles.empty}>Aucune campagne dans cette catégorie.</Text></Card>
+            ) : stList.filter((t) => stFilter === "all" || t.status === stFilter).map((t) => {
+              const label: Record<string, string> = {
+                video: "▶️ Regarder", subscribe: "➕ Abonnement", like: "❤️ Like",
+                comment: "💬 Commentaire", share: "📤 Partage", group: "👥 Rejoindre",
+              };
+              return (
+                <Card key={t.id} style={{ marginBottom: 8 }} testID={`admin-st-item-${t.id}`}>
+                  <Text style={styles.userName}>{label[t.action_type] || t.action_type} • {t.network}</Text>
+                  <Text style={styles.userMeta}>@{t.username || t.user_id?.slice(0, 8)}</Text>
+                  <View style={styles.kvBox}>
+                    <KvRow k="Objectif" v={`${t.quantity_completed || 0} / ${t.quantity_target}`} />
+                    <KvRow k="Récompense" v={`${t.reward_per_action} ${t.currency || "FCFA"} / action`} />
+                    <KvRow k="Prix payé" v={`${t.price_total || (t.quantity_target * (t.price_per_action || 0))} ${t.currency || "FCFA"}`} />
+                    <KvRow k="Statut" v={t.status} />
+                  </View>
+                  {/* Full-preview — description complète + lien cible cliquable. */}
+                  <MediaViewer
+                    title={`Cible : ${t.network}`}
+                    description={t.description || ""}
+                    extraInfo={t.link ? (
+                      <TouchableOpacity
+                        onPress={() => { if (typeof window !== "undefined") window.open(t.link, "_blank"); }}
+                        style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: "flex-start" }}
+                        testID={`admin-st-open-link-${t.id}`}
+                      >
+                        <Ionicons name="open-outline" size={14} color="#fff" />
+                        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>Ouvrir le lien cible</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    testID={`admin-st-media-${t.id}`}
+                  />
+                  {t.status === "pending_payment" && (
+                    <View style={styles.actRow}>
+                      <TouchableOpacity
+                        style={[styles.actBtn, { backgroundColor: theme.colors.success }]}
+                        onPress={() => action(async () => {
+                          await api.post(`/admin/special-tasks/${t.id}/force-activate`);
+                          const tl = await api.get<any>("/admin/special-tasks");
+                          setStList(tl?.items || []);
+                        })}
+                        testID={`admin-st-force-${t.id}`}
+                      >
+                        <Ionicons name="rocket" size={14} color="#fff" />
+                        <Text style={styles.actT}>Forcer l'activation</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </Card>
+              );
+            })}
+          </>
+        )}
+
         {tab === "marketplace" && (
           <>
             <Card>
@@ -1681,42 +1774,16 @@ export default function AdminHome() {
                   <KvRow k="Statut" v={l.status} />
                 </View>
 
-                {/* Media previews for admin review */}
-                {(l.images || []).length > 0 && (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                    {(l.images || []).map((u: string, i: number) => (
-                      <img
-                        key={i}
-                        src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${u}`}
-                        alt={`img-${i}`}
-                        style={{ width: 80, height: 80, borderRadius: 6, objectFit: "cover" }}
-                      />
-                    ))}
-                  </View>
-                )}
-                {(l.videos || []).length > 0 && (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                    {(l.videos || []).map((v: string, i: number) => (
-                      // @ts-ignore raw video element in admin web UI
-                      <video
-                        key={i}
-                        src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${v}`}
-                        controls
-                        style={{ width: 200, height: 120, borderRadius: 6, background: "#000" }}
-                      />
-                    ))}
-                  </View>
-                )}
-                {l.audio && (
-                  <View style={{ marginTop: 6 }}>
-                    {/* @ts-ignore raw audio element in admin web UI */}
-                    <audio
-                      src={`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${l.audio}`}
-                      controls
-                      style={{ width: "100%" }}
-                    />
-                  </View>
-                )}
+                {/* Full-preview media viewer — click any thumbnail to zoom
+                    an image or open a video with full playback controls. */}
+                <MediaViewer
+                  images={l.images || []}
+                  videos={l.videos || []}
+                  audio={l.audio || null}
+                  title={l.name}
+                  description={l.description}
+                  testID={`admin-mk-media-${l.id}`}
+                />
 
                 {l.status === "pending_admin_review" && (
                   <View style={styles.actRow}>

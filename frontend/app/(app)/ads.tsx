@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api } from "../../src/api";
+import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 
 type Comment = { id: string; user_id: string; username: string; text: string; at: string };
 type Ad = {
@@ -38,7 +39,9 @@ function AdsScreenInner() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [descExpanded, setDescExpanded] = useState<Record<string, boolean>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
+  const lightbox = useMediaLightbox();
 
   const load = useCallback(async () => {
     try {
@@ -95,12 +98,24 @@ function AdsScreenInner() {
           <Text style={styles.username}>@{item.username}</Text>
         </View>
         {isPoster ? (
-          <Image
-            source={{ uri: coverSrc }}
-            style={styles.cover}
-            resizeMode="contain"
-            onLoad={() => onView(item.id)}
-          />
+          <TouchableOpacity
+            activeOpacity={0.95}
+            onPress={() => {
+              onView(item.id);
+              lightbox.openAt(
+                [{ kind: "image", url: item.cover_image_url }],
+                0,
+                { title: `@${item.username}`, description: item.description },
+              );
+            }}
+            testID={`ad-open-cover-${item.id}`}
+          >
+            <Image source={{ uri: coverSrc }} style={styles.cover} resizeMode="contain" />
+            <View style={styles.zoomHint} pointerEvents="none">
+              <Ionicons name="expand" size={12} color="#fff" />
+              <Text style={styles.zoomHintTxt}>Voir en grand</Text>
+            </View>
+          </TouchableOpacity>
         ) : typeof window !== "undefined" ? (
           // @ts-ignore RN Web renders HTML tags
           <video
@@ -115,7 +130,23 @@ function AdsScreenInner() {
         ) : (
           <Image source={{ uri: coverSrc }} style={styles.cover} />
         )}
-        <Text style={styles.desc}>{item.description}</Text>
+        <Text
+          style={styles.desc}
+          numberOfLines={descExpanded[item.id] ? undefined : 4}
+          testID={`ad-desc-${item.id}`}
+        >
+          {item.description}
+        </Text>
+        {(item.description || "").length > 180 && (
+          <TouchableOpacity
+            onPress={() => setDescExpanded((s) => ({ ...s, [item.id]: !s[item.id] }))}
+            testID={`ad-desc-toggle-${item.id}`}
+          >
+            <Text style={styles.descToggle}>
+              {descExpanded[item.id] ? "▲ Voir moins" : "▼ Lire la suite"}
+            </Text>
+          </TouchableOpacity>
+        )}
         <View style={styles.actionsRow}>
           <TouchableOpacity onPress={() => onLike(item.id)} style={styles.action} testID={`ad-like-${item.id}`}>
             <Ionicons name="heart" size={20} color={theme.colors.danger} />
@@ -196,6 +227,16 @@ function AdsScreenInner() {
           testID="ads-feed"
         />
       )}
+      <MediaLightbox
+        open={lightbox.open}
+        slides={lightbox.slides}
+        index={lightbox.index}
+        onClose={lightbox.close}
+        onIndexChange={lightbox.setIndex}
+        title={lightbox.title}
+        description={lightbox.description}
+        testID="ad-lightbox"
+      />
     </SafeAreaView>
   );
 }
@@ -232,7 +273,15 @@ const styles = StyleSheet.create({
   },
   username: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
   cover: { width: "100%", height: 320, backgroundColor: "#000" },
-  desc: { padding: 10, color: theme.colors.textPrimary, fontSize: 13 },
+  desc: { padding: 10, color: theme.colors.textPrimary, fontSize: 13, lineHeight: 18 },
+  descToggle: { paddingHorizontal: 10, marginTop: -4, marginBottom: 4, fontSize: 12, fontWeight: "800", color: theme.colors.primary },
+  zoomHint: {
+    position: "absolute", top: 8, left: 8,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12,
+  },
+  zoomHintTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
   actionsRow: {
     flexDirection: "row", gap: 16, paddingHorizontal: 10, paddingBottom: 10,
   },

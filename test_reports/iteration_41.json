@@ -1,0 +1,41 @@
+{
+  "summary": "Iter41 — Frontend-only E2E validation of the new MediaLightbox + MediaViewer preview enhancements across public /(app)/ads, public /(app)/marketplace, and Admin Panel (Publicités / Marketplace / Tâches spéciales). Login flow, admin routing and testID contract verified on https://spiloveure-deploy.preview.emergentagent.com. Zoom (+/-), Escape, ArrowLeft/Right keyboard shortcuts + zoom-in/zoom-out/close testIDs all functional. Because the marketplace public feed is currently disabled by the admin toggle ('Publication ouverte aux utilisateurs' off at the user's own admin session), the public mk-lightbox / mk-desc-toggle / mk-open-media test paths could not exercise real listings on the deploy URL — the guard screen 'Marketplace désactivé' renders correctly instead, which is the expected behavior for that feature flag.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_features": [
+    "Public /(app)/ads: 12 ad-open-cover-<id> present; clicking opens ad-lightbox; ad-lightbox-zoom-in bumps zoom to 150%; ad-lightbox-zoom-out present; ad-lightbox-close button closes; Escape key closes; ArrowRight/Left keyboard nav does not crash.",
+    "Admin > Marketplace: 52 admin-mk-media-<id> MediaViewer widgets rendered. Verified admin-mk-media-<id>-thumb-0 opens admin-mk-media-<id>-lightbox with zoom-in + close testIDs present + functional. Approuver/Rejeter buttons still visible next to the viewer (no regression).",
+    "Admin > Tâches spé.: 5 filter chips rendered — st-filter-pending_payment, st-filter-active, st-filter-completed, st-filter-cancelled, st-filter-all — all clickable and switching UI state (empty-state renders 'Aucune campagne dans cette catégorie' as expected).",
+    "Admin > Publicités tab: mounts correctly; 0 pending ads on the deploy env so admin-ad-media-<id> nodes are 0 (no bug, just empty state)."
+  ],
+  "not_verified_due_to_data_state": [
+    "mk-lightbox / mk-desc-toggle-<id> / mk-open-media-<id>: public marketplace is toggled OFF by admin config on this environment → guard screen 'Marketplace désactivé' is shown to all users including admin. Code path was reviewed statically and testIDs are correctly wired.",
+    "admin-ad-media-<id>: 0 pending ads in DB on this environment.",
+    "admin-st-item-<id> / admin-st-media-<id> / admin-st-force-<id> / admin-st-open-link-<id>: 0 special-task campaigns in any filter bucket on this environment.",
+    "ad-desc-toggle-<id>: 0 ads on the deploy env have a description > 180 chars, so the toggle intentionally does not render on any card."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "(Optional) To fully exercise the new admin review UI on the deploy env, seed at least one pending ad, one pending marketplace listing (already present ✓), one special-task campaign in pending_payment, and one ad with a >180-char description. Testing sub-agent could not exercise those UI paths end-to-end because the data was absent (not a code bug).",
+    "(Optional) Re-enable the public marketplace feature flag on the preview env to allow future test agents to exercise mk-lightbox / mk-desc-toggle on the /(app)/marketplace public route."
+  ],
+  "critical_code_review_comments": [
+    "MediaLightbox.tsx L51-65: window keydown listener is global — if two MediaLightbox instances are ever mounted open at the same time (e.g. an admin viewer + a public one), all listeners will react to every keystroke. Consider gating the handler with an early return when open===false (already done) but also stopping propagation, or use a single global lightbox singleton in _layout. Low priority since only one instance is realistically open at a time.",
+    "MediaLightbox.tsx L57-58: '+' handler is bound via e.key === '+' — on French AZERTY keyboards '+' requires Shift, which still emits '+' as the resulting key so this is fine; but the '=' fallback is a good touch for US layouts. No action.",
+    "MediaLightbox.tsx L152 descStrip has maxHeight:'35%' — on tall images the description strip overlaps the lower portion of the image at 100% zoom. Consider adding a small bottom padding to the image container equal to the strip height when a description is provided.",
+    "MediaViewer.tsx L40 showExpand threshold 220 chars is fine for admin cards, but public ads.tsx uses 180 and public marketplace.tsx uses 120. Three different constants is easy to drift — consider centralising in a constants file (LIGHTBOX_DESC_TRUNCATE = { ads: 180, marketplace: 120, admin: 220 }).",
+    "MediaViewer.tsx L67 web <video preload='metadata'>: browsers may still fetch initial bytes for every thumb — 52 marketplace listings on one page → 52 preflight video requests. Consider lazy-mounting the <video> only when the thumb enters the viewport, or falling back to a static poster placeholder + play badge (which already exists at L78-82).",
+    "MediaLightbox.tsx web <video controls autoPlay>: iOS Safari requires `playsInline` + muted for autoplay to succeed silently; without them the browser blocks autoplay and shows a static poster. Add playsInline muted (or drop autoPlay) to guarantee first-frame render across browsers."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only iteration)", "frontend": "100% on the reachable code paths (public /ads lightbox + zoom + keyboard + close, admin marketplace MediaViewer + lightbox + zoom + close, admin ads/st tabs render with correct empty-states). Remaining testIDs were unreachable due to empty DB / feature flag, not due to code bugs." },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006",
+  "seed_data_creation": "None. No data mutated on the deploy env.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All testIDs from the spec are wired correctly in code (marketplace.tsx L97/188/245, ads.tsx L111/143/238, admin index.tsx L1540/1665/1683/1700/1706/1717/1785). The env is missing seed data for pending ads / special-task campaigns / long-description ads and has the public marketplace feature flag OFF — to exercise those paths end-to-end you must first: (1) toggle 'Publication ouverte aux utilisateurs' ON via Admin > Marketplace config, (2) POST a pending ad, (3) POST a special-task campaign in pending_payment status. All other paths are already validated."
+}
