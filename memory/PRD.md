@@ -21,6 +21,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🎯 Refonte complète Ads Reactor Rewards (V2)
+
+**Nouveau modèle de récompense pour les campagnes publicitaires :**
+- **Actions rémunérées** — Seuls `like` 👍 et `comment` 💬 (les vues et partages restent gratuits pour l'utilisateur mais ne rapportent plus).
+- **Configuration admin (`AdReactorConfig`) :**
+    - `distribution_percentage` (défaut 70) + `platform_percentage` (=100-dist, auto).
+    - `like_reward` (défaut 25 FCFA) + `comment_reward` (défaut 50 FCFA) — récompense FIXE par action.
+    - `max_likes` (défaut 100) + `max_comments` (défaut 50) — plafonds hard par campagne.
+- **Backward-compat** — le modèle accepte encore `share_percentage`, `min_reward`, `max_reward` (mappés → distribution/like/comment). Les anciens clients (tests inclus) continuent de fonctionner.
+- **Snapshot par campagne** — quand un ad devient publié et reçoit sa première interaction, les caps `reactor_max_likes` / `reactor_max_comments` sont figés dans le document `ads` (immuables ensuite pour cohérence).
+- **Idempotence + atomicité** :
+    - Une seule récompense par `(ad_id, user_id, action)` (unique via collection `ads_reactor_rewards`).
+    - Update atomique : décrément du pool restant + incrément du compteur d'awarded, verrouillé par les conditions `reactor_pool_remaining >= reward` ET `awarded < max_allowed`.
+    - Anti-fraude : 50 récompenses / user / heure glissante (inchangé).
+    - Pas d'auto-récompense sur ses propres pubs.
+
+**Frontend admin (`(admin)/index.tsx` onglet Ads) :**
+- 2 pourcentages côte-à-côte (distribution + plateforme auto-calculée).
+- Sections Like / Comment séparées avec récompense + max par campagne (testIDs : `ads-reactor-like-reward`, `ads-reactor-max-likes`, `ads-reactor-comment-reward`, `ads-reactor-max-comments`, `ads-reactor-platform-pct`).
+- Simulateur temps réel : "Pub à 10 000 FCFA → pool = X FCFA / coût max théorique likes + comments".
+
+**Tests :** 6/6 nouveaux `test_ads_reactor_v2.py` + 42/42 régression complète (Ads, Special Tasks, Ashtech, Toggles).
+
+
+
 ### 2026-07-31 — 🎯 Refonte complète Tâches Spéciales (V2)
 
 **Nouveau modèle de configuration admin :**

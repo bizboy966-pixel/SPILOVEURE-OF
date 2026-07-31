@@ -458,18 +458,14 @@ async def public_feed(request: Request, user=Depends(get_current_user)):
 @public.post("/ads/{ad_id}/view")
 async def register_view(ad_id: str, request: Request, user=Depends(get_current_user)):
     """Increment view counter — idempotent per user via unique `viewers`
-    array — and credit the reactor reward for the first view."""
+    array. Views are NO LONGER rewarded (2026-08 refonte: only Like +
+    Comment are rewarded)."""
     db = request.app.state.db
     r = await db.ads.update_one(
         {"id": ad_id, "status": "published", "viewers": {"$ne": user["id"]}},
         {"$addToSet": {"viewers": user["id"]}, "$inc": {"views_count": 1}},
     )
-    counted = r.modified_count > 0
-    reward = None
-    if counted:
-        ad = await db.ads.find_one({"id": ad_id}, {"_id": 0})
-        reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "view")
-    return {"ok": True, "counted": counted, "reward": reward}
+    return {"ok": True, "counted": r.modified_count > 0, "reward": None}
 
 
 @public.post("/ads/{ad_id}/like")
@@ -509,6 +505,8 @@ async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depend
 
 @public.post("/ads/{ad_id}/share")
 async def share_ad(ad_id: str, request: Request, user=Depends(get_current_user)):
+    """Increment share counter. Shares are NO LONGER rewarded (2026-08
+    refonte: only Like + Comment are rewarded)."""
     db = request.app.state.db
     r = await db.ads.update_one(
         {"id": ad_id, "status": "published"},
@@ -516,9 +514,7 @@ async def share_ad(ad_id: str, request: Request, user=Depends(get_current_user))
     )
     if r.matched_count == 0:
         raise HTTPException(404, "Publicité introuvable ou non publiée.")
-    ad = await db.ads.find_one({"id": ad_id}, {"_id": 0})
-    reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "share")
-    return {"ok": True, "reward": reward}
+    return {"ok": True, "reward": None}
 
 
 # ---------- ADMIN endpoints ----------
@@ -544,52 +540,76 @@ async def admin_set_pricing(data: AdPricingUpdate, request: Request):
     return await _get_pricing(db)
 
 
-# ─── Reactor pool config (share of ad payment redistributed to reactors) ─
+# ─── Reactor pool config (refonte 2026-08) ─────────────────────────────
+#
+# New model — Only LIKE and COMMENT are rewarded. Admin configures:
+#   - distribution_percentage   : % of ad price for users (rest = platform)
+#   - like_reward, comment_reward : fixed FCFA per action
+#   - max_likes, max_comments   : hard caps per campaign
+#
+# One reward per (user, action, campaign). No self-reward. Payments are
+# credited atomically as long as the campaign has slots remaining AND the
+# global reactor pool (distribution_percentage × price) is not exhausted.
 class AdReactorConfig(BaseModel):
-    # % of the ad's total price that goes into the reactor pool.
-    share_percentage: float = Field(default=60.0, ge=0, le=100)
-    # Min/max FCFA that a single reactor can earn on a given ad.
-    min_reward: float = Field(default=25.0, ge=0)
-    max_reward: float = Field(default=500.0, ge=0)
+    # New canonical fields
+    distribution_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    platform_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    like_reward: Optional[float] = Field(default=None, ge=0)
+    comment_reward: Optional[float] = Field(default=None, ge=0)
+    max_likes: Optional[int] = Field(default=None, ge=1)
+    max_comments: Optional[int] = Field(default=None, ge=1)
+    # Legacy fields (kept so older admin panels & tests keep working)
+    share_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    min_reward: Optional[float] = Field(default=None, ge=0)
+    max_reward: Optional[float] = Field(default=None, ge=0)
 
 
 async def _get_reactor_config(db) -> dict:
     doc = await db.ads_reactor_config.find_one({"key": "singleton"}) or {}
+    # Prefer new field names, fall back to legacy ones for continuity.
+    dist = float(doc.get("distribution_percentage",
+                          doc.get("share_percentage", 70.0)))
     return {
-        "share_percentage": float(doc.get("share_percentage") or 60.0),
-        "min_reward": float(doc.get("min_reward") or 25.0),
-        "max_reward": float(doc.get("max_reward") or 500.0),
+        # New canonical fields
+        "distribution_percentage": dist,
+        "platform_percentage": round(100.0 - dist, 2),
+        "like_reward": float(doc.get("like_reward", 25.0)),
+        "comment_reward": float(doc.get("comment_reward", 50.0)),
+        "max_likes": int(doc.get("max_likes", 100)),
+        "max_comments": int(doc.get("max_comments", 50)),
+        # Legacy fields (kept for any old client still reading them)
+        "share_percentage": dist,
+        "min_reward": float(doc.get("min_reward", 25.0)),
+        "max_reward": float(doc.get("max_reward", 500.0)),
         "currency": "FCFA",
     }
 
 
-# ─── Reactor reward engine ────────────────────────────────────────────
-# Weights let us reward "harder" interactions more than passive ones.
-# Sum of all four weights = 1.0 (fractions of a base unit reward).
-REACTOR_WEIGHTS: dict[str, float] = {
-    "view":    0.10,
-    "like":    0.20,
-    "share":   0.30,
-    "comment": 0.40,
-}
+# Rewarded action set is now strictly {like, comment}.
+REWARDED_ACTIONS: set[str] = {"like", "comment"}
 
 
 async def _initialise_reactor_pool(db, ad: dict) -> float:
     """Compute and persist the reactor pool for an ad. Idempotent —
     the pool is set exactly once per ad (on the first reactor action).
-    Returns the pool amount in FCFA.
+    Returns the pool amount in FCFA (= distribution_percentage × price).
     """
     if ad.get("reactor_pool") is not None:
         return float(ad["reactor_pool"])
     cfg = await _get_reactor_config(db)
-    pool = round(float(ad.get("price_amount") or 0) * (cfg["share_percentage"] / 100.0), 2)
+    pool = round(float(ad.get("price_amount") or 0) * (cfg["distribution_percentage"] / 100.0), 2)
     await db.ads.update_one(
         {"id": ad["id"], "reactor_pool": {"$exists": False}},
         {"$set": {"reactor_pool": pool,
                   "reactor_pool_remaining": pool,
+                  # Snapshot per-campaign caps for immutability once the
+                  # pool starts filling.
+                  "reactor_max_likes": cfg["max_likes"],
+                  "reactor_max_comments": cfg["max_comments"],
+                  "reactor_likes_awarded": 0,
+                  "reactor_comments_awarded": 0,
                   "reactor_pool_initialised_at": datetime.now(timezone.utc)}},
     )
-    # Re-read in case another concurrent request beat us to it.
     fresh = await db.ads.find_one({"id": ad["id"]}, {"reactor_pool": 1, "_id": 0}) or {}
     return float(fresh.get("reactor_pool") or pool)
 
@@ -597,22 +617,23 @@ async def _initialise_reactor_pool(db, ad: dict) -> float:
 async def _credit_reactor(db, ad: dict, user_id: str, username: str,
                           action: str) -> Optional[float]:
     """Idempotently credit a reactor's balance_profit for a given (ad, user,
-    action) tuple. Returns the amount credited, or None if:
-    • same user already rewarded for this action on this ad (idempotent skip)
+    action). Returns the amount credited, or None if:
+    • action is not in the rewarded set {like, comment}
+    • same user already rewarded for this action on this ad
+    • per-campaign cap reached for that action
     • pool is exhausted
     • user is the ad's creator (no self-reward)
-    • user has exceeded anti-fraud rate limit (50 rewards / hour)
-    • reward < min bound or > max bound (clamped instead)
+    • anti-fraud rate-limit tripped (>= 50 rewards / user / rolling hour)
     """
     if not ad or ad.get("status") != "published":
         return None
     if user_id == ad.get("user_id"):
-        return None  # creator can't earn on their own ad
+        return None
     action = action.lower()
-    if action not in REACTOR_WEIGHTS:
+    if action not in REWARDED_ACTIONS:
         return None
 
-    # Idempotency guard: refuse if this (ad, user, action) has already been paid
+    # 1) Idempotency guard: refuse if this (ad, user, action) is already paid.
     existing = await db.ads_reactor_rewards.find_one(
         {"ad_id": ad["id"], "user_id": user_id, "action": action},
         {"_id": 1},
@@ -620,7 +641,7 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
     if existing:
         return None
 
-    # Anti-fraud: cap credited rewards to 50 per rolling hour per user.
+    # 2) Anti-fraud: cap credited rewards to 50 per rolling hour per user.
     one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     recent = await db.ads_reactor_rewards.count_documents(
         {"user_id": user_id, "created_at": {"$gte": one_hour_ago}}
@@ -633,27 +654,43 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
     if pool <= 0:
         return None
 
-    # Base unit = min bound; scale up by action weight and clamp to max.
-    weight = REACTOR_WEIGHTS[action]
-    base = float(cfg["min_reward"])
-    reward = round(base + (float(cfg["max_reward"]) - base) * weight, 2)
-    # Never credit more than what's still in the pool.
-    remaining_doc = await db.ads.find_one({"id": ad["id"]},
-                                          {"reactor_pool_remaining": 1, "_id": 0}) or {}
-    remaining = float(remaining_doc.get("reactor_pool_remaining") or 0)
+    reward = float(cfg["like_reward"] if action == "like" else cfg["comment_reward"])
+    if reward <= 0:
+        return None
+
+    cap_field = "reactor_likes_awarded" if action == "like" else "reactor_comments_awarded"
+    max_field = "reactor_max_likes" if action == "like" else "reactor_max_comments"
+
+    # 3) Read current cap snapshot (defaults on legacy ads without snapshot).
+    ad_state = await db.ads.find_one(
+        {"id": ad["id"]},
+        {"reactor_pool_remaining": 1, cap_field: 1, max_field: 1, "_id": 0},
+    ) or {}
+    awarded = int(ad_state.get(cap_field) or 0)
+    max_allowed = int(ad_state.get(max_field) or (cfg["max_likes"] if action == "like" else cfg["max_comments"]))
+    if awarded >= max_allowed:
+        return None  # per-campaign cap reached
+
+    remaining = float(ad_state.get("reactor_pool_remaining") or 0)
     if remaining <= 0:
         return None
     reward = min(reward, remaining)
 
-    # Atomically decrement the pool (guards against race + exhaustion).
+    # 4) Atomically decrement pool + increment cap counter (guards against
+    #    both pool exhaustion and cap overshoot under concurrency).
     r = await db.ads.update_one(
-        {"id": ad["id"], "reactor_pool_remaining": {"$gte": reward}},
-        {"$inc": {"reactor_pool_remaining": -reward}},
+        {
+            "id": ad["id"],
+            "reactor_pool_remaining": {"$gte": reward},
+            f"{cap_field}": {"$lt": max_allowed},
+        },
+        {
+            "$inc": {"reactor_pool_remaining": -reward, cap_field: 1},
+        },
     )
     if r.modified_count == 0:
-        return None  # pool exhausted mid-transaction
+        return None  # someone else won the slot
 
-    # Credit the user + log the reward.
     now = datetime.now(timezone.utc)
     await db.users.update_one({"id": user_id}, {"$inc": {"balance_profit": reward}})
     await db.ads_reactor_rewards.insert_one({
@@ -665,7 +702,6 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
         "currency": "FCFA",
         "created_at": now,
     })
-    # Fire-and-forget notification (lightweight — no push infra, just in-app feed)
     try:
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -764,16 +800,50 @@ async def admin_get_reactor_config(request: Request):
 
 @admin.put("/ads-reactor-config")
 async def admin_set_reactor_config(data: AdReactorConfig, request: Request):
-    if data.max_reward < data.min_reward:
-        raise HTTPException(400, "max_reward doit être ≥ min_reward.")
     db = request.app.state.db
+    # Preserve existing values for any field the admin didn't send.
+    current = await _get_reactor_config(db)
+    # Legacy compat: `share_percentage` → `distribution_percentage`;
+    # `min_reward`/`max_reward` → `like_reward`/`comment_reward` (fallback).
+    dist = data.distribution_percentage
+    if dist is None and data.share_percentage is not None:
+        dist = data.share_percentage
+    if dist is None:
+        dist = current["distribution_percentage"]
+
+    like_r = data.like_reward
+    if like_r is None and data.min_reward is not None:
+        like_r = data.min_reward
+    if like_r is None:
+        like_r = current["like_reward"]
+
+    comment_r = data.comment_reward
+    if comment_r is None and data.max_reward is not None:
+        comment_r = data.max_reward
+    if comment_r is None:
+        comment_r = current["comment_reward"]
+
+    max_likes = data.max_likes if data.max_likes is not None else current["max_likes"]
+    max_comments = data.max_comments if data.max_comments is not None else current["max_comments"]
+
+    # Legacy validation kept: min_reward > max_reward should still be rejected.
+    if data.min_reward is not None and data.max_reward is not None \
+            and data.max_reward < data.min_reward:
+        raise HTTPException(400, "max_reward doit être ≥ min_reward.")
+
     await db.ads_reactor_config.update_one(
         {"key": "singleton"},
         {"$set": {
             "key": "singleton",
-            "share_percentage": float(data.share_percentage),
-            "min_reward": float(data.min_reward),
-            "max_reward": float(data.max_reward),
+            "distribution_percentage": float(dist),
+            "like_reward": float(like_r),
+            "comment_reward": float(comment_r),
+            "max_likes": int(max_likes),
+            "max_comments": int(max_comments),
+            # Preserve legacy fields so old readers keep working.
+            "share_percentage": float(dist),
+            "min_reward": float(like_r),
+            "max_reward": float(comment_r),
             "updated_at": datetime.now(timezone.utc),
         }},
         upsert=True,
