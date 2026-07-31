@@ -21,6 +21,43 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🎯 Refonte complète Tâches Spéciales (V2)
+
+**Nouveau modèle de configuration admin :**
+- **2 pourcentages globaux** exposés côté UI : `distribution_percentage` (aux users) + `platform_percentage` (=100-dist, auto).
+- **Prix par action** saisi par admin pour chaque type (video/subscribe/share/like/comment/group). La récompense par utilisateur est déduite automatiquement : `reward = price × dist_pct / 100`.
+- Rétro-compat : `reward_per_action` legacy accepté. Si les 2 sont envoyés, `price_per_action` a priorité.
+- Endpoint `PUT /api/admin/special-tasks/config` n'itère plus que sur les entrées présentes dans le payload (évite les 400 fantômes sur les types omis).
+
+**Vérification IA de la preuve (screenshot) — `/app/backend/task_verification.py` :**
+- Utilise **Gemini 3 Flash Vision** via `emergentintegrations` + `EMERGENT_LLM_KEY`.
+- Analyse la capture, vérifie que l'action attendue est visible sur le bon réseau.
+- Retourne `{verified: bool, confidence: 0..1, reason: str}`.
+- Seuil `/complete` : `verified=True ET conf≥0.7` → auto-approve + crédit ; sinon 400 « Preuve non conforme : ... ».
+- Fallback panne LLM = soft-approve `conf=0.75` (au-dessus du seuil) — jamais bloquant sur outage.
+- Normalisation image via PIL (accepte PNG/JPEG/WEBP, transcode le reste, downscale à 1600px max).
+- Tentative rejetée = stockée dans `special_task_completions` avec `status='rejected'` pour audit admin.
+
+**Badges « Nouveau » :**
+- `GET /api/special-tasks/unread-count` — retourne `{unread: N}` (tâches actives créées après `user.last_special_tasks_seen_at`, hors propres tâches).
+- `POST /api/special-tasks/mark-seen` — reset le compteur.
+- Feed inclut `is_new: bool` par item (activated_at > seen_at OU < 24h).
+- **BottomNav** (bouton central « Tâches ») : polling toutes les 60s + badge rouge avec compteur.
+- **/tasks** (hub) : appelle `/mark-seen` à l'ouverture, badge rouge sur la carte « Tâches spéciales ».
+
+**Frontend Admin refondu (`(admin)/index.tsx` onglet Tâches spé.) :**
+- 2 inputs pourcentages côte-à-côte (auto-somme à 100).
+- Par action_type : input `Prix / action` (canonique) + affichage read-only `Récompense / user (auto)`.
+- testIDs : `st-distribution-pct`, `st-platform-pct`, `st-price-<at>`, `st-reward-computed-<at>`.
+
+**Backend :**
+- `activated_at` désormais persisté quand une tâche passe à `active` (Ashtech + IziChange + admin force-activate).
+- Feed exclut les completions rejetées (l'utilisateur peut retenter).
+
+**Tests :** 8/8 `test_special_tasks_v2.py` + 27/27 régression Special Tasks / Ads / Ashtech / Toggle.
+
+
+
 ### 2026-07-30 (14) — 🎁 Finalisation du backlog (Task rewards, anti-fraude, feed, notifs)
 
 **Le backlog P0/P1 est vidé.** Quatre chantiers livrés en une passe :

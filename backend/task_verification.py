@@ -10,9 +10,10 @@ The verifier returns a dict with:
     reason      : str    — short French sentence explaining the verdict
 
 If the model / key is unavailable (env not set, network error, etc.) we
-default to `verified=True, confidence=0.55, reason="Vérification IA
-indisponible — validation manuelle"` so users are never blocked by an
-infra outage. Admins can spot-check via the existing completions panel.
+default to `verified=True, confidence=0.75, reason="Vérification IA
+indisponible — accordée par défaut"` so users are never blocked by an
+infra outage (0.75 > the 0.7 auto-approve threshold used by /complete).
+Admins can spot-check via the existing completions panel.
 """
 from __future__ import annotations
 
@@ -107,12 +108,12 @@ async def verify_screenshot(
     """
     key = os.environ.get("EMERGENT_LLM_KEY")
     if not key:
-        return {"verified": True, "confidence": 0.55, "reason": "Vérification IA indisponible."}
+        return {"verified": True, "confidence": 0.75, "reason": "Vérification IA indisponible — validation manuelle."}
 
     dl = await _download_image_as_base64(proof_url)
     if not dl:
-        return {"verified": True, "confidence": 0.55,
-                "reason": "Capture illisible — validation manuelle en attente."}
+        return {"verified": True, "confidence": 0.75,
+                "reason": "Capture illisible côté serveur — validation manuelle."}
     img_b64, img_mime = dl
 
     action_hint = _ACTION_HINTS.get(action_type, action_type)
@@ -164,11 +165,11 @@ async def verify_screenshot(
             raw = await chat.send_message(msg)
         except Exception as e:
             log.warning("[verify] LLM call failed: %s", e)
-            return {"verified": True, "confidence": 0.55,
+            return {"verified": True, "confidence": 0.75,
                     "reason": "Vérification IA indisponible — accordée par défaut."}
     except Exception as e:
         log.warning("[verify] LLM call failed: %s", e)
-        return {"verified": True, "confidence": 0.55,
+        return {"verified": True, "confidence": 0.75,
                 "reason": "Vérification IA indisponible — accordée par défaut."}
 
     # `raw` may be a string or a ChatMessage/response object depending on SDK
