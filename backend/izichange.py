@@ -561,6 +561,7 @@ async def _handle_payment_intent_event(db, event_type: str, data: dict):
             {"id": pay["special_task_id"], "status": "pending_payment"},
             {"$set": {"status": "active",
                       "payment_confirmed_at": datetime.now(timezone.utc),
+                      "activated_at": datetime.now(timezone.utc),
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {"ok": True, "task_paid": True, "task_id": pay["special_task_id"]}

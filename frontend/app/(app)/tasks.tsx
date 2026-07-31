@@ -14,6 +14,7 @@ export default function TasksScreen() {
   const router = useRouter();
   const { features } = useFeatures();
   const [tasks, setTasks] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
 
   // Screenshot-proof modal state
   const [proofTask, setProofTask] = useState<any | null>(null);
@@ -28,8 +29,21 @@ export default function TasksScreen() {
       const r = await api.get<{ items: any[] }>("/special-tasks");
       setTasks(r.items || []);
     } catch {}
+    try {
+      const u = await api.get<{ unread: number }>("/special-tasks/unread-count");
+      setUnreadCount(u.unread || 0);
+    } catch {}
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Reset the unread badge after the user opens the tasks screen.
+    (async () => {
+      try {
+        await api.post("/special-tasks/mark-seen", {});
+        setUnreadCount(0);
+      } catch {}
+    })();
+  }, [load]);
 
   const openTaskLink = (t: any) => {
     if (typeof window !== "undefined") window.open(t.link, "_blank");
@@ -76,12 +90,13 @@ export default function TasksScreen() {
     setSubmitting(true);
     setProofErr(null);
     try {
-      const r = await api.post<{ credited: number; task_status: string }>(
+      const r = await api.post<{ credited: number; task_status: string; ai?: { verified: boolean; confidence: number; reason: string } }>(
         `/special-tasks/${proofTask.id}/complete`,
         { proof_url: proofUrl },
       );
       if (typeof window !== "undefined") {
-        window.alert(`✅ Tâche validée. Vous avez gagné ${r.credited} FCFA !`);
+        const conf = r.ai ? ` (IA : ${(r.ai.confidence * 100).toFixed(0)}%)` : "";
+        window.alert(`✅ Tâche validée${conf}. Vous avez gagné ${r.credited} FCFA !`);
       }
       setProofTask(null);
       setProofUrl("");
@@ -97,7 +112,7 @@ export default function TasksScreen() {
   const ACTION_BTN: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre" };
   const NET_LABELS: any = { tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", whatsapp: "WhatsApp", telegram: "Telegram" };
 
-  const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean; hidden?: boolean }[] = [
+  const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean; hidden?: boolean; badgeCount?: number }[] = [
     {
       key: "missions", icon: "briefcase",
       title: "Missions Rémunérées",
@@ -115,9 +130,10 @@ export default function TasksScreen() {
     {
       key: "special", icon: "flash",
       title: "Tâches spéciales",
-      sub: "Missions ponctuelles à forte récompense proposées par les annonceurs.",
-      soon: true,
+      sub: "Créez votre propre campagne de likes, abonnements, vues, partages ou groupes.",
+      route: "/(app)/special-task-create",
       hidden: !features.special_tasks,
+      badgeCount: unreadCount,
     },
     {
       key: "challenges", icon: "trophy",
@@ -151,7 +167,14 @@ export default function TasksScreen() {
                   <Ionicons name={ACTION_ICONS[t.action_type]} size={22} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{ACTION_BTN[t.action_type]} • {NET_LABELS[t.network]}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Text style={styles.cardTitle}>{ACTION_BTN[t.action_type]} • {NET_LABELS[t.network]}</Text>
+                    {t.is_new ? (
+                      <View style={styles.newBadge} testID={`st-new-${t.id}`}>
+                        <Text style={styles.newBadgeTxt}>NOUVEAU</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <Text style={styles.cardSub} numberOfLines={2}>{t.description || "Aucune description"}</Text>
                   <Text style={{ fontSize: 11, color: theme.colors.success, fontWeight: "800", marginTop: 4 }}>
                     💰 {t.reward_per_action} FCFA • {t.quantity_completed}/{t.quantity_target}
@@ -175,6 +198,11 @@ export default function TasksScreen() {
           >
             <View style={styles.iconBox}>
               <Ionicons name={c.icon} size={22} color="#fff" />
+              {c.badgeCount && c.badgeCount > 0 ? (
+                <View style={styles.iconBadge} testID={`tasks-badge-${c.key}`}>
+                  <Text style={styles.iconBadgeTxt}>{c.badgeCount > 99 ? "99+" : c.badgeCount}</Text>
+                </View>
+              ) : null}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>{c.title}</Text>
@@ -315,6 +343,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
+  newBadge: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+  },
+  newBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9, letterSpacing: 0.5 },
+  iconBadge: {
+    position: "absolute", top: -4, right: -4,
+    minWidth: 20, height: 20, borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#fff",
+    paddingHorizontal: 4,
+  },
+  iconBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
   doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
 

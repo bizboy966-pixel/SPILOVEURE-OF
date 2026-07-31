@@ -1492,36 +1492,45 @@ export default function AdminHome() {
           <Card>
             <Text style={styles.section}>🎯 Config des tâches spéciales</Text>
             <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
-              Définissez la <Text style={{ fontWeight: "800" }}>récompense reçue par action</Text> et le
-              <Text style={{ fontWeight: "800" }}> pourcentage global</Text> redistribué aux utilisateurs.
-              Le prix payé par le créateur est calculé automatiquement.
+              L'administrateur fixe le <Text style={{ fontWeight: "800" }}>prix payé par le créateur</Text> pour chaque type
+              d'action et les deux pourcentages globaux. Le système répartit automatiquement.
             </Text>
 
             <View style={{ backgroundColor: "#FEF3C7", borderRadius: 10, padding: 10, marginBottom: 12 }}>
               <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E", marginBottom: 6 }}>
-                💰 Pourcentage global distribué (1–100 %)
+                💰 Répartition globale (doivent totaliser 100 %)
               </Text>
-              <Input
-                label="% distribué aux utilisateurs"
-                value={String(stDistPct)}
-                onChangeText={(v: string) => {
-                  const n = Math.max(1, Math.min(100, Number(v) || 0));
-                  setStDistPct(n);
-                }}
-                keyboardType="numeric"
-                testID="st-distribution-pct"
-              />
-              <Text style={{ fontSize: 10, color: "#78350F" }}>
-                Exemple : {stDistPct}% → si récompense = 100 FCFA, le créateur paie {(100 / (stDistPct / 100)).toFixed(0)} FCFA par action ({(100 - stDistPct)}% frais plateforme).
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    label="% à distribuer aux users"
+                    value={String(stDistPct)}
+                    onChangeText={(v: string) => {
+                      const n = Math.max(1, Math.min(100, Number(v) || 0));
+                      setStDistPct(n);
+                    }}
+                    keyboardType="numeric"
+                    testID="st-distribution-pct"
+                  />
+                </View>
+                <View style={{ flex: 1, backgroundColor: "#FFFBEB", borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 10, color: "#78350F", fontWeight: "700" }}>% plateforme (auto)</Text>
+                  <Text style={{ fontSize: 16, fontWeight: "900", color: "#78350F" }} testID="st-platform-pct">
+                    {(100 - stDistPct).toFixed(0)} %
+                  </Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 10, color: "#78350F", marginTop: 4 }}>
+                Exemple : si le créateur paie 1 000 FCFA, {stDistPct}% ({(1000 * stDistPct / 100).toFixed(0)} FCFA) sont
+                répartis équitablement entre les utilisateurs, {(100 - stDistPct)}% ({(1000 * (100 - stDistPct) / 100).toFixed(0)} FCFA)
+                reviennent à la plateforme.
               </Text>
             </View>
 
             {["video", "subscribe", "share", "like", "comment", "group"].map((at) => {
-              const c = stCfg[at] || { enabled: false, reward_per_action: 0, min_qty: 10, max_qty: 1000 };
+              const c = stCfg[at] || { enabled: false, price_per_action: 0, reward_per_action: 0, min_qty: 10, max_qty: 1000 };
               const labels: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre un groupe" };
-              const computedPrice = stDistPct > 0
-                ? (Number(c.reward_per_action) / (stDistPct / 100)).toFixed(0)
-                : "—";
+              const computedReward = (Number(c.price_per_action) * stDistPct / 100).toFixed(2);
               return (
                 <View key={at} style={{ borderBottomWidth: 1, borderColor: theme.colors.border, paddingVertical: 8 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1536,14 +1545,14 @@ export default function AdminHome() {
                   </View>
                   <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-end" }}>
                     <View style={{ flex: 1 }}>
-                      <Input label="Récompense / action (FCFA)" value={String(c.reward_per_action)}
-                        onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, reward_per_action: Number(v) || 0 } }))}
-                        keyboardType="numeric" testID={`st-reward-${at}`} />
+                      <Input label="Prix / action (FCFA)" value={String(c.price_per_action || 0)}
+                        onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, price_per_action: Number(v) || 0, reward_per_action: undefined } }))}
+                        keyboardType="numeric" testID={`st-price-${at}`} />
                     </View>
                     <View style={{ flex: 1, backgroundColor: "#F1F5F9", borderRadius: 8, padding: 8, marginBottom: 4 }}>
-                      <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: "700" }}>Prix / action (auto)</Text>
-                      <Text style={{ fontSize: 14, fontWeight: "900", color: "#0F172A" }} testID={`st-price-computed-${at}`}>
-                        {computedPrice} FCFA
+                      <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: "700" }}>Récompense / user (auto)</Text>
+                      <Text style={{ fontSize: 14, fontWeight: "900", color: "#0F172A" }} testID={`st-reward-computed-${at}`}>
+                        {computedReward} FCFA
                       </Text>
                     </View>
                   </View>

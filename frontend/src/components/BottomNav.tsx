@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 import { theme } from "../theme";
 import { api } from "../api";
 import { useFeatures, FeatureKey } from "../features";
@@ -45,8 +45,28 @@ const PLUS_MENU: Item[] = [
 
 export const BottomNav: React.FC = () => {
   const router = useRouter();
+  const pathname = usePathname();
   const [plusOpen, setPlusOpen] = useState(false);
   const { features } = useFeatures();
+  const [unreadTasks, setUnreadTasks] = useState<number>(0);
+
+  // Poll the special-tasks unread count every 60 s + refresh on route change
+  // so the badge disappears immediately when the user opens /tasks (which
+  // itself calls `/special-tasks/mark-seen`).
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const r = await api.get<{ unread: number }>("/special-tasks/unread-count");
+        if (!cancelled) setUnreadTasks(r.unread || 0);
+      } catch {
+        if (!cancelled) setUnreadTasks(0);
+      }
+    };
+    fetchCount();
+    const t = setInterval(fetchCount, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [pathname]);
 
   // Filter items whose feature flag is disabled — keeps items without a
   // `feature` field always visible.
@@ -107,6 +127,11 @@ export const BottomNav: React.FC = () => {
             testID="bottom-nav-tasks"
           >
             <Ionicons name="clipboard" size={26} color="#fff" />
+            {unreadTasks > 0 ? (
+              <View style={styles.centerDot} testID="bottom-nav-tasks-badge">
+                <Text style={styles.centerDotTxt}>{unreadTasks > 9 ? "9+" : unreadTasks}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
           <Text style={styles.centerLabel}>Tâches</Text>
         </View>
@@ -222,6 +247,15 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     marginTop: 2,
   },
+  centerDot: {
+    position: "absolute", top: -4, right: -4,
+    minWidth: 20, height: 20, borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: theme.colors.surface,
+    paddingHorizontal: 4,
+  },
+  centerDotTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
 
   sheetBackdrop: {
     flex: 1,

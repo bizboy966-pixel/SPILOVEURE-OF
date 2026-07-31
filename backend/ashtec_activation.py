@@ -580,6 +580,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                 {"$set": {
                     "status": "active",
                     "payment_confirmed_at": datetime.now(timezone.utc),
+                    "activated_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                 }},
             )

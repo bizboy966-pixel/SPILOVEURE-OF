@@ -60,8 +60,16 @@ class TaskComplete(BaseModel):
 
 
 class ActionTypeConfig(BaseModel):
+    """Admin config for a single action type.
+
+    The admin can supply EITHER `price_per_action` (canonical, matches the
+    new UX: "quel coût pour une vue ?") OR the legacy `reward_per_action`
+    (what the user earns). The server derives whichever is missing from
+    the global distribution_percentage.
+    """
     enabled: bool = True
-    reward_per_action: float = Field(..., ge=0)     # user earns per action
+    price_per_action: float | None = Field(default=None, ge=0)   # creator's cost
+    reward_per_action: float | None = Field(default=None, ge=0)  # user's earning
     min_qty: int = Field(default=10, ge=1)
     max_qty: int = Field(default=10000, ge=1)
 
@@ -71,11 +79,15 @@ class ConfigUpdate(BaseModel):
     # % of what the creator pays that is distributed to workers.
     # (100 - this) stays with the platform. Range: 1..100.
     distribution_percentage: float = Field(default=70.0, ge=1, le=100)
+    # `platform_percentage` is derived (100 - distribution_percentage) but we
+    # accept it as an optional input for admin-UI convenience — if both are
+    # sent and they don't sum to 100 we favour `distribution_percentage`.
+    platform_percentage: float | None = Field(default=None, ge=0, le=99)
 
 
 def _serialize(doc: dict) -> dict:
     out = {k: v for k, v in doc.items() if k != "_id"}
-    for k in ("created_at", "updated_at", "payment_confirmed_at", "completed_at"):
+    for k in ("created_at", "updated_at", "payment_confirmed_at", "activated_at", "completed_at"):
         v = out.get(k)
         if isinstance(v, datetime):
             out[k] = v.astimezone(timezone.utc).isoformat()
@@ -85,20 +97,37 @@ def _serialize(doc: dict) -> dict:
 async def _get_config(db) -> dict:
     doc = await db.special_tasks_config.find_one({"key": "singleton"}) or {}
     pct = float(doc.get("distribution_percentage") or 70.0)
+    platform_pct = round(100.0 - pct, 2)
     action_types = doc.get("action_types") or {}
-    # For each action_type, expose the computed price_per_action so the
-    # admin UI + task creation flow can show the creator's cost.
     enriched = {}
     for at, cfg in action_types.items():
-        r = float(cfg.get("reward_per_action") or 0)
+        # Support both legacy (`reward_per_action`) and new (`price_per_action`)
+        # inputs. Whichever is present drives the computation of the other,
+        # driven by the global distribution %.
+        price = cfg.get("price_per_action")
+        reward = cfg.get("reward_per_action")
+        try:
+            price = float(price) if price is not None else None
+            reward = float(reward) if reward is not None else None
+        except Exception:
+            price, reward = None, None
+        if price is not None and price > 0:
+            derived_reward = round(price * pct / 100.0, 2)
+        elif reward is not None and reward > 0 and pct > 0:
+            price = round(reward / (pct / 100.0), 2)
+            derived_reward = reward
+        else:
+            price = 0.0
+            derived_reward = 0.0
         enriched[at] = {
             **cfg,
-            "reward_per_action": r,
-            "price_per_action": round(r / (pct / 100.0), 2) if pct > 0 else 0,
+            "price_per_action": price,
+            "reward_per_action": derived_reward,
         }
     return {
         "action_types": enriched,
         "distribution_percentage": pct,
+        "platform_percentage": platform_pct,
         "configured": bool(action_types),
     }
 
@@ -121,17 +150,23 @@ async def admin_get_config(request: Request):
 
 @admin.put("/special-tasks/config")
 async def admin_set_config(data: ConfigUpdate, request: Request):
-    # Validate each action_type entry
+    # Validate each action_type entry — only iterate through action types
+    # actually present in the payload (avoids failing on omitted entries).
     normalised: dict = {}
+    provided = data.action_types or {}
     for at in ACTION_TYPES:
-        raw = (data.action_types or {}).get(at) or {}
+        if at not in provided:
+            continue
+        raw = provided.get(at) or {}
         try:
             cfg = ActionTypeConfig(**raw)
         except Exception:
             continue
         if cfg.max_qty < cfg.min_qty:
             raise HTTPException(400, f"max_qty < min_qty pour {at}")
-        normalised[at] = cfg.model_dump()
+        if cfg.enabled and not ((cfg.price_per_action or 0) > 0 or (cfg.reward_per_action or 0) > 0):
+            raise HTTPException(400, f"Prix ou récompense manquant pour {at}")
+        normalised[at] = cfg.model_dump(exclude_none=False)
     if not normalised:
         raise HTTPException(400, "Aucun type d'action valide fourni.")
     db = request.app.state.db
@@ -187,7 +222,9 @@ async def create_task(data: TaskCreate, request: Request, user=Depends(get_curre
         raise HTTPException(400, "Ce type de tâche n'est pas disponible pour le moment.")
     distribution_pct = float(cfg.get("distribution_percentage") or 70.0)
     reward = float(action_cfg.get("reward_per_action") or 0)
-    price_per_action = round(reward / (distribution_pct / 100.0), 2) if distribution_pct > 0 else 0
+    price_per_action = float(action_cfg.get("price_per_action") or 0)
+    if price_per_action <= 0 or reward <= 0:
+        raise HTTPException(400, "Ce type de tâche n'est pas correctement configuré.")
     # Network compatibility
     if data.action_type == "group" and data.network not in NETWORKS_GROUP:
         raise HTTPException(400, "Ce réseau n'accepte pas ce type de tâche.")
@@ -273,6 +310,7 @@ async def admin_force_activate_task(task_id: str, request: Request):
         {"id": task_id, "status": "pending_payment"},
         {"$set": {"status": "active",
                   "payment_confirmed_at": datetime.now(timezone.utc),
+                  "activated_at": datetime.now(timezone.utc),
                   "updated_at": datetime.now(timezone.utc)}},
     )
     if r.modified_count == 0:
@@ -404,14 +442,34 @@ async def user_feed(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     if not await feature_enabled(db, "special_tasks"):
         return {"items": []}
-    completed = await db.special_task_completions.distinct("task_id", {"user_id": user["id"]})
+    completed = await db.special_task_completions.distinct(
+        "task_id", {"user_id": user["id"], "status": {"$ne": "rejected"}},
+    )
+    u = await db.users.find_one({"id": user["id"]}, {"last_special_tasks_seen_at": 1}) or {}
+    seen_at = u.get("last_special_tasks_seen_at")
+    now = datetime.now(timezone.utc)
     items = []
     async for t in db.special_tasks.find({
         "status": "active",
         "user_id": {"$ne": user["id"]},          # can't earn from your own campaign
         "id": {"$nin": completed},
     }).sort("created_at", -1).limit(200):
-        items.append(_serialize(t))
+        # A task is "new" for this user when its activated_at (fallback
+        # payment_confirmed_at / created_at) is after the user's last
+        # seen timestamp OR it was activated in the past 24h.
+        activated = t.get("activated_at") or t.get("payment_confirmed_at") or t.get("created_at")
+        is_new = False
+        try:
+            if activated:
+                if seen_at and activated > seen_at:
+                    is_new = True
+                if (now - activated).total_seconds() <= 24 * 3600:
+                    is_new = True
+        except Exception:
+            pass
+        s = _serialize(t)
+        s["is_new"] = is_new
+        items.append(s)
     return {"items": items}
 
 
@@ -444,6 +502,13 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
     """Credit reward atomically. Requires a screenshot proof URL. Prevents
     double-claim via unique completion record. Auto-closes the campaign when
     quantity_target is reached.
+
+    Runs an AI vision check on the screenshot first (Gemini 3 Flash via
+    Emergent LLM Key). Behaviour:
+        * `verified=True` and `confidence >= 0.7`  → auto-approve, credit
+        * otherwise                                → auto-reject with reason
+    Verification failures never crash the flow: on infra outage the
+    verifier soft-approves and the completion is stored for admin audit.
     """
     db = request.app.state.db
     t = await db.special_tasks.find_one({"id": task_id})
@@ -457,6 +522,38 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
     if existing:
         raise HTTPException(400, "Vous avez déjà complété cette tâche.")
 
+    # ── AI verification (best-effort, never raises) ──────────────────
+    from task_verification import verify_screenshot
+    verdict = await verify_screenshot(
+        proof_url=data.proof_url,
+        action_type=t["action_type"],
+        network=t["network"],
+        link=t.get("link") or "",
+        description=t.get("description") or "",
+    )
+    ai_verified = bool(verdict.get("verified"))
+    ai_conf = float(verdict.get("confidence") or 0.0)
+    ai_reason = str(verdict.get("reason") or "")
+    APPROVE_THRESHOLD = 0.7
+
+    # Auto-reject when the model is confident the action was NOT done.
+    if not ai_verified or ai_conf < APPROVE_THRESHOLD:
+        # Store the rejected attempt for admin audit — no slot consumed.
+        await db.special_task_completions.insert_one({
+            "id": str(uuid.uuid4()),
+            "task_id": task_id,
+            "user_id": user["id"],
+            "username": user.get("username"),
+            "reward": 0,
+            "proof_url": data.proof_url,
+            "status": "rejected",
+            "ai_verified": ai_verified,
+            "ai_confidence": ai_conf,
+            "ai_reason": ai_reason,
+            "at": datetime.now(timezone.utc),
+        })
+        raise HTTPException(400, f"Preuve non conforme : {ai_reason or 'action non détectée.'} Vous pouvez réessayer avec une meilleure capture.")
+
     # Atomic slot claim — only credit if there's still room.
     now = datetime.now(timezone.utc)
     reward = float(t["reward_per_action"])
@@ -467,7 +564,7 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
     if r.modified_count == 0:
         raise HTTPException(400, "La campagne est complète.")
 
-    # Insert completion record (with screenshot proof)
+    # Insert completion record (with screenshot proof + AI verdict)
     await db.special_task_completions.insert_one({
         "id": str(uuid.uuid4()),
         "task_id": task_id,
@@ -475,6 +572,10 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
         "username": user.get("username"),
         "reward": reward,
         "proof_url": data.proof_url,
+        "status": "approved",
+        "ai_verified": ai_verified,
+        "ai_confidence": ai_conf,
+        "ai_reason": ai_reason,
         "at": now,
     })
     # Credit user
@@ -512,4 +613,56 @@ async def complete_task(task_id: str, data: TaskComplete, request: Request, user
             {"id": task_id, "status": "active"},
             {"$set": {"status": "completed", "completed_at": now, "updated_at": now}},
         )
-    return {"credited": reward, "task_status": (await db.special_tasks.find_one({"id": task_id}))["status"]}
+    return {
+        "credited": reward,
+        "task_status": (await db.special_tasks.find_one({"id": task_id}))["status"],
+        "ai": {"verified": ai_verified, "confidence": ai_conf, "reason": ai_reason},
+    }
+
+
+# ---------- "Nouveauté" indicator (badges on the Tasks screen) ----------
+@public.get("/special-tasks/unread-count")
+async def unread_count(request: Request, user=Depends(get_current_user)):
+    """Return the number of active tasks the user has NOT yet seen.
+
+    A task is considered "new" for a given user when its `activated_at`
+    (fallback `payment_confirmed_at` / `created_at`) is more recent than
+    that user's `last_special_tasks_seen_at`. Own tasks are excluded.
+    """
+    db = request.app.state.db
+    if not await feature_enabled(db, "special_tasks"):
+        return {"unread": 0}
+    u = await db.users.find_one({"id": user["id"]}, {"last_special_tasks_seen_at": 1}) or {}
+    seen = u.get("last_special_tasks_seen_at")
+    completed = await db.special_task_completions.distinct(
+        "task_id", {"user_id": user["id"], "status": {"$ne": "rejected"}},
+    )
+    q: dict = {
+        "status": "active",
+        "user_id": {"$ne": user["id"]},
+        "id": {"$nin": completed},
+    }
+    if seen:
+        q["$or"] = [
+            {"activated_at": {"$gt": seen}},
+            {"$and": [{"activated_at": {"$exists": False}},
+                      {"payment_confirmed_at": {"$gt": seen}}]},
+        ]
+    unread = await db.special_tasks.count_documents(q)
+    return {"unread": int(unread)}
+
+
+class MarkSeenIn(BaseModel):
+    at: str | None = None  # ISO — defaults to now server-side
+
+
+@public.post("/special-tasks/mark-seen")
+async def mark_seen(request: Request, user=Depends(get_current_user)):
+    """Reset the unread badge for this user."""
+    db = request.app.state.db
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_special_tasks_seen_at": now}},
+    )
+    return {"ok": True, "at": now.isoformat()}
