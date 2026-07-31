@@ -205,9 +205,14 @@ export default function Activation() {
           manual_enabled: boolean;
           crypto_enabled: boolean;
           ashtec_enabled?: boolean;
+          soleas_enabled?: boolean;
           crypto?: any;
         }>("/settings/payments", { auth: false });
-        setSoleasEnabled(!!flags.soleaspay_enabled);
+        // IMPORTANT — read the per-gateway toggle `soleas_enabled` (not the
+        // legacy `soleaspay_enabled` which is TRUE whenever *any* auto
+        // payment gateway is on, including Ashtech). This was the root
+        // cause of "SolesPay disabled but still visible".
+        setSoleasEnabled(!!flags.soleas_enabled);
         setSoleasCountries(flags.soleaspay_countries || []);
         setSoleasServices(flags.soleaspay_services_by_country || {});
         setManualEnabled(!!flags.manual_enabled);
@@ -415,7 +420,7 @@ export default function Activation() {
         </Card>
 
         {/* No payment method available — block activation */}
-        {!secureUIEnabled && !soleasEnabled && !manualEnabled && !cryptoEnabled && (
+        {!secureUIEnabled && !soleasEnabled && !manualEnabled && !cryptoEnabled && !ashtecEnabled && !cryptoAutoEnabled && (
           <Card style={{ marginTop: 12, borderWidth: 2, borderColor: theme.colors.warning, backgroundColor: theme.colors.warningBg }}>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="construct" size={42} color={theme.colors.warning} />
@@ -434,11 +439,11 @@ export default function Activation() {
         )}
 
         {/* Payment mode selector — 3 cards */}
-        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled || ashtecEnabled) && (
+        {(secureUIEnabled || soleasEnabled || manualEnabled || cryptoEnabled || ashtecEnabled || cryptoAutoEnabled) && (
           <Card style={{ marginTop: 12 }}>
             <Text style={styles.section}>Choisir un mode de paiement</Text>
 
-            {/* PRIORITY: Ashtech Pay AUTO-ACTIVATION (2500 FCFA, 10 min chrono) */}
+            {/* PRIORITY 1: Ashtech Pay AUTO-ACTIVATION (2500 FCFA, 10 min chrono) */}
             {ashtecEnabled && (
             <TouchableOpacity
               style={styles.autoActivateBtn}
@@ -564,24 +569,46 @@ export default function Activation() {
                   {paymentMode === "crypto" ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} /> : null}
                 </TouchableOpacity>
               )}
+            </View>
 
-              {cryptoAutoEnabled && (
-                <TouchableOpacity
-                  style={styles.modeCard}
-                  onPress={() => router.push("/(app)/activation-crypto-auto" as any)}
-                  testID="mode-crypto-auto"
-                >
-                  <View style={[styles.modeIcon, { backgroundColor: "#7B61FF" }]}><Ionicons name="flash" size={22} color="#fff" /></View>
+            {/* PRIORITY 3: Auto activation crypto — same visual weight as
+                AUTO-ACTIVATION Ashtech (harmonised big banner). Only its
+                content + accent colour differ. */}
+            {cryptoAutoEnabled && (
+              <TouchableOpacity
+                style={[styles.autoActivateBtn, styles.autoActivateBtnCrypto]}
+                onPress={() => router.push("/(app)/activation-crypto-auto" as any)}
+                testID="btn-crypto-auto-activation"
+                activeOpacity={0.85}
+              >
+                <View style={styles.autoActivateHeader}>
+                  <View style={[styles.autoActivateIcon, styles.autoActivateIconCrypto]}>
+                    <Ionicons name="logo-bitcoin" size={26} color="#fff" />
+                  </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.modeTitle}>4️⃣ Activation automatique (Crypto)</Text>
-                    <Text style={styles.modeBody}>
-                      Payez 5 USDT (BEP20) — confirmation automatique via Webhook, aucune action admin requise.
+                    <Text style={styles.autoActivateTitle}>⚡ AUTO-ACTIVATION CRYPTO</Text>
+                    <Text style={styles.autoActivateSub}>
+                      USDT BEP20 — 5 USDT, confirmation automatique via Webhook
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
-              )}
-            </View>
+                  <Ionicons name="chevron-forward" size={26} color="#fff" />
+                </View>
+                <View style={styles.autoActivateFooter}>
+                  <View style={[styles.autoActivateChip, styles.autoActivateChipCrypto]}>
+                    <Ionicons name="flash-outline" size={12} color="#fff" />
+                    <Text style={[styles.autoActivateChipText, styles.autoActivateChipTextCrypto]}>Confirmation on-chain</Text>
+                  </View>
+                  <View style={[styles.autoActivateChip, styles.autoActivateChipCrypto]}>
+                    <Ionicons name="shield-checkmark-outline" size={12} color="#fff" />
+                    <Text style={[styles.autoActivateChipText, styles.autoActivateChipTextCrypto]}>100% automatique</Text>
+                  </View>
+                  <View style={[styles.autoActivateChip, styles.autoActivateChipCrypto]}>
+                    <Ionicons name="logo-bitcoin" size={12} color="#fff" />
+                    <Text style={[styles.autoActivateChipText, styles.autoActivateChipTextCrypto]}>5 USDT (BEP20)</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
           </Card>
         )}
 
@@ -1228,4 +1255,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
   },
   autoActivateChipText: { color: "#FBBF24", fontSize: 11, fontWeight: "700" },
+  // Harmonised variant for the Crypto Auto-activation banner — same
+  // dimensions, radius, spacing and layout as the Ashtech banner, only
+  // the accent colour differs (violet crypto vibe instead of gold).
+  autoActivateBtnCrypto: {
+    borderColor: "#7B61FF",
+    shadowColor: "#7B61FF",
+    marginTop: 12,
+  },
+  autoActivateIconCrypto: {
+    backgroundColor: "#7B61FF",
+  },
+  autoActivateChipCrypto: {
+    backgroundColor: "rgba(123, 97, 255, 0.18)",
+    borderColor: "rgba(123, 97, 255, 0.5)",
+  },
+  autoActivateChipTextCrypto: {
+    color: "#C4B5FD",
+  },
 });

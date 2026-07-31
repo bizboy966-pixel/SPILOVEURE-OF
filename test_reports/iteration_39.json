@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 39 — Activation screen fixes validated end-to-end. (1) SolesPay visibility bug FIXED: activation.tsx now reads flags.soleas_enabled instead of legacy flags.soleaspay_enabled (which was TRUE whenever any auto gateway including Ashtech was on). Verified via UI: with PUT /api/admin/payment-gateways {soleas_enabled:false, ashtec_enabled:true}, /(app)/activation renders testIDs = [btn-auto-activation, mode-manual, mode-crypto, btn-crypto-auto-activation] with mode-soleas ABSENT while legacy soleaspay_enabled=true (auto_enabled via Ashtech) — exactly the target behaviour. Re-enable soleas → mode-soleas reappears. (2) UI harmonisation VALIDATED: computed styles of btn-auto-activation (Ashtech) and btn-crypto-auto-activation (Crypto) are IDENTICAL: borderRadius=18px, padding=16px, borderWidth=2px, width=324px. Structure matches: header (icon 48px + title + subtitle + chevron) + footer (3 chips). Only accent color differs (Ashtech gold #F59E0B vs Crypto violet #7B61FF) as specified. Old testID mode-crypto-auto NO LONGER in DOM. Backend contract 4/4 PASS (test_activation_gateway_visibility.py): soleas OFF/ashtec ON, re-enable soleas, both OFF (auto_enabled=false, active_gateway=null, soleaspay_enabled=false), restore initial state.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_activation_gateway_visibility.py",
+    "/app/test_reports/pytest/iter39_gw.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "activation.tsx L200-222: initial useEffect fetch of /settings/payments has no polling / re-fetch mechanism. If an admin toggles a gateway while the user is on the page, the user must refresh manually to see the change. Consider a 30-60s poll or refocus-refresh listener (useFocusEffect) for the activation screen.",
+    "activation.tsx L423: `!secureUIEnabled && !soleasEnabled && !manualEnabled && !cryptoEnabled && !ashtecEnabled && !cryptoAutoEnabled` — 6-condition negation is fragile. If a 7th gateway is added later this check will be silently wrong. Extract to `const anyGatewayEnabled = [...].some(Boolean)` computed at the top.",
+    "server.py L1252 keeps returning legacy field soleaspay_enabled=auto_enabled — kept for backward compat, but now that the frontend reads soleas_enabled specifically, plan a deprecation cycle (log usage, then remove) to prevent future confusion for other clients.",
+    "activation.tsx L577-611: crypto banner uses feature-flag 'crypto_auto' but there is no check that the target route /(app)/activation-crypto-auto actually exists / is reachable — router.push would fail silently on web if the file is missing. Ensure the route stub exists or wrap push in try/catch."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_activation_gateway_visibility.py"
+  ],
+  "success_rate": { "backend": "100% (4/4)", "frontend": "100% (all 5 target testIDs render as specified across 3 gateway states)" },
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Ephemeral test user: iter39ab4f8@test.com / Passw0rd! (inactive, TG, sponsor=admin) — used for UI verification of activation.tsx.",
+  "seed_data_creation": "One inactive user iter39ab4f8@test.com created via POST /api/auth/register for the /(app)/activation UI checks. Admin gateway state restored to {active:'soleas', soleas_enabled:true, ashtec_enabled:true} at end of testing as requested.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both fixes on activation.tsx are validated and stable. Backend endpoint contract for GET /api/settings/payments now returns per-gateway `ashtec_enabled` and `soleas_enabled` separately, while legacy `soleaspay_enabled` = auto_enabled (true if any auto gateway is up) remains for backward compat. Frontend reads soleas_enabled (correct). testIDs on /(app)/activation for an inactive user: btn-auto-activation (Ashtech banner top), mode-soleas / mode-manual / mode-crypto (medium cards), btn-crypto-auto-activation (bottom banner, only when feature flag crypto_auto is enabled). Old mode-crypto-auto testID removed. Admin state at end of iter39: soleas_enabled=true, ashtec_enabled=true, active=soleas.",
+  "rca of the issue": "Root cause: activation.tsx historically read `flags.soleaspay_enabled` which the backend computes as `auto_enabled = soleas_ready OR ashtec_ready` (legacy semantics: true iff ANY auto gateway is on). So disabling only SolesPay while keeping Ashtech ON kept `soleaspay_enabled=true` → the SolesPay card stayed visible. Fix (already applied on L215): read the new per-gateway flag `flags.soleas_enabled` directly, which reflects the SolesPay toggle alone. Reproduction confirmed by UI test: soleas_enabled=false + ashtec_enabled=true → mode-soleas correctly absent while btn-auto-activation still shown."
+}
