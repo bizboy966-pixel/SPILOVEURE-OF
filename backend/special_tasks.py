@@ -289,12 +289,37 @@ async def set_quantity(task_id: str, data: TaskQuantity, request: Request, user=
         raise HTTPException(400, "Tâche non modifiable.")
     if data.quantity < t["min_qty"] or data.quantity > t["max_qty"]:
         raise HTTPException(400, f"Quantité hors bornes ({t['min_qty']}–{t['max_qty']}).")
+    # ── Two-step calculation, as specified in the SPILOVEURE spec: ──
+    #
+    # Step 1 (COST) — the price_per_action is used ONLY to compute what
+    # the creator will pay. Nothing else.
+    #     total_price = price_per_action × quantity
+    #
+    # Step 2 (REWARD) — once paid, the platform applies the admin's
+    # income-split configuration to the ACTUAL amount received, then
+    # divides the participants' share by the number of requested actions.
+    #     distributable_pool = total_price × distribution_percentage / 100
+    #     reward_per_user    = distributable_pool / quantity
+    #
+    # Mathematically equivalent to `price_per_action × dist_pct/100`, but
+    # implementing it this way makes the money flow explicit and matches
+    # the mental model in the product spec (creator pays a lump sum → the
+    # platform takes its cut → the remainder is shared equally between
+    # actual participants).
     price = float(t["price_per_action"]) * int(data.quantity)
+    dist_pct = float(t.get("distribution_percentage") or 0)
+    distributable_pool = round(price * dist_pct / 100.0, 2)
+    reward_per_user = round(distributable_pool / int(data.quantity), 2) if data.quantity > 0 else 0.0
     await db.special_tasks.update_one(
         {"id": task_id},
         {"$set": {
             "quantity_target": data.quantity,
             "price_amount": price,
+            "distributable_pool": distributable_pool,
+            # Overwrite the stored reward_per_action with the value
+            # actually derived from the paid amount — this is what
+            # /complete will credit to each participant.
+            "reward_per_action": reward_per_user,
             "updated_at": datetime.now(timezone.utc),
         }},
     )

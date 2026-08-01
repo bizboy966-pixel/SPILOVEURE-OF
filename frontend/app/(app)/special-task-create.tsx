@@ -220,7 +220,9 @@ function SpecialTaskCreateInner() {
               <Text style={styles.priceL}>Quantité</Text><Text style={styles.priceV}>{q}</Text>
               <View style={styles.sep} />
               <Text style={styles.priceL}>Total à payer</Text><Text style={styles.priceTot}>{totalPrice} FCFA</Text>
-              <Text style={styles.priceL}>💡 Récompense/participant</Text><Text style={styles.priceV}>{currentCfg.reward_per_action} FCFA</Text>
+              {/* La récompense par participant est un calcul interne de la
+                  plateforme — elle ne doit pas être affichée au créateur.
+                  Le créateur ne voit que : prix / quantité / total à payer. */}
             </View>
             <TouchableOpacity style={styles.next} onPress={submitQuantity} disabled={saving} testID="stc-publish">
               {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="rocket" size={16} color="#fff" /><Text style={styles.nextT}>Publier</Text></>}

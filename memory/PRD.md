@@ -21,6 +21,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🧮 Refonte flux monétaire Tâches Spéciales (spec 2 étapes)
+
+**Contexte** : le créateur voyait « Récompense/participant » sur l'écran final avant paiement, et le backend stockait `reward_per_action = price × dist_pct/100` (identique mathématiquement mais violant la sémantique du spec).
+
+**Nouveau flux (2 étapes explicites)** :
+- **Étape 1 — COÛT (inchangé)** : `total_price = price_per_action × quantity`. Le prix par action ne sert QU'À calculer le montant total dû par le créateur.
+- **Étape 2 — RÉCOMPENSE** :
+    - `distributable_pool = total_price × distribution_percentage / 100`
+    - `reward_per_user = distributable_pool / quantity`
+    - Persistés dans `special_tasks` (nouveaux champs `distributable_pool`, `reward_per_action` recalculé).
+
+**Modifications** :
+- Backend `special_tasks.py` `set_quantity()` : calcule et stocke explicitement `distributable_pool` + `reward_per_action` dérivé du pool.
+- Frontend `special-task-create.tsx` L219-223 : suppression de la ligne « 💡 Récompense/participant » — le créateur ne voit que **Prix / action**, **Quantité**, **Total à payer**.
+- Crédit à la validation : `db.users.update_one({"id":user_id}, {"$inc":{"balance_profit":reward}})` — **balance_profit** (compte de retrait), pas `balance_upgrade` ni commissions. Comportement déjà en place, verrouillé par test de garde sémantique.
+
+**Tests** : 2/2 nouveaux (`test_special_task_money_flow.py`) — vérifient l'exemple canonique `price=10, qty=500, dist=60%` → total 5 000, pool 3 000, reward 6/user + garde `balance_profit` uniquement. 26/26 régression complète OK.
+
+
+
 ### 2026-07-31 — 🔢 Fix synchronisation compteur « Activations à valider » (108 vs 4)
 
 **Bug** : le tableau de bord affichait 108 activations en attente mais la liste « En attente » n'en montrait que 4.
