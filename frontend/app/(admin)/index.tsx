@@ -1592,6 +1592,25 @@ export default function AdminHome() {
                     </TouchableOpacity>
                   </View>
                 )}
+                {/* Delete — always available regardless of status. Uses a
+                    confirmation prompt on web so a mistaken tap doesn't
+                    wipe an ad accidentally. */}
+                <View style={[styles.actRow, { marginTop: 6 }]}>
+                  <TouchableOpacity
+                    style={[styles.actBtn, { backgroundColor: theme.colors.danger }]}
+                    onPress={() => {
+                      if (typeof window !== "undefined" && !window.confirm(`Supprimer définitivement la publicité de @${a.username} ?`)) return;
+                      action(async () => {
+                        await api.delete(`/admin/ads/${a.id}`);
+                        setAdsList((prev) => prev.filter((x) => x.id !== a.id));
+                      });
+                    }}
+                    testID={`admin-ad-delete-${a.id}`}
+                  >
+                    <Ionicons name="trash" size={14} color="#fff" />
+                    <Text style={styles.actT}>Supprimer</Text>
+                  </TouchableOpacity>
+                </View>
               </Card>
             ))}
           </>
@@ -1751,6 +1770,23 @@ export default function AdminHome() {
                       </TouchableOpacity>
                     </View>
                   )}
+                  {/* Delete — always available regardless of status. */}
+                  <View style={[styles.actRow, { marginTop: 6 }]}>
+                    <TouchableOpacity
+                      style={[styles.actBtn, { backgroundColor: theme.colors.danger }]}
+                      onPress={() => {
+                        if (typeof window !== "undefined" && !window.confirm(`Supprimer définitivement cette tâche spéciale ?`)) return;
+                        action(async () => {
+                          await api.delete(`/admin/special-tasks/${t.id}`);
+                          setStList((prev) => prev.filter((x) => x.id !== t.id));
+                        });
+                      }}
+                      testID={`admin-st-delete-${t.id}`}
+                    >
+                      <Ionicons name="trash" size={14} color="#fff" />
+                      <Text style={styles.actT}>Supprimer</Text>
+                    </TouchableOpacity>
+                  </View>
                 </Card>
               );
             })}

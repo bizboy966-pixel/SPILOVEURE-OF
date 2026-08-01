@@ -981,6 +981,12 @@ async def admin_approve(ad_id: str, request: Request, user=Depends(get_current_u
             "updated_at": now,
         }},
     )
+    # Eagerly initialise the reactor pool at approval time so the "budget
+    # cap" behaviour is deterministic from the very first interaction —
+    # no ambiguity between "no reward yet" and "no pool initialised yet".
+    fresh_ad = await db.ads.find_one({"id": ad_id})
+    if fresh_ad:
+        await _initialise_reactor_pool(db, fresh_ad)
     return _serialize(await db.ads.find_one({"id": ad_id}))
 
 
@@ -1004,3 +1010,20 @@ async def admin_reject(ad_id: str, data: AdRejectReason, request: Request, user=
         }},
     )
     return _serialize(await db.ads.find_one({"id": ad_id}))
+
+
+@admin.delete("/ads/{ad_id}")
+async def admin_delete_ad(ad_id: str, request: Request, user=Depends(get_current_user)):
+    """Permanently delete an ad, regardless of its status.
+
+    Wipes the ad document + related interaction records (likes / comments
+    are stored inside the document itself, so they go with it). Reactor
+    reward records in `ads_reactor_rewards` are kept for audit trail so
+    the admin can still see historical payouts.
+    """
+    db = request.app.state.db
+    ad = await db.ads.find_one({"id": ad_id})
+    if not ad:
+        raise HTTPException(404, "Publicité introuvable.")
+    await db.ads.delete_one({"id": ad_id})
+    return {"ok": True, "deleted": ad_id}

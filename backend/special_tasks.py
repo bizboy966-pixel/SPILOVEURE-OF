@@ -343,6 +343,23 @@ async def admin_force_activate_task(task_id: str, request: Request):
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
 
 
+@admin.delete("/special-tasks/{task_id}")
+async def admin_delete_task(task_id: str, request: Request):
+    """Permanently delete a special task, regardless of its status.
+
+    Deletes the task doc AND its completion audit records so the campaign
+    disappears cleanly from every admin view. Reward payouts already
+    credited to workers are NOT reversed — that would break trust.
+    """
+    db = request.app.state.db
+    t = await db.special_tasks.find_one({"id": task_id})
+    if not t:
+        raise HTTPException(404, "Tâche introuvable.")
+    await db.special_tasks.delete_one({"id": task_id})
+    await db.special_task_completions.delete_many({"task_id": task_id})
+    return {"ok": True, "deleted": task_id}
+
+
 @public.post("/special-tasks/{task_id}/publish")
 async def publish_task(task_id: str, request: Request, user=Depends(get_current_user)):
     """Mark task ready for payment. Next step: /special-tasks/{id}/pay."""

@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🎯 Budget récompenses Ads + suppression admin (Ads & Tâches Spé.)
+
+**Budget cap sur les publicités** :
+- L'admin approuve la pub → `_initialise_reactor_pool()` est appelé **immédiatement** (avant, c'était lazy sur la 1ère interaction) → `reactor_pool = price_amount × distribution_percentage / 100`.
+- Chaque like/comment rémunéré décrémente `reactor_pool_remaining` de manière atomique via `db.ads.update_one({..., "reactor_pool_remaining":{"$gte":reward}}, {"$inc":{"reactor_pool_remaining":-reward}})`.
+- Quand le pool = 0, les nouveaux likes/comments **fonctionnent toujours** (compteurs actifs) mais `_credit_reactor()` retourne `None` → aucune récompense versée.
+- Idempotence renforcée : la table unique `ads_reactor_rewards` sur `(ad_id, user_id, action)` empêche toute double-récompense même si l'utilisateur unlike/relike.
+- Crédit sur `balance_profit` (compte de retrait) — inchangé et verrouillé par test.
+
+**Suppression admin any status** :
+- Backend `ads.py` : nouveau `DELETE /api/admin/ads/{id}` — supprime le doc + retourne `{ok, deleted}`. Les enregistrements `ads_reactor_rewards` sont conservés pour l'audit.
+- Backend `special_tasks.py` : nouveau `DELETE /api/admin/special-tasks/{id}` — supprime le doc + cascade sur `special_task_completions`.
+- Frontend `(admin)/index.tsx` : bouton rouge **Supprimer** ajouté à chaque carte Publicité + Tâche Spéciale, quel que soit le statut. Prompt de confirmation `window.confirm()` avant appel. TestIDs `admin-ad-delete-<id>` / `admin-st-delete-<id>`.
+
+**Tests** : 3/3 nouveaux (`test_ads_budget_and_delete.py`) + 24/24 régression ads/tasks/completion.
+
+
+
 ### 2026-07-31 — 🧮 Refonte flux monétaire Tâches Spéciales (spec 2 étapes)
 
 **Contexte** : le créateur voyait « Récompense/participant » sur l'écran final avant paiement, et le backend stockait `reward_per_action = price × dist_pct/100` (identique mathématiquement mais violant la sémantique du spec).
