@@ -297,19 +297,38 @@ async def create_ashtec_payment(
         }
 
     if not resp.get("success"):
+        # Persist the FULL Ashtech response so the admin can inspect the
+        # exact reason (visible via the /admin/payments/ashtec/diag panel).
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "failed",
                       "activation_error": resp.get("message") or "Échec initiation",
                       "ashtecpay_response": resp,
                       "ashtecpay_status_code": resp.get("status_code"),
+                      "ashtecpay_error_code": resp.get("error"),
                       "updated_at": datetime.now(timezone.utc)}},
         )
-        msg = resp.get("message") or "AshtecPay a refusé la requête."
-        # Include the HTTP status code hint if useful (helps debug prod issues)
+        # Build a self-diagnostic message per the official Ashtech doc:
+        # user-visible sentence + [error_code / HTTP status] hint so the
+        # operator (Wave / Orange Money / etc.) failure mode is obvious
+        # both to the user and to the admin reading the logs.
+        base = resp.get("message") or "AshtecPay a refusé la requête."
+        error_code = resp.get("error")
         sc = resp.get("status_code")
-        if sc and sc >= 400 and str(sc) not in msg:
-            msg = f"{msg} (HTTP {sc})"
+        hints = []
+        if error_code and error_code != "error":
+            hints.append(str(error_code))
+        if sc and sc >= 400:
+            hints.append(f"HTTP {sc}")
+        # Attach operator context so retries with a different provider make sense.
+        hints.append(f"{operator} / {cc}")
+        msg = f"{base} ({' • '.join(hints)})" if hints else base
+        # Log the failure with the same operator context — helps the admin
+        # correlate the message with the raw wire log.
+        log.warning(
+            "[ashtec/initiate] REFUSED %s: operator=%s country=%s status=%s error=%s msg=%s",
+            ref, operator, cc, sc, error_code, base,
+        )
         raise HTTPException(400, msg)
 
     txid = resp.get("transaction_id")

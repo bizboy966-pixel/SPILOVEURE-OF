@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-07-30)
 
+### 2026-07-31 — 🔍 Diagnostic Ashtech Pay renforcé (Wave / Orange Money)
+
+**Analyse contre la doc officielle (`AshtechPay_API_Direct_v1-1.pdf`)** :
+- Le flux `POST /v1/collect` est déjà conforme (payload `amount, currency, phone, operator, country_code, reference, notify_url` — tout OK).
+- Wave : le lien `wave_url` retourné par Ashtech est bien surfacé dans `pay-ashtec.tsx` L296-303 avec bouton « 🌊 Ouvrir Wave pour payer ».
+- Orange Money OTP : le second appel `/v1/collect` avec `otp + reference` est déjà géré via le champ `otp` du dispatcher.
+- Le webhook `/api/webhooks/ashtec` est idempotent (référence + amount + status vérifiés).
+- **Constat** : le code est doc-compliant. Le vrai manque était la **diagnostique côté admin** — quand Ashtech refusait pour cause de format E.164 douteux, notify_url mal configurée ou opérateur non supporté, le message était générique « AshtecPay a refusé la requête » sans contexte.
+
+**Fix (`ashtec_activation.py`)** :
+- Persist désormais `ashtecpay_error_code` + `ashtecpay_response` **complet** dans `db.payments` (accessible via `/admin/payments/ashtec/diag`).
+- Message d'erreur enrichi retourné à l'utilisateur : `<message Ashtech> (<error_code> • HTTP <status> • <operator> / <country>)` — l'admin voit immédiatement quel opérateur / quel code d'erreur a échoué.
+- Log serveur structuré avec `operator=X country=Y status=Z error=E` pour corrélation rapide.
+
+**Tests** : 17/17 régression Ashtech (`test_ashtec_*.py`) pass. Aucun changement de contrat API.
+
+
+
 ### 2026-07-31 — 🎯 Budget récompenses Ads + suppression admin (Ads & Tâches Spé.)
 
 **Budget cap sur les publicités** :
