@@ -20,6 +20,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+## Implementation Status (à jour 2026-08-02)
+
+### 2026-08-02 — 🔧 Retraits (Admin) + Activations Crypto Auto enrichies
+
+**Bug 1 — Réglages des retraits : jours & heures n'étaient PAS "sauvegardés"**
+- Root cause : le load `/(admin)/index.tsx` ne réhydratait que les frais (`fee_percent`, `fee_flat`, `min_amount`, `max_amount`). Les états `wdAllowedDays`, `wdOpenTime`, `wdCloseTime` restaient aux défauts (`[0..6]`, `07:00`, `20:00`) à chaque ouverture de l'onglet Réglages.
+- Effet visible : l'admin cochait par ex. `[1,3,5]` + `09:00-17:00`, cliquait "Enregistrer", et à la ré-ouverture voyait à nouveau tous les jours cochés → illusion de non-persistance. Le backend persistait pourtant correctement.
+- Correctif :
+  - Frontend hydrate désormais `allowed_days`, `open_time`, `close_time` depuis la réponse GET.
+  - Bouton renommé "ENREGISTRER LES PARAMÈTRES" (au lieu de "ENREGISTRER LES FRAIS") — plus fidèle au contenu du payload.
+  - Nettoyage backend : 3 blocs de routes admin dupliqués supprimés dans `server.py` (`/settings/withdrawal`, `/settings/crypto-payment`, `/settings/manual-payment`, `/settings/support`, `/settings/community-popup`, `/webhook-logs`) qui polluaient le fichier et déclenchaient des warnings ruff `F811`.
+
+**Bug 2 — Vue Crypto Auto-Activations : email + ID Transaction EasyChange manquants**
+- Root cause : l'insert dans `izichange.py` (`create_activation_payment`) ne persistait pas l'email de l'utilisateur ni l'`intent_id` (côté EasyChange). L'endpoint `/admin/activations` fournissait seulement `deposit_address` et `tx_hash`.
+- Correctif :
+  - `izichange.py`: on stocke maintenant `email` et `provider_intent_id` sur la ligne activation dès la création.
+  - `server.py::admin_list_activations`: enrichit rétroactivement les anciennes activations `crypto_auto` avec (a) l'email récupéré depuis `db.users` et (b) `easychange_transaction_id = payments.provider_intent_id`.
+  - Frontend admin : nouveau bloc "ID Transaction EasyChange (cliquer pour copier)" (data-testid `admin-copy-easychange-<id>`) sous le Hash TXID. La barre de recherche accepte aussi le txid EasyChange.
+
+**Tests** :
+- `/app/backend/tests/test_withdrawal_settings_persistence.py` : 2/2 pass (round-trip complet fees+days+hours ; enrichissement crypto_auto).
+- `testing_agent_v3_fork` iteration_42 : E2E validé 100% frontend + backend, aucune régression.
+
+
+
 
 ### 2026-07-31 — 🔍 Diagnostic Ashtech Pay renforcé (Wave / Orange Money)
 
