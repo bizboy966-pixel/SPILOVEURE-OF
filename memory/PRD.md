@@ -20,6 +20,29 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-08-02 — 💼 Module Emploi (CRUD admin + lecture publique)
+
+**Objectif** : SPILOVEURE peut publier des offres d'emploi (admin only) que TOUS les utilisateurs — activés ou non — peuvent consulter gratuitement.
+
+**Backend (`/app/backend/jobs.py`)**
+- Nouveau module autonome avec `JobIn` (title/description/contact/country obligatoires ; salary/image_url facultatifs).
+- Routes admin-only : `POST/PUT/DELETE /api/admin/jobs`, `POST /api/admin/jobs/{id}/toggle`, `GET /api/admin/jobs` (retourne tout).
+- Route publique authentifiée : `GET /api/jobs` → uniquement les offres actives.
+- Validators Pydantic rejettent les champs obligatoires vides (422).
+
+**Frontend**
+- `/app/frontend/app/(app)/emploi.tsx` — vue utilisateur : cards avec titre, pays (avec drapeau), salaire (si présent), description INTÉGRALE (jamais tronquée, pas de "voir plus"), contact cliquable (téléphone/e-mail/WhatsApp auto-détecté), image cliquable qui ouvre `MediaLightbox` en plein écran.
+- `/app/frontend/app/(admin)/emploi.tsx` — panneau admin : formulaire de publication (titre, description longue, contact, dropdown pays, salaire optionnel, upload d'image via `/api/admin/uploads`), toggle Active/Inactive, liste avec actions Modifier / Désactiver-Réactiver / Supprimer.
+- `/app/frontend/src/components/BottomNav.tsx` — 🔁 Renommage : "Devis" → "Emploi" (icône `briefcase`, route `/(app)/emploi`). 🗑️ Suppression : "🛠 Demande de service" retiré de PLUS_MENU. ➕ Ajout : "💼 Emploi" dans PLUS_MENU.
+- `/app/frontend/app/(app)/_layout.tsx` — `emploi` ajouté à `ALLOWED_FOR_PENDING` : les utilisateurs non-activés peuvent aussi consulter les offres.
+- `/app/frontend/app/(admin)/index.tsx` — nouvelle carte raccourci "💼 Gestion des offres d'emploi" (data-testid `admin-open-emploi-mgmt`).
+
+**Tests**
+- `/app/backend/tests/test_jobs_crud.py` : 4/4 pytest passent (CRUD complet, garde auth, validation des champs).
+- `testing_agent_v3_fork` iteration_43 : 100 % backend + 100 % admin UI E2E (create → edit → toggle → delete + validation). Aucune régression.
+
+
+
 ## Implementation Status (à jour 2026-08-02)
 
 ### 2026-08-02 — 🔧 Retraits (Admin) + Activations Crypto Auto enrichies
