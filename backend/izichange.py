@@ -280,8 +280,10 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     })
     await db.activations.insert_one({
         "id": str(uuid.uuid4()), "user_id": user["id"], "username": user.get("username"),
+        "email": user.get("email"),
         "level": 1, "status": "pending", "payment_method": "crypto_auto",
         "reference": reference, "amount": AMOUNT_USDT, "currency": "USDT",
+        "provider_intent_id": intent_id,
         "created_at": now,
     })
 

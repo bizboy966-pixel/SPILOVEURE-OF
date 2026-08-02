@@ -287,6 +287,14 @@ export default function AdminHome() {
         setWdFeeFlat(String(wd.fee_flat ?? 0));
         setWdMinAmount(String(wd.min_amount ?? 0));
         setWdMaxAmount(wd.max_amount ? String(wd.max_amount) : "");
+        // Time-window (days + open/close hours) — previously not hydrated,
+        // which made the form silently reset to defaults on every reload
+        // and made saved values look "not persisted".
+        if (Array.isArray(wd.allowed_days)) {
+          setWdAllowedDays(wd.allowed_days.map((d: any) => Number(d)).filter((d: number) => d >= 0 && d <= 6));
+        }
+        if (typeof wd.open_time === "string" && wd.open_time) setWdOpenTime(wd.open_time);
+        if (typeof wd.close_time === "string" && wd.close_time) setWdCloseTime(wd.close_time);
 
         const sup = await api.get<any>("/admin/settings/support");
         setSupTelegram(sup.telegram_url || "");
@@ -776,7 +784,7 @@ export default function AdminHome() {
                 const haystack = [
                   a.username, a.email, a.user_id, a.id,
                   a.payment_phone, a.transaction_ref, a.tx_hash, a.operator, a.payer_country,
-                  a.reference, a.payment_method,
+                  a.reference, a.payment_method, a.easychange_transaction_id,
                 ].filter(Boolean).join(" ").toLowerCase();
                 return haystack.includes(q);
               });
@@ -840,6 +848,24 @@ export default function AdminHome() {
                       >
                         <Text selectable style={{ color: theme.colors.primary, fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
                           {a.tx_hash}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                  {a.easychange_transaction_id ? (
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>ID Transaction EasyChange (cliquer pour copier)</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+                            (navigator as any).clipboard.writeText(a.easychange_transaction_id);
+                            if (typeof window !== "undefined") window.alert("ID EasyChange copié ✅");
+                          }
+                        }}
+                        testID={`admin-copy-easychange-${a.id}`}
+                      >
+                        <Text selectable style={{ color: theme.colors.primary, fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
+                          {a.easychange_transaction_id}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -2442,7 +2468,7 @@ export default function AdminHome() {
 
               <View style={{ height: 8 }} />
               <Button
-                title="ENREGISTRER LES FRAIS"
+                title="ENREGISTRER LES PARAMÈTRES"
                 icon={<Ionicons name="save" size={18} color="#fff" />}
                 loading={wdSaving}
                 onPress={async () => {
@@ -2458,7 +2484,7 @@ export default function AdminHome() {
                       open_time: wdOpenTime,
                       close_time: wdCloseTime,
                     });
-                    notify("✅ Sauvegardé", "Les frais de retrait sont appliqués immédiatement.");
+                    notify("✅ Sauvegardé", "Frais, jours et heures de retrait appliqués immédiatement.");
                   } catch (e: any) {
                     notify("Erreur", e?.detail || "Impossible de sauvegarder.");
                   } finally {

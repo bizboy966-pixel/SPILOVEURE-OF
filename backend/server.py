@@ -1995,18 +1995,32 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
         pay_map = {}
         async for p in db.payments.find({"reference": {"$in": crypto_refs}, "provider": "izichange"}, {"_id": 0}):
             pay_map[p["reference"]] = p
+        # Batch-fetch user emails so the admin can trace the account behind
+        # each pending EasyChange (IziChange) payment intent without opening
+        # a separate tab.
+        user_ids = list({it.get("user_id") for it in items if it.get("payment_method") == "crypto_auto" and it.get("user_id")})
+        user_map: dict = {}
+        if user_ids:
+            async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "email": 1}):
+                user_map[u["id"]] = u.get("email")
         for it in items:
             if it.get("payment_method") != "crypto_auto":
                 continue
             p = pay_map.get(it.get("reference"))
-            if not p:
-                continue
-            it["deposit_address"] = p.get("deposit_address")
-            it["tx_hash"] = p.get("tx_hash") or it.get("tx_hash")
-            it["network"] = p.get("network") or "BEP20"
-            it["provider"] = "izichange"
-            it["gateway_status"] = p.get("status")
-            it["expires_at"] = p.get("expires_at")
+            if p:
+                it["deposit_address"] = p.get("deposit_address")
+                it["tx_hash"] = p.get("tx_hash") or it.get("tx_hash")
+                it["network"] = p.get("network") or "BEP20"
+                it["provider"] = "izichange"
+                it["gateway_status"] = p.get("status")
+                it["expires_at"] = p.get("expires_at")
+                # EasyChange (IziChange) payment-intent id — this is the ID
+                # the merchant sees on the EasyChange dashboard when they need
+                # to trace a stuck deposit for manual support.
+                it["easychange_transaction_id"] = p.get("provider_intent_id")
+            # Populate email if it wasn't stored on the activation doc (older rows).
+            if not it.get("email") and it.get("user_id"):
+                it["email"] = user_map.get(it["user_id"])
 
     # Merge automatic payments (SoleasPay legacy + AshtecPay current).
     # Both providers store their payment docs in `db.payments` with the same
@@ -2705,60 +2719,7 @@ async def admin_update_community_popup(
 
 
 
-@admin_router.get("/settings/manual-payment")
-async def admin_get_manual_payment(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "manual_payment"}, {"_id": 0}) or {}
-    return {
-        "enabled": bool(doc.get("enabled", False)),
-        "payment_url": doc.get("payment_url") or "",
-        "title": doc.get("title") or "Paiement manuel",
-        "instructions": doc.get("instructions") or "",
-        "phone_to_pay": doc.get("phone_to_pay") or "",
-        "operator_name": doc.get("operator_name") or "",
-        "allowed_countries": doc.get("allowed_countries") or [],
-        "updated_at": doc.get("updated_at"),
-        "updated_by": doc.get("updated_by"),
-    }
-
-
-@admin_router.put("/settings/manual-payment")
-async def admin_update_manual_payment(
-    data: ManualPaymentSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": data.enabled,
-        "payment_url": (data.payment_url or "").strip(),
-        "title": (data.title or "Paiement manuel").strip(),
-        "instructions": (data.instructions or "").strip(),
-        "phone_to_pay": (data.phone_to_pay or "").strip(),
-        "operator_name": (data.operator_name or "").strip(),
-        "allowed_countries": [c.strip().upper() for c in (data.allowed_countries or []) if c and c.strip()],
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "manual_payment"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
-
-
-
 # --- Withdrawal settings ---
-
-@admin_router.get("/webhook-logs")
-async def admin_webhook_logs(request: Request, limit: int = 50):
-    """Return the most recent webhook hits for debugging."""
-    db = request.app.state.db
-    cursor = db.webhook_logs.find({}, {"_id": 0}).sort("received_at", -1).limit(min(max(1, limit), 200))
-    out = []
-    async for d in cursor:
-        if isinstance(d.get("received_at"), datetime):
-            d["received_at"] = d["received_at"].isoformat()
-        out.append(d)
-    return {"items": out, "count": len(out)}
-
 
 @admin_router.get("/payments/stuck")
 async def admin_stuck_payments(request: Request, limit: int = 50):
@@ -2870,146 +2831,6 @@ async def admin_reprocess_payment(reference: str, request: Request, admin=Depend
             {"$set": {"activation_error": str(exc)}},
         )
         raise HTTPException(500, f"Activation échouée: {exc}")
-
-
-@admin_router.get("/settings/crypto-payment")
-async def admin_get_crypto_payment(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "crypto_payment"}, {"_id": 0}) or {}
-    return {
-        "enabled": bool(doc.get("enabled", False)),
-        "network": doc.get("network") or "USDT BEP20",
-        "wallet_address": doc.get("wallet_address") or "",
-        "amount_usdt": doc.get("amount_usdt") or 5.0,
-        "instructions": doc.get("instructions") or "",
-        "updated_at": doc.get("updated_at"),
-        "updated_by": doc.get("updated_by"),
-    }
-
-
-@admin_router.put("/settings/crypto-payment")
-async def admin_update_crypto_payment(
-    data: CryptoPaymentSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": bool(data.enabled),
-        "network": (data.network or "USDT BEP20").strip(),
-        "wallet_address": (data.wallet_address or "").strip(),
-        "amount_usdt": float(data.amount_usdt or 5.0),
-        "instructions": (data.instructions or "").strip(),
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "crypto_payment"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
-
-
-@admin_router.get("/settings/withdrawal")
-async def admin_get_withdrawal_settings(request: Request):
-    db = request.app.state.db
-    settings = await _get_withdrawal_settings(db)
-    raw = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
-    settings["updated_at"] = raw.get("updated_at")
-    settings["updated_by"] = raw.get("updated_by")
-    return settings
-
-
-@admin_router.put("/settings/withdrawal")
-async def admin_update_withdrawal_settings(
-    data: WithdrawalSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "fee_percent": float(data.fee_percent),
-        "fee_flat": float(data.fee_flat),
-        "min_amount": float(data.min_amount),
-        "max_amount": float(data.max_amount) if data.max_amount is not None else None,
-        "enabled": bool(data.enabled),
-        "allowed_days": sorted({int(d) for d in (data.allowed_days or []) if 0 <= int(d) <= 6}),
-        "open_time": data.open_time or "07:00",
-        "close_time": data.close_time or "20:00",
-        "timezone": data.timezone or "Africa/Lome",
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "withdrawal_settings"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
-
-
-# --- Support / Social links ---
-
-@admin_router.get("/settings/support")
-async def admin_get_support_links(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "support_links"}, {"_id": 0}) or {}
-    out = _support_defaults(doc)
-    out["updated_at"] = doc.get("updated_at")
-    out["updated_by"] = doc.get("updated_by")
-    return out
-
-
-@admin_router.put("/settings/support")
-async def admin_update_support_links(
-    data: SupportLinks, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "telegram_url": (data.telegram_url or "").strip(),
-        "whatsapp_url": (data.whatsapp_url or "").strip(),
-        "facebook_url": (data.facebook_url or "").strip(),
-        "youtube_url": (data.youtube_url or "").strip(),
-        "instagram_url": (data.instagram_url or "").strip(),
-        "twitter_url": (data.twitter_url or "").strip(),
-        "discord_url": (data.discord_url or "").strip(),
-        "email": (data.email or "").strip(),
-        "phone": (data.phone or "").strip(),
-        "website_url": (data.website_url or "").strip(),
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "support_links"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
-
-
-# --- Community Popup ---
-
-@admin_router.get("/settings/community-popup")
-async def admin_get_community_popup(request: Request):
-    db = request.app.state.db
-    doc = await db.app_settings.find_one({"_id": "community_popup"}, {"_id": 0}) or {}
-    out = _community_popup_defaults(doc)
-    out["updated_at"] = doc.get("updated_at")
-    out["updated_by"] = doc.get("updated_by")
-    return out
-
-
-@admin_router.put("/settings/community-popup")
-async def admin_update_community_popup(
-    data: CommunityPopupSettings, request: Request, admin=Depends(require_admin),
-):
-    db = request.app.state.db
-    payload = {
-        "enabled": bool(data.enabled),
-        "title": (data.title or "").strip(),
-        "description": (data.description or "").strip(),
-        "image_url": (data.image_url or "").strip(),
-        "telegram_url": (data.telegram_url or "").strip(),
-        "button_label": (data.button_label or "🚀 REJOINDRE MAINTENANT").strip(),
-        "auto_close_seconds": int(data.auto_close_seconds or 0),
-        "updated_at": datetime.now(timezone.utc),
-        "updated_by": admin.get("username"),
-    }
-    await db.app_settings.update_one(
-        {"_id": "community_popup"}, {"$set": payload}, upsert=True,
-    )
-    return {"ok": True, "settings": payload}
 
 
 # ============ SOLEASPAY (Mobile Money, polling-based) ============
