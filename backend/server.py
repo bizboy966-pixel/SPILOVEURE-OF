@@ -3275,3 +3275,11 @@ app.include_router(upgrade_audit_router)
 # Integrity audit — detects fraudulent activations & orphan commissions (admin-only).
 from integrity_audit import router as integrity_audit_router  # noqa: E402
 app.include_router(integrity_audit_router)
+
+# Jobs (Emploi) — admin publishes job offers, users browse them for free.
+from jobs import (  # noqa: E402
+    public_router as jobs_public,
+    admin_router as jobs_admin,
+)
+app.include_router(jobs_public)
+app.include_router(jobs_admin)

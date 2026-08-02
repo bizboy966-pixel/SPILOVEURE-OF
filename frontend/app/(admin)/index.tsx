@@ -490,6 +490,23 @@ export default function AdminHome() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#0EA5E9" }]}
+              onPress={() => router.push("/(admin)/emploi" as any)}
+              testID="admin-open-emploi-mgmt"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="briefcase" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>💼 Gestion des offres d'emploi</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Publier, modifier, activer/désactiver et supprimer les offres
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#F59E0B" }]}
               onPress={() => router.push("/(admin)/lottery" as any)}
               testID="admin-open-lottery-mgmt"

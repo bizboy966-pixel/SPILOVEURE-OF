@@ -12,7 +12,7 @@ import { NotificationToaster } from "@/src/components/NotificationToaster";
 // not redirect them back to /activation automatically.
 const ALLOWED_FOR_PENDING = new Set([
   "activation", "activation-crypto-auto", "activation-ashtec", "pay-ashtec", "profile", "settings",
-  "services", "formations", "ebooks", "premium-apps", "trading",
+  "services", "formations", "ebooks", "premium-apps", "trading", "emploi",
 ]);
 
 export default function AppLayout() {
