@@ -78,14 +78,48 @@ function AdsScreenInner() {
     try { await api.post(`/ads/${adId}/view`); } catch {}
   };
 
+  const [commentPosting, setCommentPosting] = useState<Record<string, boolean>>({});
+  const [commentError, setCommentError] = useState<Record<string, string>>({});
+
   const onComment = async (adId: string) => {
     const text = (newComment[adId] || "").trim();
-    if (!text) return;
+    if (!text) {
+      setCommentError((e) => ({ ...e, [adId]: "Veuillez écrire un commentaire." }));
+      return;
+    }
+    setCommentPosting((s) => ({ ...s, [adId]: true }));
+    setCommentError((e) => ({ ...e, [adId]: "" }));
     try {
-      const r = await api.post<{ comment: Comment }>(`/ads/${adId}/comment`, { text });
-      setAds((prev) => prev.map((a) => a.id === adId ? { ...a, comments: [...a.comments, r.comment] } : a));
+      const r = await api.post<{ comment: Comment; reward?: { amount: number } | null }>(
+        `/ads/${adId}/comment`, { text },
+      );
+      // Optimistically inject the new comment + bump the counter used by the
+      // header pill ("💬 comments.length") so the UI reflects the write.
+      setAds((prev) =>
+        prev.map((a) =>
+          a.id === adId
+            ? { ...a, comments: [...a.comments, r.comment] }
+            : a,
+        ),
+      );
       setNewComment((n) => ({ ...n, [adId]: "" }));
-    } catch {}
+      if (r.reward && r.reward.amount) {
+        if (typeof window !== "undefined") {
+          window.alert(`🎉 Commentaire publié — vous avez gagné ${r.reward.amount} FCFA !`);
+        }
+      }
+    } catch (err: any) {
+      // Anti-spam heuristics (min length, duplicates, similarity…) return 400.
+      // Network errors return no `detail`. Surface a clear message either way,
+      // so the button never *looks* dead again.
+      const msg =
+        (err?.detail && String(err.detail)) ||
+        (err?.message && String(err.message)) ||
+        "Impossible d'envoyer votre commentaire. Veuillez réessayer.";
+      setCommentError((e) => ({ ...e, [adId]: msg }));
+    } finally {
+      setCommentPosting((s) => ({ ...s, [adId]: false }));
+    }
   };
 
   const renderAd = ({ item }: { item: Ad }) => {
@@ -188,12 +222,29 @@ function AdsScreenInner() {
                 placeholder="Ajouter un commentaire…"
                 value={newComment[item.id] || ""}
                 onChangeText={(v) => setNewComment((n) => ({ ...n, [item.id]: v }))}
+                editable={!commentPosting[item.id]}
+                onSubmitEditing={() => onComment(item.id)}
+                returnKeyType="send"
                 testID={`ad-comment-input-${item.id}`}
               />
-              <TouchableOpacity onPress={() => onComment(item.id)} style={styles.commentSend} testID={`ad-comment-send-${item.id}`}>
-                <Ionicons name="send" size={16} color="#fff" />
+              <TouchableOpacity
+                onPress={() => onComment(item.id)}
+                disabled={!!commentPosting[item.id]}
+                style={[styles.commentSend, commentPosting[item.id] && { opacity: 0.6 }]}
+                testID={`ad-comment-send-${item.id}`}
+              >
+                {commentPosting[item.id] ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="send" size={16} color="#fff" />
+                )}
               </TouchableOpacity>
             </View>
+            {commentError[item.id] ? (
+              <Text style={styles.commentErr} testID={`ad-comment-error-${item.id}`}>
+                ⚠️ {commentError[item.id]}
+              </Text>
+            ) : null}
           </View>
         )}
       </View>
@@ -310,6 +361,12 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: theme.colors.primary,
     alignItems: "center", justifyContent: "center",
+  },
+  commentErr: {
+    color: theme.colors.danger,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 6,
   },
   empty: { alignItems: "center", padding: 40, gap: 6 },
   emptyTitle: { fontWeight: "900", fontSize: 15, color: theme.colors.textPrimary },
