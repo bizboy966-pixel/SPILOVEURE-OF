@@ -26,7 +26,12 @@ function MarketplaceScreenInner() {
   const lightbox = useMediaLightbox();
 
   const load = useCallback(async () => {
-    try { const r = await api.get<{ items: Listing[] }>("/marketplace"); setItems(r.items || []); }
+    try {
+      const r = await api.get<{ items: Listing[] }>("/marketplace");
+      setItems(r.items || []);
+      // Clear the bottom-nav "new items" badge — mirrors what /(app)/ads does.
+      api.post("/marketplace/mark-seen").catch(() => {});
+    }
     catch {} finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);

@@ -20,6 +20,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-08-04 — 🛒 Badge "nouveau" pour le Marketplace (miroir de celui des Publicités)
+
+**Objectif** : appliquer strictement la même mécanique que le badge Publicités à l'icône Marketplace.
+
+**Backend (`/app/backend/marketplace.py`)**
+- `GET /api/marketplace/unread-count` → nombre d'annonces `status="approved"` avec `approved_at > users.last_marketplace_seen_at`, en excluant celles du vendeur lui-même.
+- `POST /api/marketplace/mark-seen` → écrit `users.last_marketplace_seen_at = now()`.
+- Routes placées AVANT `/marketplace/{listing_id}` pour éviter le route-shadowing (même piège que sur `/api/ads`).
+
+**Frontend**
+- `/app/frontend/app/(app)/marketplace.tsx` — `load()` appelle `POST /marketplace/mark-seen` au montage (fire-and-forget).
+- `/app/frontend/src/components/BottomNav.tsx` — poll `unread-count` en parallèle avec tasks + ads ; badge rouge (data-testid `bottom-nav-marketplace-badge`) sur l'icône Marketplace, même style que celui des Publicités.
+
+**Tests**
+- `/app/backend/tests/test_marketplace_unread_badge.py` : 2/2 passent (HTTP + sémantique Mongo).
+- Backend curl : `/unread-count` = 0, `mark-seen` OK, revient à 0. Aucune régression détectée.
+
+
+
 ### 2026-08-04 — 📣 Badge "nouvelle pub" + description Publicité cliquable
 
 **Objectif** : Prévenir les utilisateurs qu'une pub vient d'être approuvée + rendre les URLs/tél/e-mail cliquables dans les descriptions.

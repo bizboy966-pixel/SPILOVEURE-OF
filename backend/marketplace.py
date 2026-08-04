@@ -125,6 +125,45 @@ async def public_feed(request: Request, user=Depends(get_current_user)):
     return {"items": items}
 
 
+# ---------- "Nouveauté" badge for the bottom-nav Marketplace icon ----------
+# NOTE: these static routes MUST come before `/marketplace/{listing_id}` so
+# that FastAPI doesn't interpret "unread-count" / "mark-seen" as a listing id.
+@public.get("/marketplace/unread-count")
+async def marketplace_unread_count(request: Request, user=Depends(get_current_user)):
+    """Return how many approved listings the user hasn't seen yet.
+
+    Same semantics as /api/ads/unread-count: an item counts as "new" when its
+    `approved_at` is strictly greater than `users.last_marketplace_seen_at`.
+    Listings owned by the caller are excluded (seller doesn't get a badge
+    for their own newly-approved article) and expired items are ignored.
+    """
+    db = request.app.state.db
+    if not await feature_enabled(db, "marketplace"):
+        return {"unread": 0}
+    u = await db.users.find_one({"id": user["id"]}, {"last_marketplace_seen_at": 1}) or {}
+    seen = u.get("last_marketplace_seen_at")
+    q: dict = {
+        "status": "approved",
+        "seller_id": {"$ne": user["id"]},
+    }
+    if seen:
+        q["approved_at"] = {"$gt": seen}
+    unread = await db.marketplace_listings.count_documents(q)
+    return {"unread": int(unread)}
+
+
+@public.post("/marketplace/mark-seen")
+async def marketplace_mark_seen(request: Request, user=Depends(get_current_user)):
+    """Reset the unread-marketplace badge (fires when the user opens /marketplace)."""
+    db = request.app.state.db
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_marketplace_seen_at": now}},
+    )
+    return {"ok": True, "at": now.isoformat()}
+
+
 @public.get("/marketplace/{listing_id}")
 async def get_listing(listing_id: str, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
