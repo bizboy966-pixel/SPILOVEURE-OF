@@ -20,6 +20,27 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-08-04 — 📣 Badge "nouvelle pub" + description Publicité cliquable
+
+**Objectif** : Prévenir les utilisateurs qu'une pub vient d'être approuvée + rendre les URLs/tél/e-mail cliquables dans les descriptions.
+
+**Backend (`/app/backend/ads.py`)**
+- `GET /api/ads/unread-count` → nombre de pubs `status=published` avec `published_at > users.last_ads_seen_at`, en excluant les pubs du propriétaire et les expirées.
+- `POST /api/ads/mark-seen` → écrit `users.last_ads_seen_at = now()`.
+- Ces routes statiques sont enregistrées AVANT `@public.get("/ads/{ad_id}")` (sinon FastAPI matchait `unread-count` comme un `ad_id` → 404 "Publicité introuvable").
+
+**Frontend**
+- `/app/frontend/src/components/LinkifiedText.tsx` — nouveau composant réutilisable qui parse une chaîne et transforme URL (`http(s)://`, `www.`), e-mails et numéros de téléphone (8-15 chiffres) en `<Text>` tappables. Ouverture native via `Linking.openURL` (mobile) ou `window.open` (web). testIDs `-url` / `-email` / `-phone` par span.
+- `/app/frontend/app/(app)/ads.tsx` — utilise `LinkifiedText` à la place de `<Text>` pour la description ; appelle `POST /api/ads/mark-seen` au montage pour vider le badge.
+- `/app/frontend/src/components/BottomNav.tsx` — poll `unread-count` toutes les 60 s (et à chaque changement de route) pour `special-tasks` ET `ads` ; badge rouge (data-testid `bottom-nav-ads-badge`) sur l'icône Publicité.
+
+**Tests**
+- `/app/backend/tests/test_ads_unread_badge.py` (unit sur Mongo) : 1/1 pass.
+- `/app/backend/tests/test_ads_badge_http.py` (integration HTTP créé par testing agent) : 3/3 pass.
+- `testing_agent_v3_fork` iteration_44 : 100 % backend + 100 % frontend E2E validés avec un vrai utilisateur seedé, badge visible → disparition après visite, tous les spans URL/e-mail/tél cliquables avec les bons testIDs.
+
+
+
 ### 2026-08-02 — 💼 Module Emploi (CRUD admin + lecture publique)
 
 **Objectif** : SPILOVEURE peut publier des offres d'emploi (admin only) que TOUS les utilisateurs — activés ou non — peuvent consulter gratuitement.
