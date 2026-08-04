@@ -20,6 +20,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-08-04 — 🐞 Bouton "Envoyer" (commentaires Publicités) : plus jamais muet
+
+**Bug** : sur `/(app)/ads`, cliquer sur "Envoyer" un commentaire semblait ne rien faire. Aucun message, aucun spinner, aucun retour.
+
+**Root cause** : dans `/app/frontend/app/(app)/ads.tsx`, le handler `onComment` utilisait un `catch {}` silencieux. Le backend renvoie légitimement HTTP 400 pour ses heuristiques anti-spam (min 8 caractères, doublon, similarité, non-pertinent) → tous les rejets étaient avalés côté UI, donc l'utilisateur ne comprenait pas pourquoi son message n'apparaissait pas.
+
+**Correctif**
+- Nouveau `commentPosting` + `commentError` state map (par-adId).
+- Pendant l'envoi : le bouton est désactivé (opacity 0.6), l'icône `send` est remplacée par un `ActivityIndicator`.
+- En cas d'erreur : bannière inline `⚠️ <detail>` (data-testid `ad-comment-error-<adId>`) affichant le message français retourné par le backend, avec fallback "Impossible d'envoyer votre commentaire. Veuillez réessayer.".
+- Erreur automatiquement effacée dès que l'utilisateur retape dans le champ.
+- Envoi possible aussi via touche Enter (`onSubmitEditing`).
+- Récompense éventuelle (comment_reward > 0) annoncée via `window.alert('🎉 Commentaire publié — vous avez gagné X FCFA !')`.
+
+**Tests**
+- `/app/backend/tests/test_ads_comment_flow.py` : 2/2 passent (short → 400 avec detail lisible ; long → 200 + persistance en DB).
+- `testing_agent_v3_fork` iteration_45 : 4/4 flows E2E validés sur preview (bannière d'erreur, happy path, Enter key, disabled+spinner). Aucun bug détecté.
+
+
+
 ### 2026-08-04 — 🛒 Badge "nouveau" pour le Marketplace (miroir de celui des Publicités)
 
 **Objectif** : appliquer strictement la même mécanique que le badge Publicités à l'icône Marketplace.

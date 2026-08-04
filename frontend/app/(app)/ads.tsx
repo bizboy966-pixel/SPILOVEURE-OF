@@ -221,7 +221,15 @@ function AdsScreenInner() {
                 style={styles.commentInput}
                 placeholder="Ajouter un commentaire…"
                 value={newComment[item.id] || ""}
-                onChangeText={(v) => setNewComment((n) => ({ ...n, [item.id]: v }))}
+                onChangeText={(v) => {
+                  setNewComment((n) => ({ ...n, [item.id]: v }));
+                  // Clear any lingering error the instant the user edits the
+                  // field again — otherwise the banner from a previous failed
+                  // attempt stays visible while they type a corrected version.
+                  if (commentError[item.id]) {
+                    setCommentError((e) => ({ ...e, [item.id]: "" }));
+                  }
+                }}
                 editable={!commentPosting[item.id]}
                 onSubmitEditing={() => onComment(item.id)}
                 returnKeyType="send"
