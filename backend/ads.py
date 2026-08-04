@@ -420,6 +420,46 @@ async def my_ads(request: Request, user=Depends(get_current_user)):
     return {"items": items}
 
 
+# ---------- "Nouveauté" badge for the bottom-nav Publicité icon ----------
+# NOTE: these static routes MUST be registered before `@public.get("/ads/{ad_id}")`
+# otherwise FastAPI matches "unread-count" and "mark-seen" as ad_id path params.
+@public.get("/ads/unread-count")
+async def ads_unread_count(request: Request, user=Depends(get_current_user)):
+    """Return the number of published ads the user hasn't seen yet.
+
+    An ad is "new" for a user when its `published_at` is strictly greater
+    than `users.last_ads_seen_at`. Ads owned by the caller are excluded so
+    the creator doesn't see a badge for their own publication.
+    """
+    db = request.app.state.db
+    if not await feature_enabled(db, "ads"):
+        return {"unread": 0}
+    u = await db.users.find_one({"id": user["id"]}, {"last_ads_seen_at": 1}) or {}
+    seen = u.get("last_ads_seen_at")
+    now = datetime.now(timezone.utc)
+    q: dict = {
+        "status": "published",
+        "user_id": {"$ne": user["id"]},
+        "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
+    }
+    if seen:
+        q["published_at"] = {"$gt": seen}
+    unread = await db.ads.count_documents(q)
+    return {"unread": int(unread)}
+
+
+@public.post("/ads/mark-seen")
+async def ads_mark_seen(request: Request, user=Depends(get_current_user)):
+    """Reset the unread-ads badge for this user (called when they open /ads)."""
+    db = request.app.state.db
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_ads_seen_at": now}},
+    )
+    return {"ok": True, "at": now.isoformat()}
+
+
 @public.get("/ads/{ad_id}")
 async def get_ad_by_id(ad_id: str, request: Request, user=Depends(get_current_user)):
     """Fetch a single ad. Owners can see any of their ads; others only

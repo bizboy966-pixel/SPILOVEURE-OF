@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
+import { LinkifiedText } from "@/src/components/LinkifiedText";
 
 type Comment = { id: string; user_id: string; username: string; text: string; at: string };
 type Ad = {
@@ -47,6 +48,9 @@ function AdsScreenInner() {
     try {
       const r = await api.get<{ items: Ad[] }>("/ads");
       setAds(r.items || []);
+      // Consuming the ads feed clears the "new ads" badge on the bottom-nav
+      // so the user isn't nagged twice for the same publication.
+      api.post("/ads/mark-seen").catch(() => {});
     } catch {}
     finally { setLoading(false); }
   }, []);
@@ -130,13 +134,14 @@ function AdsScreenInner() {
         ) : (
           <Image source={{ uri: coverSrc }} style={styles.cover} />
         )}
-        <Text
+        <LinkifiedText
           style={styles.desc}
           numberOfLines={descExpanded[item.id] ? undefined : 4}
+          selectable
           testID={`ad-desc-${item.id}`}
         >
           {item.description}
-        </Text>
+        </LinkifiedText>
         {(item.description || "").length > 180 && (
           <TouchableOpacity
             onPress={() => setDescExpanded((s) => ({ ...s, [item.id]: !s[item.id] }))}

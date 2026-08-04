@@ -1,0 +1,33 @@
+{
+  "summary": "End-to-end validation of the Publicités badge + LinkifiedText features. Backend: existing regression test /app/backend/tests/test_ads_unread_badge.py passes; new HTTP integration test /app/backend/tests/test_ads_badge_http.py (3/3 pass) confirms the static routes /api/ads/unread-count and /api/ads/mark-seen are correctly registered BEFORE /api/ads/{ad_id} (no more shadowing 404), require auth, and that mark-seen resets the counter to 0. Frontend: seeded a temp activated user 'test_ads_user' + one published ad (owned by admin, description containing URL/www/email/phone). Logged in as this user via the public REACT_APP_BACKEND_URL, verified: (a) red badge [data-testid=bottom-nav-ads-badge] with count '1' visible on Publicité icon of BottomNav on /dashboard; (b) /(app)/ads shows the ad card, description rendered via LinkifiedText with data-testids ad-desc-<adId>-url (2 spans, https://example.com and www.google.com), ad-desc-<adId>-email (jobs@example.com) and ad-desc-<adId>-phone (+228 90 00 00 00), all in primary color/underlined; (c) after navigating back to /dashboard the badge count is 0 (mark-seen fired on ads screen mount). Seed data cleaned up.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ads_unread_badge.py",
+    "/app/backend/tests/test_ads_badge_http.py",
+    "/app/test_reports/pytest/ads_unread_iter44.xml",
+    "/app/test_reports/pytest/ads_badge_http.xml"
+  ],
+  "action_items": [
+    "NON-BLOCKING (already reported in iteration_43): Metro fast-resolver kept a stale bundle after LinkifiedText.tsx was added — the frontend served a 500 with 'Unable to resolve module @/src/components/LinkifiedText' until `sudo supervisorctl restart frontend` cleared the cache. Not a code bug; production build will not have this issue. Main agent may want to add a one-liner cache-bust script if this becomes recurrent."
+  ],
+  "critical_code_review_comments": [
+    "ads.tsx: description toggle 'Lire la suite' passes numberOfLines to LinkifiedText which forwards it to the outer <Text>. On React Native Web this collapses correctly; on native iOS/Android confirm nested <Text> onPress spans still work under numberOfLines (RN sometimes clips onPress targets). Minor — not a bug for the web preview.",
+    "LinkifiedText.tsx: LINK_REGEX phone alternative matches sequences of >= 8 digits including inline numeric IDs (e.g. '20260804123456'). Guard on `digits.length <= 15` mitigates this but still catches many false positives (order refs, timestamps). Consider requiring a leading '+' or a country-code lookup for higher precision.",
+    "BottomNav.tsx: polling interval 60_000 ms is fine, but on route change the effect refetches — good. However the badge only re-appears via polling; if another user publishes an ad, the current user waits up to 60 s to see the badge. Acceptable for MVP."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ads_badge_http.py"
+  ],
+  "success_rate": {"backend": "100% (4/4 pytest across both files)", "frontend": "100% (badge shows, link/email/phone spans present with correct testIDs, badge cleared after visit)"},
+  "test_credentials": "Admin: kossikotokou4@gmail.com / @Emma91972006. Temp seeded activated user (already deleted): test_ads_user@example.com / Passw0rd!Test.",
+  "seed_data_creation": "Temporarily seeded 1 user 'test_ads_user' + 1 published ad TEST_ad_<uuid> owned by admin with description containing URL/www/email/phone. Both removed at end of run — verified via MongoDB delete.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Feature Publicité badge + LinkifiedText is production-ready. Both endpoints (/api/ads/unread-count, /api/ads/mark-seen) are correctly ordered before /api/ads/{ad_id}. If you need to re-run: seed a fresh activated user via MongoDB (users collection, status='active', max_level=1, password_hash=bcrypt hash) and a fresh published ad owned by any other user with a description containing http://…, www.…, someone@x.y, +228 90 00 00 00. All test IDs to assert on: bottom-nav-ads-badge (visible then hidden), ad-desc-<id>-url, ad-desc-<id>-email, ad-desc-<id>-phone.",
+  "rca of the issue": "N/A — feature working as specified."
+}

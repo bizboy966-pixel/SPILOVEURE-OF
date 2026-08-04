@@ -49,6 +49,7 @@ export const BottomNav: React.FC = () => {
   const [plusOpen, setPlusOpen] = useState(false);
   const { features } = useFeatures();
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
+  const [unreadAds, setUnreadAds] = useState<number>(0);
 
   // Poll the special-tasks unread count every 60 s + refresh on route change
   // so the badge disappears immediately when the user opens /tasks (which
@@ -57,10 +58,16 @@ export const BottomNav: React.FC = () => {
     let cancelled = false;
     const fetchCount = async () => {
       try {
-        const r = await api.get<{ unread: number }>("/special-tasks/unread-count");
-        if (!cancelled) setUnreadTasks(r.unread || 0);
+        const [tasks, ads] = await Promise.all([
+          api.get<{ unread: number }>("/special-tasks/unread-count").catch(() => ({ unread: 0 })),
+          api.get<{ unread: number }>("/ads/unread-count").catch(() => ({ unread: 0 })),
+        ]);
+        if (!cancelled) {
+          setUnreadTasks(tasks.unread || 0);
+          setUnreadAds(ads.unread || 0);
+        }
       } catch {
-        if (!cancelled) setUnreadTasks(0);
+        if (!cancelled) { setUnreadTasks(0); setUnreadAds(0); }
       }
     };
     fetchCount();
@@ -143,7 +150,14 @@ export const BottomNav: React.FC = () => {
             onPress={() => openItem(it)}
             testID={`bottom-nav-${it.key}`}
           >
-            <Ionicons name={it.icon} size={20} color={theme.colors.textPrimary} />
+            <View style={{ position: "relative" }}>
+              <Ionicons name={it.icon} size={20} color={theme.colors.textPrimary} />
+              {it.key === "ads" && unreadAds > 0 ? (
+                <View style={styles.badge} testID="bottom-nav-ads-badge">
+                  <Text style={styles.badgeTxt}>{unreadAds > 9 ? "9+" : unreadAds}</Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={styles.label}>{it.label}</Text>
           </TouchableOpacity>
         ))}
@@ -256,6 +270,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   centerDotTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
+  badge: {
+    position: "absolute", top: -6, right: -8,
+    minWidth: 16, height: 16, borderRadius: 8,
+    backgroundColor: "#EF4444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: theme.colors.surface,
+    paddingHorizontal: 3,
+  },
+  badgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9 },
 
   sheetBackdrop: {
     flex: 1,
