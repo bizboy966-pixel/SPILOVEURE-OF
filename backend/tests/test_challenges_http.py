@@ -26,7 +26,7 @@ from pymongo import MongoClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") if os.environ.get("REACT_APP_BACKEND_URL") else "https://spiloveure-deploy.preview.emergentagent.com"
+BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") if os.environ.get("REACT_APP_BACKEND_URL") else "https://jobs-badges-fix.preview.emergentagent.com"
 # Fallback to frontend/.env if backend .env doesn't have REACT_APP_BACKEND_URL
 if "preview" not in BASE_URL and "spiloveure" not in BASE_URL:
     with open("/app/frontend/.env") as f:

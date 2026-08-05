@@ -143,8 +143,14 @@ export default function Dashboard() {
         <TouchableOpacity onPress={() => router.push("/(app)/withdrawal")} activeOpacity={0.9} testID="dashboard-balance-card">
           <LinearGradient colors={theme.colors.primaryGradient} style={styles.balanceCard}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.balanceLabel}>Solde total du compte</Text>
-              <Text style={styles.balanceValue}>{formatFCFA(stats?.balance_total)}</Text>
+              <Text style={styles.balanceLabel}>💎 Profit retirable</Text>
+              <Text style={styles.balanceValue} testID="dashboard-balance-profit">{formatFCFA(stats?.balance_profit)}</Text>
+              <View style={styles.reserveRow}>
+                <Ionicons name="lock-closed" size={12} color="#FDE68A" />
+                <Text style={styles.reserveText} testID="dashboard-balance-upgrade">
+                  Réserve mise à niveau : {formatFCFA(stats?.balance_upgrade)}
+                </Text>
+              </View>
               <Text style={styles.balanceHint}>Cliquez pour gérer votre retrait.</Text>
             </View>
             <View style={styles.walletIcon}>
@@ -343,6 +349,8 @@ const styles = StyleSheet.create({
   balanceLabel: { color: "#C7D9FF", fontSize: 13 },
   balanceValue: { color: "#fff", fontSize: 32, fontWeight: "800", marginTop: 4 },
   balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
+  reserveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  reserveText: { color: "#FDE68A", fontSize: 12, fontWeight: "700" },
   statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   statCard: { flex: 1, padding: 14, borderRadius: 16, alignItems: "flex-start", shadowColor: "#000", shadowOpacity: 0.06, shadowOffset: { width: 0, height: 4 }, shadowRadius: 8, elevation: 3 },
   statIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 8 },

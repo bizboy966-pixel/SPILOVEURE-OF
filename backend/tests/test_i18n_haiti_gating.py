@@ -11,7 +11,7 @@ import requests
 import pytest
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or \
-           "https://spiloveure-deploy.preview.emergentagent.com"
+           "https://jobs-badges-fix.preview.emergentagent.com"
 
 ADMIN_EMAIL = "kossikotokou4@gmail.com"
 ADMIN_PASSWORD = "@Emma91972006"

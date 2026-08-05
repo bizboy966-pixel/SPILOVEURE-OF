@@ -18,7 +18,7 @@ def db():
 
 @pytest.fixture(scope="module")
 def admin_token():
-    api = os.environ.get("REACT_APP_BACKEND_URL", "https://spiloveure-deploy.preview.emergentagent.com")
+    api = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com")
     r = requests.post(f"{api}/api/auth/login", json={
         "email": "kossikotokou4@gmail.com", "password": "@Emma91972006"
     })
@@ -54,7 +54,7 @@ def test_place_in_matrix_is_idempotent(db):
 
 def test_reprocess_reconciles_already_activated_user(db, admin_token):
     """If user is already at the level, reprocess must mark payment done without re-activating."""
-    api = os.environ.get("REACT_APP_BACKEND_URL", "https://spiloveure-deploy.preview.emergentagent.com")
+    api = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com")
     admin = _run(db.users.find_one({"role": "admin"}, {"_id": 0}))
     uid = str(uuid.uuid4())
     # Create user already at L1

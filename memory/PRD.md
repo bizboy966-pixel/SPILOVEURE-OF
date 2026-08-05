@@ -10,7 +10,7 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Backend: FastAPI + Motor (MongoDB async) port 8001, préfixe `/api`.
 - DB: MongoDB locale (`MONGO_URL`, `DB_NAME=spilivere`).
 - Reverse-proxy K8s : `/api/*` → backend:8001, le reste → frontend:3000.
-- Preview : `https://spiloveure-deploy.preview.emergentagent.com`.
+- Preview : `https://jobs-badges-fix.preview.emergentagent.com`.
 
 ## Règles MLM critiques
 - Matrice binaire forcée 12 niveaux. Niveau N a 2^N positions descendantes (N1=2, N2=4, … N12=4096).

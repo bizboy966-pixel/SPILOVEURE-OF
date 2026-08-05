@@ -29,7 +29,7 @@
   "updated_files": [],
   "success_rate": {"backend": "n/a (frontend-only test)", "frontend": "85% (UI fully correct; auto-redirect blocked by alert)"},
   "test_credentials": "Created fresh user testsoleas1 / testsoleas1@example.com / Test1234! (sponsor=admin, country=TG, phone=+22890111111). Admin (kossikotokou4@gmail.com) cannot be used because max_level=12 already.",
-  "seed_data_creation": "Registered one test user via POST /api/auth/register (id=928ab2f1-14a1-4d59-b7a7-c215ea6a0af9, status=pending, max_level=0) — kept for future iterations.",
+  "seed_data_creation": "Registered one test user via POST /api/auth/register (id=jobs-badges-fix, status=pending, max_level=0) — kept for future iterations.",
   "retest_needed": true,
   "main_agent_can_self_test": true,
   "context_for_next_testing_agent": "Test user testsoleas1@example.com / Test1234! is registered (sponsor=admin, country=TG). To retest the redirect fix, log in as this user, navigate to /activation, mock POST /api/payments/soleaspay/initiate -> {order_id:'X',message:'..'} and GET /api/payments/soleaspay/status/* -> {status:'paid',activation_done:true,level:1,message:'OK'}. Click mode-soleas, select TG country chip, click soleas-service-37 (T-MONEY), fill soleas-phone, click soleas-submit. Wait for soleas-activated testID. Verify URL becomes /services within ~4s WITHOUT a dialog handler. If main agent uses router.replace instead of window.location.href, expo-router on web replaces history.",

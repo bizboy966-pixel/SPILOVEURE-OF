@@ -108,13 +108,17 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         50 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
         50 % → spillover beneficiary  (N-th hop up the MATRIX chain).
 
-    ▸ Reserve/profit split — SAME UNIFORM RULE for every recipient regardless
-      of kind (direct, spillover_sponsor, spillover_beneficiary):
-        need = max(0, price_of_recipient_next_level − recipient.balance_upgrade)
-        upgrade_share = min(amount // 2, need)   # never over-fill
-        profit_share  = amount − upgrade_share
-      Once the reserve is full (or the recipient is at max level 12) → 100 %
-      goes straight into `balance_profit`.
+    ▸ Reserve/profit split — depends on the recipient kind:
+        - `direct` and `spillover_beneficiary` :
+            need = max(0, price_of_recipient_next_level − recipient.balance_upgrade)
+            upgrade_share = min(amount // 2, need)   # never over-fill
+            profit_share  = amount − upgrade_share
+          Once the reserve is full (or the recipient is at max level 12) →
+          100 % goes straight into `balance_profit`.
+        - `spillover_sponsor` (sponsor who invited a spillovered downline,
+          from the 3rd direct invitee onwards) :
+            100 % → `balance_profit`. The sponsor's reserve is fed only by
+            direct commissions and by the beneficiary's share (spec 2026-02).
 
     ▸ Additional guards (spec §10):
         - Recipient user must exist and be at level ≥ N.
@@ -164,10 +168,16 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
             log.info(f"Recipient {user_id} not at level {level} — commission skipped (spec §10).")
             continue
 
-        # ── Uniform 50/50-with-cap split (spec §2 + §9) ─────────────────
+        # ── Reserve/profit split ────────────────────────────────────────
+        # Spec 2026-02: only DIRECT commissions and the SPILLOVER-BENEFICIARY
+        # share feed the upgrade reserve. The SPILLOVER-SPONSOR share (paid
+        # when a sponsor invites a downline placed via spillover, from the
+        # 3rd direct invitee onwards) goes 100 % to profit — no split.
         current_max = recipient.get("max_level", 0) or 0
         current_upgrade = recipient.get("balance_upgrade", 0) or 0
-        if current_max >= 12:
+        if kind == "spillover_sponsor":
+            upgrade_share = 0
+        elif current_max >= 12:
             upgrade_share = 0  # top level — no further upgrade path.
         else:
             next_price = LEVELS_BY_NUM[current_max + 1]["price"]

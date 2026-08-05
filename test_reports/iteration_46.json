@@ -1,0 +1,30 @@
+{
+  "summary": "Validation de la refonte portefeuille (spec 2026-02) : spillover_sponsor => 100% profit, réserve inchangée ; loterie/tâches spéciales/pubs/missions ne touchent JAMAIS balance_upgrade ; dashboard affiche 'Profit retirable' + 'Réserve mise à niveau' séparément avec data-testids dédiés. Backend 6/6 spec tests PASS + suite MLM régression PASS. Frontend vérifié via navigateur.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_spillover_sponsor_profit_only.py",
+    "/app/backend/tests/test_official_commission_plan.py",
+    "/app/test_reports/pytest/spillover_sponsor.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "matrix.py::distribute_commission gère bien la nouvelle règle: if kind == 'spillover_sponsor': upgrade_share = 0 (L178-179). profit_share = amount (100%).",
+    "Le bénéficiaire du spillover conserve la règle 50/50 avec plafond via _walk_up_sponsors + calcul (L182-186). Vérifié par tests.",
+    "Aucun module de revenus non-MLM (lottery.py, special_tasks.py, ads.py, missions.py) ne crédite balance_upgrade — 100% des gains vont dans balance_profit. Grep confirmé.",
+    "dashboard.tsx L142-160 : carte balance refondue avec deux data-testid distincts (dashboard-balance-profit et dashboard-balance-upgrade). Valeurs affichées en runtime distinctes (361 500 FCFA profit / 4 000 FCFA réserve pour admin).",
+    "REMARQUE: Metro est en mode CI (reloads désactivés) — après modification d'un .tsx, il FAUT `supervisorctl restart frontend` pour que les changements soient bundlés. J'ai dû redémarrer pour voir la nouvelle UI. À noter pour futurs testings et pour l'utilisateur en preview.",
+    "Non-bloquant : test_reactor_rewards.py (5 tests) + test_lottery_jackpot_flow.py (11 erreurs setup) échouent — bugs préexistants sans lien avec cette spec (kind d'event & fixture admin)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100% (6/6 sur tests de la spec)", "frontend": "100%" },
+  "test_credentials": "admin: kossikotokou4@gmail.com / @Emma91972006",
+  "seed_data_creation": "aucune (tests pytest gèrent leur propre cleanup)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "La refonte wallet est validée: distribute_commission applique kind='spillover_sponsor' avec upgrade_share=0. Le dashboard user affiche 'Profit retirable' comme valeur principale et 'Réserve mise à niveau' cadenassé en dessous. IMPORTANT: Metro CI-mode => après tout changement .tsx, restart frontend obligatoire."
+}

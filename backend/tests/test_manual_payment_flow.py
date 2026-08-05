@@ -14,7 +14,7 @@ import requests
 
 BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "https://spiloveure-deploy.preview.emergentagent.com",
+    "https://jobs-badges-fix.preview.emergentagent.com",
 ).rstrip("/")
 
 ADMIN_EMAIL = "kossikotokou4@gmail.com"

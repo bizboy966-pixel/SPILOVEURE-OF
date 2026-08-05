@@ -12,7 +12,7 @@ import time
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://spiloveure-deploy.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "kossikotokou4@gmail.com"
 ADMIN_PASSWORD = "@Emma91972006"
 API = f"{BASE_URL}/api"
