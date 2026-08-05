@@ -20,6 +20,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 💰 Refonte flux portefeuille (spec Spillover / Non-MLM)
+
+**Règles appliquées :**
+- Seules les commissions MLM alimentent `balance_upgrade` (réserve mise à niveau). Loterie, tâches spéciales, missions, publicités → uniquement `balance_profit` (déjà conforme, aucune modification requise).
+- Commission `spillover_sponsor` (parrain d'un filleul placé en Spillover — à partir du 3ᵉ filleul) → **100 % `balance_profit`**, plus rien vers la réserve.
+- Commission `direct` et part `spillover_beneficiary` → **inchangées** (règle 50/50 avec plafond next_level_price).
+- Dashboard `/(app)/dashboard` : carte principale affiche **Profit retirable** (`dashboard-balance-profit`) + ligne cadenassée **Réserve mise à niveau** (`dashboard-balance-upgrade`).
+
+**Fichiers modifiés :**
+- `/app/backend/matrix.py::distribute_commission` — branchement `if kind == 'spillover_sponsor': upgrade_share = 0`. Aucun autre changement (levels.py, montants spillover, triggers, comptage L1→L2 préservés).
+- `/app/frontend/app/(app)/dashboard.tsx` — refonte de la carte balance : profit en valeur principale, réserve en sous-ligne.
+
+**Tests :**
+- `/app/backend/tests/test_spillover_sponsor_profit_only.py` (nouveau, 2 tests) — 2/2 PASS.
+- Régression `/app/backend/tests/test_official_commission_plan.py` (4 tests) — 4/4 PASS.
+- `testing_agent_v3_fork` iteration_46 : 100 % backend + 100 % frontend validé.
+
+
+
+
 ### 2026-08-04 — 🐞 Bouton "Envoyer" (commentaires Publicités) : plus jamais muet
 
 **Bug** : sur `/(app)/ads`, cliquer sur "Envoyer" un commentaire semblait ne rien faire. Aucun message, aucun spinner, aucun retour.
