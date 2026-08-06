@@ -100,13 +100,22 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
     has NOT itself reached level N, the commission is skipped (not paid
     retroactively when they later upgrade — that's the official spec).
 
-    ▸ Direct placement (1st or 2nd direct invitee of the sponsor)
+    ▸ Direct placement (1st or 2nd direct invitee of the sponsor, at level N)
         100 % of `commission_per_invite` → direct ancestor (N-th hop up).
 
-    ▸ Spillover placement (3rd+ direct invitee — placed under the sponsor's
-      weakest leg by `place_in_matrix`)
-        50 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
-        50 % → spillover beneficiary  (N-th hop up the MATRIX chain).
+    ▸ Spillover placement (3rd+ direct invitee at level N — placed under the
+      sponsor's weakest leg by `place_in_matrix`)
+        ▸ IF level == 1 (initial placement of the new user in the network) :
+            50 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
+            50 % → spillover beneficiary  (N-th hop up the MATRIX chain).
+          This is the ONLY moment the 50/50 split is applied — spec 2026-02
+          clarification: "Le Spillover est un mode de PLACEMENT, pas un mode
+          de CALCUL permanent des commissions."
+        ▸ IF level >= 2 (any subsequent level activation) :
+            100 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
+          The Spillover placement does NOT influence commissions above L1.
+          Level-2 through Level-12 commissions are ALWAYS paid integrally
+          to the direct sponsor-chain ancestor.
 
     ▸ Reserve/profit split — depends on the recipient kind:
         - `direct` and `spillover_beneficiary` :
@@ -116,7 +125,7 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
           Once the reserve is full (or the recipient is at max level 12) →
           100 % goes straight into `balance_profit`.
         - `spillover_sponsor` (sponsor who invited a spillovered downline,
-          from the 3rd direct invitee onwards) :
+          only fires at L1 per the clarified spec) :
             100 % → `balance_profit`. The sponsor's reserve is fed only by
             direct commissions and by the beneficiary's share (spec 2026-02).
 
@@ -136,7 +145,14 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
     direct_ancestor = await _walk_up_sponsors(db, sponsor_id, level - 1)
 
     credits: list[dict] = []
-    is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
+    # Spec 2026-02 clarification: the 50/50 Spillover split applies ONLY at
+    # Level 1 (the initial placement of the new user in the network). For
+    # every level >= 2, commissions are paid integrally to the direct
+    # sponsor-chain ancestor, no matter how the activating user's L-N matrix
+    # slot was filled. Spillover = mode de PLACEMENT, pas mode de CALCUL.
+    is_spill = bool(
+        is_spillover and parent_id and parent_id != sponsor_id and level == 1
+    )
 
     # Build the list of (recipient_id, amount, kind) tuples.
     if is_spill:

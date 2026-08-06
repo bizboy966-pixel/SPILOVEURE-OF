@@ -1,0 +1,33 @@
+{
+  "summary": "Backend-only regression validation for the Spillover=L1-only rule in matrix.py::distribute_commission. Ran the full targeted suite requested by main agent + related commission/upgrade tests. All 26 targeted tests pass and 6 additional related tests (reprocess idempotency + upgrade audit) also pass. The fix (is_spill guard now requires level==1) is correctly in place at matrix.py:153-154. No regressions detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_spillover_l1_only.py",
+    "/app/backend/tests/test_spillover_sponsor_profit_only.py",
+    "/app/backend/tests/test_official_commission_plan.py",
+    "/app/backend/tests/test_activation_guard.py",
+    "/app/backend/tests/test_manual_upgrade_debit.py",
+    "/app/test_reports/pytest/iter47_spillover_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "matrix.py:153-154 correctly implements the L1-only spillover-split rule: is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id and level == 1). Clear and minimal change.",
+    "test_spillover_l1_only.py provides adequate codification of the rule with 3 tests (L1 split, L2 no-split, L3+L5 no-split). Consider also adding an explicit assertion that no kind='spillover_sponsor' rows are inserted at L2+ (currently implied via total distribution)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin: kossikotokou4@gmail.com / @Emma91972006 (not used - purely unit tests)",
+  "seed_data_creation": "None - all tests use in-test fixtures",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 47 confirmed no regression from Spillover=L1-only fix. Targeted 26 tests: test_spillover_l1_only(3), test_spillover_sponsor_profit_only(2), test_official_commission_plan(4), test_activation_guard(5), test_manual_upgrade_debit(12) all PASS. Extra safety net test_reprocess_idempotency(2) + test_upgrade_audit(4) also PASS.",
+  "rca of the issue": "N/A - regression validation only, no bug encountered."
+}
