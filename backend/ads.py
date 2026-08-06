@@ -71,6 +71,11 @@ class AdComment(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
 
 
+class AdCommentReply(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+    reply_to_comment_id: str = Field(..., min_length=1, max_length=64)
+
+
 class AdRejectReason(BaseModel):
     reason: str = Field(default="", max_length=500)
 
@@ -569,7 +574,10 @@ async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depend
     ad = await db.ads.find_one({"id": ad_id, "status": "published"})
     if not ad:
         raise HTTPException(404, "Publicité introuvable ou non publiée.")
-    is_spam, reason = _is_spam_comment(data.text, ad.get("comments") or [])
+    is_spam, reason = _is_spam_comment(
+        data.text,
+        [c for c in (ad.get("comments") or []) if not c.get("is_reply")],
+    )
     if is_spam:
         raise HTTPException(400, f"Commentaire refusé : {reason}")
     comment = {
@@ -581,8 +589,100 @@ async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depend
     }
     await db.ads.update_one({"id": ad_id}, {"$push": {"comments": comment}})
     reward = await _credit_reactor(db, ad, user["id"], user.get("username"), "comment")
+
+    # 🔔 Push notification to the ad creator (skip self-comments).
+    if ad.get("user_id") and ad["user_id"] != user["id"]:
+        try:
+            from push_helper import push_to_user
+            snippet = (data.text[:80] + "…") if len(data.text) > 80 else data.text
+            author = user.get("username") or "quelqu'un"
+            await push_to_user(
+                db, ad["user_id"],
+                title="💬 Nouveau commentaire sur votre publicité",
+                body=f"@{author} : {snippet}",
+                link=f"/(app)/ads?ad_id={ad_id}",
+                data={"kind": "ad_comment", "ad_id": ad_id, "comment_id": comment["id"]},
+                tag=f"ad-{ad_id}",
+            )
+        except Exception:
+            pass
+
     comment["at"] = comment["at"].isoformat()
     return {"comment": comment, "reward": reward}
+
+
+@public.post("/ads/{ad_id}/comment/reply")
+async def add_comment_reply(ad_id: str, data: AdCommentReply, request: Request,
+                            user=Depends(get_current_user)):
+    """Only the ad creator can reply. FREE (no anti-spam heuristic, no reward)
+    per spec 2026-08. The reply quotes the parent comment WhatsApp-style so
+    the UI can render it inline without extra fetches."""
+    db = request.app.state.db
+    ad = await db.ads.find_one({"id": ad_id, "status": "published"})
+    if not ad:
+        raise HTTPException(404, "Publicité introuvable ou non publiée.")
+    if ad.get("user_id") != user["id"]:
+        raise HTTPException(403, "Seul le créateur de la publicité peut répondre.")
+
+    # Locate the parent comment inside the embedded array.
+    parent = None
+    for c in ad.get("comments") or []:
+        if c.get("id") == data.reply_to_comment_id:
+            parent = c
+            break
+    if not parent:
+        raise HTTPException(404, "Commentaire parent introuvable.")
+
+    reply_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    reply = {
+        "id": reply_id,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "text": data.text,
+        "is_reply": True,
+        "reply_to_comment_id": data.reply_to_comment_id,
+        "reply_to_username": parent.get("username"),
+        "reply_to_text": (parent.get("text") or "")[:200],
+        "at": now,
+    }
+    await db.ads.update_one({"id": ad_id}, {"$push": {"comments": reply}})
+
+    # 🔔 Push notification to the original commenter (skip self-replies).
+    if parent.get("user_id") and parent["user_id"] != user["id"]:
+        try:
+            from push_helper import push_to_user
+            snippet = (data.text[:80] + "…") if len(data.text) > 80 else data.text
+            await push_to_user(
+                db, parent["user_id"],
+                title="💬 Le créateur a répondu à votre commentaire",
+                body=f"@{user.get('username') or 'admin'} : {snippet}",
+                link=f"/(app)/ads?ad_id={ad_id}#comment-{data.reply_to_comment_id}",
+                data={"kind": "ad_comment_reply", "ad_id": ad_id,
+                      "comment_id": data.reply_to_comment_id, "reply_id": reply_id},
+                tag=f"ad-{ad_id}-reply",
+            )
+        except Exception:
+            pass
+
+    reply["at"] = now.isoformat()
+    return {"reply": reply}
+
+
+@admin.delete("/ads/{ad_id}/comments/{comment_id}")
+async def admin_delete_comment(ad_id: str, comment_id: str, request: Request,
+                               user=Depends(get_current_user)):
+    """Admin moderation — hard-delete a single comment OR reply.
+    Works for both root comments and creator replies (both live in the same
+    embedded `comments` array). Returns {deleted: true|false}."""
+    db = request.app.state.db
+    r = await db.ads.update_one(
+        {"id": ad_id},
+        {"$pull": {"comments": {"id": comment_id}}},
+    )
+    if r.modified_count == 0:
+        raise HTTPException(404, "Commentaire introuvable.")
+    return {"ok": True, "deleted": True, "comment_id": comment_id}
 
 
 @public.post("/ads/{ad_id}/share")
@@ -1027,6 +1127,25 @@ async def admin_approve(ad_id: str, request: Request, user=Depends(get_current_u
     fresh_ad = await db.ads.find_one({"id": ad_id})
     if fresh_ad:
         await _initialise_reactor_pool(db, fresh_ad)
+
+    # 🔔 Broadcast push notification to every activated user (skip the
+    # ad creator so they don't get a "look at your own ad" alert).
+    try:
+        from push_helper import push_to_activated
+        title_preview = (fresh_ad or {}).get("title") or (fresh_ad or {}).get("description") or ""
+        title_preview = title_preview[:60].strip() or "Nouvelle publicité"
+        await push_to_activated(
+            db,
+            title="📢 Nouvelle publicité disponible !",
+            body=f"{title_preview} — Consultez-la et gagnez des récompenses.",
+            link=f"/(app)/ads?ad_id={ad_id}",
+            data={"kind": "ad_published", "ad_id": ad_id},
+            tag=f"ad-published-{ad_id}",
+            exclude_user_id=(fresh_ad or {}).get("user_id"),
+        )
+    except Exception:
+        pass
+
     return _serialize(await db.ads.find_one({"id": ad_id}))
 
 

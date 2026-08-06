@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 50 — validated the new comment REPLY feature (creator quote-reply), admin delete of comment/reply, anti-spam ignoring is_reply, push broadcasts on ad + marketplace approval. 13/13 pytest cases pass against the public preview URL. Frontend code review confirms all data-testid attributes and logic (isCreator / canReply / canDelete / quoteBlock / replyPreview) are correctly implemented in ads.tsx. However, live browser verification of the reply/delete UI could not be completed — while the ads feed and comments render, the per-comment inner View testIDs (ad-comment-item-*) are not surfaced in the DOM by react-native-web 0.21 and the Reply/Delete icons never appeared, most likely because the useAuth user context resolves as null in that render path (see details).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdsScreenInner comment map",
+        "issue": "Reply and Delete icons never render next to comments even when logged in as admin (who is BOTH the creator of the seeded ad AND role=admin). Root cause hypothesis: the `user` object from useAuth() is null/undefined inside renderAd() — my fetch to /api/auth/me using localStorage.auth_token returned 401 'Token invalide', so the client-side session is likely being restored from a different place (react-native-async-storage token, refresh cookie) OR expired. In either case, `user?.id === item.user_id` and `user?.role === 'admin'` evaluate false and the two TouchableOpacity blocks (data-testid ad-comment-reply-{id} / ad-comment-delete-{id}) are skipped.",
+        "selector": "[data-testid^=\"ad-comment-reply-\"], [data-testid^=\"ad-comment-delete-\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "AdsScreenInner comment item wrapper",
+        "issue": "The outer <View testID={`ad-comment-item-${c.id}`}> does NOT surface a data-testid attribute on the DOM element (verified via full document.querySelectorAll('[data-testid]') dump — 35 total testids, zero matching ad-comment-item-*). Same for ad-comment-quote-{id}. Comments text still renders correctly, only the testID is missing. Likely a react-native-web 0.21 quirk when a View has only Text children and no interactive props — testID gets dropped. Suggest adding accessibilityLabel or an onLayout/onPress no-op to force RN-Web to keep testID, OR use nativeID as a fallback.",
+        "selector": "[data-testid^=\"ad-comment-item-\"], [data-testid^=\"ad-comment-quote-\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ads_comment_reply_iter50.py",
+    "/app/test_reports/pytest/iter50_ads_comments.xml"
+  ],
+  "action_items": [
+    "Investigate why useAuth().user is null inside AdsScreenInner even when the ads feed loads (looks like session restore path — auth_token in localStorage returns 401 against /api/auth/me but the api client still gets ads. Check src/auth.tsx / src/api.ts token source and refresh flow, and ensure the SAME token used for /ads works for /auth/me).",
+    "Add fallback so per-comment View DOM node keeps its testID under react-native-web 0.21. Two options: (a) pass an accessibilityLabel or nativeID={`ad-comment-item-${c.id}`} on the View, (b) upgrade RN-web, or (c) wrap the View in a Pressable with no-op onPress (Pressable always surfaces data-testid on web).",
+    "Same fix needed for ad-comment-quote-{id} View (line 284 of ads.tsx)."
+  ],
+  "critical_code_review_comments": [
+    "ads.tsx is 586 lines — starting to grow, consider splitting the comment section (comment list + input + reply preview) into its own sub-component AdComments to reduce cognitive load and make testID plumbing easier.",
+    "In push_helper.py the try/except wrap of every public entry point is correctly implemented — no exception can bubble up into add_comment / admin_approve. Verified in tests.",
+    "ads.py:577-580 correctly filters `not c.get('is_reply')` before running _is_spam_comment — this is the requested anti-spam fix and works as tested.",
+    "ads.py:672 DELETE /admin/ads/{ad_id}/comments/{comment_id} uses $pull on the embedded array — works for BOTH root comments and creator replies (same array). Verified.",
+    "marketplace.py:270-286 correctly refetches the listing after $set to build the notification title — mirrors the same pattern as ads.py:1127."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ads_comment_reply_iter50.py"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "Not fully verifiable in-browser due to user-context issue; source code review PASSED"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). Test pending users created dynamically via /api/auth/register with sponsor=admin.",
+  "seed_data_creation": "Backend pytest seeds ephemeral ads (TESTAD-*, TESTADP-*) and marketplace listings (TESTLST-*) via direct Mongo insert, then cleans up in fixtures. Also created & cleaned one UITESTAD-* ad for the frontend visual walk-through.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoints for reply/delete/broadcast are fully green — see /app/backend/tests/test_ads_comment_reply_iter50.py (13 cases, all pass). Frontend has TWO open issues to investigate before re-testing: (1) useAuth() user context appears null on the ads screen even after admin login — verify with page.evaluate('window.__reactAuthState__') or by adding a data-testid=whoami dump element; (2) inner comment View testIDs get eaten by react-native-web 0.21 when the View has only Text children and no Pressable — either wrap in Pressable or add nativeID/accessibilityLabel. Seed helper for UI walkthrough:\n```python\naid = f'UITESTAD-{uuid.uuid4().hex[:8]}'\nawait db.ads.insert_one({'id':aid,'user_id':admin_id,'username':'admin','cover_image_url':'https://picsum.photos/400/300','media_type':'poster','status':'published','comments':[{'id':cid,'user_id':'fake','username':'jean','text':'x','at':now},{'id':rid,'user_id':admin_id,'username':'admin','text':'y','is_reply':True,'reply_to_comment_id':cid,'reply_to_username':'jean','reply_to_text':'x','at':now}], ...})```",
+  "rca of the issue": "Backend RCA: none (all endpoints pass). Frontend RCA (hypothesis): the Reply/Delete icons are conditionally rendered on `user?.id === item.user_id` and `user?.role === 'admin'`. In our browser session useAuth().user is likely null at render time — a fetch to /api/auth/me with the localStorage.auth_token yields 401 while the same session successfully loads /api/ads via the api client. This mismatch strongly suggests the api client is using an in-memory / refreshed token that has NOT been persisted (or the persisted token is stale). Verify src/auth.tsx bootstraps `user` from /api/auth/me on mount — if that call 401s, user stays null forever and the whole conditional UI disappears. Fix path: (1) ensure the fresh token from login is what api.ts uses AND what /auth/me is called with; (2) if 401, force a refresh or logout instead of silently staying with user=null."
+}

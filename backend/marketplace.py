@@ -267,6 +267,23 @@ async def admin_approve(listing_id: str, request: Request, user=Depends(get_curr
             "admin_reviewed_by": user["id"],
         }},
     )
+    # 🔔 Push notification for every activated user (skip the listing owner).
+    try:
+        from push_helper import push_to_activated
+        listing = await db.marketplace_listings.find_one({"id": listing_id})
+        title_preview = (listing or {}).get("title") or (listing or {}).get("name") or ""
+        title_preview = title_preview[:60].strip() or "Nouvel article"
+        await push_to_activated(
+            db,
+            title="🛍️ Nouveau produit disponible !",
+            body=f"{title_preview} — Découvrez-le sur le Marketplace.",
+            link=f"/(app)/marketplace?listing_id={listing_id}",
+            data={"kind": "marketplace_approved", "listing_id": listing_id},
+            tag=f"mk-approved-{listing_id}",
+            exclude_user_id=(listing or {}).get("user_id"),
+        )
+    except Exception:
+        pass
     return _serialize(await db.marketplace_listings.find_one({"id": listing_id}))
 
 

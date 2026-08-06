@@ -17,10 +17,22 @@ import { theme } from "../../src/theme";
 import { api } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 import { LinkifiedText } from "@/src/components/LinkifiedText";
+import { useAuth } from "@/src/auth";
 
-type Comment = { id: string; user_id: string; username: string; text: string; at: string };
+type Comment = {
+  id: string;
+  user_id: string;
+  username: string;
+  text: string;
+  at: string;
+  is_reply?: boolean;
+  reply_to_comment_id?: string;
+  reply_to_username?: string;
+  reply_to_text?: string;
+};
 type Ad = {
   id: string;
+  user_id: string;
   username: string;
   cover_image_url: string;
   video_url: string;
@@ -37,11 +49,14 @@ import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 function AdsScreenInner() {
   const router = useRouter();
+  const { user } = useAuth();
   const [ads, setAds] = useState<Ad[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [descExpanded, setDescExpanded] = useState<Record<string, boolean>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
+  // Which comment is currently being replied to, keyed by adId → commentId.
+  const [replyTo, setReplyTo] = useState<Record<string, Comment | null>>({});
   const lightbox = useMediaLightbox();
 
   const load = useCallback(async () => {
@@ -89,29 +104,49 @@ function AdsScreenInner() {
     }
     setCommentPosting((s) => ({ ...s, [adId]: true }));
     setCommentError((e) => ({ ...e, [adId]: "" }));
+
+    const currentReply = replyTo[adId];
+    const ad = ads.find((a) => a.id === adId);
+    const isCreator = !!ad && ad.user_id === user?.id;
+    // If the user is the ad creator AND replying to a specific comment, hit
+    // the reply endpoint (free, no reward). Otherwise the classic comment
+    // endpoint (with anti-spam + reactor reward).
+    const useReply = isCreator && !!currentReply;
+
     try {
-      const r = await api.post<{ comment: Comment; reward?: { amount: number } | null }>(
-        `/ads/${adId}/comment`, { text },
-      );
-      // Optimistically inject the new comment + bump the counter used by the
-      // header pill ("💬 comments.length") so the UI reflects the write.
-      setAds((prev) =>
-        prev.map((a) =>
-          a.id === adId
-            ? { ...a, comments: [...a.comments, r.comment] }
-            : a,
-        ),
-      );
-      setNewComment((n) => ({ ...n, [adId]: "" }));
-      if (r.reward && r.reward.amount) {
-        if (typeof window !== "undefined") {
-          window.alert(`🎉 Commentaire publié — vous avez gagné ${r.reward.amount} FCFA !`);
+      if (useReply && currentReply) {
+        const r = await api.post<{ reply: Comment }>(
+          `/ads/${adId}/comment/reply`,
+          { text, reply_to_comment_id: currentReply.id },
+        );
+        setAds((prev) =>
+          prev.map((a) =>
+            a.id === adId
+              ? { ...a, comments: [...a.comments, r.reply] }
+              : a,
+          ),
+        );
+        setReplyTo((r) => ({ ...r, [adId]: null }));
+        setNewComment((n) => ({ ...n, [adId]: "" }));
+      } else {
+        const r = await api.post<{ comment: Comment; reward?: { amount: number } | null }>(
+          `/ads/${adId}/comment`, { text },
+        );
+        setAds((prev) =>
+          prev.map((a) =>
+            a.id === adId
+              ? { ...a, comments: [...a.comments, r.comment] }
+              : a,
+          ),
+        );
+        setNewComment((n) => ({ ...n, [adId]: "" }));
+        if (r.reward && r.reward.amount) {
+          if (typeof window !== "undefined") {
+            window.alert(`🎉 Commentaire publié — vous avez gagné ${r.reward.amount} FCFA !`);
+          }
         }
       }
     } catch (err: any) {
-      // Anti-spam heuristics (min length, duplicates, similarity…) return 400.
-      // Network errors return no `detail`. Surface a clear message either way,
-      // so the button never *looks* dead again.
       const msg =
         (err?.detail && String(err.detail)) ||
         (err?.message && String(err.message)) ||
@@ -119,6 +154,27 @@ function AdsScreenInner() {
       setCommentError((e) => ({ ...e, [adId]: msg }));
     } finally {
       setCommentPosting((s) => ({ ...s, [adId]: false }));
+    }
+  };
+
+  const onDeleteComment = async (adId: string, commentId: string) => {
+    if (user?.role !== "admin") return;
+    if (typeof window !== "undefined") {
+      if (!window.confirm("Supprimer définitivement ce commentaire ?")) return;
+    }
+    try {
+      await api.delete(`/admin/ads/${adId}/comments/${commentId}`);
+      setAds((prev) =>
+        prev.map((a) =>
+          a.id === adId
+            ? { ...a, comments: a.comments.filter((c) => c.id !== commentId) }
+            : a,
+        ),
+      );
+    } catch (err: any) {
+      if (typeof window !== "undefined") {
+        window.alert(`❌ ${err?.detail || err?.message || "Suppression échouée"}`);
+      }
     }
   };
 
@@ -209,17 +265,96 @@ function AdsScreenInner() {
             {item.comments.length === 0 ? (
               <Text style={styles.commentsEmpty}>Aucun commentaire — soyez le premier.</Text>
             ) : (
-              item.comments.map((c) => (
-                <View key={c.id} style={styles.commentItem}>
-                  <Text style={styles.commentUser}>@{c.username}</Text>
-                  <Text style={styles.commentText}>{c.text}</Text>
-                </View>
-              ))
+              item.comments.map((c) => {
+                const isCreator = c.user_id === item.user_id;
+                const canReply = user?.id === item.user_id && !c.is_reply;
+                const canDelete = user?.role === "admin";
+                return (
+                  <View
+                    key={c.id}
+                    style={[
+                      styles.commentItem,
+                      c.is_reply && styles.commentReplyItem,
+                    ]}
+                    testID={`ad-comment-item-${c.id}`}
+                  >
+                    {/* WhatsApp-style quote block when this comment is a
+                        creator's reply targeting a parent comment. */}
+                    {c.is_reply && c.reply_to_username && (
+                      <View style={styles.quoteBlock} testID={`ad-comment-quote-${c.id}`}>
+                        <View style={styles.quoteBar} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.quoteUser}>Réponse à @{c.reply_to_username}</Text>
+                          <Text style={styles.quoteText} numberOfLines={2}>
+                            {c.reply_to_text || ""}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentUser}>
+                        @{c.username}
+                        {isCreator && !c.is_reply && (
+                          <Text style={styles.badgeCreator}> · Créateur</Text>
+                        )}
+                        {c.is_reply && (
+                          <Text style={styles.badgeCreator}> · Créateur</Text>
+                        )}
+                      </Text>
+                      <View style={styles.commentActions}>
+                        {canReply && (
+                          <TouchableOpacity
+                            onPress={() => setReplyTo((r) => ({ ...r, [item.id]: c }))}
+                            testID={`ad-comment-reply-${c.id}`}
+                          >
+                            <Ionicons name="return-up-back" size={16} color={theme.colors.primary} />
+                          </TouchableOpacity>
+                        )}
+                        {canDelete && (
+                          <TouchableOpacity
+                            onPress={() => onDeleteComment(item.id, c.id)}
+                            testID={`ad-comment-delete-${c.id}`}
+                            style={{ marginLeft: 10 }}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={styles.commentText}>{c.text}</Text>
+                  </View>
+                );
+              })
             )}
+
+            {/* Reply preview banner (WhatsApp-style) */}
+            {replyTo[item.id] && user?.id === item.user_id && (
+              <View style={styles.replyPreview} testID={`ad-reply-preview-${item.id}`}>
+                <View style={styles.quoteBar} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.quoteUser}>Réponse à @{replyTo[item.id]?.username}</Text>
+                  <Text style={styles.quoteText} numberOfLines={2}>
+                    {replyTo[item.id]?.text || ""}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setReplyTo((r) => ({ ...r, [item.id]: null }))}
+                  testID={`ad-reply-cancel-${item.id}`}
+                  hitSlop={10}
+                >
+                  <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.commentInputRow}>
               <TextInput
                 style={styles.commentInput}
-                placeholder="Ajouter un commentaire…"
+                placeholder={
+                  replyTo[item.id] && user?.id === item.user_id
+                    ? `Répondre à @${replyTo[item.id]?.username}…`
+                    : "Ajouter un commentaire…"
+                }
                 value={newComment[item.id] || ""}
                 onChangeText={(v) => {
                   setNewComment((n) => ({ ...n, [item.id]: v }));
@@ -375,6 +510,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     marginTop: 6,
+  },
+  commentReplyItem: {
+    marginLeft: 20,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: theme.colors.primary,
+    backgroundColor: "rgba(59,130,246,0.04)",
+    borderRadius: 6,
+  },
+  commentHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2,
+  },
+  commentActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  badgeCreator: {
+    color: theme.colors.primary,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  quoteBlock: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    backgroundColor: "rgba(15,23,42,0.05)",
+    borderRadius: 8,
+    padding: 6,
+    marginBottom: 4,
+  },
+  quoteBar: {
+    width: 3,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 2,
+    alignSelf: "stretch",
+  },
+  quoteUser: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.colors.primary,
+    marginBottom: 1,
+  },
+  quoteText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    fontStyle: "italic",
+  },
+  replyPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(59,130,246,0.08)",
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 6,
+    marginTop: 4,
   },
   empty: { alignItems: "center", padding: 40, gap: 6 },
   emptyTitle: { fontWeight: "900", fontSize: 15, color: theme.colors.textPrimary },
