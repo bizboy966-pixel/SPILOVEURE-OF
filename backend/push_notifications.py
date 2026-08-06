@@ -108,7 +108,13 @@ async def unregister_push_token(device_id: str, request: Request,
 # Admin: send broadcasts
 # ─────────────────────────────────────────────────────────────────────────────
 async def _resolve_tokens(db, user_filter: dict) -> list[dict]:
-    """Return [{user_id, token}] rows for users matching the filter."""
+    """Return [{user_id, token}] rows for users matching the filter.
+
+    ⚠️ An empty `user_filter` means "no audience filter" and returns EVERY
+    push token in the DB — this is the intended behaviour for
+    /admin/push/all. Callers must NEVER pass an empty dict when they mean
+    "no matches" — pass `{"id": {"$in": []}}` or bail out early instead.
+    """
     # 1) resolve user ids matching the filter (empty filter = all users).
     user_ids = set()
     if user_filter:

@@ -20,6 +20,34 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🔔 Firebase Cloud Messaging (Web Push) — Intégration complète
+
+**Backend** (`/app/backend/push_notifications.py`, 5 endpoints)
+- `POST /api/push/tokens` : enregistre un token FCM upsert sur `(user_id, device_id)` ; supprime les tokens dupliqués sous d'autres identités.
+- `DELETE /api/push/tokens/{device_id}` : retire l'enregistrement d'un device.
+- `POST /api/admin/push/all|user/{id}|group` : broadcast admin avec batching 500 tokens/appel via `send_each_for_multicast`. Tokens invalides (`UnregisteredError`, `SenderIdMismatchError`) auto-supprimés.
+- `GET /api/admin/push/stats` : total abonnés + devices + répartition par niveau/pays.
+- Firebase Admin SDK 7.5.0 chargé via `FIREBASE_SERVICE_ACCOUNT_JSON` (fichier stocké dans `/app/backend/secrets/` — hors git).
+
+**Frontend**
+- `/app/frontend/public/firebase-messaging-sw.js` : service worker classique (importScripts) servant les notifications quand le navigateur est fermé (SDK v10.14 compat pour compatibilité SW).
+- `/app/frontend/src/lib/firebase.ts` : bootstrap modulaire SDK v10 avec `getToken(vapidKey, serviceWorkerRegistration)`, `onMessage` foreground.
+- `/app/frontend/src/components/PushBootstrap.tsx` : monté après login, demande la permission et upload le token backend.
+- `/app/frontend/app/(admin)/push.tsx` : UI admin — sélecteur d'audience (Tous / User / Groupe filtré), champs Titre/Corps/Lien, carte stats, résultat d'envoi.
+- Bouton d'accès depuis le dashboard admin (`admin-open-push`).
+
+**Environnement**
+- `backend/.env` : `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_PROJECT_ID`.
+- `frontend/.env` : 8 clés `EXPO_PUBLIC_FIREBASE_*` (config web + VAPID).
+
+**Tests** : `testing_agent_v3_fork` iter_48 — 11/11 backend + 100 % frontend. Tests régression `test_push_notifications.py` créés par le testing agent.
+
+**Notes techniques**
+- `send_each_for_multicast` est synchrone : sous très forte charge un broadcast massif pourrait bloquer le loop uvicorn — à offloader dans un `anyio.to_thread` si besoin plus tard (backlog).
+
+
+
+
 ### 2026-02-XX — 📊 Audit admin : Splits L2+ erronés (lecture seule)
 
 **Contexte** : la production tourne encore avec l'ancien code (avant `matrix.py` iter_47) qui appliquait le partage 50/50 aux commissions L2 → L12. Un rapport read-only permet à l'admin d'identifier les utilisateurs impactés avant/après redéploiement.
