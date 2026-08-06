@@ -18,10 +18,12 @@ type Country = {
   name: string;
   currency: string;
   operators: string[];
+  activation_amount?: number;
 };
 
 type Catalog = {
   amount: number;
+  amount_by_currency?: Record<string, number>;
   level: number;
   countdown_minutes: number;
   countries: Country[];
@@ -43,10 +45,12 @@ type InitiateOut = {
 };
 
 const FLAG: Record<string, string> = {
-  BJ: "🇧🇯", BF: "🇧🇫", CM: "🇨🇲", CF: "🇨🇫", CG: "🇨🇬", CI: "🇨🇮",
-  GA: "🇬🇦", GQ: "🇬🇶", GW: "🇬🇼", ML: "🇲🇱", NE: "🇳🇪", SN: "🇸🇳",
-  TD: "🇹🇩", TG: "🇹🇬",
+  BJ: "🇧🇯", BF: "🇧🇫", CD: "🇨🇩", CI: "🇨🇮", CM: "🇨🇲",
+  GA: "🇬🇦", ML: "🇲🇱", NE: "🇳🇪", SN: "🇸🇳", TG: "🇹🇬",
 };
+
+const fmtMoney = (v: number, ccy: string) =>
+  `${Math.round(v || 0).toLocaleString("fr-FR")} ${ccy}`;
 
 function notify(title: string, msg?: string) {
   if (Platform.OS === "web") window.alert(msg ? `${title}\n\n${msg}` : title);
@@ -242,7 +246,17 @@ export default function ActivationAshtec() {
         </View>
         <View style={styles.amountBlock}>
           <Text style={styles.amountLabel}>Montant d'activation</Text>
-          <Text style={styles.amountVal}>2 500 FCFA <Ionicons name="lock-closed" size={16} color="#FBBF24" /></Text>
+          <Text style={styles.amountVal}>
+            {selectedCountry
+              ? fmtMoney(
+                  selectedCountry.activation_amount ??
+                    catalog.amount_by_currency?.[selectedCountry.currency] ??
+                    catalog.amount,
+                  selectedCountry.currency,
+                )
+              : "2 500 FCFA"}
+            <Ionicons name="lock-closed" size={16} color="#FBBF24" />
+          </Text>
           <Text style={styles.amountHint}>Niveau 1 · Débutant · non modifiable</Text>
         </View>
       </LinearGradient>
@@ -252,7 +266,7 @@ export default function ActivationAshtec() {
           <>
             <Card>
               <Text style={styles.section}>1️⃣ Choisissez votre pays</Text>
-              <Text style={styles.hint}>Zones XOF/XAF uniquement (14 pays)</Text>
+              <Text style={styles.hint}>{catalog.countries.length} pays supportés (XOF · XAF · CDF)</Text>
               <View style={styles.grid}>
                 {catalog.countries.map((c) => (
                   <TouchableOpacity
@@ -332,7 +346,7 @@ export default function ActivationAshtec() {
                 ⏳ Paiement en cours…
               </Text>
               <Text style={[styles.hint, { textAlign: "center" }]}>
-                Confirmez le paiement de <Text style={{ fontWeight: "900" }}>2 500 {session.currency}</Text>
+                Confirmez le paiement de <Text style={{ fontWeight: "900" }}>{fmtMoney(session.amount, session.currency)}</Text>
                 {"\n"}sur votre téléphone <Text style={{ fontWeight: "700" }}>{session.operator}</Text>
                 {" · "}<Text style={{ fontWeight: "700" }}>{session.phone || phone}</Text>
               </Text>

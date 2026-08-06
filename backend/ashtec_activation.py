@@ -27,13 +27,12 @@ webhook = APIRouter(prefix="/api/webhooks", tags=["ashtec-webhook"])
 admin = APIRouter(prefix="/api/admin", tags=["ashtec-admin"],
                   dependencies=[Depends(require_admin)])
 
-# International dial codes for the countries we support — used to normalize
-# a bare local number ("91978352") to E.164 ("+22891978352") which is what
-# Ashtech's /v1/collect expects for reliable delivery.
+# International dial codes for the 10 countries officially supported by
+# Ashtech Pay Direct v1 — used to normalize a bare local number
+# ("91978352") to E.164 ("+22891978352") which is what /v1/collect expects.
 DIAL_CODES: dict[str, str] = {
-    "BJ": "229", "BF": "226", "CM": "237", "CF": "236", "CG": "242",
-    "CI": "225", "GA": "241", "GQ": "240", "GW": "245", "ML": "223",
-    "NE": "227", "SN": "221", "TD": "235", "TG": "228",
+    "BJ": "229", "BF": "226", "CD": "243", "CI": "225", "CM": "237",
+    "GA": "241", "ML": "223", "NE": "227", "SN": "221", "TG": "228",
 }
 
 
@@ -61,39 +60,41 @@ def _normalize_phone(phone: str, country_code: str) -> str:
 
 
 # Locked activation params (product decision)
-ACTIVATION_AMOUNT: float = 2500.0
+# One amount PER currency because XOF/XAF and CDF have different scales.
+# Values can be overridden via .env without a redeploy.
 ACTIVATION_LEVEL: int = 1
 COUNTDOWN_MINUTES: int = 10
+ACTIVATION_AMOUNT_BY_CURRENCY: dict[str, float] = {
+    "XOF": float(os.environ.get("ACTIVATION_AMOUNT_XOF") or 2500),
+    "XAF": float(os.environ.get("ACTIVATION_AMOUNT_XAF") or 2500),
+    "CDF": float(os.environ.get("ACTIVATION_AMOUNT_CDF") or 12500),
+}
+# Default legacy amount for callers that don't know the currency yet.
+ACTIVATION_AMOUNT: float = ACTIVATION_AMOUNT_BY_CURRENCY["XOF"]
 
-# XOF/XAF countries + operator catalog per Ashtech Pay Direct v1 doc.
-# Guinea (GNF) and DR Congo (CDF) are excluded per product spec.
+# ─── EXACT catalog per Ashtech Pay Direct API v1 documentation ────────
+# Only the 10 officially supported countries. Operator strings MUST match
+# byte-for-byte what /v1/countries returns — Ashtech's /v1/collect returns
+# 422 "Opérateur non supporté" otherwise.
 COUNTRIES: dict[str, dict] = {
     "BJ": {"name": "Bénin",         "currency": "XOF",
-           "operators": ["Moov Money", "MTN Mobile Money"]},
+           "operators": ["Celtiis Money", "Coris Money", "Moov Money", "MTN Money"]},
     "BF": {"name": "Burkina Faso",  "currency": "XOF",
-           "operators": ["Moov Money", "Orange Money"]},
+           "operators": ["Moov Money", "Orange Money (OTP)", "Wallet LigdiCash"]},
     "CM": {"name": "Cameroun",      "currency": "XAF",
-           "operators": ["MTN Mobile Money", "Orange Money"]},
-    "CF": {"name": "Centrafrique",  "currency": "XAF",
-           "operators": ["Orange Money"]},
-    "CG": {"name": "Congo",         "currency": "XAF",
-           "operators": ["Airtel Money", "MTN Mobile Money"]},
+           "operators": ["MTN Money", "Orange Money"]},
     "CI": {"name": "Côte d'Ivoire", "currency": "XOF",
-           "operators": ["Moov Money", "MTN Mobile Money", "Orange Money", "Wave"]},
+           "operators": ["Moov Money", "MTN Money", "Orange (OTP)", "Wave Money"]},
     "GA": {"name": "Gabon",         "currency": "XAF",
            "operators": ["Airtel Money", "Moov Money"]},
-    "GQ": {"name": "Guinée équatoriale", "currency": "XAF",
-           "operators": ["Orange Money"]},
-    "GW": {"name": "Guinée-Bissau", "currency": "XOF",
-           "operators": ["Orange Money"]},
     "ML": {"name": "Mali",          "currency": "XOF",
-           "operators": ["Moov Money", "Orange Money"]},
+           "operators": ["Moov Money", "Orange Money (OTP)"]},
     "NE": {"name": "Niger",         "currency": "XOF",
            "operators": ["Airtel Money"]},
+    "CD": {"name": "RD Congo",      "currency": "CDF",
+           "operators": ["Afri Money", "Airtel", "Mpesa Money", "Orange", "Vodacom"]},
     "SN": {"name": "Sénégal",       "currency": "XOF",
-           "operators": ["Free Money", "Orange Money", "Wave"]},
-    "TD": {"name": "Tchad",         "currency": "XAF",
-           "operators": ["Airtel Money", "Moov Money"]},
+           "operators": ["E-money", "Free Money", "Orange Money (OTP)", "Wave Money"]},
     "TG": {"name": "Togo",          "currency": "XOF",
            "operators": ["Flooz (Moov)", "T-Money"]},
 }
@@ -165,7 +166,7 @@ async def _ashtec_enabled(db) -> bool:
 # Version marker — bumped when the fix for Flooz (Moov) / E.164 / operator
 # translation is deployed. If /api/payments/ashtec/catalog does NOT return
 # this version string, the production is still running old code.
-CATALOG_VERSION: str = "2026-07-30-v2-flooz-moov-e164"
+CATALOG_VERSION: str = "2026-08-06-v3-official10-cdf"
 
 
 @api.get("/payments/ashtec/catalog")
@@ -184,7 +185,8 @@ async def ashtec_catalog(request: Request):
         }
     countries = [
         {"code": code, "name": info["name"], "currency": info["currency"],
-         "operators": info["operators"]}
+         "operators": info["operators"],
+         "activation_amount": ACTIVATION_AMOUNT_BY_CURRENCY.get(info["currency"], ACTIVATION_AMOUNT)}
         for code, info in COUNTRIES.items()
     ]
     countries.sort(key=lambda c: c["name"])
@@ -192,6 +194,7 @@ async def ashtec_catalog(request: Request):
         "enabled": True,
         "version": CATALOG_VERSION,
         "amount": ACTIVATION_AMOUNT,
+        "amount_by_currency": ACTIVATION_AMOUNT_BY_CURRENCY,
         "level": ACTIVATION_LEVEL,
         "countdown_minutes": COUNTDOWN_MINUTES,
         "countries": countries,
@@ -363,13 +366,20 @@ class AshtecInitiateIn(BaseModel):
 async def ashtec_initiate(
     data: AshtecInitiateIn, request: Request, user=Depends(get_current_user),
 ):
-    """Kick off the 2500 FCFA Level-1 auto-activation."""
+    """Kick off the Level-1 auto-activation. The activation amount is
+    derived from the selected country's currency so RD Congo (CDF) and
+    XOF/XAF users pay the correct locally-scaled amount.
+    """
     db = request.app.state.db
     if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
         raise HTTPException(400, "Votre compte est déjà activé.")
+    info = COUNTRIES.get(data.country_code.upper())
+    if not info:
+        raise HTTPException(400, f"Pays {data.country_code} non disponible.")
+    amount = ACTIVATION_AMOUNT_BY_CURRENCY.get(info["currency"], ACTIVATION_AMOUNT)
     return await create_ashtec_payment(
         db=db, user=user, kind="activation",
-        amount=ACTIVATION_AMOUNT,
+        amount=amount,
         country_code=data.country_code, operator=data.operator, phone=data.phone,
         extra_row={"level": ACTIVATION_LEVEL},
     )

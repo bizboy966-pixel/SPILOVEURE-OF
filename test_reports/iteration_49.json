@@ -1,0 +1,24 @@
+{
+  "summary": "Validated the Ashtech Pay Direct v1 official-10-countries refactor (CATALOG_VERSION=2026-08-06-v3-official10-cdf). 14 pytest cases + full frontend walk-through on /activation-ashtec. Backend catalog, initiate, admin diag/health, and frontend chips/operators/amounts all conform exactly to the official doc. CD (RD Congo) added correctly with CDF/12500. No API-key leak anywhere.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ashtec_catalog_v3.py",
+    "/app/test_reports/pytest/iter49_ashtec_v3.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Duplicate definition of async def _ashtec_enabled(db) in ashtec_activation.py (lines 160-163 and 215-220). Not a bug because both bodies are identical, but should be de-duplicated for hygiene.",
+    "ashtec_activation.py is 921 lines — >700 line threshold. Consider splitting: (a) catalog + config helpers, (b) initiate + otp + status polling, (c) webhook, (d) admin diag/health endpoints.",
+    "ashtec_activation.py:246 hardcodes fallback webhook URL 'https://spiloveure.com/api/webhooks/ashtec' when ASHTECPAY_WEBHOOK_URL env is missing — recommend failing fast in production instead of a magic domain.",
+    "ASHTECH_OPERATOR_MAP is declared but empty — if any operator display label differs from what Ashtech returns via 422, populate this table (e.g. RD Congo 'Airtel' vs 'Airtel Money'). Currently the display label is sent verbatim to /v1/collect."
+  ],
+  "updated_files": ["/app/backend/tests/test_ashtec_catalog_v3.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100%"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006. Test pending user created dynamically via /api/auth/register with sponsor=admin (requires password_confirm and accept_terms=true).",
+  "seed_data_creation": "Created one throw-away pending user for the /payments/ashtec/initiate probes (username tst*, TG, +228…).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend catalog v3 verified. /api/payments/ashtec/catalog is public and safe (no key leak). /api/admin/payments/ashtec/{diag,health} return only api_key prefix (8 chars + '…'). Initiate rejects unknown countries with 400. Frontend activation-ashtec displays exactly 10 chips with correct flags/currencies; selecting CD switches montant to '12\\u202f500 CDF' and shows 5 CD operators; selecting TG shows '2\\u202f500 XOF' with Flooz (Moov)/T-Money. Note: number formatting uses U+202F NBSP thin space between thousands, so raw string search for '12 500' with ASCII space fails — verify with regex or visually.",
+  "rca of the issue": "N/A — this iteration is a feature-verification, no bug reproduction requested."
+}
