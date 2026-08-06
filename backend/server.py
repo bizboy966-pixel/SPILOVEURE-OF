@@ -68,6 +68,9 @@ async def lifespan(app: FastAPI):
     await db.payments.create_index("user_id")
     await db.payments.create_index("reference")
     await db.payments.create_index("transaction_id")
+    # FCM push tokens — one row per (user_id, device_id)
+    await db.push_tokens.create_index([("user_id", 1), ("device_id", 1)], unique=True)
+    await db.push_tokens.create_index("token")
     # seed admin
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": admin_email})
@@ -3283,3 +3286,7 @@ from jobs import (  # noqa: E402
 )
 app.include_router(jobs_public)
 app.include_router(jobs_admin)
+
+# Firebase Cloud Messaging — web push notifications (register token + admin send).
+from push_notifications import router as push_router  # noqa: E402
+app.include_router(push_router)

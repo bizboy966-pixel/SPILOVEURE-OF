@@ -574,6 +574,23 @@ export default function AdminHome() {
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#7C3AED" }]}
+              onPress={() => router.push("/(admin)/push" as any)}
+              testID="admin-open-push"
+            >
+              <View style={styles.contentMgmtIcon}>
+                <Ionicons name="notifications" size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contentMgmtTitle}>🔔 Notifications Push</Text>
+                <Text style={styles.contentMgmtSub}>
+                  Envoyer une notification à tous, à un utilisateur ou à un groupe filtré
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </TouchableOpacity>
+
             {stuck.length > 0 && (
               <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
