@@ -20,6 +20,45 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🇦🇫 AshtecPay Direct v1 — Mise à jour officielle (10 pays exacts + RD Congo)
+
+**Contexte** : L'utilisateur a fourni la doc officielle Ashtech Pay Direct v1 (PDF). Alignement STRICT du catalogue avec la doc — retrait des pays non supportés, ajout de RD Congo (CDF), correction des noms d'opérateurs byte-for-byte.
+
+**Backend — `/app/backend/ashtec_activation.py`**
+- `COUNTRIES` : exactement 10 pays officiels — BJ, BF, CM, CI, GA, ML, NE, **CD (RD Congo)**, SN, TG. Retiré : CF, CG, GQ, GW, TD (non listés dans la doc officielle).
+- Opérateurs conformes byte-for-byte à la doc :
+  - BJ : Celtiis Money, Coris Money, Moov Money, MTN Money
+  - BF : Moov Money, Orange Money (OTP), Wallet LigdiCash
+  - CM : MTN Money, Orange Money
+  - CI : Moov Money, MTN Money, Orange (OTP), Wave Money
+  - GA : Airtel Money, Moov Money
+  - ML : Moov Money, Orange Money (OTP)
+  - NE : Airtel Money
+  - CD : Afri Money, Airtel, Mpesa Money, Orange, Vodacom
+  - SN : E-money, Free Money, Orange Money (OTP), Wave Money
+  - TG : Flooz (Moov), T-Money
+- Multi-devise : `ACTIVATION_AMOUNT_BY_CURRENCY = {XOF: 2500, XAF: 2500, CDF: 12500}` — surchargeable via `.env` (`ACTIVATION_AMOUNT_XOF/XAF/CDF`).
+- Nouveau champ `activation_amount` par pays dans `/api/payments/ashtec/catalog`.
+- Nettoyage : fonction `_ashtec_enabled` dédupliquée.
+- Bump `CATALOG_VERSION = "2026-08-06-v3-official10-cdf"`.
+
+**Frontend — `/app/frontend/app/(app)/activation-ashtec.tsx`**
+- Type `Country` étendu avec `activation_amount?: number`.
+- Type `Catalog` étendu avec `amount_by_currency?: Record<string, number>`.
+- FLAG map limité aux 10 pays officiels (+ 🇨🇩 pour RD Congo).
+- Montant affiché dynamiquement selon la devise du pays sélectionné (`fmtMoney(session.amount, session.currency)`).
+
+**Sécurité clé API — VÉRIFIÉE**
+- `/api/payments/ashtec/catalog` (public) : aucune fuite `api_key/Bearer/secret`.
+- `/api/admin/payments/ashtec/diag` (admin) : renvoie uniquement `prefix` = 8 premiers chars + '…', jamais la clé complète.
+- `/api/admin/payments/ashtec/health` (admin) : idem.
+- La clé est lue depuis `ASHTECPAY_API_KEY` env var (priorité) puis fallback `app_settings.payment_gateway.ashtec_api_key`.
+
+**Tests** : `testing_agent_v3_fork` iter_49 — ✅ 14/14 backend + 100 % frontend. `/app/backend/tests/test_ashtec_catalog_v3.py` créé par le testing agent.
+
+
+
+
 ### 2026-02-XX — 🔔 Firebase Cloud Messaging (Web Push) — Intégration complète
 
 **Backend** (`/app/backend/push_notifications.py`, 5 endpoints)

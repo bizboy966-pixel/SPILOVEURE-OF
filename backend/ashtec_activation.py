@@ -212,14 +212,6 @@ def validate_country_operator(cc: str, operator: str) -> dict:
     return info
 
 
-async def _ashtec_enabled(db) -> bool:
-    """Admin master switch for the Ashtech gateway. Ashtech requests must
-    be refused as long as this is False, regardless of the api_key.
-    """
-    cfg = await _load_gateway_cfg(db)
-    return bool(cfg.get("ashtec_enabled"))
-
-
 async def create_ashtec_payment(
     *, db, user, kind: str, amount: float, country_code: str,
     operator: str, phone: str, extra_row: dict | None = None,
