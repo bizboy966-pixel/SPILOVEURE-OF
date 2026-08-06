@@ -104,6 +104,24 @@ async def unregister_push_token(device_id: str, request: Request,
     return {"deleted": r.deleted_count}
 
 
+@router.post("/push/test-self")
+async def push_test_self(request: Request, user=Depends(get_current_user)):
+    """Send a diagnostic push to every device registered for the CURRENT
+    user. Handy after granting notification permission — the user
+    immediately sees whether their device is properly wired to FCM.
+    """
+    from push_helper import push_to_user
+    result = await push_to_user(
+        request.app.state.db, user["id"],
+        title="🔔 Notifications SPILOVEURE actives",
+        body="Ceci est un test — si vous voyez ce message, tout fonctionne.",
+        link="/(app)/dashboard",
+        data={"kind": "self_test"},
+        tag="self-test",
+    )
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Admin: send broadcasts
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,14 +157,19 @@ async def _send_batches(db, rows: list[dict], f: SendIn) -> dict:
     failure = 0
     dead: list[str] = []
 
+    from push_helper import _absolute_link  # reuse the same URL normaliser
+    abs_link = _absolute_link(f.link)
+
     webpush = messaging.WebpushConfig(
-        fcm_options=messaging.WebpushFCMOptions(link=f.link) if f.link else None,
+        fcm_options=messaging.WebpushFCMOptions(link=abs_link) if abs_link else None,
         notification=messaging.WebpushNotification(
-            title=f.title, body=f.body, icon="/icon-192.png",
+            title=f.title, body=f.body, icon="/favicon.ico",
         ),
     )
     # FCM data values MUST be strings.
     data_payload = {str(k): str(v) for k, v in (f.data or {}).items()}
+    if abs_link:
+        data_payload.setdefault("link", abs_link)
 
     for i in range(0, len(tokens), 500):
         batch = tokens[i:i + 500]

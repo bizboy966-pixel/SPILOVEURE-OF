@@ -10,11 +10,44 @@ import { Card } from "@/src/components/Card";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDate } from "@/src/utils/format";
+import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/firebase";
+import { api } from "@/src/api";
 
 export default function Profile() {
   const router = useRouter();
   const { user } = useAuth();
   const link = `https://spiloveure.com/u/${user?.username || "admin"}`;
+  const [notifState, setNotifState] = React.useState<"unknown" | "granted" | "default" | "denied" | "unsupported">("unknown");
+
+  React.useEffect(() => {
+    (async () => {
+      if (!(await canUseWebPush())) { setNotifState("unsupported"); return; }
+      const p = currentPermission();
+      setNotifState(p as any);
+    })();
+  }, []);
+
+  const enableNotifications = async () => {
+    const token = await setupWebPush((title, body) => {
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification(title, { body, icon: "/favicon.ico" });
+        }
+      } catch {}
+    });
+    setNotifState(currentPermission() as any);
+    if (token && typeof window !== "undefined") {
+      window.alert("✅ Notifications activées ! Vous recevrez désormais les alertes en temps réel.");
+      try { await api.post("/push/test-self", {}); } catch {}
+    } else if (typeof window !== "undefined") {
+      const p = currentPermission();
+      if (p === "denied") {
+        window.alert("❌ Les notifications sont bloquées pour ce site.\n\nActivez-les manuellement :\n• Chrome : icône cadenas → Autorisations → Notifications → Autoriser\n• Firefox : icône bouclier → Autorisations → Notifications\n• Safari : Préférences → Sites Web → Notifications");
+      } else {
+        window.alert("⚠️ Autorisation refusée ou non accordée. Réessayez et cliquez sur 'Autoriser' dans la fenêtre du navigateur.");
+      }
+    }
+  };
 
   const copy = async () => {
     await Clipboard.setStringAsync(link);
@@ -51,6 +84,35 @@ export default function Profile() {
           <Item icon="lock-closed" label="Réserve mise à niveau" value={formatFCFA(user?.balance_upgrade)} />
           <Item icon="trending-up" label="Total gagné" value={formatFCFA(user?.total_earned)} />
           <Item icon="arrow-down-circle" label="Total retiré" value={formatFCFA(user?.total_withdrawn)} />
+        </Card>
+
+        <Card style={{ marginTop: 12 }}>
+          <Text style={styles.section}>Notifications Push</Text>
+          <View style={{ paddingVertical: 6 }}>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
+              {notifState === "granted" && "✅ Les notifications sont activées."}
+              {notifState === "default" && "🔔 Activez les notifications pour recevoir les nouveaux commentaires, publicités et articles."}
+              {notifState === "denied" && "❌ Les notifications sont bloquées. Réactivez-les dans les paramètres de votre navigateur."}
+              {notifState === "unsupported" && "⚠️ Ce navigateur ne supporte pas les notifications push."}
+              {notifState === "unknown" && "…"}
+            </Text>
+            {(notifState === "default" || notifState === "granted" || notifState === "denied") && (
+              <TouchableOpacity
+                onPress={enableNotifications}
+                testID="profile-enable-notifications"
+                style={{
+                  backgroundColor: notifState === "granted" ? "#10B981" : theme.colors.primary,
+                  paddingVertical: 12, borderRadius: 10, alignItems: "center",
+                  flexDirection: "row", justifyContent: "center", gap: 8,
+                }}
+              >
+                <Ionicons name="notifications" size={16} color="#fff" />
+                <Text style={{ color: "#fff", fontWeight: "800" }}>
+                  {notifState === "granted" ? "Envoyer un test" : "🔔 Activer les notifications"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </Card>
 
         <Card style={{ marginTop: 12 }}>

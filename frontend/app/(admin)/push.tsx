@@ -107,6 +107,33 @@ export default function AdminPush() {
       <Text style={styles.h1}>🔔 Notifications Push</Text>
       <Text style={styles.sub}>Envoi via Firebase Cloud Messaging (Web Push).</Text>
 
+      {/* Test push button — checks the whole FCM pipeline in one click */}
+      <TouchableOpacity
+        style={styles.testSelfBtn}
+        onPress={async () => {
+          try {
+            const r = await api.post<SendResult>("/push/test-self", {});
+            if (typeof window !== "undefined") {
+              window.alert(
+                `📊 Test push envoyé\n` +
+                `📨 Tokens ciblés : ${r.requested}\n` +
+                `✅ Réussites : ${r.success}\n` +
+                `❌ Échecs : ${r.failure}\n` +
+                (r.requested === 0 ? "\n⚠️ Aucun appareil enregistré pour votre compte. Cliquez sur '🔔 Activer les notifications' depuis votre profil, puis réessayez." : "")
+              );
+            }
+          } catch (e: any) {
+            if (typeof window !== "undefined") {
+              window.alert(`❌ Test échoué : ${e?.detail || e?.message || "erreur inconnue"}`);
+            }
+          }
+        }}
+        testID="push-test-self"
+      >
+        <Ionicons name="flash" size={16} color="#fff" />
+        <Text style={styles.sendTxt}>Envoyer un test à mon appareil</Text>
+      </TouchableOpacity>
+
       {/* ── Stats bar ────────────────────────────────────────────── */}
       <Card style={{ marginTop: 12 }} testID="push-stats-card">
         {statsLoading || !stats ? (
@@ -337,6 +364,11 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  testSelfBtn: {
+    marginTop: 12, backgroundColor: "#F59E0B",
+    paddingVertical: 12, borderRadius: 12, alignItems: "center",
+    flexDirection: "row", justifyContent: "center", gap: 8,
+  },
   statRow: { flexDirection: "row", gap: 12 },
   statBox: {
     flex: 1, backgroundColor: "#F8FAFC", borderRadius: 12,

@@ -1128,13 +1128,13 @@ async def admin_approve(ad_id: str, request: Request, user=Depends(get_current_u
     if fresh_ad:
         await _initialise_reactor_pool(db, fresh_ad)
 
-    # 🔔 Broadcast push notification to every activated user (skip the
-    # ad creator so they don't get a "look at your own ad" alert).
+    # 🔔 Broadcast push notification to every user who opted-in (activated
+    # or not — per spec 2026-02 point 3). Skip the ad creator.
     try:
-        from push_helper import push_to_activated
+        from push_helper import push_to_all_registered
         title_preview = (fresh_ad or {}).get("title") or (fresh_ad or {}).get("description") or ""
         title_preview = title_preview[:60].strip() or "Nouvelle publicité"
-        await push_to_activated(
+        await push_to_all_registered(
             db,
             title="📢 Nouvelle publicité disponible !",
             body=f"{title_preview} — Consultez-la et gagnez des récompenses.",

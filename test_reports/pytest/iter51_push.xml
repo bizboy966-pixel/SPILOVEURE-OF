@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="2.749" timestamp="2026-08-06T22:21:15.631303+00:00" hostname="agent-env-6c5ed6c4-e172-4870-a06a-f6e552a7782b"><testcase classname="backend.tests.test_push_test_self_iter51" name="test_absolute_link_unit" time="0.091"><failure message="AssertionError: assert 'https://jobs...com/(app)/ads' == 'https://spil...com/(app)/ads'&#10;  &#10;  - https://spiloveure.com/(app)/ads&#10;  + https://jobs-badges-fix.preview.emergentagent.com/(app)/ads">backend/tests/test_push_test_self_iter51.py:35: in test_absolute_link_unit
+    assert push_helper._absolute_link("/(app)/ads") == "https://spiloveure.com/(app)/ads"
+E   AssertionError: assert 'https://jobs...com/(app)/ads' == 'https://spil...com/(app)/ads'
+E     
+E     - https://spiloveure.com/(app)/ads
+E     + https://jobs-badges-fix.preview.emergentagent.com/(app)/ads</failure></testcase><testcase classname="backend.tests.test_push_test_self_iter51" name="test_register_fake_token" time="0.569" /><testcase classname="backend.tests.test_push_test_self_iter51" name="test_push_test_self_prunes_fake_token" time="1.856" /><testcase classname="backend.tests.test_push_test_self_iter51" name="test_fake_token_removed_from_db_via_second_call" time="0.140" /></testsuite></testsuites>

@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 51 — validated the FCM push URL absolute-normalisation fix end-to-end. Backend 4/4 pytest pass: `_absolute_link` unit behaviour, fake-token registration via POST /api/push/tokens, POST /api/push/test-self returning {requested:1,failure:1,removed_invalid:1} for a fake token, and second call returning removed_invalid=0 confirming DB pruning. Backend logs after the fix show `pruned 1 invalid tokens` with ZERO occurrences of the previous `WebpushFCMOptions.link must be a HTTPS URL` error. Frontend UI verified after restarting the frontend (Metro was in CI mode `reloads are disabled`, so hot-reload was not picking up the new files — a supervisorctl restart was required). Profile page renders the new 'Notifications Push' card with testID `profile-enable-notifications`; admin /push page shows the orange '⚡ Envoyer un test à mon appareil' button with testID `push-test-self`, and clicking it round-trips through /api/push/test-self and displays the stats alert.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_push_test_self_iter51.py",
+    "/app/test_reports/pytest/iter51_push.xml"
+  ],
+  "action_items": [
+    "INFO — Metro dev server is launched with `CI=1` which disables watch/hot-reload (log line: 'Metro is running in CI mode, reloads are disabled'). Any future frontend edit will NOT be visible in the preview URL until `sudo supervisorctl restart frontend` is executed. Consider removing CI=1 from the frontend supervisor start command so E1's edits are reflected without a manual restart."
+  ],
+  "critical_code_review_comments": [
+    "push_helper._absolute_link correctly handles None/empty, relative paths (adds leading slash if missing), and preserves already-absolute http(s) URLs. PUBLIC_APP_URL resolution order (PUBLIC_APP_URL → REACT_APP_BACKEND_URL → hard fallback) is safe.",
+    "push_helper._send batch cleanup now catches 3 patterns: UnregisteredError/SenderIdMismatchError classes, 'registration-token-not-registered', 'not a valid fcm registration token', and 'invalid registration' — verified live: a fake token registered under the admin was pruned after a single test-self call (removed_invalid=1, subsequent call returns removed_invalid=0).",
+    "push_notifications._send_batches also imports _absolute_link — same fix applied to admin broadcast endpoints, but note that _send_batches only prunes tokens on the UnregisteredError/SenderIdMismatchError class (does NOT include the string-based matches that push_helper._send now has). For consistency, main agent should port the same string-based pruning fallback to _send_batches.",
+    "ads.py:1134-1137 and marketplace.py:273-277 correctly switched from push_to_activated to push_to_all_registered per spec.",
+    "profile.tsx enableNotifications flow after granting permission POSTs /push/tokens then /push/test-self — good UX; iOS Safari user-gesture requirement is honoured because the token request runs inside the onPress handler."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_push_test_self_iter51.py"
+  ],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (both testIDs render, UI wiring OK, integration OK)"},
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "One fake FCM token registered under admin's account via POST /api/push/tokens (token='fake_test_token_' + 40*'x'). It was automatically pruned by the test-self flow during the test run — no lingering test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The full push notification chain works. Note that any frontend change requires `sudo supervisorctl restart frontend` because Metro runs with CI=1 (reloads disabled). Minor consistency improvement noted: push_notifications._send_batches (admin/push endpoints) doesn't yet include the same string-based 'not a valid fcm registration token' / 'invalid registration' pruning fallback that push_helper._send has — worth aligning if admin/push/all is used with stale tokens.",
+  "rca of the issue": "Original bug: Firebase Admin's WebpushFCMOptions.link validator REJECTS relative URLs and throws ValueError('WebpushFCMOptions.link must be a HTTPS URL.'), which was caught silently and caused every push to fail. Fix (push_helper._absolute_link) prefixes any relative path with PUBLIC_APP_URL (https://spiloveure.com) before passing it to messaging.WebpushFCMOptions. Verified: (a) unit test on _absolute_link, (b) live call to /api/push/test-self with a fake token now succeeds at reaching Firebase (Firebase then rejects the token as invalid — expected — and it is pruned), and (c) the previously-recurring `WebpushFCMOptions.link must be a HTTPS URL` error is NO LONGER present in /var/log/supervisor/backend.err.log after 22:19."
+}
