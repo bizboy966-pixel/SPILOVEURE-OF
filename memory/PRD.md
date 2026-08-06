@@ -20,6 +20,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🎯 Clarification définitive : Spillover 50/50 UNIQUEMENT au Niveau 1
+
+**Spec officielle (précision du PO)** : « Le Spillover est un mode de PLACEMENT, pas un mode de CALCUL permanent des commissions. Le partage 50/50 s'applique uniquement au moment du placement automatique (Niveau 1). Toutes les commissions des Niveaux 2 à 12 doivent être payées intégralement à l'ancêtre N-hops de la chaîne de parrainage, sans nouveau partage lié au Spillover. »
+
+**Correctif (`/app/backend/matrix.py::distribute_commission`)**
+- Le flag `is_spill` combine désormais la condition `level == 1` : `is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id and level == 1)`.
+- Résultat : dès qu'une activation dépasse le L1 (L2, L3, … L12), la commission part **entièrement** au N-hop ancêtre de la chaîne de parrainage — plus jamais de split, quelle que soit la nature de la placement matrice.
+
+**Ne modifie PAS** : `levels.py`, montants du Spillover à L1, déclenchement des commissions, comptage niveau 1 → niveau 2.
+
+**Tests**
+- `/app/backend/tests/test_spillover_l1_only.py` (nouveau, 3 tests) : L1 split ✓, L2 & L3 & L5 → 100 % au direct, aucune ligne `spillover_sponsor`/`spillover_beneficiary` créée aux niveaux ≥ 2.
+- Régression : 26/26 tests PASS (`test_official_commission_plan`, `test_spillover_sponsor_profit_only`, `test_activation_guard`, `test_manual_upgrade_debit` inclus).
+- `testing_agent_v3_fork` iteration_47 : 100 % backend, aucune régression détectée.
+
+
+
+
 ### 2026-02-XX — 💰 Refonte flux portefeuille (spec Spillover / Non-MLM)
 
 **Règles appliquées :**
