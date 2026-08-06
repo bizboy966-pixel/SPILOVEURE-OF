@@ -297,3 +297,106 @@ async def audit_user_trace(user_id: str, request: Request, _=Depends(require_adm
             "generated_count": len(commissions_generated),
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4) Spillover L2+ split audit (Spec 2026-02 clarification)
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/spillover-l2plus-splits")
+async def audit_spillover_l2plus_splits(request: Request, _=Depends(require_admin)):
+    """READ-ONLY report — lists every commission at level>=2 that was split
+    50/50 under the OLD (bugged) rule. Groups the findings per impacted user
+    and computes:
+      - `shortfall_fcfa`  : total montant DÛ à cet utilisateur (les
+                            `spillover_sponsor` L2+ auraient dû être payés
+                            à 100 %, il a reçu la moitié → différence).
+      - `overpaid_fcfa`   : total montant PERÇU en trop (les
+                            `spillover_beneficiary` L2+ n'auraient jamais
+                            dû être payés — le direct-ancestre encaisse tout).
+
+    This endpoint NEVER writes to the database — pure read-only aggregate
+    so the admin can decide whether to reconcile manually.
+    """
+    from levels import LEVELS_BY_NUM
+
+    db = request.app.state.db
+
+    # Aggregate all commissions at level >= 2 with a spillover-tainted kind.
+    pipeline = [
+        {"$match": {
+            "level": {"$gte": 2},
+            "kind": {"$in": ["spillover_sponsor", "spillover_beneficiary"]},
+        }},
+        {"$group": {
+            "_id": {"user_id": "$user_id", "kind": "$kind", "level": "$level"},
+            "count": {"$sum": 1},
+            "amount_paid": {"$sum": {"$ifNull": ["$amount", 0]}},
+        }},
+    ]
+
+    rows = []
+    async for r in db.commissions.aggregate(pipeline):
+        rows.append(r)
+
+    # Fold into per-user summary.
+    per_user: dict[str, dict] = {}
+    grand_shortfall = 0
+    grand_overpaid = 0
+    for r in rows:
+        uid = r["_id"]["user_id"]
+        kind = r["_id"]["kind"]
+        level = int(r["_id"]["level"])
+        count = int(r["count"])
+        paid = float(r["amount_paid"])
+        # Full official commission for that level
+        official = LEVELS_BY_NUM.get(level, {}).get("commission_per_invite", 0)
+        # Under the OLD bug, sponsor got HALF of the commission. New spec:
+        # sponsor should have received 100 %. Difference owed = count * (official − half).
+        # (`paid` already equals count * half, so shortfall = count*official − paid.)
+        entry = per_user.setdefault(uid, {
+            "user_id": uid, "username": None, "email": None,
+            "shortfall_fcfa": 0, "overpaid_fcfa": 0,
+            "levels_affected": set(), "row_count": 0,
+        })
+        entry["row_count"] += count
+        entry["levels_affected"].add(level)
+        if kind == "spillover_sponsor":
+            entry["shortfall_fcfa"] += count * official - paid
+            grand_shortfall += count * official - paid
+        else:  # spillover_beneficiary
+            entry["overpaid_fcfa"] += paid
+            grand_overpaid += paid
+
+    # Enrich with username/email.
+    if per_user:
+        async for u in db.users.find(
+            {"id": {"$in": list(per_user.keys())}},
+            {"_id": 0, "id": 1, "username": 1, "email": 1, "max_level": 1},
+        ):
+            e = per_user.get(u["id"])
+            if e:
+                e["username"] = u.get("username")
+                e["email"] = u.get("email")
+                e["max_level"] = u.get("max_level")
+
+    # Convert sets to sorted lists for JSON.
+    findings = []
+    for e in per_user.values():
+        e["levels_affected"] = sorted(e["levels_affected"])
+        findings.append(e)
+    # Sort: biggest total impact first.
+    findings.sort(key=lambda x: (x["shortfall_fcfa"] + x["overpaid_fcfa"]), reverse=True)
+
+    return {
+        "spec_reference": "SPILOVEURE 2026-02 — Le partage 50/50 s'applique UNIQUEMENT au L1. "
+                          "Toute commission spillover_sponsor / spillover_beneficiary à level>=2 "
+                          "est le résultat d'un ancien bug corrigé (matrix.py iter_47).",
+        "generated_at": _iso(datetime.utcnow()),
+        "impacted_user_count": len(findings),
+        "grand_totals": {
+            "shortfall_fcfa": round(grand_shortfall, 2),  # à re-créditer si l'admin décide
+            "overpaid_fcfa": round(grand_overpaid, 2),    # à débiter si l'admin décide
+            "erroneous_commission_rows": sum(f["row_count"] for f in findings),
+        },
+        "findings": findings,
+    }

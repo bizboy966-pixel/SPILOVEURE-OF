@@ -8,7 +8,7 @@ import { Card } from "@/src/components/Card";
 
 const fmt = (v: any) => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} FCFA`;
 
-type Tab = "free-activations" | "orphan-commissions" | "trace";
+type Tab = "free-activations" | "orphan-commissions" | "l2plus-splits" | "trace";
 
 const REASON_LABEL: Record<string, { label: string; color: string }> = {
   no_origin: { label: "❌ SANS ORIGINE VALIDE", color: theme.colors.danger },
@@ -35,6 +35,7 @@ export default function AdminAudit() {
   const [loading, setLoading] = useState(false);
   const [freeData, setFreeData] = useState<any>(null);
   const [orphanData, setOrphanData] = useState<any>(null);
+  const [splitData, setSplitData] = useState<any>(null);
   const [traceQuery, setTraceQuery] = useState("");
   const [traceData, setTraceData] = useState<any>(null);
   const [traceError, setTraceError] = useState<string | null>(null);
@@ -63,6 +64,18 @@ export default function AdminAudit() {
     }
   }, []);
 
+  const loadSplits = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api.get<any>("/admin/audit/spillover-l2plus-splits");
+      setSplitData(r);
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const loadTrace = useCallback(async () => {
     const q = traceQuery.trim();
     if (!q) return;
@@ -82,7 +95,8 @@ export default function AdminAudit() {
   useEffect(() => {
     if (tab === "free-activations" && !freeData) loadFree();
     if (tab === "orphan-commissions" && !orphanData) loadOrphan();
-  }, [tab, freeData, orphanData, loadFree, loadOrphan]);
+    if (tab === "l2plus-splits" && !splitData) loadSplits();
+  }, [tab, freeData, orphanData, splitData, loadFree, loadOrphan, loadSplits]);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 14 }} testID="admin-audit-page">
@@ -93,6 +107,7 @@ export default function AdminAudit() {
         {([
           { k: "free-activations" as Tab, label: "🚨 Activations suspectes" },
           { k: "orphan-commissions" as Tab, label: "💸 Commissions orphelines" },
+          { k: "l2plus-splits" as Tab, label: "⚖️ Splits L2+ erronés" },
           { k: "trace" as Tab, label: "🔍 Tracer un utilisateur" },
         ]).map((it) => (
           <TouchableOpacity
@@ -199,7 +214,80 @@ export default function AdminAudit() {
         </View>
       )}
 
-      {/* ═══ TAB 3: TRACE ═══ */}
+      {/* ═══ TAB 3: L2+ SPLITS ERRONES ═══ */}
+      {tab === "l2plus-splits" && splitData && (
+        <View>
+          <TouchableOpacity style={styles.reloadBtn} onPress={loadSplits} testID="audit-splits-refresh">
+            <Ionicons name="refresh" size={16} color="#fff" />
+            <Text style={styles.reloadTxt}>Actualiser</Text>
+          </TouchableOpacity>
+
+          <Card style={{ marginTop: 10, backgroundColor: "#FEF3C7" }}>
+            <Text style={{ color: "#78350F", fontSize: 12 }}>
+              ℹ️ {splitData.spec_reference}
+            </Text>
+          </Card>
+
+          <View style={styles.statRow}>
+            <View style={styles.statBox}>
+              <Text style={styles.statN}>{splitData.impacted_user_count || 0}</Text>
+              <Text style={styles.statL}>Utilisateurs impactés</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statN}>{splitData.grand_totals?.erroneous_commission_rows || 0}</Text>
+              <Text style={styles.statL}>Lignes concernées</Text>
+            </View>
+          </View>
+          <View style={styles.statRow}>
+            <View style={styles.statBox}>
+              <Text style={[styles.statN, { color: theme.colors.success }]}>
+                +{fmt(splitData.grand_totals?.shortfall_fcfa)}
+              </Text>
+              <Text style={styles.statL}>💰 Total DÛ (à re-créditer)</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={[styles.statN, { color: theme.colors.danger }]}>
+                −{fmt(splitData.grand_totals?.overpaid_fcfa)}
+              </Text>
+              <Text style={styles.statL}>⚠️ Total PERÇU EN TROP</Text>
+            </View>
+          </View>
+
+          {(splitData.findings || []).length === 0 ? (
+            <Card style={{ marginTop: 12 }}>
+              <Text style={{ color: theme.colors.success, fontWeight: "700", textAlign: "center" }}>
+                ✅ Aucun split L2+ erroné détecté.
+              </Text>
+            </Card>
+          ) : (
+            (splitData.findings || []).map((f: any, i: number) => (
+              <Card key={`sp-${i}`} style={{ marginTop: 10 }} testID={`l2plus-split-${i}`}>
+                <Text style={styles.findingLine}>
+                  👤 <Text style={{ fontWeight: "800" }}>@{f.username || "?"}</Text>
+                  {" "}• N{f.max_level || "?"} • <Text style={styles.mono}>{f.user_id?.slice(0, 8)}</Text>
+                </Text>
+                <Text style={styles.findingLine}>Email : {f.email || "—"}</Text>
+                <Text style={styles.findingLine}>
+                  Niveaux affectés : {(f.levels_affected || []).map((l: number) => `L${l}`).join(", ")}
+                  {"  "}({f.row_count || 0} lignes)
+                </Text>
+                {f.shortfall_fcfa > 0 && (
+                  <Text style={[styles.findingLine, { color: theme.colors.success, fontWeight: "700" }]}>
+                    💰 À re-créditer : +{fmt(f.shortfall_fcfa)}
+                  </Text>
+                )}
+                {f.overpaid_fcfa > 0 && (
+                  <Text style={[styles.findingLine, { color: theme.colors.danger, fontWeight: "700" }]}>
+                    ⚠️ Perçu en trop : −{fmt(f.overpaid_fcfa)}
+                  </Text>
+                )}
+              </Card>
+            ))
+          )}
+        </View>
+      )}
+
+      {/* ═══ TAB 4: TRACE ═══ */}
       {tab === "trace" && (
         <View>
           <Card>

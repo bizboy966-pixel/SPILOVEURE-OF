@@ -20,6 +20,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 📊 Audit admin : Splits L2+ erronés (lecture seule)
+
+**Contexte** : la production tourne encore avec l'ancien code (avant `matrix.py` iter_47) qui appliquait le partage 50/50 aux commissions L2 → L12. Un rapport read-only permet à l'admin d'identifier les utilisateurs impactés avant/après redéploiement.
+
+**Backend — `/app/backend/integrity_audit.py`**
+- Nouvel endpoint `GET /api/admin/audit/spillover-l2plus-splits` (protégé par `require_admin`, aucune écriture).
+- Agrège toutes les lignes `commissions` avec `level >= 2` et `kind ∈ {spillover_sponsor, spillover_beneficiary}`.
+- Calcule par utilisateur : `shortfall_fcfa` (dû à re-créditer) et `overpaid_fcfa` (perçu en trop à débiter).
+- Enrichit avec username/email/max_level.
+
+**Frontend — `/app/frontend/app/(admin)/audit.tsx`**
+- Nouvel onglet "⚖️ Splits L2+ erronés" avec bandeau spec, 4 KPIs (utilisateurs impactés, lignes concernées, total dû, total en trop) et cartes par utilisateur.
+- data-testid : `audit-tab-l2plus-splits`, `l2plus-split-{i}`, `audit-splits-refresh`.
+
+**Validation** : endpoint curl-testé sur preview DB — 1 user impacté (admin, 15 lignes L2, 7500 FCFA perçus en trop). UI screenshotée et validée.
+
+
+
+
 ### 2026-02-XX — 🎯 Clarification définitive : Spillover 50/50 UNIQUEMENT au Niveau 1
 
 **Spec officielle (précision du PO)** : « Le Spillover est un mode de PLACEMENT, pas un mode de CALCUL permanent des commissions. Le partage 50/50 s'applique uniquement au moment du placement automatique (Niveau 1). Toutes les commissions des Niveaux 2 à 12 doivent être payées intégralement à l'ancêtre N-hops de la chaîne de parrainage, sans nouveau partage lié au Spillover. »
