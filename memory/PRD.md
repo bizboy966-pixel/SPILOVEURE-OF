@@ -20,6 +20,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🔧 FIX Firebase WebpushFCMOptions — les push arrivent enfin
+
+**RCA** : Firebase Admin SDK impose `WebpushFCMOptions.link` HTTPS absolue. Chaque appel avec un chemin relatif (`/(app)/ads?ad_id=X`) levait `ValueError('WebpushFCMOptions.link must be a HTTPS URL.')` — silencieusement avalé par le try/except → 0 notification envoyée depuis le début.
+
+**Correctifs** :
+- `/app/backend/push_helper.py::_absolute_link()` : préfixe automatiquement toute URL relative avec `PUBLIC_APP_URL` (env, défaut `https://spiloveure.com`).
+- Import `_absolute_link` réutilisé dans `push_notifications._send_batches` (endpoints admin).
+- Cleanup token élargi : détecte `UnregisteredError`, `SenderIdMismatchError`, `registration-token-not-registered`, `not a valid fcm registration token`, `invalid registration`.
+- Nouvelle var d'env `PUBLIC_APP_URL=https://spiloveure.com`.
+- Logs INFO plus riches : `push %r → dispatching to N tokens` + `push %r result: {...}`.
+
+**Nouveautés produit** :
+- `POST /api/push/test-self` : envoie une notif de diagnostic à ses propres devices.
+- Broadcasts ads/marketplace passent de `push_to_activated` à `push_to_all_registered` (spec 2026-02 : notifier TOUS les abonnés, activés ou non).
+- Frontend `/(app)/profile` : nouvelle carte **Notifications Push** avec état (granted/default/denied/unsupported) et bouton **🔔 Activer les notifications** (indispensable pour iOS Safari qui exige un user-gesture).
+- Frontend `/(admin)/push` : bouton orange **⚡ Envoyer un test à mon appareil**.
+
+**Tests** : `testing_agent_v3_fork` iter_51 — ✅ 4/4 pytest backend + 100 % frontend. RCA validée par disparition de l'erreur dans les logs post-fix.
+
+
+
+
 ### 2026-02-XX — 💬 Comment Replies (WhatsApp-style) + Push Broadcast on Approvals + Admin Moderation
 
 **Nouveautés** (aucun code existant modifié, seulement ajouts) :

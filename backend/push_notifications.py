@@ -186,7 +186,14 @@ async def _send_batches(db, rows: list[dict], f: SendIn) -> dict:
             if r.success:
                 continue
             exc = r.exception
-            if isinstance(exc, (messaging.UnregisteredError, messaging.SenderIdMismatchError)):
+            msg = str(exc).lower() if exc else ""
+            if (isinstance(exc, (
+                    messaging.UnregisteredError,
+                    messaging.SenderIdMismatchError,
+                ))
+                or "registration-token-not-registered" in msg
+                or "not a valid fcm registration token" in msg
+                or "invalid registration" in msg):
                 dead.append(tok)
 
     if dead:
