@@ -277,11 +277,12 @@ function AdsScreenInner() {
                       c.is_reply && styles.commentReplyItem,
                     ]}
                     testID={`ad-comment-item-${c.id}`}
+                    nativeID={`ad-comment-item-${c.id}`}
                   >
                     {/* WhatsApp-style quote block when this comment is a
                         creator's reply targeting a parent comment. */}
                     {c.is_reply && c.reply_to_username && (
-                      <View style={styles.quoteBlock} testID={`ad-comment-quote-${c.id}`}>
+                      <View style={styles.quoteBlock} testID={`ad-comment-quote-${c.id}`} nativeID={`ad-comment-quote-${c.id}`}>
                         <View style={styles.quoteBar} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.quoteUser}>Réponse à @{c.reply_to_username}</Text>

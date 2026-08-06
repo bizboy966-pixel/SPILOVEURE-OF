@@ -20,6 +20,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 💬 Comment Replies (WhatsApp-style) + Push Broadcast on Approvals + Admin Moderation
+
+**Nouveautés** (aucun code existant modifié, seulement ajouts) :
+
+- **Réponses créateur** : `POST /api/ads/{ad_id}/comment/reply` — 403 si l'appelant ≠ créateur, 404 si comment_id inexistant. La réponse est GRATUITE, sans récompense, exemptée d'anti-spam. Le payload retour porte `is_reply=true`, `reply_to_comment_id`, `reply_to_username`, `reply_to_text` (200 chars).
+- **Push helper** : `/app/backend/push_helper.py` — 3 fonctions fire-and-forget (`push_to_user`, `push_to_users`, `push_to_activated`) avec batching 500, cleanup auto des tokens invalides, try/except systématique pour ne jamais casser le flow métier.
+- **Push notifications automatiques** :
+  - Nouveau commentaire → push au créateur de la pub.
+  - Réponse du créateur → push au commentateur original.
+  - Approbation admin d'une pub → push à tous les utilisateurs activés (max_level≥1) sauf le créateur.
+  - Approbation admin d'un article Marketplace → idem.
+- **Suppression admin** : `DELETE /api/admin/ads/{ad_id}/comments/{comment_id}` — supprime commentaire OU réponse (`$pull` sur l'array embarqué).
+- **Frontend** `/(app)/ads.tsx` :
+  - Type `Comment` étendu (`is_reply`, `reply_to_*`).
+  - État `replyTo` par ad_id, banner WhatsApp-style au-dessus du champ, placeholder dynamique.
+  - `commentReplyItem` : indentation + bordure bleue + fond bleuté.
+  - `quoteBlock` : barre bleue verticale + username en gras + texte cité en italique.
+  - Bouton Reply visible pour le créateur uniquement, bouton Delete pour l'admin uniquement.
+  - `nativeID` ajouté sur les Views testID pour contourner un quirk react-native-web 0.21.
+- **Fix anti-spam** : `_is_spam_comment` reçoit maintenant uniquement les commentaires `!is_reply` pour ne pas être perturbé par les réponses du créateur.
+
+**Compatibilité push** : garantie par la config FCM SW existant — foreground (Notification native), background/tab-closed (service worker `showNotification`).
+
+**Deep-link click** : le SW/foreground handler passe `link` dans `data`, le PushBootstrap redirige via `window.location.assign(link)`. Utilisateurs activés → `/(app)/ads?ad_id=X` ; utilisateurs pending → guard `(app)/_layout` redirige automatiquement vers `/activation`.
+
+**Tests** : `testing_agent_v3_fork` iter_50 — ✅ 13/13 backend. Frontend visualisé et validé manuellement (screenshots : reply banner s'affiche, réponse rendue avec citation, badge Créateur, boutons Reply/Delete pour l'admin).
+
+
+
+
 ### 2026-02-XX — 🇦🇫 AshtecPay Direct v1 — Mise à jour officielle (10 pays exacts + RD Congo)
 
 **Contexte** : L'utilisateur a fourni la doc officielle Ashtech Pay Direct v1 (PDF). Alignement STRICT du catalogue avec la doc — retrait des pays non supportés, ajout de RD Congo (CDF), correction des noms d'opérateurs byte-for-byte.
