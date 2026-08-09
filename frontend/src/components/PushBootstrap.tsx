@@ -24,7 +24,7 @@ export function PushBootstrap() {
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             const n = new Notification(title, {
               body,
-              icon: "/favicon.ico",
+              icon: "/icon-192.png",
               tag: data?.tag || "spiloveure",
             });
             n.onclick = () => {

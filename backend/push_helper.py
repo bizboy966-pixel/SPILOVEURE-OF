@@ -95,7 +95,7 @@ async def _send(
     webpush = messaging.WebpushConfig(
         fcm_options=messaging.WebpushFCMOptions(link=abs_link) if abs_link else None,
         notification=messaging.WebpushNotification(
-            title=title, body=body, icon="/favicon.ico", tag=tag or "spiloveure",
+            title=title, body=body, icon="/icon-192.png", tag=tag or "spiloveure",
         ),
     )
 

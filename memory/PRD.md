@@ -20,6 +20,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🎨 Nouveau logo SPILOVEURE + optimisation PWA install
+
+**Nouveau logo** (source utilisateur, 1254×1254 → normalisé 1024×1024).
+
+**Fichiers remplacés** (aucun code applicatif modifié, seulement les assets binaires) :
+- `/app/frontend/assets/images/spiloveure-logo.png` — utilisé par ≥ 6 écrans via `require()` (login, register, dashboard, LandingPage, CommunityPopup, activation).
+- `/app/frontend/assets/images/icon.png`, `app-image.png`, `splash-icon.png`, `splash-image.png`, `favicon.png` — icônes Expo (native + Metro).
+- `/app/frontend/assets/images/adaptive-icon.png` — Android adaptive icon **avec 16 % de padding transparent** pour respecter la safe-zone Google Play (l'OS crop le contour du logo).
+
+**PWA install — icônes optimisées** (nouveaux fichiers dans `/app/frontend/public/`) :
+- `icon-192.png` & `icon-512.png` — purpose `any` (icône iOS / Chrome).
+- `icon-192-maskable.png` & `icon-512-maskable.png` — purpose `maskable` (Android adaptive, 68 % de zone centrale utilisée, le crown reste visible quelle que soit la forme découpée par l'OS).
+- `apple-touch-icon.png` (180×180) — écran d'accueil iOS.
+- `favicon.ico` (32×32) — fallback ancien navigateur.
+- `manifest.webmanifest` — déclare les 4 tailles + purposes + `theme_color`, `background_color`, `display: standalone` pour une installation "app-like" propre.
+
+**HTML head** (`/app/frontend/app/+html.tsx`) :
+- Titre & meta mis à jour ("SPILOVEURE — Connecter · Collaborer · Prospérer").
+- Balises `<link rel="manifest">`, `<link rel="icon">`, `<link rel="apple-touch-icon">`.
+- Meta `apple-mobile-web-app-*` pour un rendu iOS standalone.
+- OG image/Twitter image pointent sur `/icon-512.png`.
+
+**Notifications push** — l'icône ronde 192 remplace l'ancien favicon dans :
+- `push_helper.py` & `push_notifications.py` (WebpushNotification icon).
+- `firebase-messaging-sw.js` (SW showNotification icon + badge).
+- `PushBootstrap.tsx` + profile.tsx (Notification API en foreground).
+
+**Résultat** : logo net et centré lors de l'installation PWA (Android/iOS/desktop Chrome). Aucune régression sur les écrans existants (le fichier `spiloveure-logo.png` a juste changé de contenu, les `require()` restent identiques).
+
+
+
+
 ### 2026-02-XX — 🔧 FIX Firebase WebpushFCMOptions — les push arrivent enfin
 
 **RCA** : Firebase Admin SDK impose `WebpushFCMOptions.link` HTTPS absolue. Chaque appel avec un chemin relatif (`/(app)/ads?ad_id=X`) levait `ValueError('WebpushFCMOptions.link must be a HTTPS URL.')` — silencieusement avalé par le try/except → 0 notification envoyée depuis le début.

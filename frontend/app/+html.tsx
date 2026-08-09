@@ -13,21 +13,31 @@ export default function Root({ children }: PropsWithChildren) {
           content="width=device-width, initial-scale=1, shrink-to-fit=no"
         />
 
-        <title>Spiloveure — Plateforme d'affiliation à matrice binaire</title>
-        <meta name="description" content="Spiloveure — Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs. Développez votre réseau et générez des revenus grâce au système Spillover." />
-        <meta name="theme-color" content="#1B5BFF" />
-        <meta name="application-name" content="Spiloveure" />
+        <title>SPILOVEURE — Connecter · Collaborer · Prospérer</title>
+        <meta name="description" content="SPILOVEURE — Plateforme d'affiliation à matrice binaire. Un réseau, des ambitions, un avenir." />
+        <meta name="theme-color" content="#0B1220" />
+        <meta name="application-name" content="SPILOVEURE" />
+        <meta name="apple-mobile-web-app-title" content="SPILOVEURE" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+        {/* PWA install — icons + manifest */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="shortcut icon" href="/favicon.ico" />
 
         <meta property="og:type" content="website" />
-        <meta property="og:title" content="Spiloveure — Plateforme d'affiliation" />
-        <meta property="og:description" content="Rejoignez Spiloveure et développez votre réseau d'affiliation grâce à un système binaire forcé à 12 niveaux." />
-        <meta property="og:image" content="/assets/assets/images/spiloveure-logo.png" />
+        <meta property="og:title" content="SPILOVEURE — Connecter · Collaborer · Prospérer" />
+        <meta property="og:description" content="Un réseau, des ambitions, un avenir." />
+        <meta property="og:image" content="/icon-512.png" />
         <meta property="og:locale" content="fr_FR" />
 
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Spiloveure — Plateforme d'affiliation" />
-        <meta name="twitter:description" content="Plateforme de marketing d'affiliation à matrice binaire avec 12 niveaux évolutifs." />
-        <meta name="twitter:image" content="/assets/assets/images/spiloveure-logo.png" />
+        <meta name="twitter:title" content="SPILOVEURE" />
+        <meta name="twitter:description" content="Un réseau, des ambitions, un avenir." />
+        <meta name="twitter:image" content="/icon-512.png" />
 
         <ScrollViewStyleReset />
         <style

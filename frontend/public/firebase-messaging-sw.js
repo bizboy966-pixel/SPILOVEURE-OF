@@ -25,8 +25,8 @@ messaging.onBackgroundMessage((payload) => {
                (payload.data && payload.data.link) || "/";
   self.registration.showNotification(n.title || "SPILOVEURE", {
     body: n.body || "",
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
     data: { url: link },
     tag: (payload.data && payload.data.tag) || "spiloveure",
   });

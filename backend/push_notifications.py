@@ -163,7 +163,7 @@ async def _send_batches(db, rows: list[dict], f: SendIn) -> dict:
     webpush = messaging.WebpushConfig(
         fcm_options=messaging.WebpushFCMOptions(link=abs_link) if abs_link else None,
         notification=messaging.WebpushNotification(
-            title=f.title, body=f.body, icon="/favicon.ico",
+            title=f.title, body=f.body, icon="/icon-192.png",
         ),
     )
     # FCM data values MUST be strings.
