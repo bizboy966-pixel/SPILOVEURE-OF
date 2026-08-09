@@ -7,6 +7,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider } from "@/src/auth";
 import { I18nProvider } from "@/src/i18n";
 import { FeaturesProvider } from "@/src/features";
+import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,6 +28,10 @@ export default function RootLayout() {
         <AuthProvider>
           <FeaturesProvider>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+            {/* Premium intro overlay — auto-dismisses after ~2.2 s, then
+                remembers the visit via sessionStorage so navigations inside
+                the same tab don't replay it. */}
+            <AnimatedSplash />
           </FeaturesProvider>
         </AuthProvider>
       </I18nProvider>

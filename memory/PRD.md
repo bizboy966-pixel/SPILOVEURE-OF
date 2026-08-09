@@ -20,6 +20,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — ✨ Écran de splash animé premium (fade-in + rotation + glow)
+
+**Composant** : `/app/frontend/src/components/AnimatedSplash.tsx`
+- Séquence 2.2 s :
+  1. **0 → 0.9 s** : fade-in (opacity 0→1) + scale-up (0.85→1.0, easing `Easing.out(Easing.back(1.3))` pour un léger overshoot) + rotation -8° → 0° (`Easing.out(Easing.cubic)`).
+  2. **0.9 → 1.4 s** : halo doré radial (blur 120 px, gradient or → bleu) qui pulse en opacité 0 → 0.35.
+  3. **1.4 → 1.8 s** : tagline "Un réseau, des ambitions, un avenir." glisse depuis le bas (translateY 20 → 0) + fade-in.
+  4. **1.8 → 2.2 s** : overlay entier s'estompe (opacity 1 → 0).
+- `useNativeDriver: true` sur toutes les animations pour 60 fps garantis (web/native).
+- **Anti-replay** : sessionStorage flag `spilv_splash_seen_v1` — le splash ne rejoue pas lors des navigations internes dans le même onglet.
+- `pointerEvents="none"` pour que l'utilisateur puisse déjà interagir avec l'app pendant le fade-out.
+
+**Mount** : `/app/frontend/app/_layout.tsx` — placé après `<Stack />` pour survoler toute l'app.
+
+**Vérification** : 3 screenshots capturés couvrant fade-in, plateau avec glow, et fade-out final ; aucune erreur console.
+
+
+
+
 ### 2026-02-XX — 🎨 Nouveau logo SPILOVEURE + optimisation PWA install
 
 **Nouveau logo** (source utilisateur, 1254×1254 → normalisé 1024×1024).
