@@ -58,6 +58,8 @@ export default function AppLayout() {
   return (
     <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }} />
+      {/* Welcome splash — needs to show even for pending users right after
+          they sign up / sign in. Always mount when a user is loaded. */}
       {user && !isPending && (
         <>
           <CommunityPopup userId={user.id} />

@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { useAuth } from "@/src/auth";
+import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { theme } from "@/src/theme";
 
 export default function Login() {
@@ -26,6 +27,7 @@ export default function Login() {
     setLoading(true);
     try {
       await signIn(email.trim(), password);
+      armWelcomeSplash();
       router.replace("/");
     } catch (e: any) {
       setErr(e?.detail || "Identifiants invalides.");

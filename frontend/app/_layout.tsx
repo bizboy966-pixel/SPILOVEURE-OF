@@ -8,6 +8,7 @@ import { AuthProvider } from "@/src/auth";
 import { I18nProvider } from "@/src/i18n";
 import { FeaturesProvider } from "@/src/features";
 import { AnimatedSplash } from "@/src/components/AnimatedSplash";
+import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +33,10 @@ export default function RootLayout() {
                 remembers the visit via sessionStorage so navigations inside
                 the same tab don't replay it. */}
             <AnimatedSplash />
+            {/* One-shot "Bienvenue @username" mini banner after sign-in /
+                sign-up. Read the pending flag from sessionStorage on user
+                change, then clears it — never replays inside a session. */}
+            <WelcomeSplash />
           </FeaturesProvider>
         </AuthProvider>
       </I18nProvider>

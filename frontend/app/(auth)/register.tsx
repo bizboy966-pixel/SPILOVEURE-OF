@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { useAuth } from "@/src/auth";
+import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { useFeature, useFeatures } from "@/src/features";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -127,6 +128,7 @@ export default function Register() {
         password, password_confirm: passwordConfirm,
         sponsor_username: sponsor, accept_terms: accept,
       });
+      armWelcomeSplash();
       router.replace("/(app)/activation");
     } catch (e: any) {
       setErr(e?.detail || "Erreur lors de l'inscription.");

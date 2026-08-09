@@ -20,6 +20,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🎊 Mini splash "Bienvenue @username" après connexion / inscription
+
+**Composant** : `/app/frontend/src/components/WelcomeSplash.tsx`
+- Pill flottant en haut : logo rond + "Bienvenue 👋" en jaune doux + "@{username}" en gras blanc.
+- Dégradé de fond bleu marine → bleu → doré, ombre orangée pour un effet premium.
+- Séquence 2.4 s : spring drop-in depuis translateY=-80 (damping=12, stiffness=140) + scale spring (0.9→1.0) + fade-in 350 ms → hold 1.5 s → fade-out + slide-up 350 ms.
+- `pointerEvents="none"` — l'utilisateur peut interagir avec la page sous-jacente pendant l'animation.
+
+**Déclenchement one-shot** :
+- Fonction exportée `armWelcomeSplash()` qui écrit un flag `sessionStorage["spilv_welcome_pending"]="1"`.
+- Appelée après `signIn` réussi dans `/(auth)/login.tsx` et après `signUp` dans `/(auth)/register.tsx`.
+- Sur `useEffect(user?.id)` le composant lit le flag, le supprime immédiatement, puis lance l'animation → **jamais rejoué** sur les navigations internes.
+
+**Mount** : `/app/frontend/app/_layout.tsx` — placé au niveau root pour couvrir aussi bien `(app)` que `(admin)`.
+
+**Vérification** : 2 screenshots successifs post-login confirment le pill visible avec le logo rond, le texte "Bienvenue 👋 @admin", et la mise en scène premium. Zéro erreur console.
+
+
+
+
 ### 2026-02-XX — ✨ Écran de splash animé premium (fade-in + rotation + glow)
 
 **Composant** : `/app/frontend/src/components/AnimatedSplash.tsx`
