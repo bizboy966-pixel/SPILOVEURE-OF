@@ -20,6 +20,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🎨 Refonte typographique : hiérarchie plus mature & professionnelle
+
+**Problème** : les tailles de texte étaient trop grosses et le fontWeight uniformément à 800/900 partout, donnant l'impression AI-generated / peu polie.
+
+**Principes appliqués (mobile-first)** :
+- **Titres réduits** — 26→20, 24→17, 22→18, 36→28 (hero) ; poids 900→700-800.
+- **Sous-titres** stylés explicitement (13px, line-height 18, muted color).
+- **Letter-spacing négatif** (-0.2 à -0.5) sur tous les gros titres pour un rendu affiné.
+- **Logo réduit** 180→96 sur login et register (proportions naturelles mobile).
+- **Line-heights resserrées** (18→17 sur body, 40→34 sur hero) pour un rythme plus dense.
+- **Weights harmonisés** : 900→700 sur les section titles, stat values, step titles, footer brand.
+
+**Fichiers modifiés** :
+- `/app/frontend/app/(auth)/login.tsx` — styles header + card.
+- `/app/frontend/app/(auth)/register.tsx` — logo, h1, title, subtitle, lbl.
+- `/app/frontend/src/components/LandingPage.tsx` — hero, section titles, stats, services, steps, final CTA, footer.
+
+**Résultat** : screenshot mobile 390×844 confirme un rendu propre, hiérarchie visuelle claire, aucun titre écrasant, espacements équilibrés.
+
+
+
+
 ### 2026-02-XX — 🎊 Mini splash "Bienvenue @username" après connexion / inscription
 
 **Composant** : `/app/frontend/src/components/WelcomeSplash.tsx`

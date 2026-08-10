@@ -426,24 +426,24 @@ const styles = StyleSheet.create({
   badgeText: { color: "#E0EAFF", fontSize: 11, fontWeight: "600" },
   heroTitle: {
     color: "#fff",
-    fontSize: 36,
-    fontWeight: "900",
-    letterSpacing: 1,
-    lineHeight: 40,
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    lineHeight: 34,
   },
-  heroTitleTablet: { fontSize: 48, lineHeight: 52 },
-  heroTitleDesktop: { fontSize: 60, lineHeight: 64 },
+  heroTitleTablet: { fontSize: 38, lineHeight: 44, letterSpacing: -0.8 },
+  heroTitleDesktop: { fontSize: 48, lineHeight: 54, letterSpacing: -1 },
   heroTagline: {
     color: "#C7D9FF",
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 4,
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 6,
     fontStyle: "italic",
   },
   heroSubtitle: {
     color: "#E0EAFF",
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
     marginTop: 14,
     maxWidth: 540,
   },
@@ -471,8 +471,8 @@ const styles = StyleSheet.create({
   ctaPrimaryText: {
     color: theme.colors.primary,
     fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.3,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   ctaGhost: {
     alignItems: "center",
@@ -520,11 +520,11 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
-  statValue: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 0.5 },
+  statValue: { color: "#fff", fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
   statLabel: {
     color: "#C7D9FF",
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "500",
     marginTop: 2,
     textAlign: "center",
   },
@@ -532,7 +532,7 @@ const styles = StyleSheet.create({
   // Sections
   section: {
     paddingHorizontal: 20,
-    paddingVertical: 40,
+    paddingVertical: 36,
   },
   sectionDesktop: {
     paddingHorizontal: 64,
@@ -542,25 +542,26 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 2,
+    fontWeight: "700",
+    letterSpacing: 1.8,
     color: theme.colors.primary,
     textTransform: "uppercase",
     marginBottom: 6,
   },
   sectionTitle: {
-    fontSize: 22,
-    fontWeight: "900",
+    fontSize: 20,
+    fontWeight: "700",
     color: theme.colors.textPrimary,
-    lineHeight: 28,
+    lineHeight: 26,
+    letterSpacing: -0.3,
     maxWidth: 720,
   },
   sectionSubtitle: {
     fontSize: 13,
     color: theme.colors.textSecondary,
-    marginTop: 8,
+    marginTop: 6,
     maxWidth: 640,
-    lineHeight: 20,
+    lineHeight: 19,
   },
 
   // Services grid
@@ -590,13 +591,14 @@ const styles = StyleSheet.create({
   },
   serviceTitle: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: theme.colors.textPrimary,
     marginBottom: 4,
+    letterSpacing: -0.1,
   },
   serviceDesc: {
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 17,
     color: theme.colors.textSecondary,
   },
 
@@ -624,7 +626,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  stepNumberText: { color: "#fff", fontWeight: "900", fontSize: 11 },
+  stepNumberText: { color: "#fff", fontWeight: "700", fontSize: 11 },
   stepIcon: {
     width: 42,
     height: 42,
@@ -637,11 +639,12 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: theme.colors.textPrimary,
     marginBottom: 4,
+    letterSpacing: -0.1,
   },
-  stepDesc: { fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary },
+  stepDesc: { fontSize: 12, lineHeight: 17, color: theme.colors.textSecondary },
 
   // Final CTA
   finalCta: {
@@ -650,11 +653,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   finalCtaTitle: {
-    fontSize: 20,
-    fontWeight: "900",
+    fontSize: 18,
+    fontWeight: "700",
     color: "#fff",
     marginTop: 12,
     textAlign: "center",
+    letterSpacing: -0.2,
   },
   finalCtaSubtitle: {
     fontSize: 13,
@@ -663,7 +667,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     textAlign: "center",
     maxWidth: 480,
-    lineHeight: 20,
+    lineHeight: 19,
   },
 
   // Footer
@@ -676,10 +680,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerBrand: {
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "700",
     color: theme.colors.textPrimary,
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
   footerTagline: {
     fontSize: 13,

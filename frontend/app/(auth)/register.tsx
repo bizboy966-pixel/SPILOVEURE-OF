@@ -317,8 +317,11 @@ export default function Register() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24, alignItems: "center" },
-  logo: { width: 150, height: 150 },
-  h1: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center", marginTop: 16 },
+  logo: { width: 96, height: 96 },
+  h1: {
+    color: "#fff", fontSize: 20, fontWeight: "700",
+    textAlign: "center", marginTop: 12, letterSpacing: -0.2,
+  },
   sub: { color: "#C7D9FF", textAlign: "center", marginTop: 6 },
   card: {
     backgroundColor: "#fff",
@@ -326,9 +329,18 @@ const styles = StyleSheet.create({
     borderRadius: 24, padding: 20,
     ...theme.shadow.card,
   },
-  title: { fontSize: 22, fontWeight: "800", color: theme.colors.textPrimary, textAlign: "center" },
-  subtitle: { color: theme.colors.textSecondary, textAlign: "center", marginVertical: 8, marginBottom: 16 },
-  lbl: { fontSize: theme.font.body, fontWeight: "600", color: theme.colors.textPrimary, marginBottom: 6 },
+  title: {
+    fontSize: 17, fontWeight: "700",
+    color: theme.colors.textPrimary,
+    textAlign: "center", letterSpacing: -0.2,
+  },
+  subtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: 13, lineHeight: 18,
+    textAlign: "center",
+    marginTop: 4, marginBottom: 18,
+  },
+  lbl: { fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary, marginBottom: 6 },
   countryBtn: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border,
