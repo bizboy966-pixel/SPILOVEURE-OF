@@ -324,8 +324,8 @@ const styles = StyleSheet.create({
   header: { paddingBottom: 12, paddingHorizontal: 16 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  brand: { color: "#fff", fontSize: 18, fontWeight: "800", letterSpacing: 2 },
-  brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 2 },
+  brand: { color: "#fff", fontSize: 17, fontWeight: "700", letterSpacing: 1.5 },
+  brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 1.5 },
   menuBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.2)",
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
   },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center" },
-  username: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  username: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
   lvlPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(255,255,255,0.2)",
@@ -346,16 +346,16 @@ const styles = StyleSheet.create({
   memberSince: { color: "#C7D9FF", fontSize: 10, marginTop: 2 },
 
   balanceCard: { borderRadius: 24, padding: 20, flexDirection: "row", alignItems: "center", ...theme.shadow.button },
-  balanceLabel: { color: "#C7D9FF", fontSize: 13 },
-  balanceValue: { color: "#fff", fontSize: 32, fontWeight: "800", marginTop: 4 },
+  balanceLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "500" },
+  balanceValue: { color: "#fff", fontSize: 28, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
   balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
   reserveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
   reserveText: { color: "#FDE68A", fontSize: 12, fontWeight: "700" },
   statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   statCard: { flex: 1, padding: 14, borderRadius: 16, alignItems: "flex-start", shadowColor: "#000", shadowOpacity: 0.06, shadowOffset: { width: 0, height: 4 }, shadowRadius: 8, elevation: 3 },
   statIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  statLabel: { color: "rgba(255,255,255,0.85)", fontSize: 11, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: "700" },
-  statValue: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 4 },
+  statLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", fontWeight: "600" },
+  statValue: { color: "#fff", fontSize: 17, fontWeight: "700", marginTop: 4, letterSpacing: -0.2 },
   statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
   walletIcon: { width: 64, height: 64, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
@@ -363,12 +363,12 @@ const styles = StyleSheet.create({
   commCard: { flex: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   commIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   commLabel: { color: "rgba(255,255,255,0.85)", fontSize: 11 },
-  commValue: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: 2 },
+  commValue: { color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
 
-  sectionTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 16 },
+  sectionTitle: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 15, letterSpacing: -0.1 },
   detailRow: { flexDirection: "row", marginTop: 8, gap: 12 },
   detailLabel: { color: theme.colors.textSecondary, fontSize: 12 },
-  detailValue: { fontSize: 16, fontWeight: "800", marginTop: 2 },
+  detailValue: { fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.1 },
 
   linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 12 },
   linkText: { color: theme.colors.textPrimary, fontSize: 12 },
@@ -380,8 +380,8 @@ const styles = StyleSheet.create({
 
   teamTitle: { fontWeight: "700", color: theme.colors.textPrimary },
   teamRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  teamLabel: { fontWeight: "600" },
-  teamValue: { fontWeight: "800" },
+  teamLabel: { fontWeight: "500", color: theme.colors.textSecondary, fontSize: 13 },
+  teamValue: { fontWeight: "700", letterSpacing: -0.1 },
 
   quickBtn: {
     flex: 1, backgroundColor: "#fff", borderRadius: 16, paddingVertical: 16,
@@ -398,29 +398,29 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center", justifyContent: "center",
   },
-  chTitle: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  chTitle: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
   chSubtitle: { color: "rgba(255,255,255,0.9)", fontSize: 11, marginTop: 2 },
   chStatsRow: { flexDirection: "row", gap: 8, marginTop: 6 },
   chStatBox: {
     flex: 1, backgroundColor: "rgba(255,255,255,0.15)", padding: 8, borderRadius: 10,
   },
-  chStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "700" },
-  chStatValue: { color: "#fff", fontSize: 16, fontWeight: "900", marginTop: 2 },
+  chStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "600" },
+  chStatValue: { color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
   chProgressTrack: {
     height: 10, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 5,
     marginTop: 10, overflow: "hidden",
   },
   chProgressFill: { height: 10, backgroundColor: "#fff", borderRadius: 5 },
-  chProgressText: { color: "#fff", fontWeight: "800", fontSize: 12, marginTop: 6, textAlign: "right" },
+  chProgressText: { color: "#fff", fontWeight: "700", fontSize: 12, marginTop: 6, textAlign: "right" },
   chBadgeWin: {
     marginTop: 10, backgroundColor: "#065F46", padding: 10, borderRadius: 10,
     flexDirection: "row", alignItems: "center", gap: 8,
   },
-  chBadgeWinText: { color: "#D1FAE5", fontSize: 12, fontWeight: "800", flex: 1 },
+  chBadgeWinText: { color: "#D1FAE5", fontSize: 12, fontWeight: "700", flex: 1 },
   chBadgeWinBtn: {
     backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
   },
-  chBadgeWinBtnText: { color: "#065F46", fontWeight: "900", fontSize: 12 },
+  chBadgeWinBtnText: { color: "#065F46", fontWeight: "700", fontSize: 12 },
 });
 
 // ============================================================

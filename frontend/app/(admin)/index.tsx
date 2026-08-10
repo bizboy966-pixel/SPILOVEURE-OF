@@ -2872,7 +2872,7 @@ function KvRow({ k, v }: { k: string; v: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 24, paddingBottom: 16 },
-  title: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  title: { color: "#fff", fontSize: 18, fontWeight: "700", letterSpacing: -0.3 },
   sub: { color: "#C7D9FF", fontSize: 12, marginTop: 2 },
   logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
@@ -2885,7 +2885,7 @@ const styles = StyleSheet.create({
   statCard: { width: "47%", backgroundColor: "#fff", padding: 14, borderRadius: 16, ...theme.shadow.card },
   statIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   statLbl: { color: theme.colors.textSecondary, fontSize: 11 },
-  statVal: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 22, marginTop: 2 },
+  statVal: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 20, marginTop: 2, letterSpacing: -0.3 },
 
   searchRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   searchBox: { flex: 1, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10 },
@@ -2900,7 +2900,7 @@ const styles = StyleSheet.create({
   actT: { color: "#fff", fontWeight: "700", fontSize: 12 },
 
   empty: { textAlign: "center", color: theme.colors.textSecondary, padding: 24 },
-  section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 12, fontSize: 16 },
+  section: { fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 12, fontSize: 15, letterSpacing: -0.1 },
   lbl: { color: theme.colors.textPrimary, fontWeight: "600", marginBottom: 6 },
   priChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   priChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
@@ -2920,7 +2920,7 @@ const styles = StyleSheet.create({
   textarea: { backgroundColor: theme.colors.surfaceSecondary, borderRadius: 12, padding: 12, minHeight: 96, color: theme.colors.textPrimary, fontSize: 14, marginBottom: 12, textAlignVertical: "top" },
 
   previewBox: { padding: 16, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8 },
-  previewTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 15, marginBottom: 8 },
+  previewTitle: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 14, marginBottom: 8, letterSpacing: -0.1 },
   previewInstr: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
   previewKv: { marginTop: 10, padding: 10, backgroundColor: "#fff", borderRadius: 10 },
   previewLine: { color: theme.colors.textPrimary, fontSize: 13, marginTop: 2 },

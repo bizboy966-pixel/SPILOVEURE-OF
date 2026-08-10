@@ -20,6 +20,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
 
 ## Implementation Status (à jour 2026-07-30)
+### 2026-02-XX — 🎨 Refonte typographique Dashboard user + admin
+
+**Principes** (mêmes que le refactor login/register/landing) : `fontWeight` 800/900 → 700-800, tailles hero réduites (32→28, 24→20, 22→17), `letterSpacing` négatif sur tous les gros titres (-0.1 à -0.5), sections descendues à 15/700, sub-labels muted 12px medium.
+
+**Fichiers modifiés** :
+- `/app/frontend/app/(app)/dashboard.tsx` — brand, username, balance (32→28), stat/comm/detail/team values, sectionTitle, challenge title/stats/badges.
+- `/app/frontend/app/(admin)/index.tsx` — title (20→18/700), statVal (22→20 letterSpacing -0.3), section (16→15/700), previewTitle.
+- `/app/frontend/app/(app)/activation.tsx` — title (24→20/700), amount (32→26/800), autoActivateTitle (18/900→16/700).
+- `/app/frontend/app/(app)/withdrawal.tsx` — title (24→20/700).
+
+**Résultat** : hierarchy visuelle cohérente sur toute l'app (auth → landing → dashboards → écrans d'action), plus aucun titre "AI-generated overweight", les tables et cartes respirent mieux.
+
+
+
+
 ### 2026-02-XX — 🎨 Refonte typographique : hiérarchie plus mature & professionnelle
 
 **Problème** : les tailles de texte étaient trop grosses et le fontWeight uniformément à 800/900 partout, donnant l'impression AI-generated / peu polie.

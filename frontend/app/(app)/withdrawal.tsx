@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 24, paddingBottom: 20 },
   back: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  title: { color: "#fff", fontSize: 24, fontWeight: "800" },
+  title: { color: "#fff", fontSize: 20, fontWeight: "700", letterSpacing: -0.3 },
   sub: { color: "#C7D9FF" },
   section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 8 },
   hist: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
