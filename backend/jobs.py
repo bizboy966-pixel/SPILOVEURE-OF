@@ -92,6 +92,35 @@ async def list_jobs(request: Request, user=Depends(get_current_user)) -> List[di
     return [_serialize(it) for it in items]
 
 
+# NOTE: static routes must be declared BEFORE the dynamic /jobs/{job_id}
+# param routes so FastAPI doesn't interpret "unread-count" as an id.
+@public_router.get("/jobs/unread-count")
+async def jobs_unread_count(request: Request, user=Depends(get_current_user)):
+    """Count active jobs whose `created_at` is newer than the caller's
+    `last_jobs_seen_at`. Used by the BottomNav badge."""
+    db = request.app.state.db
+    u = await db.users.find_one({"id": user["id"]}, {"last_jobs_seen_at": 1}) or {}
+    seen = u.get("last_jobs_seen_at")
+    q: dict = {"active": True}
+    if seen:
+        if isinstance(seen, datetime) and seen.tzinfo is None:
+            seen = seen.replace(tzinfo=timezone.utc)
+        q["created_at"] = {"$gt": seen}
+    unread = await db.jobs.count_documents(q)
+    return {"unread": int(unread)}
+
+
+@public_router.post("/jobs/mark-seen")
+async def jobs_mark_seen(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_jobs_seen_at": now}},
+    )
+    return {"ok": True, "seen_at": now.isoformat()}
+
+
 # ---------- Admin endpoints ----------
 
 @admin_router.get("/jobs")
@@ -124,6 +153,21 @@ async def admin_create_job(
         "created_by": admin.get("username"),
     }
     await db.jobs.insert_one(doc)
+    # 🔔 Broadcast push to activated users when job is directly published.
+    if doc["active"]:
+        try:
+            from push_helper import push_to_activated
+            snippet = (data.title or "")[:60].strip() or "Nouvelle offre"
+            await push_to_activated(
+                db,
+                title="💼 Nouvelle offre d'emploi disponible !",
+                body=f"{snippet} — Consultez-la maintenant sur SPILOVEURE. 🚀",
+                link=f"/(app)/emploi?job_id={doc['id']}",
+                data={"kind": "job_published", "job_id": doc["id"]},
+                tag=f"job-{doc['id']}",
+            )
+        except Exception:
+            pass
     return _serialize({**doc})
 
 
@@ -177,4 +221,19 @@ async def admin_toggle_job(
         {"$set": {"active": new_active, "updated_at": datetime.now(timezone.utc),
                   "updated_by": admin.get("username")}},
     )
+    # 🔔 Fire push only on transition inactive → active (publication).
+    if new_active:
+        try:
+            from push_helper import push_to_activated
+            snippet = (j.get("title") or "")[:60].strip() or "Nouvelle offre"
+            await push_to_activated(
+                db,
+                title="💼 Nouvelle offre d'emploi disponible !",
+                body=f"{snippet} — Consultez-la maintenant sur SPILOVEURE. 🚀",
+                link=f"/(app)/emploi?job_id={job_id}",
+                data={"kind": "job_published", "job_id": job_id},
+                tag=f"job-{job_id}",
+            )
+        except Exception:
+            pass
     return {"ok": True, "active": new_active}

@@ -84,7 +84,11 @@ export default function EmploiScreen() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Mark jobs as seen so the BottomNav badge clears on next poll.
+    api.post("/jobs/mark-seen", {}).catch(() => {});
+  }, [load]);
 
   const openContact = (raw: string) => {
     const info = contactHref(raw);

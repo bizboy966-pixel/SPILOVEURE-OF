@@ -51,6 +51,7 @@ export const BottomNav: React.FC = () => {
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
   const [unreadAds, setUnreadAds] = useState<number>(0);
   const [unreadMarketplace, setUnreadMarketplace] = useState<number>(0);
+  const [unreadJobs, setUnreadJobs] = useState<number>(0);
 
   // Poll the special-tasks unread count every 60 s + refresh on route change
   // so the badge disappears immediately when the user opens /tasks (which
@@ -59,18 +60,23 @@ export const BottomNav: React.FC = () => {
     let cancelled = false;
     const fetchCount = async () => {
       try {
-        const [tasks, ads, market] = await Promise.all([
+        const [tasks, ads, market, jobs] = await Promise.all([
           api.get<{ unread: number }>("/special-tasks/unread-count").catch(() => ({ unread: 0 })),
           api.get<{ unread: number }>("/ads/unread-count").catch(() => ({ unread: 0 })),
           api.get<{ unread: number }>("/marketplace/unread-count").catch(() => ({ unread: 0 })),
+          api.get<{ unread: number }>("/jobs/unread-count").catch(() => ({ unread: 0 })),
         ]);
         if (!cancelled) {
           setUnreadTasks(tasks.unread || 0);
           setUnreadAds(ads.unread || 0);
           setUnreadMarketplace(market.unread || 0);
+          setUnreadJobs(jobs.unread || 0);
         }
       } catch {
-        if (!cancelled) { setUnreadTasks(0); setUnreadAds(0); setUnreadMarketplace(0); }
+        if (!cancelled) {
+          setUnreadTasks(0); setUnreadAds(0);
+          setUnreadMarketplace(0); setUnreadJobs(0);
+        }
       }
     };
     fetchCount();
@@ -129,6 +135,11 @@ export const BottomNav: React.FC = () => {
               {it.key === "marketplace" && unreadMarketplace > 0 ? (
                 <View style={styles.badge} testID="bottom-nav-marketplace-badge">
                   <Text style={styles.badgeTxt}>{unreadMarketplace > 9 ? "9+" : unreadMarketplace}</Text>
+                </View>
+              ) : null}
+              {it.key === "emploi" && unreadJobs > 0 ? (
+                <View style={styles.badge} testID="bottom-nav-emploi-badge">
+                  <Text style={styles.badgeTxt}>{unreadJobs > 9 ? "9+" : unreadJobs}</Text>
                 </View>
               ) : null}
             </View>

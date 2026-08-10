@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 52 — backend testing of jobs push/badge, challenge PUT non-destructive, dashboard safety-net auto-upgrade, and commission push. 8/8 pytest passed. Verified via backend.err.log that job create with active=true and toggle inactive→active fire push_to_activated with title '💼 Nouvelle offre d\\'emploi disponible !' (log: 'push ...: no tokens registered — skipping' — expected since no push tokens registered in preview env, but push path IS executed). /api/jobs/unread-count and /api/jobs/mark-seen work correctly. /api/dashboard is idempotent and does not crash even when try_auto_upgrade cannot promote (try/except wraps the safety-net loop). Frontend BottomNav.tsx exposes data-testid='bottom-nav-emploi-badge' correctly and /(app)/emploi.tsx calls POST /jobs/mark-seen on mount (verified in source). CRITICAL BUG found in matrix.py:237 — commission push notification tag references commission_doc['id'] but the dict never sets an 'id' field, so the try/except silently swallows KeyError and the commission push NEVER fires.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "matrix.distribute_commission (post-credit push)", "issue": "commission_doc['id'] KeyError inside the try/except block — commission_doc never has an 'id' key (only user_id/from_user_id/level/kind/amount/upgrade_share/profit_share/created_at). Every commission push is silently dropped. Fix: either add doc['id'] = str(uuid.uuid4()) before insert_one, or change tag to f\"commission-{user_id}-{level}-{int(datetime.now().timestamp())}\".", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter52_jobs_challenges_dashboard.py",
+    "/app/test_reports/pytest/iter52.xml"
+  ],
+  "action_items": [
+    "Fix matrix.py:237 commission push tag KeyError — add 'id': str(uuid.uuid4()) to commission_doc OR change the tag expression. The bug is invisible (silent try/except) but breaks the required 'push after commission credit' feature."
+  ],
+  "critical_code_review_comments": [
+    "matrix.py:237 → commission_doc['id'] KeyError silently swallowed (HIGH). Push never fires.",
+    "challenges.py PUT (L141) is truly non-destructive — updates only fields on the challenge document, never touches db.challenge_progress. Confirmed by static review + PUT smoke test.",
+    "jobs.py order of routes is correct — static /jobs/unread-count and /jobs/mark-seen declared before dynamic /jobs/{id}. Well-commented explanation present.",
+    "jobs.py POST /admin/jobs/{id}/toggle fires push only on transition inactive → active — correct per spec.",
+    "server.py:672 dashboard safety-net: for _ in range(12): try_auto_upgrade wrapped in try/except → never blocks the response even if the cascade raises. User doc refreshed after promotion.",
+    "matrix.py:244 auto_upgrade cascade also fires 'Félicitations Niveau supérieur' push per spec — but uses tag=f'levelup-{user_id}-{upgraded_to}' which is safe (no dict lookup)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter52_jobs_challenges_dashboard.py"
+  ],
+  "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "Not fully retested — source code review confirms BottomNav testID and emploi.tsx mark-seen wiring; admin session cannot render user BottomNav."},
+  "test_credentials": "kossikotokou4@gmail.com / @Emma91972006",
+  "seed_data_creation": "Two TEST_iter52_* jobs and one TEST_iter52_ch_* challenge, all deleted at end of each test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only bug is matrix.py:237 commission_doc['id'] KeyError (silently swallowed). Everything else in the review request is implemented correctly. Frontend BottomNav Emploi badge cannot be seen from admin login — need a non-admin activated user to visually verify.",
+  "rca of the issue": "matrix.py line 213 inserts commission_doc into Mongo without setting an 'id' field. Line 237 references commission_doc['id'] to build the push tag. The whole push_to_user block (lines 227-240) is wrapped in try/except: pass, so the KeyError is silently caught and the push is never dispatched. Repro: activate a level-2 for a user whose sponsor is level>=2 — the sponsor receives the commission (verified in earlier iterations) but NO push notification is triggered. Mitigation: add 'id': str(uuid.uuid4()) inside commission_doc dict before insert_one, then commission_doc['id'] works."
+}

@@ -672,6 +672,18 @@ async def team_indirect(request: Request, user=Depends(get_current_user)):
 @api.get("/dashboard")
 async def dashboard(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    # Safety-net auto-upgrade: rerun the cascade every time the user opens
+    # their dashboard so no eligible level-up ever stays pending because a
+    # past commission event missed the trigger (spec 2026-02 point 4).
+    try:
+        for _ in range(12):
+            promoted = await try_auto_upgrade(db, user["id"])
+            if not promoted:
+                break
+        # Refresh user document after possible upgrade.
+        user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    except Exception:
+        pass
     direct_count = await db.users.count_documents({"sponsor_id": user["id"]})
     direct_active = await db.users.count_documents({"sponsor_id": user["id"], "status": "active"})
     spillover_count = await db.matrix_placements.count_documents({"parent_id": user["id"], "is_spillover": True})

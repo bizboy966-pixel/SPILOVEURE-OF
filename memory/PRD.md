@@ -387,6 +387,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
+## Implementation Status (à jour 2026-08-10)
+
+### 2026-08-10 — ✏️ Challenges : bouton "Modifier" (édition non-destructive)
+
+**Demande** : Ajouter un bouton "Modifier" sur les Challenges existants (même en cours) pour permettre à l'admin de changer le nom, l'objectif, la récompense, la devise, les dates/heures de début et de fin, ainsi que le flag `active`, SANS toucher aux participants, à leur progression, à leur score ou au classement.
+
+**Implémentation** (frontend uniquement — le backend PUT `/api/admin/challenges/{id}` était déjà non-destructif) :
+- `/app/frontend/app/(admin)/index.tsx` :
+  - Nouveau state : `chgEdit` (challenge en cours d'édition), `chgEditName`, `chgEditTarget`, `chgEditReward`, `chgEditCurrency`, `chgEditStartDate/Time`, `chgEditEndDate/Time`, `chgEditActive`, `chgEditBusy`.
+  - Nouveau callback `openChallengeEdit(c)` : pré-remplit tous les champs à partir des valeurs actuelles du challenge (conversion ISO → date+heure locales).
+  - Nouveau callback `submitChallengeEdit()` : validation client (nom, target, reward, dates) puis `PUT /admin/challenges/{id}` avec le payload complet. Aucun impact sur les participants (le backend `challenges.py::update_challenge` fait un `$set` partiel sur `db.challenges` uniquement, la progression est calculée à la volée à partir de `users.level_activated_at.1`).
+  - Nouveau bouton bleu "✏️ Modifier" dans la ligne d'actions de chaque challenge (entre "Participants" et "Activer/Désactiver").
+  - Nouvelle Modal (`admin-chg-edit-modal`) avec formulaire identique au formulaire de création, plus sous-titre explicite "Les participants et leur progression restent inchangés."
+- Test IDs : `chg-edit-{id}`, `chg-edit-name/target/reward/currency`, `chg-edit-start-date/time`, `chg-edit-end-date/time`, `chg-edit-active-toggle`, `chg-edit-submit`, `admin-chg-edit-close`.
+- **Non-destructif garanti** : les participants et leur progression sont calculés à la demande à partir de la fenêtre `[start_at, end_at]` et des dates d'activation des filleuls. Modifier une date ne réinitialise rien : cela recalcule simplement les participants éligibles pour la nouvelle fenêtre. Aucune collection secondaire (participants, scores, classement) n'existe pour ce module.
+- Validation E2E : screenshot confirme l'affichage du bouton "Modifier" et l'ouverture du modal pré-rempli avec les valeurs actuelles ("Challenge 100 invites", 100, 30000, FCFA, 06/01/2026 00:00 → 12/31/2026 23:59).
+- Tests backend : 6/9 pytest challenges passent (les 3 échecs pré-existants sont liés à la pollution de la DB partagée avec d'anciens users, sans rapport avec cette modification).
+
+
+
 ## Implementation Status (à jour 2026-08-02)
 
 ### 2026-08-02 — 🔧 Retraits (Admin) + Activations Crypto Auto enrichies

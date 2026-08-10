@@ -68,6 +68,18 @@ export default function AdminHome() {
   const [chgBusy, setChgBusy] = useState(false);
   const [chgParticipants, setChgParticipants] = useState<{ challenge: any; participants: any[]; winners_count: number } | null>(null);
   const [chgParticipantsLoading, setChgParticipantsLoading] = useState(false);
+  // Edit challenge state — allows non-destructive updates on existing challenges.
+  const [chgEdit, setChgEdit] = useState<any | null>(null);
+  const [chgEditName, setChgEditName] = useState("");
+  const [chgEditTarget, setChgEditTarget] = useState("");
+  const [chgEditReward, setChgEditReward] = useState("");
+  const [chgEditCurrency, setChgEditCurrency] = useState("");
+  const [chgEditStartDate, setChgEditStartDate] = useState("");
+  const [chgEditStartTime, setChgEditStartTime] = useState("");
+  const [chgEditEndDate, setChgEditEndDate] = useState("");
+  const [chgEditEndTime, setChgEditEndTime] = useState("");
+  const [chgEditActive, setChgEditActive] = useState(true);
+  const [chgEditBusy, setChgEditBusy] = useState(false);
   // Ads state
   const [adsPricing, setAdsPricing] = useState<any>(null);
   const [adsList, setAdsList] = useState<any[]>([]);
@@ -107,6 +119,78 @@ export default function AdminHome() {
       setChgParticipantsLoading(false);
     }
   }, []);
+
+  const openChallengeEdit = useCallback((c: any) => {
+    // Pre-fill the edit form with the existing challenge values. This is a
+    // pure UI operation — no participants, scores or progress are touched.
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const toParts = (iso: string) => {
+      if (!iso) return { date: "", time: "00:00" };
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return { date: "", time: "00:00" };
+      return {
+        date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+        time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      };
+    };
+    const s = toParts(c.start_at);
+    const e = toParts(c.end_at);
+    setChgEditName(c.name || "");
+    setChgEditTarget(String(c.target ?? ""));
+    setChgEditReward(String(c.reward_amount ?? ""));
+    setChgEditCurrency(c.reward_currency || "FCFA");
+    setChgEditStartDate(s.date);
+    setChgEditStartTime(s.time);
+    setChgEditEndDate(e.date);
+    setChgEditEndTime(e.time);
+    setChgEditActive(!!c.active);
+    setChgEdit(c);
+  }, []);
+
+  const submitChallengeEdit = useCallback(async () => {
+    if (!chgEdit) return;
+    const errs: string[] = [];
+    if (!chgEditName.trim()) errs.push("• Le nom du challenge est requis.");
+    const targetN = Number(chgEditTarget);
+    if (!targetN || targetN < 1) errs.push("• L'objectif doit être ≥ 1.");
+    const rewardN = Number(chgEditReward);
+    if (Number.isNaN(rewardN) || rewardN < 0) errs.push("• La récompense doit être ≥ 0.");
+    if (!chgEditStartDate) errs.push("• La date de début est requise.");
+    if (!chgEditEndDate) errs.push("• La date de fin est requise.");
+    if (errs.length) {
+      if (typeof window !== "undefined") window.alert(`❌ Formulaire incomplet :\n\n${errs.join("\n")}`);
+      return;
+    }
+    const startISO = new Date(`${chgEditStartDate}T${chgEditStartTime || "00:00"}:00`);
+    const endISO = new Date(`${chgEditEndDate}T${chgEditEndTime || "23:59"}:00`);
+    if (Number.isNaN(startISO.getTime()) || Number.isNaN(endISO.getTime())) {
+      if (typeof window !== "undefined") window.alert("❌ Dates ou heures invalides.");
+      return;
+    }
+    if (endISO <= startISO) {
+      if (typeof window !== "undefined") window.alert("❌ La date/heure de fin doit être postérieure au début.");
+      return;
+    }
+    setChgEditBusy(true);
+    try {
+      await api.put(`/admin/challenges/${chgEdit.id}`, {
+        name: chgEditName.trim(),
+        target: targetN,
+        reward_amount: rewardN,
+        reward_currency: (chgEditCurrency || "FCFA").trim(),
+        start_at: startISO.toISOString(),
+        end_at: endISO.toISOString(),
+        active: chgEditActive,
+      });
+      if (typeof window !== "undefined") window.alert("✅ Challenge mis à jour. Les participants et leur progression restent inchangés.");
+      setChgEdit(null);
+      await load();
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec de la mise à jour du challenge."}`);
+    } finally {
+      setChgEditBusy(false);
+    }
+  }, [chgEdit, chgEditName, chgEditTarget, chgEditReward, chgEditCurrency, chgEditStartDate, chgEditStartTime, chgEditEndDate, chgEditEndTime, chgEditActive]);
 
   // New announcement / channel forms
   const [annTitle, setAnnTitle] = useState("");
@@ -1395,6 +1479,14 @@ export default function AdminHome() {
                     <Text style={styles.actT}>Participants</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    style={[styles.actBtn, { backgroundColor: theme.colors.info || "#2563eb" }]}
+                    onPress={() => openChallengeEdit(c)}
+                    testID={`chg-edit-${c.id}`}
+                  >
+                    <Ionicons name="create-outline" size={14} color="#fff" />
+                    <Text style={styles.actT}>Modifier</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[styles.actBtn, { backgroundColor: c.active ? theme.colors.warning : theme.colors.success }]}
                     onPress={() => action(async () => {
                       await api.put(`/admin/challenges/${c.id}`, { active: !c.active });
@@ -2676,6 +2768,120 @@ export default function AdminHome() {
           </>
         )}
       </ScrollView>
+
+      {/* Challenge EDIT modal — non-destructive update of an existing challenge.
+          Only the fields in the form are sent; participants, scores, progress
+          and ranking are never touched by this endpoint (backend PUT is a
+          partial update). */}
+      <Modal
+        visible={chgEdit !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => (chgEditBusy ? null : setChgEdit(null))}
+      >
+        <View style={styles.historyOverlay}>
+          <View style={styles.historyCard} testID="admin-chg-edit-modal">
+            <View style={styles.historyHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.historyTitle}>✏️ Modifier le challenge</Text>
+                <Text style={styles.historySub}>
+                  Les participants et leur progression restent inchangés.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => (chgEditBusy ? null : setChgEdit(null))}
+                style={styles.historyClose}
+                testID="admin-chg-edit-close"
+              >
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ padding: 12 }}>
+              <Input label="Nom du challenge" value={chgEditName} onChangeText={setChgEditName} testID="chg-edit-name" />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input label="Objectif (nb invit.)" value={chgEditTarget} onChangeText={setChgEditTarget} keyboardType="numeric" testID="chg-edit-target" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input label="Récompense" value={chgEditReward} onChangeText={setChgEditReward} keyboardType="numeric" testID="chg-edit-reward" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Input label="Devise" value={chgEditCurrency} onChangeText={setChgEditCurrency} testID="chg-edit-currency" />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                <View style={{ flex: 1, minWidth: 180 }}>
+                  <Text style={styles.lbl}>Date de début</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="date"
+                    value={chgEditStartDate}
+                    onChange={(e: any) => setChgEditStartDate(e.target.value)}
+                    data-testid="chg-edit-start-date"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={styles.lbl}>Heure de début</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="time"
+                    value={chgEditStartTime}
+                    onChange={(e: any) => setChgEditStartTime(e.target.value)}
+                    data-testid="chg-edit-start-time"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                <View style={{ flex: 1, minWidth: 180 }}>
+                  <Text style={styles.lbl}>Date de fin</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="date"
+                    value={chgEditEndDate}
+                    onChange={(e: any) => setChgEditEndDate(e.target.value)}
+                    data-testid="chg-edit-end-date"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={styles.lbl}>Heure de fin</Text>
+                  {/* @ts-ignore RN Web accepts raw HTML inputs */}
+                  <input
+                    type="time"
+                    value={chgEditEndTime}
+                    onChange={(e: any) => setChgEditEndTime(e.target.value)}
+                    data-testid="chg-edit-end-time"
+                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                  />
+                </View>
+              </View>
+              <View style={{ height: 12 }} />
+              <TouchableOpacity
+                onPress={() => setChgEditActive(!chgEditActive)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}
+                testID="chg-edit-active-toggle"
+              >
+                <Ionicons
+                  name={chgEditActive ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={chgEditActive ? theme.colors.success : theme.colors.textSecondary}
+                />
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: "700" }}>
+                  Actif (désactive les autres challenges actifs)
+                </Text>
+              </TouchableOpacity>
+              <Button
+                title={chgEditBusy ? "Enregistrement…" : "💾 Enregistrer les modifications"}
+                disabled={chgEditBusy}
+                onPress={submitChallengeEdit}
+                testID="chg-edit-submit"
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Challenge participants modal — opened from the challenges list. */}
       <Modal

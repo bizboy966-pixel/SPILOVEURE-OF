@@ -1,6 +1,7 @@
 """Binary forced matrix + spillover + commission distribution + auto-upgrade."""
 from __future__ import annotations
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -203,6 +204,7 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         profit_share = amount - upgrade_share
 
         commission_doc = {
+            "id": str(uuid.uuid4()),
             "user_id": user_id, "from_user_id": new_user_id,
             "level": level, "kind": kind,
             "amount": amount,
@@ -223,6 +225,22 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         )
         credits.append(commission_doc)
 
+        # 🔔 Push notification to the recipient (fire-and-forget).
+        try:
+            from push_helper import push_to_user
+            from levels import LEVELS_BY_NUM as _LVL
+            src_name = _LVL.get(level, {}).get("name", f"Niveau {level}")
+            await push_to_user(
+                db, user_id,
+                title="💰 Nouvelle commission reçue !",
+                body=f"Vous venez de recevoir {int(amount):,} FCFA — source : {src_name}.".replace(",", " "),
+                link="/(app)/withdrawal",
+                data={"kind": "commission", "level": str(level), "amount": str(int(amount))},
+                tag=f"commission-{commission_doc['id']}",
+            )
+        except Exception:
+            pass
+
         # Trigger auto-upgrade cascade if the recipient now has enough reserve.
         try:
             for _ in range(12):
@@ -230,6 +248,19 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
                 if not upgraded_to:
                     break
                 log.info(f"Auto-upgrade: user {user_id} → level {upgraded_to}")
+                # 🔔 Notify user of level-up.
+                try:
+                    from push_helper import push_to_user as _pu
+                    await _pu(
+                        db, user_id,
+                        title="🎉 Félicitations — Niveau supérieur !",
+                        body=f"Votre compte vient de passer automatiquement au Niveau {upgraded_to}.",
+                        link="/(app)/dashboard",
+                        data={"kind": "level_up", "level": str(upgraded_to)},
+                        tag=f"levelup-{user_id}-{upgraded_to}",
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             log.exception(f"try_auto_upgrade failed for {user_id}: {e}")
 
