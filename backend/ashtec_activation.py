@@ -382,9 +382,33 @@ class AshtecOtpIn(BaseModel):
     otp: str = Field(..., min_length=1)
 
 
-# Fixed recharge amount for the "Participate to Jackpot" fast-lane. Kept as a
-# module constant so it can be adjusted without hunting through the code.
+# Default fallback amount used ONLY when no active lottery draw exists.
+# The actual recharge amount is dynamically pulled from the current draw's
+# `entry_amount` — see `_current_recharge_amount()`.
 RECHARGE_AMOUNT_XOF: float = 500.0
+
+
+async def _current_recharge_amount(db) -> float:
+    """Return the `entry_amount` of the currently-open lottery draw.
+
+    Single source of truth: the admin sets the draw's `entry_amount` via
+    the admin panel; the recharge fast-lane always charges exactly that
+    amount so the user's `balance_recharge` covers one participation.
+    Falls back to `RECHARGE_AMOUNT_XOF` when no draw is open.
+    """
+    d = await db.lottery_draws.find_one(
+        {"status": "open"},
+        {"_id": 0, "entry_amount": 1},
+        sort=[("created_at", -1)],
+    )
+    if d and d.get("entry_amount"):
+        try:
+            v = float(d["entry_amount"])
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            pass
+    return RECHARGE_AMOUNT_XOF
 
 
 class AshtecRechargeIn(BaseModel):
@@ -393,22 +417,31 @@ class AshtecRechargeIn(BaseModel):
     phone: str = Field(..., min_length=6)
 
 
+@api.get("/payments/ashtec/recharge/amount")
+async def ashtec_recharge_amount(request: Request, user=Depends(get_current_user)):
+    """Public endpoint used by the payment screen to display the CURRENT
+    recharge amount live (mirrors admin's lottery `entry_amount`).
+    """
+    db = request.app.state.db
+    return {"amount": await _current_recharge_amount(db), "currency": "FCFA"}
+
+
 @api.post("/payments/ashtec/recharge/initiate")
 async def ashtec_recharge_initiate(
     data: AshtecRechargeIn, request: Request, user=Depends(get_current_user),
 ):
-    """Fast-lane recharge (500 FCFA) via AshtecPay — used when a user tries
-    to join the Lottery Jackpot without enough balance. On payment success
-    the amount is atomically credited to `balance_recharge` (idempotent —
-    see `_apply_payment_success` recharge branch).
+    """Fast-lane recharge via AshtecPay — used when a user tries to join
+    the Lottery Jackpot without enough balance. Amount is always derived
+    from the admin-configured `lottery_draws.entry_amount` (never from the
+    client), so a single admin change propagates system-wide.
+    On success the amount is atomically credited to `balance_recharge`
+    (idempotent — see `_apply_payment_success` recharge branch).
     """
     db = request.app.state.db
     info = COUNTRIES.get(data.country_code.upper())
     if not info:
         raise HTTPException(400, f"Pays {data.country_code} non disponible.")
-    # 500 FCFA in XOF/XAF; for CDF (RD Congo) we still use 500 (currency
-    # scaling not currently required for a recharge — only for activation).
-    amount = RECHARGE_AMOUNT_XOF
+    amount = await _current_recharge_amount(db)
     return await create_ashtec_payment(
         db=db, user=user, kind="recharge",
         amount=amount,

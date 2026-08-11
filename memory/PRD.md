@@ -387,7 +387,37 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
-## Implementation Status (à jour 2026-08-11)
+## Implementation Status (à jour 2026-08-11-b)
+
+### 2026-08-11 — 🎰 Recharge Jackpot : montant piloté par l'admin (fin du hardcoding)
+
+**Demande** : le montant de la recharge ne doit jamais être codé en dur : il doit refléter en temps réel le `entry_amount` du tirage Jackpot configuré par l'admin. Si l'admin passe de 500 à 1000 FCFA, la page de paiement doit automatiquement afficher 1000 et débiter 1000.
+
+**Implémentation** :
+
+Backend (`ashtec_activation.py`) :
+- Nouvelle fonction `_current_recharge_amount(db)` : lit `db.lottery_draws` (le tirage `status="open"` le plus récent) et retourne son `entry_amount`. Fallback à `RECHARGE_AMOUNT_XOF = 500` uniquement si aucun tirage ouvert n'existe.
+- Nouvel endpoint public `GET /api/payments/ashtec/recharge/amount` → `{"amount": 500, "currency": "FCFA"}` (ou la valeur admin actuelle). Utilisé par le front pour afficher le bon montant en temps réel.
+- `POST /api/payments/ashtec/recharge/initiate` récupère désormais le montant via `_current_recharge_amount(db)` — **le client ne transmet plus le montant** (pas de tampering possible). Une seule source de vérité : l'admin.
+
+Frontend :
+- `app/(app)/lottery.tsx` : le `router.push` passe désormais `amount: String(entry)` où `entry` est le `entry_amount` du tirage actif (récupéré via `/lottery/active`). La confirmation utilisateur affiche le montant dynamique.
+- `app/(app)/pay-ashtec.tsx` :
+  - Nouveau state `liveAmount` (fetché depuis `/payments/ashtec/recharge/amount` au mount quand `kind === "recharge"`).
+  - Le montant affiché et débité est `liveAmount ?? paramAmount` — le paramètre URL n'est qu'un fallback d'affichage rapide avant que la réponse serveur arrive.
+  - Le titre est reconstruit dynamiquement `Recharge {liveAmount} FCFA — Jackpot` pour rester cohérent avec l'admin config.
+
+**Preuve de bon fonctionnement** :
+- curl `/payments/ashtec/recharge/amount` avec `entry_amount=1250` en DB → retourne 1250.
+- curl `/payments/ashtec/recharge/initiate` avec `entry_amount=2500` en DB → crée un payment de 2500 FCFA (pas 500).
+- Après cleanup (aucun tirage ouvert) → retourne 500 (fallback).
+- Screenshot preuve : URL avec `amount=999&title=STALE` → l'écran affiche pourtant **500 FCFA** et le titre "Recharge 500 FCFA — Jackpot" (valeur live serveur).
+
+**Non-régression** :
+- Test idempotence `test_recharge_ashtec_idempotent.py` toujours ✅ (le montant lu depuis le payment row, pas depuis une constante).
+- Les autres flows AshtecPay (activation, ads, tâches spéciales) intacts.
+
+
 
 ### 2026-08-11 — 🎰 Jackpot : recharge automatique 500 FCFA via AshtecPay
 

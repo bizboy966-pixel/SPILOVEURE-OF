@@ -48,12 +48,20 @@ export default function PayAshtec() {
   }>();
   const kind = String(params.kind || "ads");
   const targetId = String(params.target_id || "");
-  const amount = Number(params.amount || 0);
-  const title = String(params.title || (
-    kind === "special_task" ? "Paiement Tâche"
-    : kind === "recharge" ? "Recharge Automatique"
-    : "Paiement Publicité"
-  ));
+  const paramAmount = Number(params.amount || 0);
+  // For recharge, the amount is always driven by the server — the URL
+  // param is only a *display hint* until the live amount is fetched. This
+  // way, when the admin changes the lottery `entry_amount`, the payment
+  // screen automatically shows the new value on next open.
+  const [liveAmount, setLiveAmount] = useState<number | null>(null);
+  const amount = kind === "recharge"
+    ? (liveAmount ?? paramAmount)
+    : paramAmount;
+  const title = kind === "recharge"
+    ? `Recharge ${(liveAmount ?? paramAmount).toLocaleString("fr-FR")} FCFA — Jackpot`
+    : String(params.title || (
+        kind === "special_task" ? "Paiement Tâche" : "Paiement Publicité"
+      ));
   const returnTo = String(params.return_to || "/(app)/dashboard");
 
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -90,6 +98,21 @@ export default function PayAshtec() {
       }
     })();
   }, []);
+
+  // For `kind=recharge`, pull the LIVE amount (= admin's current lottery
+  // entry_amount) from the backend. This overrides any stale URL param
+  // so the payment screen is always in sync with the admin config.
+  useEffect(() => {
+    if (kind !== "recharge") return;
+    (async () => {
+      try {
+        const r = await api.get<{ amount: number }>("/payments/ashtec/recharge/amount");
+        if (typeof r?.amount === "number" && r.amount > 0) setLiveAmount(r.amount);
+      } catch {
+        // Fall back to the URL param — better than blocking the flow.
+      }
+    })();
+  }, [kind]);
 
   useEffect(() => {
     if (selectedCountry && !selectedCountry.operators.includes(operator)) {
