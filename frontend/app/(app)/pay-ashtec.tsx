@@ -49,7 +49,11 @@ export default function PayAshtec() {
   const kind = String(params.kind || "ads");
   const targetId = String(params.target_id || "");
   const amount = Number(params.amount || 0);
-  const title = String(params.title || (kind === "special_task" ? "Paiement Tâche" : "Paiement Publicité"));
+  const title = String(params.title || (
+    kind === "special_task" ? "Paiement Tâche"
+    : kind === "recharge" ? "Recharge Automatique"
+    : "Paiement Publicité"
+  ));
   const returnTo = String(params.return_to || "/(app)/dashboard");
 
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -142,7 +146,7 @@ export default function PayAshtec() {
   }, [remaining, step, session]);
 
   async function submit() {
-    if (!targetId) { notify("Erreur", "target_id manquant."); return; }
+    if (kind !== "recharge" && !targetId) { notify("Erreur", "target_id manquant."); return; }
     if (!country || !operator || !phone.trim()) {
       notify("Champs requis", "Sélectionnez pays, opérateur et téléphone."); return;
     }
@@ -150,13 +154,17 @@ export default function PayAshtec() {
     try {
       const endpoint = kind === "special_task"
         ? `/special-tasks/${targetId}/pay`
+        : kind === "recharge"
+        ? `/payments/ashtec/recharge/initiate`
         : `/ads/${targetId}/pay`;
-      const body = {
-        method: "mobile_money",
-        country_code: country,
-        operator,
-        phone: phone.trim(),
-      };
+      const body: any = kind === "recharge"
+        ? { country_code: country, operator, phone: phone.trim() }
+        : {
+            method: "mobile_money",
+            country_code: country,
+            operator,
+            phone: phone.trim(),
+          };
       const r = await api.post<InitiateOut>(endpoint, body);
       setSession(r);
       setStep("waiting");

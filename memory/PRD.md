@@ -387,6 +387,43 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
+## Implementation Status (à jour 2026-08-11)
+
+### 2026-08-11 — 🎰 Jackpot : recharge automatique 500 FCFA via AshtecPay
+
+**Demande** : Quand un utilisateur clique "Participer" au Jackpot sans avoir 500 FCFA, le rediriger automatiquement vers un flow de recharge **AshtecPay** (pas SoleasPay, pas manuel). Après paiement confirmé, `balance_recharge` est crédité automatiquement pour permettre la participation. Empêcher tout double-crédit.
+
+**Implémentation** :
+
+Backend (`ashtec_activation.py`) :
+- Nouveau endpoint `POST /api/payments/ashtec/recharge/initiate` (payload `{country_code, operator, phone}`) qui crée un `db.payments` row avec `kind="recharge"`, montant fixé à 500 FCFA, currency dérivée du pays (XOF/XAF).
+- Nouvelle branche `kind == "recharge"` dans `_apply_payment_success` :
+  - Utilise `find_one_and_update({reference, activation_done: {"$ne": True}}, {$set: {activation_done: True, status: "paid"}})` pour **atomiser le crédit** — la première invocation (webhook OU polling OU dispatcher direct) flippe le flag et effectue le `$inc balance_recharge`. Les invocations suivantes reçoivent `None` et sortent en no-op.
+  - Insère une ligne dans `db.recharges` avec `method="ashtecpay"`, `status="validated"`, `validated_by="auto:ashtecpay"` pour que l'historique utilisateur (`/me/recharge-history`) soit cohérent.
+  - Envoie une notification in-app "💰 Recharge automatique validée".
+- Le polling `/payments/ashtec/status/{reference}` et le webhook `/api/webhooks/ashtec` réutilisent tous deux `_apply_payment_success`, donc la logique idempotente couvre les deux surfaces.
+
+Frontend :
+- `app/(app)/lottery.tsx` : en cas de solde insuffisant, redirige désormais vers `/(app)/pay-ashtec` avec `kind=recharge&amount=500&title=Recharge+500+FCFA+—+Jackpot&return_to=/(app)/lottery` (au lieu de l'ancienne page `/recharger` manuelle). Un `refresh()` est déclenché au mount pour rafraîchir le solde après retour.
+- `app/(app)/pay-ashtec.tsx` : `submit()` gère désormais `kind === "recharge"` en appelant `/payments/ashtec/recharge/initiate` avec le payload correct (sans `method: mobile_money`). Le titre par défaut inclut "Recharge Automatique".
+
+Idempotence — preuve :
+- `/app/backend/tests/test_recharge_ashtec_idempotent.py` : lance `_apply_payment_success` **en parallèle deux fois** (`asyncio.gather`) sur le même payment row et vérifie que :
+  - `balance_recharge` = 100 + 500 = 600 (jamais 1100),
+  - `db.recharges` contient exactement 1 ligne,
+  - `payments.status = paid` et `activation_done = True`.
+- Test PASS ✅.
+
+Validation E2E :
+- `curl` de l'endpoint recharge → 200 avec `reference`, `transaction_id`, `amount=500`, `currency=XOF`, `status=pending`, `expires_at` (10 min).
+- Screenshot de `/pay-ashtec?kind=recharge` : écran "💳 🇹🇬 Recharge 500 FCFA — Jackpot", Mobile Money — Ashtech Pay, sélection pays (10 pays XOF/XAF/CDF), opérateurs filtrés, phone input, bouton "🚀 PAYER 500 FCFA".
+
+**Non-régression** :
+- Les utilisateurs avec solde suffisant (`balance_profit + balance_recharge ≥ 500`) continuent d'utiliser le flow existant `POST /lottery/draws/{id}/join` — aucune modification.
+- Les autres flows AshtecPay (`kind=activation`, `kind=ads`, `kind=special_task`) restent intacts — la nouvelle branche `recharge` est isolée.
+
+
+
 ## Implementation Status (à jour 2026-08-10)
 
 ### 2026-08-10 — ✏️ Challenges : bouton "Modifier" (édition non-destructive)

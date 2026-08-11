@@ -382,6 +382,40 @@ class AshtecOtpIn(BaseModel):
     otp: str = Field(..., min_length=1)
 
 
+# Fixed recharge amount for the "Participate to Jackpot" fast-lane. Kept as a
+# module constant so it can be adjusted without hunting through the code.
+RECHARGE_AMOUNT_XOF: float = 500.0
+
+
+class AshtecRechargeIn(BaseModel):
+    country_code: str = Field(..., min_length=2, max_length=2)
+    operator: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=6)
+
+
+@api.post("/payments/ashtec/recharge/initiate")
+async def ashtec_recharge_initiate(
+    data: AshtecRechargeIn, request: Request, user=Depends(get_current_user),
+):
+    """Fast-lane recharge (500 FCFA) via AshtecPay — used when a user tries
+    to join the Lottery Jackpot without enough balance. On payment success
+    the amount is atomically credited to `balance_recharge` (idempotent —
+    see `_apply_payment_success` recharge branch).
+    """
+    db = request.app.state.db
+    info = COUNTRIES.get(data.country_code.upper())
+    if not info:
+        raise HTTPException(400, f"Pays {data.country_code} non disponible.")
+    # 500 FCFA in XOF/XAF; for CDF (RD Congo) we still use 500 (currency
+    # scaling not currently required for a recharge — only for activation).
+    amount = RECHARGE_AMOUNT_XOF
+    return await create_ashtec_payment(
+        db=db, user=user, kind="recharge",
+        amount=amount,
+        country_code=data.country_code, operator=data.operator, phone=data.phone,
+    )
+
+
 @api.post("/payments/ashtec/otp")
 async def ashtec_submit_otp(
     data: AshtecOtpIn, request: Request, user=Depends(get_current_user),
@@ -629,6 +663,63 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                 {"$set": {"status": "paid",
                           "activation_error": str(exc),
                           "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+        return
+
+    if kind == "recharge":
+        # ── Atomic idempotent credit of balance_recharge ──────────────
+        # Use find_one_and_update with `activation_done: {"$ne": True}`
+        # so that concurrent webhook + polling (or duplicate webhooks) can
+        # never double-credit the wallet — only the first call that flips
+        # the flag actually performs the +$inc.
+        try:
+            claimed = await db.payments.find_one_and_update(
+                {"reference": ref, "activation_done": {"$ne": True}},
+                {"$set": {"status": "paid", "activation_done": True,
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+                projection={"_id": 0, "amount": 1, "user_id": 1, "currency": 1,
+                            "reference": 1},
+            )
+            if not claimed:
+                # Already credited by a previous webhook/poll — no-op.
+                log.info("ashtec recharge already credited ref=%s (idempotent skip)", ref)
+                return
+            amount = float(claimed.get("amount") or 0)
+            uid = claimed.get("user_id")
+            await db.users.update_one(
+                {"id": uid},
+                {"$inc": {"balance_recharge": amount}},
+            )
+            # Mirror in the `recharges` history collection so the user sees
+            # a validated line in /me/recharge-history alongside manual ones.
+            await db.recharges.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": uid,
+                "username": p.get("username"),
+                "amount": amount,
+                "method": "ashtecpay",
+                "operator": p.get("operator"),
+                "phone": p.get("phone"),
+                "transaction_ref": p.get("transaction_id") or ref,
+                "reference": ref,
+                "status": "validated",
+                "created_at": p.get("created_at") or datetime.now(timezone.utc),
+                "validated_at": datetime.now(timezone.utc),
+                "validated_by": "auto:ashtecpay",
+            })
+            await _notify(
+                "💰 Recharge automatique validée",
+                f"Votre recharge de {int(amount):,} {p.get('currency', 'FCFA')} a été créditée sur votre compte.".replace(",", " "),
+                {"reference": ref, "amount": amount},
+            )
+        except Exception as exc:
+            log.exception("ashtec recharge credit failed for ref=%s: %s", ref, exc)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"activation_error": str(exc),
                           "updated_at": datetime.now(timezone.utc)}},
             )
         return

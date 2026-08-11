@@ -45,7 +45,7 @@ export default function LotteryPage() {
     } catch {}
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); refresh?.(); }, [load, refresh]);
   useEffect(() => {
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
@@ -71,8 +71,18 @@ export default function LotteryPage() {
     }
     if (!canAfford) {
       if (typeof window !== "undefined") {
-        const go = window.confirm(`❌ Solde insuffisant\n\nSolde retirable : ${fmt(myBalance)}\nSolde recharge : ${fmt(balanceRecharge)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger votre compte maintenant ?`);
-        if (go) router.push("/(app)/recharger");
+        const go = window.confirm(`❌ Solde insuffisant\n\nSolde retirable : ${fmt(myBalance)}\nSolde recharge : ${fmt(balanceRecharge)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger 500 FCFA maintenant via Ashtech Pay pour participer ?`);
+        if (go) {
+          router.push({
+            pathname: "/(app)/pay-ashtec",
+            params: {
+              kind: "recharge",
+              amount: "500",
+              title: "Recharge 500 FCFA — Jackpot",
+              return_to: "/(app)/lottery",
+            },
+          } as any);
+        }
       }
       return;
     }
