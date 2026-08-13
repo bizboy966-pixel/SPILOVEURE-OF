@@ -107,6 +107,12 @@ export default function AdminLottery() {
     const maxP = parseInt(draft.maxP) || 0;
     const minP = parseInt(draft.minParticipants) || 0;
     const entry = Math.max(0, parseFloat(draft.entry) || 0);
+    // Clear client-side guard so the admin gets a friendly message instead of
+    // an obscure Pydantic error. The backend enforces the same rule.
+    if (maxP > 0 && winnersCount > maxP) {
+      if (typeof window !== "undefined") window.alert(`❌ Le nombre de gagnants (${winnersCount}) ne peut pas dépasser le nombre maximum de participants (${maxP}).`);
+      return;
+    }
     try {
       await api.post("/admin/lottery/draws", {
         name: draft.name.trim(),

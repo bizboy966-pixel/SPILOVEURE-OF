@@ -219,7 +219,9 @@ class DrawCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: Optional[str] = None
     entry_amount: float = Field(default=500.0, ge=0)
-    winners_count: int = Field(ge=1, le=100)
+    # No upper hardcoded cap — the admin is free to define any number of
+    # winners. A logical check below enforces `winners_count ≤ max_participants`.
+    winners_count: int = Field(ge=1)
     max_participants: Optional[int] = Field(default=None, ge=1)
     min_participants: Optional[int] = Field(default=None, ge=0)
     prizes: List[PrizeIn] = Field(default_factory=list)
@@ -229,7 +231,7 @@ class DrawUpdateIn(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     entry_amount: Optional[float] = Field(default=None, ge=0)
-    winners_count: Optional[int] = Field(default=None, ge=1, le=100)
+    winners_count: Optional[int] = Field(default=None, ge=1)
     max_participants: Optional[int] = Field(default=None, ge=1)
     min_participants: Optional[int] = Field(default=None, ge=0)
     prizes: Optional[List[PrizeIn]] = None
@@ -438,6 +440,13 @@ async def admin_create_draw(body: DrawCreateIn, request: Request, who=Depends(re
     The duration is supplied later via `POST /admin/lottery/draws/{id}/launch`.
     """
     db = request.app.state.db
+    # Logical guard: cannot have more winners than possible participants.
+    if body.max_participants is not None and body.winners_count > body.max_participants:
+        raise HTTPException(
+            400,
+            f"Le nombre de gagnants ({body.winners_count}) ne peut pas dépasser "
+            f"le nombre maximum de participants ({body.max_participants}).",
+        )
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
@@ -623,6 +632,16 @@ async def admin_update_draw(draw_id: str, body: DrawUpdateIn, request: Request, 
         upd["max_participants"] = int(body.max_participants)
     if body.min_participants is not None:
         upd["min_participants"] = int(body.min_participants)
+    # Same logical guard on update: keep winners_count ≤ max_participants
+    # using whichever value is being applied in this call.
+    effective_winners = upd.get("winners_count", d.get("winners_count"))
+    effective_max = upd.get("max_participants", d.get("max_participants"))
+    if effective_winners and effective_max and effective_winners > effective_max:
+        raise HTTPException(
+            400,
+            f"Le nombre de gagnants ({effective_winners}) ne peut pas dépasser "
+            f"le nombre maximum de participants ({effective_max}).",
+        )
     if body.prizes is not None:
         upd["prizes"] = [p.dict() for p in body.prizes]
     if body.status is not None:
