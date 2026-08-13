@@ -462,8 +462,9 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontWeight: "900", fontSize: 18 },
   card: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 14, marginBottom: 14, overflow: "hidden",
+    borderRadius: theme.radius.lg, marginBottom: 14, overflow: "hidden",
     borderWidth: 1, borderColor: theme.colors.border,
+    ...theme.shadow.card,
   },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },
   avatar: {

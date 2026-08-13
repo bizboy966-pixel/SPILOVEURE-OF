@@ -387,6 +387,49 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
+## Implementation Status (à jour 2026-08-13-c)
+
+### 2026-08-13 — 🎨 Refonte design "Premium Fintech" (inspirée d'action.diokoma.sn)
+
+**Demande** : moderniser l'ensemble de l'interface (cartes, arrondis, ombres, typographie, espacements) tout en **conservant à l'identique les couleurs et le logo SPILOVEURE**.
+
+**Approche** : tokens centralisés pour propagation automatique + ajustements sur les pages phares.
+
+**Changements de tokens** (`src/theme.ts`) :
+- **Arrondis** : `sm 8→10, md 12→14, lg 16→20, xl 24→28` + nouveau `xxl: 36`.
+- **Espacements** : `md 16→14, lg 24→20, xl 32→28, xxl 48→40` + nouveaux `xxxl: 56`.
+- **Ombres** : refaites en 3 niveaux (`card`, `lifted`, `button`) avec opacité 0.05-0.10 (au lieu de 0.08-0.25) et rayons plus diffus (18-28px) — effet fintech premium.
+- **Bordures** : `border: #EEF2F7` (was #E2E8F0) + nouvelle `borderStrong: #E2E8F0` pour les dividers marqués.
+- **Nouvelles couleurs** : `primaryBg`, `surfaceMuted`, `textMuted`, `info`, `infoBg`.
+- **Typographie** : `bold: "800"` (was "700") pour titres plus premium, ajout de tokens `tightTitle: -0.5`, `wideCaption: 0.4`.
+- Couleurs de marque (`primary`, `primaryDark`, `secondary`, gradients) **inchangées**.
+
+**Composants partagés** :
+- `Card.tsx` — nouvelle prop `variant: "default" | "flat" | "elevated"` + `padded`, padding défaut passé à `spacing.lg (20)`, rayon `radius.lg (20)`, ombre douce.
+- `Button.tsx` — rayon `radius.lg (20)`, min-height 50, padding H 22.
+
+**Pages retouchées manuellement** (styles locaux modernisés) :
+- `dashboard.tsx` — balance card `radius.xl (28)` + shadow `lifted`, statCard/commCard/quickBtn/chCard passés à `radius.lg (20)` + shadow douce, typographie `fontWeight 800`, letter-spacing négatif sur titres, padding intérieur 20 au lieu de 14.
+- `missions.tsx` — cartes vidéo `radius.lg (20)` + shadow douce.
+- `marketplace.tsx` — cartes `radius.lg (20)` + shadow douce.
+- `ads.tsx` — cartes `radius.lg (20)` + shadow douce.
+- `emploi.tsx` — cartes `radius.lg (20)` + shadow uniformisée via `theme.shadow.card`.
+
+**Effet global** :
+- Toutes les pages qui utilisent le composant partagé `<Card>` (Landing, Notifications, plusieurs modales et écrans admin) héritent **automatiquement** de la nouvelle apparence — arrondis plus généreux, bordures plus douces, ombres subtiles.
+- Les couleurs SPILOVEURE (bleu primaire #1B5BFF, secondaire #7B61FF, gradient bleu marine) sont **strictement préservées**.
+
+**Preuves visuelles** :
+- Screenshot dashboard : balance card haute avec rayon 28px et ombre soft, stats/commissions/parrainage 20px, "Détail du solde" et "Lien d'inscription" harmonisés, bouton Copier violet moderne.
+- Screenshot marketplace (feature disabled) : modale "Marketplace désactivé" arrondie avec icône warning circulaire pale + bouton Retour arrondi.
+- Screenshot ads (état vide) : icône mégaphone monochrome pale sur fond très pâle — style clean.
+
+**Non traité dans cette itération** (report backlog P2 — nécessite un passage page-par-page similaire) :
+- Pages admin (`/(admin)/*`) — logique fonctionnelle intacte, gains visuels via composants partagés seulement.
+- Pages activation crypto/ashtec, ebooks, community, transactions, etc. — la refonte tokens hérite mais les styles locaux hardcodés (borderRadius: 12/14) restent à moderniser.
+
+
+
 ## Implementation Status (à jour 2026-08-13-b)
 
 ### 2026-08-13 — 🎥 Missions : validation cross-type (YouTube / TikTok / Instagram / Facebook / Questionnaire)

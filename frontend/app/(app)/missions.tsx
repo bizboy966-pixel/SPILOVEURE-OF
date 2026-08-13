@@ -676,7 +676,7 @@ const styles = StyleSheet.create({
   closed: { padding: 18, borderRadius: 14, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger },
   closedTxt: { color: theme.colors.danger, fontWeight: "700", textAlign: "center" },
   empty: { color: theme.colors.textSecondary, textAlign: "center", marginTop: 18, marginBottom: 8 },
-  card: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10, overflow: "hidden" },
+  card: { padding: theme.spacing.lg, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 14, overflow: "hidden", ...theme.shadow.card },
   playOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.15)" },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
   metaChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },

@@ -241,16 +241,12 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 14,
+    borderRadius: theme.radius.lg,
     marginBottom: 14,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: theme.colors.border,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    ...theme.shadow.card,
   },
   img: { width: "100%", height: 200, backgroundColor: "#0F172A" },
   zoomHint: {

@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   addBtn: { marginLeft: "auto", width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
   title: { color: "#fff", fontWeight: "900", fontSize: 18, flex: 1 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 12, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border },
+  card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, marginBottom: 14, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.card },
   img: { width: "100%", height: 220, backgroundColor: "#000" },
   navBtn: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   imgCount: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
