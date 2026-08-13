@@ -230,6 +230,10 @@ async def list_missions(request: Request, user=Depends(get_current_user)):
     items = []
     if next_mission:
         next_mission["completed_by_user"] = False
+        # Enrich with participants_count so the UI card can display it.
+        next_mission["participants_count"] = await db.mission_completions.count_documents(
+            {"mission_id": next_mission["id"]}
+        )
         items.append(next_mission)
     return {
         "window_open": True,
@@ -245,13 +249,99 @@ async def list_missions(request: Request, user=Depends(get_current_user)):
     }
 
 
+@public.post("/missions/{mission_id}/watch/start")
+async def start_watch_session(mission_id: str, request: Request, user=Depends(get_current_user)):
+    """Open a server-tracked watch session for anti-fraud validation.
+
+    Client must call this BEFORE opening the video, then send periodic
+    heartbeats (`/watch/heartbeat`) while playing, and finally call
+    `/complete` (which auto-validates when heartbeats prove the video was
+    fully watched — see logic in `complete_mission`).
+    """
+    db = request.app.state.db
+    cfg = await _load_schedule(db)
+    if not _window_open_for_schedule(cfg):
+        raise HTTPException(403, "Missions indisponibles. " + _window_human_label(cfg))
+    m = await db.missions.find_one({"id": mission_id, "active": True}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Mission introuvable ou désactivée")
+    today_type = _today_mission_type(cfg)
+    if today_type and m.get("type") != today_type:
+        raise HTTPException(403, f"Cette mission n'est pas active aujourd'hui. Catégorie du jour : {TYPE_LABEL.get(today_type, today_type)}.")
+    # Prevent starting a new session if the mission is already completed
+    existing = await db.mission_completions.find_one(
+        {"user_id": user["id"], "mission_id": mission_id}, {"_id": 1}
+    )
+    if existing:
+        raise HTTPException(409, "Mission déjà validée.")
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    await db.mission_watch_sessions.insert_one({
+        "id": session_id,
+        "user_id": user["id"],
+        "mission_id": mission_id,
+        "duration_required": int(m.get("duration_seconds") or 0),
+        "started_at": now,
+        "last_heartbeat_at": now,
+        "heartbeats": [{"at": now, "elapsed": 0}],
+        "max_elapsed": 0,
+        "completed": False,
+    })
+    return {
+        "session_id": session_id,
+        "duration_required": int(m.get("duration_seconds") or 0),
+        "started_at": now.isoformat(),
+    }
+
+
+@public.post("/missions/{mission_id}/watch/heartbeat")
+async def watch_heartbeat(mission_id: str, body: dict, request: Request, user=Depends(get_current_user)):
+    """Report the current playback position (elapsed seconds since play).
+    Body: {session_id, elapsed_seconds}.
+    """
+    db = request.app.state.db
+    session_id = str(body.get("session_id") or "")
+    elapsed = int(body.get("elapsed_seconds") or 0)
+    if not session_id:
+        raise HTTPException(400, "session_id manquant")
+    sess = await db.mission_watch_sessions.find_one(
+        {"id": session_id, "user_id": user["id"], "mission_id": mission_id},
+        {"_id": 0},
+    )
+    if not sess:
+        raise HTTPException(404, "Session de visionnage introuvable")
+    now = datetime.now(timezone.utc)
+    # Reject heartbeats that fake a jump-ahead (elapsed grew faster than
+    # real time since the session started).
+    started = sess.get("started_at")
+    if isinstance(started, datetime):
+        real_elapsed = (now - started.replace(tzinfo=timezone.utc) if started.tzinfo is None else now - started).total_seconds()
+        # Allow 3s of jitter for network delay
+        if elapsed > real_elapsed + 3:
+            raise HTTPException(400, "Heartbeat rejeté (progression incohérente).")
+    new_max = max(int(sess.get("max_elapsed") or 0), elapsed)
+    await db.mission_watch_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"last_heartbeat_at": now, "max_elapsed": new_max},
+         "$push": {"heartbeats": {"at": now, "elapsed": elapsed}}},
+    )
+    return {"ok": True, "max_elapsed": new_max, "required": int(sess.get("duration_required") or 0)}
+
+
 @public.post("/missions/{mission_id}/complete")
 async def complete_mission(mission_id: str, body: dict, request: Request, user=Depends(get_current_user)):
-    """Body: { watched_seconds: int, answer: str }.
-    Idempotent — ONE-SHOT LIFETIME per (user, mission). After completion the
-    mission disappears for that user and the rotation moves to the next one
-    of the same type tomorrow (or next scheduled day).
+    """Auto-validation endpoint — called by the client when the embedded
+    player fires its `ended` event (video watched to the end).
+    Body: { session_id: str, answer?: str }.
+
+    Server-side enforcement:
+    - A valid `mission_watch_sessions` row must exist for (user, mission).
+    - The session's `max_elapsed` (from heartbeats) must be ≥ duration.
+    - The session's real wall-clock elapsed time must be ≥ duration.
+    - Idempotent — a completed mission cannot be re-credited (ONE-SHOT lifetime).
     """
+    import logging
+    log = logging.getLogger("missions")
     db = request.app.state.db
     cfg = await _load_schedule(db)
     if not _window_open_for_schedule(cfg):
@@ -266,15 +356,50 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
         raise HTTPException(403, f"Cette mission n'est pas active aujourd'hui. Catégorie du jour : {TYPE_LABEL.get(today_type, today_type)}.")
     if m.get("expires_at") and m["expires_at"] < datetime.now(timezone.utc).isoformat():
         raise HTTPException(410, "Mission expirée")
-    # Anti-fraud: must watch at least the configured duration
-    watched = int(body.get("watched_seconds") or 0)
-    if watched < int(m.get("duration_seconds") or 0):
-        raise HTTPException(400, f"Veuillez visionner la vidéo entièrement (au moins {m.get('duration_seconds')}s).")
-    # Verification question
-    if m.get("question") and m.get("correct_answer"):
-        ans = str(body.get("answer") or "").strip().lower()
-        if ans != str(m["correct_answer"]).strip().lower():
-            raise HTTPException(400, "Réponse incorrecte. Réessayez après avoir bien regardé la vidéo.")
+
+    mtype = m["type"]
+    if mtype not in MISSION_TYPES:
+        raise HTTPException(400, "Type de mission invalide")
+
+    # Questionnaire path — no video, verify answer only.
+    if mtype == "questionnaire":
+        if m.get("question") and m.get("correct_answer"):
+            ans = str(body.get("answer") or "").strip().lower()
+            if ans != str(m["correct_answer"]).strip().lower():
+                raise HTTPException(400, "Réponse incorrecte. Réessayez.")
+    else:
+        # Video path — enforce a valid watch session with proven duration.
+        session_id = str(body.get("session_id") or "")
+        if not session_id:
+            log.warning("complete_mission %s user=%s: missing session_id", mission_id, user.get("id"))
+            raise HTTPException(400, "Session de visionnage requise. Rechargez la page et réessayez.")
+        sess = await db.mission_watch_sessions.find_one(
+            {"id": session_id, "user_id": user["id"], "mission_id": mission_id},
+            {"_id": 0},
+        )
+        if not sess:
+            log.warning("complete_mission %s user=%s: session %s not found", mission_id, user.get("id"), session_id)
+            raise HTTPException(404, "Session de visionnage introuvable.")
+        required = int(m.get("duration_seconds") or 0)
+        max_elapsed = int(sess.get("max_elapsed") or 0)
+        started = sess.get("started_at")
+        real_elapsed = 0
+        if isinstance(started, datetime):
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            real_elapsed = int((datetime.now(timezone.utc) - started).total_seconds())
+        if max_elapsed < required:
+            log.info("complete_mission %s user=%s: elapsed %s < required %s", mission_id, user.get("id"), max_elapsed, required)
+            raise HTTPException(400, f"Vidéo non terminée ({max_elapsed}s / {required}s). Visionnez jusqu'à la fin pour valider.")
+        if real_elapsed < required:
+            log.info("complete_mission %s user=%s: wall_elapsed %s < required %s", mission_id, user.get("id"), real_elapsed, required)
+            raise HTTPException(400, "Visionnage trop rapide — attendez la fin de la vidéo.")
+        # Anti-fraud: at least 2 heartbeats spaced out
+        hbs = sess.get("heartbeats") or []
+        if len(hbs) < 2:
+            log.info("complete_mission %s user=%s: only %d heartbeats", mission_id, user.get("id"), len(hbs))
+            raise HTTPException(400, "Trop peu de signaux de lecture. Rechargez et réessayez.")
+
     # ONE-SHOT lifetime idempotency
     existing = await db.mission_completions.find_one(
         {"user_id": user["id"], "mission_id": mission_id},
@@ -282,12 +407,10 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
     )
     if existing:
         raise HTTPException(409, "Mission déjà validée. La prochaine sera disponible automatiquement.")
-    mtype = m["type"]
-    if mtype not in MISSION_TYPES:
-        raise HTTPException(400, "Type de mission invalide")
     reward = float(m.get("reward") or 0)
     bal_field = BALANCE_FIELD[mtype]
     cnt_field = COMPLETED_FIELD[mtype]
+    period_key = _current_period_key(cfg)
     await db.mission_completions.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
@@ -302,6 +425,20 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
         {"id": user["id"]},
         {"$inc": {bal_field: reward, cnt_field: 1, "balance_missions_total": reward}},
     )
+    # 🔔 Send an FCM push notification confirming the credit (in addition to the returned payload).
+    try:
+        from push_helper import push_to_user
+        await push_to_user(
+            db, user["id"],
+            title="✅ Mission validée",
+            body=f"Bravo ! +{int(reward)} FCFA crédités sur votre solde {TYPE_LABEL.get(mtype, mtype)}.",
+            link="/(app)/missions",
+            data={"kind": "mission_completed", "mission_id": mission_id, "reward": reward},
+            tag=f"mission-completed-{mission_id}",
+        )
+    except Exception:
+        pass
+    log.info("complete_mission %s user=%s OK reward=%s", mission_id, user.get("id"), reward)
     return {"ok": True, "reward": reward, "wallet": mtype, "period_key": period_key}
 
 
@@ -347,10 +484,17 @@ class MissionWithdrawalIn(BaseModel):
 async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request, user=Depends(get_current_user)):
     """Submit a withdrawal request from ONE specific mission wallet.
     Applies admin-configured min withdrawal and fee_percent.
+    Reuses the user's registered `wallets` entry (same one used by the
+    classic withdrawal flow) so the admin sees a single, unified view.
     """
     if body.wallet not in MISSION_TYPES:
         raise HTTPException(400, f"Portefeuille invalide. Autorisés: {MISSION_TYPES}")
     db = request.app.state.db
+    # Require the user's classic wallet (same as /api/withdrawals). This is
+    # what "réutiliser les mêmes portefeuilles" means from the user story.
+    wallet = await db.wallets.find_one({"user_id": user["id"]})
+    if not wallet:
+        raise HTTPException(400, "Veuillez d'abord enregistrer votre portefeuille de retrait dans votre profil.")
     payout = await _load_payout_config(db)
     amount = float(body.amount)
     if amount < payout["min_withdrawal"]:
@@ -379,6 +523,15 @@ async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request
         "net_payout": net_payout,
         "status": "pending",
         "withdrawal_type": "mission",
+        # Copy the classic wallet's payout details so the admin sees a
+        # complete, unified view without needing to cross-reference.
+        "method": wallet.get("method") or ("crypto" if wallet.get("wallet_address") else "mobile"),
+        "operator": wallet.get("operator", ""),
+        "phone": wallet.get("phone", ""),
+        "network": wallet.get("network", ""),
+        "wallet_address": wallet.get("wallet_address", ""),
+        "full_name": wallet.get("full_name", ""),
+        "country": wallet.get("country", ""),
         "created_at": datetime.now(timezone.utc),
     }
     await db.mission_withdrawals.insert_one(dict(doc))
@@ -438,6 +591,23 @@ async def admin_create_mission(body: MissionIn, request: Request, who=Depends(re
     doc["created_by"] = who.get("username")
     await db.missions.insert_one(doc)
     doc.pop("_id", None)
+    # 🔔 Broadcast push to activated users when a mission is created & active.
+    if doc.get("active"):
+        try:
+            from push_helper import push_to_activated
+            snippet = (doc.get("title") or "")[:60].strip() or "Nouvelle mission"
+            reward = int(float(doc.get("reward") or 0))
+            type_label = TYPE_LABEL.get(doc.get("type", ""), doc.get("type", ""))
+            await push_to_activated(
+                db,
+                title=f"📢 Nouvelle mission {type_label} disponible !",
+                body=f"{snippet} — Regardez la vidéo et gagnez {reward} FCFA. 🚀",
+                link="/(app)/missions",
+                data={"kind": "mission_published", "mission_id": doc["id"]},
+                tag=f"mission-{doc['id']}",
+            )
+        except Exception:
+            pass
     return doc
 
 
@@ -446,12 +616,31 @@ async def admin_update_mission(mission_id: str, body: MissionIn, request: Reques
     if body.type not in MISSION_TYPES:
         raise HTTPException(400, f"Type invalide. Autorisés: {MISSION_TYPES}")
     db = request.app.state.db
+    prev = await db.missions.find_one({"id": mission_id}, {"_id": 0, "active": 1})
     upd = body.dict()
     upd["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.missions.update_one({"id": mission_id}, {"$set": upd})
     if not r.matched_count:
         raise HTTPException(404, "Mission introuvable")
     doc = await db.missions.find_one({"id": mission_id}, {"_id": 0})
+    # 🔔 If the mission was just activated (transition from inactive → active),
+    # broadcast a push notification to all activated users.
+    if doc and doc.get("active") and not (prev or {}).get("active"):
+        try:
+            from push_helper import push_to_activated
+            snippet = (doc.get("title") or "")[:60].strip() or "Nouvelle mission"
+            reward = int(float(doc.get("reward") or 0))
+            type_label = TYPE_LABEL.get(doc.get("type", ""), doc.get("type", ""))
+            await push_to_activated(
+                db,
+                title=f"📢 Nouvelle mission {type_label} disponible !",
+                body=f"{snippet} — Regardez la vidéo et gagnez {reward} FCFA. 🚀",
+                link="/(app)/missions",
+                data={"kind": "mission_published", "mission_id": mission_id},
+                tag=f"mission-{mission_id}",
+            )
+        except Exception:
+            pass
     return doc
 
 

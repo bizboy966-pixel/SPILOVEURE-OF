@@ -28,44 +28,245 @@ const TYPE_META: Record<string, { label: string; icon: any; color: string; emoji
   questionnaire: { label: "Questionnaire", icon: "help-circle",    color: "#7B61FF", emoji: "📝" },
 };
 
+/** Extract a YouTube video ID from any YouTube URL shape. */
+function ytId(url: string): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("/")[0] || null;
+    if (u.hostname.includes("youtube.com")) {
+      if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2] || null;
+      if (u.pathname.startsWith("/embed/")) return u.pathname.split("/")[2] || null;
+      return u.searchParams.get("v");
+    }
+  } catch {}
+  return null;
+}
+
+/** Build an embed URL suitable for an <iframe>. Returns null when the URL
+ * cannot be embedded — the caller falls back to a native video element or
+ * a "Open in new tab" affordance. */
+function embedUrl(kind: string, url: string): string | null {
+  const yid = ytId(url);
+  if (yid) return `https://www.youtube.com/embed/${yid}?autoplay=1&modestbranding=1&rel=0&playsinline=1`;
+  if (!url) return null;
+  if (kind === "facebook" && /facebook\.com|fb\.watch/.test(url)) {
+    return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&autoplay=true`;
+  }
+  if (kind === "instagram" && /instagram\.com\/(p|reel|tv)\//.test(url)) {
+    const clean = url.split("?")[0].replace(/\/$/, "");
+    return `${clean}/embed`;
+  }
+  if (kind === "tiktok" && /tiktok\.com/.test(url)) {
+    // TikTok direct iframe embed by video id (best-effort).
+    const m = url.match(/\/video\/(\d+)/);
+    if (m) return `https://www.tiktok.com/embed/v2/${m[1]}`;
+  }
+  if (/\.mp4($|\?)/i.test(url)) return url; // raw MP4 will be rendered by <video>
+  return null;
+}
+
+/** YouTube thumbnail URL for a card. Falls back to a neutral gradient in CSS. */
+function ytThumb(url: string): string | null {
+  const id = ytId(url);
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null;
+}
+
 function fmt(n: number) { return `${Math.round(n)} FCFA`; }
+
+/** Modal that embeds the video, tracks watch time server-side via heartbeats
+ * and auto-completes the mission when the required duration is reached.
+ * NO manual validation button — everything is automatic. */
+function WatchModal({ m, visible, onClose, onDone }: any) {
+  const meta = TYPE_META[m.type] || { label: m.type, icon: "play", color: theme.colors.primary, emoji: "🎬" };
+  const required = Number(m.duration_seconds || 0);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [completing, setCompleting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const embed = embedUrl(m.type, m.url || "");
+
+  // Open a watch session as soon as the modal is shown (for video missions).
+  useEffect(() => {
+    if (!visible || m.type === "questionnaire") return;
+    let alive = true;
+    (async () => {
+      try {
+        setError(""); setDone(false); setElapsed(0);
+        const r = await api.post<any>(`/missions/${m.id}/watch/start`, {});
+        if (alive) setSessionId(r.session_id);
+      } catch (e: any) {
+        if (alive) setError(e?.detail || "Impossible d'ouvrir la session de visionnage.");
+      }
+    })();
+    return () => { alive = false; };
+  }, [visible, m.id]);
+
+  // Local ticker + periodic heartbeat while the modal is open.
+  useEffect(() => {
+    if (!visible || !sessionId || done) return;
+    const tick = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(tick);
+  }, [visible, sessionId, done]);
+
+  useEffect(() => {
+    if (!sessionId || done) return;
+    const beat = async () => {
+      try {
+        await api.post(`/missions/${m.id}/watch/heartbeat`, { session_id: sessionId, elapsed_seconds: elapsed });
+      } catch {}
+    };
+    // Beat every 5s and immediately at each 10s milestone.
+    const id = setInterval(beat, 5000);
+    return () => clearInterval(id);
+  }, [sessionId, elapsed, done, m.id]);
+
+  // Auto-complete when required duration is reached.
+  useEffect(() => {
+    if (m.type === "questionnaire") return;
+    if (!sessionId || done || completing) return;
+    if (elapsed < required) return;
+    (async () => {
+      setCompleting(true);
+      try {
+        // Send a final heartbeat first to ensure the server sees max_elapsed ≥ required.
+        try {
+          await api.post(`/missions/${m.id}/watch/heartbeat`, { session_id: sessionId, elapsed_seconds: elapsed });
+        } catch {}
+        const r = await api.post<any>(`/missions/${m.id}/complete`, { session_id: sessionId });
+        setDone(true);
+        if (typeof window !== "undefined") window.alert(`✅ Mission validée avec succès\n💰 +${r.reward} FCFA crédités sur votre solde ${meta.label}`);
+        onDone?.();
+      } catch (e: any) {
+        setError(e?.detail || "Impossible de valider automatiquement.");
+      } finally {
+        setCompleting(false);
+      }
+    })();
+  }, [elapsed, required, sessionId, done, m.id, m.type]);
+
+  const submitQuestionnaire = async () => {
+    if (!answer.trim()) { setError("Veuillez saisir votre réponse."); return; }
+    setCompleting(true); setError("");
+    try {
+      const r = await api.post<any>(`/missions/${m.id}/complete`, { answer: answer.trim() });
+      setDone(true);
+      if (typeof window !== "undefined") window.alert(`✅ Mission validée avec succès\n💰 +${r.reward} FCFA crédités sur votre solde ${meta.label}`);
+      onDone?.();
+    } catch (e: any) {
+      setError(e?.detail || "Réponse incorrecte.");
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  const progress = Math.min(100, Math.round((elapsed / Math.max(1, required)) * 100));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBg}>
+        <View style={[styles.modalCard, { maxWidth: 640 }]} testID={`watch-modal-${m.id}`}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={[styles.typePill, { backgroundColor: meta.color }]}>
+                <Ionicons name={meta.icon} size={12} color="#fff" />
+                <Text style={styles.typeTxt}>{meta.label}</Text>
+              </View>
+              <Text style={{ color: theme.colors.success, fontWeight: "800" }}>+{fmt(m.reward)}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} testID={`watch-close-${m.id}`}>
+              <Ionicons name="close" size={22} color={theme.colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.modalTitle}>{m.title}</Text>
+          {m.description ? <Text style={styles.modalSub}>{m.description}</Text> : null}
+
+          {m.type !== "questionnaire" ? (
+            <>
+              <View style={styles.playerBox}>
+                {Platform.OS === "web" && embed ? (
+                  // @ts-ignore RN Web accepts raw iframes
+                  <iframe
+                    src={embed}
+                    style={{ width: "100%", height: 340, border: 0, borderRadius: 10, background: "#000" }}
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                    data-testid={`watch-iframe-${m.id}`}
+                  />
+                ) : Platform.OS === "web" && /\.mp4($|\?)/i.test(m.url || "") ? (
+                  // @ts-ignore RN Web accepts raw <video>
+                  <video src={m.url} controls autoPlay playsInline style={{ width: "100%", maxHeight: 340, borderRadius: 10, background: "#000" }} />
+                ) : (
+                  <View style={styles.fallbackBox}>
+                    <Ionicons name="warning" size={22} color={theme.colors.warning} />
+                    <Text style={{ color: theme.colors.textSecondary, textAlign: "center", marginTop: 6, fontSize: 12 }}>
+                      Impossible d'intégrer cette vidéo. Ouvrez-la dans un onglet séparé — la session de visionnage reste active tant que cette fenêtre est ouverte.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.openBtn}
+                      onPress={() => Platform.OS === "web" ? window.open(m.url, "_blank") : Linking.openURL(m.url)}
+                      testID={`watch-open-external-${m.id}`}
+                    >
+                      <Ionicons name="open-outline" size={14} color="#fff" />
+                      <Text style={styles.openTxt}>Ouvrir la vidéo</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Progress bar */}
+              <View style={styles.progressWrap}>
+                <View style={[styles.progressBar, { width: `${progress}%` }]} />
+              </View>
+              <Text style={styles.timer} testID={`watch-timer-${m.id}`}>
+                ⏱ {elapsed}s / {required}s {done ? "✅" : completing ? "⏳" : elapsed >= required ? "🎉" : ""}
+              </Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4, fontStyle: "italic" }}>
+                La validation est automatique dès que le visionnage complet est confirmé côté serveur.
+              </Text>
+            </>
+          ) : (
+            <View style={{ marginTop: 12 }}>
+              {m.question ? <Text style={styles.q}>❓ {m.question}</Text> : null}
+              <TextInput
+                style={styles.input}
+                value={answer}
+                onChangeText={setAnswer}
+                placeholder="Votre réponse"
+                placeholderTextColor={theme.colors.textSecondary}
+                testID={`watch-answer-${m.id}`}
+              />
+              <TouchableOpacity
+                style={[styles.validateBtn, completing && { opacity: 0.6 }]}
+                onPress={submitQuestionnaire}
+                disabled={completing}
+                testID={`watch-answer-submit-${m.id}`}
+              >
+                <Text style={styles.validateTxt}>{completing ? "Validation…" : "✅ Valider ma réponse"}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {error ? (
+            <Text style={{ color: theme.colors.danger, fontSize: 12, marginTop: 8 }} testID={`watch-error-${m.id}`}>❌ {error}</Text>
+          ) : null}
+          {done ? (
+            <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: theme.colors.success }} testID={`watch-done-${m.id}`}>
+              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>🎉 Mission validée — récompense créditée.</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 function MissionCard({ m, onDone }: any) {
   const meta = TYPE_META[m.type] || { label: m.type, icon: "play", color: theme.colors.primary, emoji: "🎬" };
-  const [watched, setWatched] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [answer, setAnswer] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => setWatched((s) => Math.min(s + 1, (m.duration_seconds || 0) + 1)), 1000);
-    return () => clearInterval(t);
-  }, [running, m.duration_seconds]);
-
-  const open = () => {
-    if (!m.url) return;
-    setRunning(true);
-    const target = resolveMediaUrl(m.url) || m.url;
-    if (Platform.OS === "web" && typeof window !== "undefined") window.open(target, "_blank");
-    else Linking.openURL(target).catch(() => {});
-  };
-
-  const canValidate = watched >= (m.duration_seconds || 0);
-  const submit = async () => {
-    setSubmitting(true);
-    try {
-      const r = await api.post<any>(`/missions/${m.id}/complete`, { watched_seconds: watched, answer });
-      if (typeof window !== "undefined") window.alert(`✅ +${r.reward} FCFA crédités sur votre solde ${meta.label}`);
-      onDone?.();
-    } catch (e: any) {
-      const msg = e?.detail || "Impossible de valider.";
-      if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
-      else Alert.alert("Erreur", msg);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
+  const thumb = ytThumb(m.url || "");
 
   if (m.completed_by_user) {
     return (
@@ -77,53 +278,65 @@ function MissionCard({ m, onDone }: any) {
   }
 
   return (
-    <View style={styles.card} testID={`mission-${m.id}`}>
-      <View style={styles.head}>
-        <View style={[styles.typePill, { backgroundColor: meta.color }]}>
-          <Ionicons name={meta.icon} size={12} color="#fff" />
-          <Text style={styles.typeTxt}>{meta.label}</Text>
-        </View>
-        <Text style={styles.reward}>+{fmt(m.reward)}</Text>
-      </View>
-      <Text style={styles.title}>{m.title}</Text>
-      {m.description ? <Text style={styles.desc}>{m.description}</Text> : null}
-
-      {m.url && m.type !== "questionnaire" ? (
-        <TouchableOpacity style={styles.openBtn} onPress={open} testID={`mission-open-${m.id}`}>
-          <Ionicons name="play-circle" size={16} color="#fff" />
-          <Text style={styles.openTxt}>Ouvrir la vidéo</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      <Text style={styles.timer}>
-        ⏱ {watched}s / {m.duration_seconds}s {canValidate ? "✅" : ""}
-      </Text>
-
-      {m.question ? (
-        <View style={{ marginTop: 6 }}>
-          <Text style={styles.q}>❓ {m.question}</Text>
-          <TextInput
-            style={styles.input}
-            value={answer}
-            onChangeText={setAnswer}
-            placeholder="Votre réponse"
-            placeholderTextColor={theme.colors.textSecondary}
-            testID={`mission-answer-${m.id}`}
-          />
-        </View>
-      ) : null}
-
+    <>
       <TouchableOpacity
-        style={[styles.validateBtn, !canValidate && { backgroundColor: theme.colors.surfaceSecondary }]}
-        onPress={submit}
-        disabled={!canValidate || submitting}
-        testID={`mission-validate-${m.id}`}
+        activeOpacity={0.85}
+        style={styles.card}
+        onPress={() => setOpen(true)}
+        testID={`mission-${m.id}`}
       >
-        <Text style={[styles.validateTxt, !canValidate && { color: theme.colors.textSecondary }]}>
-          {submitting ? "Validation…" : canValidate ? "✅ Valider la mission" : "Patientez…"}
-        </Text>
+        {thumb ? (
+          <View style={{ position: "relative", marginHorizontal: -14, marginTop: -14, marginBottom: 10 }}>
+            {/* @ts-ignore RN Web accepts <img> */}
+            <img
+              src={thumb}
+              alt={m.title}
+              style={{ width: "100%", height: 180, objectFit: "cover", borderTopLeftRadius: 14, borderTopRightRadius: 14, display: "block" }}
+              data-testid={`mission-thumb-${m.id}`}
+            />
+            <View style={styles.playOverlay}>
+              <Ionicons name="play-circle" size={48} color="#fff" />
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.head}>
+          <View style={[styles.typePill, { backgroundColor: meta.color }]}>
+            <Ionicons name={meta.icon} size={12} color="#fff" />
+            <Text style={styles.typeTxt}>{meta.label}</Text>
+          </View>
+          <Text style={styles.reward}>+{fmt(m.reward)}</Text>
+        </View>
+        <Text style={styles.title}>{m.title}</Text>
+        {m.description ? <Text style={styles.desc} numberOfLines={2}>{m.description}</Text> : null}
+
+        <View style={styles.metaRow}>
+          <View style={styles.metaChip}>
+            <Ionicons name="time-outline" size={12} color={theme.colors.textSecondary} />
+            <Text style={styles.metaTxt}>{m.duration_seconds}s</Text>
+          </View>
+          {typeof m.participants_count === "number" ? (
+            <View style={styles.metaChip}>
+              <Ionicons name="people-outline" size={12} color={theme.colors.textSecondary} />
+              <Text style={styles.metaTxt}>{m.participants_count} participant{m.participants_count > 1 ? "s" : ""}</Text>
+            </View>
+          ) : null}
+          <View style={[styles.metaChip, { backgroundColor: theme.colors.successBg || "#DCFCE7" }]}>
+            <Ionicons name="checkmark-circle" size={12} color={theme.colors.success} />
+            <Text style={[styles.metaTxt, { color: theme.colors.success, fontWeight: "700" }]}>Disponible</Text>
+          </View>
+        </View>
+
+        <View style={styles.watchCta}>
+          <Ionicons name="play-circle" size={16} color="#fff" />
+          <Text style={styles.watchCtaTxt}>
+            {m.type === "questionnaire" ? "Répondre au questionnaire" : "Regarder la vidéo"}
+          </Text>
+        </View>
       </TouchableOpacity>
-    </View>
+
+      <WatchModal m={m} visible={open} onClose={() => setOpen(false)} onDone={() => { setOpen(false); onDone?.(); }} />
+    </>
   );
 }
 
@@ -463,7 +676,17 @@ const styles = StyleSheet.create({
   closed: { padding: 18, borderRadius: 14, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger },
   closedTxt: { color: theme.colors.danger, fontWeight: "700", textAlign: "center" },
   empty: { color: theme.colors.textSecondary, textAlign: "center", marginTop: 18, marginBottom: 8 },
-  card: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10 },
+  card: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10, overflow: "hidden" },
+  playOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.15)" },
+  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
+  metaChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
+  metaTxt: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
+  watchCta: { marginTop: 12, alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 18, backgroundColor: theme.colors.primary },
+  watchCtaTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  playerBox: { marginTop: 10, borderRadius: 10, overflow: "hidden", backgroundColor: "#000" },
+  fallbackBox: { padding: 16, alignItems: "center", backgroundColor: theme.colors.surfaceSecondary, borderRadius: 10 },
+  progressWrap: { marginTop: 10, height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceSecondary, overflow: "hidden" },
+  progressBar: { height: 6, backgroundColor: theme.colors.success },
   head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   typePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   typeTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },

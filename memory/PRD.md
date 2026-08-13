@@ -387,6 +387,58 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
+## Implementation Status (à jour 2026-08-13)
+
+### 2026-08-13 — 🎥 Missions Rémunérées : corrections & refonte complète
+
+**Demande** (9 points) : corriger le bug de validation, refaire l'affichage des vidéos style Marketplace, supprimer la validation manuelle, sécuriser le visionnage, crédit auto, push notifs sur publication, retraits unifiés avec le système classique.
+
+**Choix utilisateur** :
+- 1.B : embed vidéo dans l'app pour les 4 plateformes (YouTube / TikTok / Instagram / Facebook)
+- 2.B : fusion visuelle uniquement — les retraits Missions restent dans leur collection mais apparaissent dans l'écran admin unifié `/admin/withdrawals` avec badge
+- 3.B : portefeuille par défaut du profil utilisateur (collection `wallets`) réutilisé pour les retraits Missions
+- 4.A : garder les questionnaires (auto-validation à la bonne réponse)
+
+**Backend** (`missions.py`) :
+- 🔴 Bug fix : variable `period_key` référencée mais jamais définie dans `complete_mission` → cause du HTTP 500 « Erreur du serveur ». Corrigée en calculant `_current_period_key(cfg)` au moment de l'insertion.
+- Nouveaux endpoints anti-fraude :
+  - `POST /api/missions/{id}/watch/start` → ouvre une `mission_watch_sessions` avec `duration_required`, `started_at`, tableau `heartbeats`.
+  - `POST /api/missions/{id}/watch/heartbeat` → refuse tout saut de progression incohérent (elapsed > wall clock + 3s de jitter), met à jour `max_elapsed`.
+  - `POST /api/missions/{id}/complete` (refactoré) : exige une session, `max_elapsed ≥ duration`, `wall_elapsed ≥ duration`, ≥ 2 heartbeats. Idempotent (ONE-SHOT lifetime).
+- Questionnaire : chemin auto-validé à l'envoi de la bonne réponse (pas de vidéo).
+- Crédit automatique atomique dans le portefeuille correspondant + notification FCM `mission_completed`.
+- Push broadcast aux utilisateurs activés lors de la création (`admin_create_mission`) OU de l'activation (`admin_update_mission` : transition inactif → actif).
+- `list_missions` enrichit chaque mission avec `participants_count` pour l'affichage carte.
+- `request_mission_withdrawal` (3.B) : exige désormais un `wallets.find_one({user_id})` existant et copie automatiquement `method / operator / phone / network / wallet_address / full_name / country` dans la ligne `mission_withdrawals` — l'admin voit tout depuis un seul écran.
+- Fusion admin (2.B) : `/api/admin/withdrawals` mergait déjà les deux collections ; enrichi avec les champs classiques ci-dessus pour affichage complet.
+
+**Frontend** (`app/(app)/missions.tsx`) :
+- Nouvelle `MissionCard` style Marketplace : miniature YouTube (hqdefault), pill type + reward, description, chips durée / participants / statut « Disponible », CTA plein largeur « Regarder la vidéo ». Clic sur la carte ouvre la modale.
+- Nouveau composant `WatchModal` :
+  - Ouvre une session (`/watch/start`) au montage.
+  - Embed IFrame : YouTube (`youtube.com/embed/{id}?autoplay=1`), Facebook (plugin video.php), Instagram (`/p/{id}/embed`), TikTok (`/embed/v2/{id}`).
+  - Fallback « Ouvrir la vidéo » si l'embed n'est pas possible.
+  - Ticker local + heartbeats POSTés toutes les 5s au serveur.
+  - Barre de progression verte + compteur `Xs / Ys`.
+  - Auto-appel `/complete` dès que `elapsed ≥ required` — le serveur re-valide tout (wall clock + heartbeats).
+  - Aucun bouton « Valider » : la validation est 100 % automatique.
+  - Chemin questionnaire séparé : champ texte + bouton « Valider ma réponse » (auto-crédit à la bonne réponse).
+
+**Tests** (`/app/backend/tests/test_missions_watch_flow.py`) :
+- `test_watch_session_credits_wallet_and_is_idempotent` : session → 4 heartbeats espacés (real elapsed 4s) → complete → +100 FCFA crédité, historique = 1, 2ᵉ complete rejeté 409. ✅ PASS
+- `test_watch_rejects_too_fast_completion` : tentative de heartbeat instantané `elapsed=30` sur session ouverte à l'instant → rejet 400 ; forçage direct DB `max_elapsed=30` puis complete → rejet 400 (wall clock trop court) ; solde à 0. ✅ PASS
+
+**Preuves E2E** :
+- Backend curl `/api/missions` renvoie correctement `participants_count` et `window_open`.
+- Screenshot 1 : la carte mission YouTube affiche miniature, chips (5s / 0 participant / Disponible), CTA « Regarder la vidéo ».
+- Screenshot 2 : clic sur la carte → modale avec iframe YouTube en lecture, barre de progression (2s / 5s), message « La validation est automatique dès que le visionnage complet est confirmé côté serveur ».
+
+**Sécurité** :
+- Impossible de tricher côté client : le serveur valide (a) l'existence de la session, (b) `max_elapsed ≥ required`, (c) le wall clock, (d) au moins 2 heartbeats, (e) les heartbeats qui trichent sont rejetés dès l'API.
+- Idempotence : `mission_completions` (user_id, mission_id) + reject 409 → aucun double crédit possible.
+
+
+
 ## Implementation Status (à jour 2026-08-11-b)
 
 ### 2026-08-11 — 🎰 Recharge Jackpot : montant piloté par l'admin (fin du hardcoding)

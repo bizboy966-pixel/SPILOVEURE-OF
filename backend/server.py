@@ -2301,6 +2301,15 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
                 "decided_by": mw.get("decided_by"),
                 "reject_reason": mw.get("reject_reason"),
                 "wallet": mw.get("wallet"),
+                # Copied classic-wallet fields so the admin can pay from the
+                # same panel without cross-referencing the users collection.
+                "method": mw.get("method", ""),
+                "operator": mw.get("operator", ""),
+                "phone": mw.get("phone", ""),
+                "network": mw.get("network", ""),
+                "wallet_address": mw.get("wallet_address", ""),
+                "full_name": mw.get("full_name", ""),
+                "country": mw.get("country", ""),
                 "withdrawal_type": "mission",
                 "source": "mission_withdrawals",
             }
