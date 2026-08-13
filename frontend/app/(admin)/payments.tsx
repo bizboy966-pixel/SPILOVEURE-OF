@@ -31,7 +31,7 @@ function StatusBadge({ p }: { p: any }) {
         failed:  { bg: "#FEE2E2", color: "#991B1B", label: "❌ Échoué" },
       } as any)[p.status] || { bg: "#E5E7EB", color: "#374151", label: p.status };
   return (
-    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: cfg.bg }}>
+    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: cfg.bg }}>
       <Text style={{ color: cfg.color, fontWeight: "800", fontSize: 10 }}>{cfg.label}</Text>
     </View>
   );
@@ -186,7 +186,7 @@ export default function AdminPayments() {
                 <Text style={styles.refTxt}>{fmtDate(p.created_at)}</Text>
               </View>
               {p.activation_error ? (
-                <View style={[styles.refRow, { backgroundColor: "#FEE2E2", padding: 6, borderRadius: 6 }]}>
+                <View style={[styles.refRow, { backgroundColor: "#FEE2E2", padding: 6, borderRadius: 8 }]}>
                   <Text style={[styles.refLbl, { color: theme.colors.danger }]}>⚠️ Erreur :</Text>
                   <Text style={[styles.refTxt, { color: theme.colors.danger, flex: 1 }]} numberOfLines={3}>{p.activation_error}</Text>
                 </View>
@@ -228,18 +228,18 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12 },
   hTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
   statsRow: { flexDirection: "row", gap: 6, marginBottom: 10, flexWrap: "wrap" },
-  stat: { flex: 1, minWidth: 60, padding: 8, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" },
+  stat: { flex: 1, minWidth: 60, padding: 8, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" },
   statN: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16 },
   statL: { color: theme.colors.textSecondary, fontSize: 9, marginTop: 2, textAlign: "center" },
   filterRow: { flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 8 },
-  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   chipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 10 },
   searchI: { flex: 1, color: theme.colors.textPrimary, fontSize: 13 },
   empty: { padding: 40, alignItems: "center" },
   emptyTxt: { color: theme.colors.textSecondary, marginTop: 8, fontStyle: "italic" },
-  card: { padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  card: { padding: 12, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
   cardHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
   userTxt: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 13 },
   metaTxt: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   refRow: { flexDirection: "row", gap: 6, marginTop: 4, alignItems: "flex-start" },
   refLbl: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
   refTxt: { color: theme.colors.textPrimary, fontSize: 11, flex: 1 },
-  forceBtn: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 18, backgroundColor: theme.colors.warning },
+  forceBtn: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 22, backgroundColor: theme.colors.warning },
   forceTxt: { color: "#fff", fontWeight: "800", fontSize: 12 },
   linkBtn: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8 },
   linkTxt: { color: theme.colors.primary, fontWeight: "700", fontSize: 12 },

@@ -190,14 +190,14 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
                   // @ts-ignore RN Web accepts raw iframes
                   <iframe
                     src={embed}
-                    style={{ width: "100%", height: 340, border: 0, borderRadius: 10, background: "#000" }}
+                    style={{ width: "100%", height: 340, border: 0, borderRadius: 12, background: "#000" }}
                     allow="autoplay; encrypted-media; picture-in-picture"
                     allowFullScreen
                     data-testid={`watch-iframe-${m.id}`}
                   />
                 ) : Platform.OS === "web" && /\.mp4($|\?)/i.test(m.url || "") ? (
                   // @ts-ignore RN Web accepts raw <video>
-                  <video src={m.url} controls autoPlay playsInline style={{ width: "100%", maxHeight: 340, borderRadius: 10, background: "#000" }} />
+                  <video src={m.url} controls autoPlay playsInline style={{ width: "100%", maxHeight: 340, borderRadius: 12, background: "#000" }} />
                 ) : (
                   <View style={styles.fallbackBox}>
                     <Ionicons name="warning" size={22} color={theme.colors.warning} />
@@ -253,7 +253,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
             <Text style={{ color: theme.colors.danger, fontSize: 12, marginTop: 8 }} testID={`watch-error-${m.id}`}>❌ {error}</Text>
           ) : null}
           {done ? (
-            <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: theme.colors.success }} testID={`watch-done-${m.id}`}>
+            <View style={{ marginTop: 10, padding: 10, borderRadius: 12, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: theme.colors.success }} testID={`watch-done-${m.id}`}>
               <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>🎉 Mission validée — récompense créditée.</Text>
             </View>
           ) : null}
@@ -347,7 +347,7 @@ function StatusBadge({ status }: { status: string }) {
     rejected:  { bg: theme.colors.dangerBg,  color: theme.colors.danger,  label: "Rejeté" },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
-    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: cfg.bg }}>
+    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: cfg.bg }}>
       <Text style={{ color: cfg.color, fontWeight: "700", fontSize: 11 }}>{cfg.label}</Text>
     </View>
   );
@@ -411,7 +411,7 @@ function WithdrawModal({
           <Text style={styles.modalTitle}>{meta.emoji} Retrait — {meta.label}</Text>
           <Text style={styles.modalSub}>Solde disponible : <Text style={{ color: theme.colors.success, fontWeight: "800" }}>{fmt(balance)}</Text></Text>
           {payoutCfg ? (
-            <View style={{ marginTop: 6, padding: 8, backgroundColor: "#F1F5F9", borderRadius: 8 }}>
+            <View style={{ marginTop: 6, padding: 8, backgroundColor: "#F1F5F9", borderRadius: 10 }}>
               <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
                 💰 Minimum : <Text style={{ fontWeight: "700", color: theme.colors.textPrimary }}>{payoutCfg.min_withdrawal} FCFA</Text>
                 {"  •  "}
@@ -430,7 +430,7 @@ function WithdrawModal({
             testID="mission-withdraw-amount"
           />
           {amt > 0 && payoutCfg ? (
-            <View style={{ marginTop: 8, padding: 10, backgroundColor: "#EFF6FF", borderRadius: 8, borderWidth: 1, borderColor: "#BFDBFE" }}>
+            <View style={{ marginTop: 8, padding: 10, backgroundColor: "#EFF6FF", borderRadius: 10, borderWidth: 1, borderColor: "#BFDBFE" }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Montant demandé</Text>
                 <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 }}>{fmt(amt)}</Text>
@@ -587,7 +587,7 @@ function MissionsPageInner() {
           ) : (
             <>
               {todayLabel ? (
-                <View style={{ padding: 10, borderRadius: 10, backgroundColor: "#DBEAFE", borderWidth: 1, borderColor: "#93C5FD", marginBottom: 10 }}>
+                <View style={{ padding: 10, borderRadius: 12, backgroundColor: "#DBEAFE", borderWidth: 1, borderColor: "#93C5FD", marginBottom: 10 }}>
                   <Text style={{ color: "#1E40AF", fontWeight: "800", fontSize: 13 }} testID="today-label">📍 Aujourd'hui : {todayLabel}</Text>
                 </View>
               ) : null}
@@ -656,62 +656,62 @@ function MissionsPageInner() {
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12 },
   hTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  totalCard: { padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, marginBottom: 10, borderWidth: 1, borderColor: theme.colors.border },
+  totalCard: { padding: 14, borderRadius: 16, backgroundColor: theme.colors.surface, marginBottom: 10, borderWidth: 1, borderColor: theme.colors.border },
   totalLbl: { color: theme.colors.textSecondary, fontSize: 12 },
   totalVal: { color: theme.colors.primary, fontWeight: "800", fontSize: 22, marginTop: 4 },
   totalHint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 6, fontStyle: "italic" },
   sectionTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 13, marginTop: 6, marginBottom: 8 },
   walletsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-  walletCard: { flexBasis: "48%", flexGrow: 1, padding: 10, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  walletCard: { flexBasis: "48%", flexGrow: 1, padding: 10, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   walletEmoji: { fontSize: 14 },
   walletLabel: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   walletBal: { color: theme.colors.success, fontWeight: "800", fontSize: 16, marginTop: 4 },
   walletCount: { color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 },
-  walletBtn: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 7, borderRadius: 14, backgroundColor: theme.colors.primary },
+  walletBtn: { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 7, borderRadius: 16, backgroundColor: theme.colors.primary },
   walletBtnTxt: { color: "#fff", fontWeight: "700", fontSize: 11 },
   tabRow: { flexDirection: "row", gap: 6, marginTop: 8, marginBottom: 10 },
-  tab: { flex: 1, paddingVertical: 9, borderRadius: 18, backgroundColor: theme.colors.surfaceSecondary, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 22, backgroundColor: theme.colors.surfaceSecondary, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border },
   tabOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   tabTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
-  closed: { padding: 18, borderRadius: 14, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger },
+  closed: { padding: 18, borderRadius: 16, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger },
   closedTxt: { color: theme.colors.danger, fontWeight: "700", textAlign: "center" },
   empty: { color: theme.colors.textSecondary, textAlign: "center", marginTop: 18, marginBottom: 8 },
   card: { padding: theme.spacing.lg, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 14, overflow: "hidden", ...theme.shadow.card },
   playOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.15)" },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
-  metaChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
+  metaChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary },
   metaTxt: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
-  watchCta: { marginTop: 12, alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 18, backgroundColor: theme.colors.primary },
+  watchCta: { marginTop: 12, alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 22, backgroundColor: theme.colors.primary },
   watchCtaTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
-  playerBox: { marginTop: 10, borderRadius: 10, overflow: "hidden", backgroundColor: "#000" },
-  fallbackBox: { padding: 16, alignItems: "center", backgroundColor: theme.colors.surfaceSecondary, borderRadius: 10 },
+  playerBox: { marginTop: 10, borderRadius: 12, overflow: "hidden", backgroundColor: "#000" },
+  fallbackBox: { padding: 16, alignItems: "center", backgroundColor: theme.colors.surfaceSecondary, borderRadius: 12 },
   progressWrap: { marginTop: 10, height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceSecondary, overflow: "hidden" },
   progressBar: { height: 6, backgroundColor: theme.colors.success },
   head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  typePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  typePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   typeTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
   reward: { color: theme.colors.success, fontWeight: "800" },
   title: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 14, marginTop: 8 },
   desc: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 4 },
-  openBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: theme.colors.primary },
+  openBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, backgroundColor: theme.colors.primary },
   openTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
   timer: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 8 },
   q: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12 },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginTop: 4, color: theme.colors.textPrimary, backgroundColor: theme.colors.background },
-  validateBtn: { marginTop: 12, paddingVertical: 11, borderRadius: 18, backgroundColor: theme.colors.success, alignItems: "center" },
+  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, marginTop: 4, color: theme.colors.textPrimary, backgroundColor: theme.colors.background },
+  validateBtn: { marginTop: 12, paddingVertical: 11, borderRadius: 22, backgroundColor: theme.colors.success, alignItems: "center" },
   validateTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
   done: { color: theme.colors.success, fontWeight: "700", marginTop: 4 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 6 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 6 },
   rowTitle: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 },
   rowSub: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
   rowAmt: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14 },
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 16 },
-  modalCard: { width: "100%", maxWidth: 420, padding: 18, borderRadius: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  modalCard: { width: "100%", maxWidth: 420, padding: 18, borderRadius: 20, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   modalTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16 },
   modalSub: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 4 },
   lbl: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "600", marginTop: 12, marginBottom: 3 },
   warnTxt: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 8, fontStyle: "italic" },
-  btn: { flex: 1, paddingVertical: 11, borderRadius: 18, alignItems: "center" },
+  btn: { flex: 1, paddingVertical: 11, borderRadius: 22, alignItems: "center" },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
 });
 

@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     gap: 10,
     backgroundColor: "#0F172A",
     borderLeftWidth: 4,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     shadowColor: "#000",
     shadowOpacity: 0.25,
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   iconBox: {
-    width: 34, height: 34, borderRadius: 10,
+    width: 34, height: 34, borderRadius: 12,
     alignItems: "center", justifyContent: "center",
   },
   title: { color: "#fff", fontWeight: "800", fontSize: 13 },
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   more: {
     alignSelf: "flex-end",
     backgroundColor: "rgba(15, 23, 42, 0.85)",
-    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 24, paddingHorizontal: 10, paddingVertical: 4,
   },
   moreTxt: { color: "#CBD5E1", fontSize: 10, fontWeight: "700" },
 });

@@ -100,7 +100,7 @@ function MarketplaceCreateInner() {
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {images.map((url, i) => (
             <View key={i} style={styles.imgBox} testID={`mkc-img-${i}`}>
-              <Image source={{ uri: resolveMediaUrl(url) }} style={{ width: 90, height: 90, borderRadius: 8 }} />
+              <Image source={{ uri: resolveMediaUrl(url) }} style={{ width: 90, height: 90, borderRadius: 10 }} />
               {i === 0 && <View style={styles.thumbBadge}><Text style={styles.thumbBadgeT}>Miniature</Text></View>}
               <TouchableOpacity style={styles.imgRm} onPress={() => setImages((v) => v.filter((_, x) => x !== i))} testID={`mkc-remove-img-${i}`}>
                 <Ionicons name="close" size={12} color="#fff" />
@@ -129,9 +129,9 @@ function MarketplaceCreateInner() {
             <View key={i} style={styles.videoBox} testID={`mkc-vid-${i}`}>
               {Platform.OS === "web" ? (
                 // @ts-ignore raw video element for RN web preview
-                <video src={resolveMediaUrl(url)} controls style={{ width: 140, height: 90, borderRadius: 8, background: "#000" }} />
+                <video src={resolveMediaUrl(url)} controls style={{ width: 140, height: 90, borderRadius: 10, background: "#000" }} />
               ) : (
-                <View style={{ width: 140, height: 90, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                <View style={{ width: 140, height: 90, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                   <Ionicons name="videocam" size={24} color="#fff" />
                 </View>
               )}
@@ -214,29 +214,29 @@ function MarketplaceCreateInner() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: theme.colors.primary },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   title: { color: "#fff", fontWeight: "900", fontSize: 16 },
   section: { fontSize: 14, fontWeight: "900", color: theme.colors.textPrimary, marginTop: 10 },
   hint: { fontSize: 11, color: theme.colors.textSecondary },
   lbl: { fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 10, backgroundColor: theme.colors.surface, fontSize: 13 },
-  textarea: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 10, backgroundColor: theme.colors.surface, minHeight: 80, textAlignVertical: "top" },
+  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 10, backgroundColor: theme.colors.surface, fontSize: 13 },
+  textarea: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 10, backgroundColor: theme.colors.surface, minHeight: 80, textAlignVertical: "top" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  chip: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.colors.surface },
+  chip: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: theme.colors.surface },
   chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   chipT: { fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary },
   imgBox: { position: "relative" },
-  imgRm: { position: "absolute", top: -4, right: -4, backgroundColor: theme.colors.danger, borderRadius: 10, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  thumbBadge: { position: "absolute", bottom: 4, left: 4, backgroundColor: "rgba(11,45,111,0.85)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  imgRm: { position: "absolute", top: -4, right: -4, backgroundColor: theme.colors.danger, borderRadius: 12, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
+  thumbBadge: { position: "absolute", bottom: 4, left: 4, backgroundColor: "rgba(11,45,111,0.85)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   thumbBadgeT: { color: "#fff", fontSize: 9, fontWeight: "800" },
   moveRow: { position: "absolute", bottom: 4, right: 4, flexDirection: "row", gap: 2 },
   moveBtn: { backgroundColor: "rgba(0,0,0,0.55)", width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   videoBox: { position: "relative" },
-  audioBox: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#F5F3FF", borderWidth: 1, borderColor: "#DDD6FE", padding: 10, borderRadius: 10 },
-  audioRm: { backgroundColor: theme.colors.danger, borderRadius: 12, width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  uploadBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: theme.colors.primary, padding: 10, borderRadius: 10 },
+  audioBox: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#F5F3FF", borderWidth: 1, borderColor: "#DDD6FE", padding: 10, borderRadius: 12 },
+  audioRm: { backgroundColor: theme.colors.danger, borderRadius: 14, width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  uploadBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: theme.colors.primary, padding: 10, borderRadius: 12 },
   uploadT: { color: "#fff", fontWeight: "800", fontSize: 13 },
-  publish: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: theme.colors.success, padding: 14, borderRadius: 10, marginTop: 16 },
+  publish: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: theme.colors.success, padding: 14, borderRadius: 12, marginTop: 16 },
   publishT: { color: "#fff", fontWeight: "900" },
 });
 

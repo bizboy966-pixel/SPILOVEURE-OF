@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
     marginTop: -20, marginHorizontal: 16,
-    borderRadius: 24, padding: 20,
+    borderRadius: 28, padding: 20,
     ...theme.shadow.card,
   },
   title: {
@@ -344,19 +344,19 @@ const styles = StyleSheet.create({
   countryBtn: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border,
-    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 14, marginBottom: 16,
+    borderRadius: 14, paddingHorizontal: 12, paddingVertical: 14, marginBottom: 16,
   },
   countryText: { flex: 1, color: theme.colors.textPrimary, fontSize: theme.font.bodyLg },
   phoneRow: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
   dialBox: {
     backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border,
-    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 14,
+    borderRadius: 14, paddingHorizontal: 12, paddingVertical: 14,
     height: 50, justifyContent: "center",
   },
   dialText: { color: theme.colors.textPrimary, fontWeight: "600" },
   checkRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 12, marginTop: 4 },
   check: {
-    width: 22, height: 22, borderRadius: 6,
+    width: 22, height: 22, borderRadius: 8,
     borderWidth: 1.5, borderColor: theme.colors.border,
     alignItems: "center", justifyContent: "center", marginTop: 2,
   },
@@ -368,25 +368,25 @@ const styles = StyleSheet.create({
   bottomText: { color: theme.colors.textSecondary },
   errBox: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: theme.colors.dangerBg, padding: 12, borderRadius: 12, marginBottom: 12,
+    backgroundColor: theme.colors.dangerBg, padding: 12, borderRadius: 14, marginBottom: 12,
   },
   errText: { color: theme.colors.danger, flex: 1, fontWeight: "600" },
   refBlockBox: {
     flexDirection: "row", alignItems: "flex-start", gap: 10,
     backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 1,
-    padding: 12, borderRadius: 12, marginBottom: 14,
+    padding: 12, borderRadius: 14, marginBottom: 14,
   },
   refBlockTitle: { color: "#92400E", fontWeight: "800", fontSize: 14, marginBottom: 2 },
   refBlockText: { color: "#92400E", fontSize: 12, lineHeight: 16 },
   refCheckBox: {
     backgroundColor: theme.colors.surfaceSecondary, padding: 10,
-    borderRadius: 10, marginBottom: 10, alignItems: "center",
+    borderRadius: 12, marginBottom: 10, alignItems: "center",
   },
   refCheckText: { color: theme.colors.textSecondary, fontStyle: "italic", fontSize: 12 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   countrySheet: { backgroundColor: "#fff", maxHeight: "70%", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16 },
   sheetTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 12 },
-  countryItem: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8 },
+  countryItem: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 10 },
   countryItemText: { flex: 1, fontSize: 16, color: theme.colors.textPrimary, fontWeight: "500" },
   countryItemDial: { color: theme.colors.textSecondary },
 });

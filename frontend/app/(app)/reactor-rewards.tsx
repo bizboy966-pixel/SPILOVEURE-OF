@@ -241,12 +241,12 @@ const styles = StyleSheet.create({
   backBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
     alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 24, backgroundColor: "rgba(255,255,255,0.12)",
   },
   backTxt: { color: "#fff", fontWeight: "700", fontSize: 13 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14 },
   headerIcon: {
-    width: 52, height: 52, borderRadius: 16, backgroundColor: "#FBBF24",
+    width: 52, height: 52, borderRadius: 20, backgroundColor: "#FBBF24",
     alignItems: "center", justifyContent: "center",
   },
   headerTitle: { color: "#fff", fontWeight: "900", fontSize: 20 },
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   totalBlock: {
     marginTop: 16, backgroundColor: "rgba(245, 158, 11, 0.15)",
     borderWidth: 1, borderColor: "rgba(245, 158, 11, 0.4)",
-    padding: 12, borderRadius: 14, alignItems: "center",
+    padding: 12, borderRadius: 16, alignItems: "center",
   },
   totalLabel: { color: "#FDE68A", fontSize: 11, fontWeight: "700" },
   totalVal: { color: "#fff", fontSize: 28, fontWeight: "900", marginTop: 2 },
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
   chip: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 24,
     backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border,
   },
   chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 12, flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: theme.colors.primary, paddingHorizontal: 16, paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 24,
   },
   ctaT: { color: "#fff", fontWeight: "800", fontSize: 13 },
   row: {
@@ -287,7 +287,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8, borderBottomWidth: 1, borderColor: theme.colors.border,
   },
   rowIcon: {
-    width: 34, height: 34, borderRadius: 12,
+    width: 34, height: 34, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
   },
   rowLabel: { fontWeight: "800", fontSize: 13, color: theme.colors.textPrimary },
@@ -300,8 +300,8 @@ const styles = StyleSheet.create({
   dayLabel: { width: 90, fontSize: 11, fontWeight: "700", color: theme.colors.textSecondary },
   barTrack: {
     flex: 1, height: 8, backgroundColor: "#F1F5F9",
-    borderRadius: 4, overflow: "hidden",
+    borderRadius: 6, overflow: "hidden",
   },
-  barFill: { height: "100%", backgroundColor: "#F59E0B", borderRadius: 4 },
+  barFill: { height: "100%", backgroundColor: "#F59E0B", borderRadius: 6 },
   dayTotal: { width: 84, textAlign: "right", fontWeight: "900", fontSize: 12, color: "#10B981" },
 });

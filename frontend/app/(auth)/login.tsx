@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
     marginTop: -20, marginHorizontal: 16,
-    borderRadius: 20, padding: 22,
+    borderRadius: 24, padding: 22,
     ...theme.shadow.card,
   },
   title: {
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
   bottomText: { color: theme.colors.textSecondary, fontSize: 13 },
   errBox: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: theme.colors.dangerBg, padding: 12, borderRadius: 12, marginBottom: 12,
+    backgroundColor: theme.colors.dangerBg, padding: 12, borderRadius: 14, marginBottom: 12,
   },
   errText: { color: theme.colors.danger, flex: 1, fontWeight: "600" },
 });

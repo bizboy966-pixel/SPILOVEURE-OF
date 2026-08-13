@@ -337,13 +337,13 @@ const styles = StyleSheet.create({
   label: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 4 },
   hint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 },
   input: {
-    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14,
     padding: 12, backgroundColor: "#fff", color: theme.colors.textPrimary,
   },
   rowInputs: { flexDirection: "row", gap: 10 },
   audienceRow: { flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" },
   audienceBtn: {
-    flexGrow: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12,
+    flexGrow: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14,
     borderWidth: 1, borderColor: theme.colors.border, backgroundColor: "#fff",
     alignItems: "center",
   },
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   audienceTxt: { color: theme.colors.textSecondary, fontWeight: "700", fontSize: 12 },
   audienceTxtActive: { color: "#fff" },
   chip: {
-    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 24,
     borderWidth: 1, borderColor: theme.colors.border, backgroundColor: "#fff",
   },
   chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
@@ -359,19 +359,19 @@ const styles = StyleSheet.create({
   chipTxtActive: { color: "#fff" },
   sendBtn: {
     marginTop: 20, backgroundColor: theme.colors.primary,
-    paddingVertical: 14, borderRadius: 14, alignItems: "center",
+    paddingVertical: 14, borderRadius: 16, alignItems: "center",
     flexDirection: "row", justifyContent: "center", gap: 8,
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
   testSelfBtn: {
     marginTop: 12, backgroundColor: "#F59E0B",
-    paddingVertical: 12, borderRadius: 12, alignItems: "center",
+    paddingVertical: 12, borderRadius: 14, alignItems: "center",
     flexDirection: "row", justifyContent: "center", gap: 8,
   },
   statRow: { flexDirection: "row", gap: 12 },
   statBox: {
-    flex: 1, backgroundColor: "#F8FAFC", borderRadius: 12,
+    flex: 1, backgroundColor: "#F8FAFC", borderRadius: 14,
     padding: 12, alignItems: "center",
   },
   statN: { color: theme.colors.textPrimary, fontWeight: "900", fontSize: 20 },

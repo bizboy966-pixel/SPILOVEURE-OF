@@ -511,7 +511,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
     borderColor: "rgba(255,255,255,0.2)",
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 12,
     alignItems: "center",
@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
   grid3: { flexDirection: "row", flexWrap: "wrap" },
   serviceCard: {
     backgroundColor: "#fff",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 18,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -584,7 +584,7 @@ const styles = StyleSheet.create({
   serviceIcon: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   stepsRow: { flexDirection: "row", flexWrap: "wrap" },
   stepCard: {
     backgroundColor: "#fff",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 18,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
     left: 18,
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -630,7 +630,7 @@ const styles = StyleSheet.create({
   stepIcon: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: "#E0EAFF",
     alignItems: "center",
     justifyContent: "center",
@@ -744,7 +744,7 @@ const previewStyles = StyleSheet.create({
     gap: 8,
     height: 100,
   },
-  bar: { flex: 1, borderRadius: 6 },
+  bar: { flex: 1, borderRadius: 8 },
   row: { flexDirection: "row", gap: 8, marginTop: 20 },
   chip: {
     flexDirection: "row",

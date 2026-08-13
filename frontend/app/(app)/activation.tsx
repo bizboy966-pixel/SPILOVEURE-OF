@@ -1109,7 +1109,7 @@ function SoleasPollingView({
     return (
       <View
         style={{
-          marginTop: 16, padding: 18, borderRadius: 14,
+          marginTop: 16, padding: 18, borderRadius: 16,
           backgroundColor: theme.colors.successBg || "#D1FAE5",
           borderLeftWidth: 4, borderLeftColor: theme.colors.success,
           alignItems: "center",
@@ -1146,7 +1146,7 @@ function SoleasPollingView({
   }
 
   return (
-    <View style={{ marginTop: 16, padding: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderLeftWidth: 4, borderLeftColor: theme.colors.primary }} testID="soleas-polling">
+    <View style={{ marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderLeftWidth: 4, borderLeftColor: theme.colors.primary }} testID="soleas-polling">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Ionicons name="phone-portrait" size={24} color={theme.colors.primary} />
         <Text style={{ color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14, flex: 1 }}>
@@ -1160,7 +1160,7 @@ function SoleasPollingView({
         Vérification automatique en cours… ({tick}/60)
       </Text>
       <TouchableOpacity
-        style={{ marginTop: 12, paddingVertical: 10, borderRadius: 14, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border }}
+        style={{ marginTop: 12, paddingVertical: 10, borderRadius: 16, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border }}
         onPress={onCancel}
         testID="soleas-cancel"
       >
@@ -1180,36 +1180,36 @@ const styles = StyleSheet.create({
   section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6, fontSize: 16 },
   helper: { color: theme.colors.textSecondary, fontSize: 13, marginTop: 4, lineHeight: 18 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
-  rowIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
+  rowIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
   rowLbl: { color: theme.colors.textSecondary, fontSize: 12 },
   rowVal: { color: theme.colors.textPrimary, fontWeight: "600" },
   lvlBadge: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#DBEAFE", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12, alignSelf: "flex-start",
+    backgroundColor: "#DBEAFE", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14, alignSelf: "flex-start",
   },
   lvlText: { color: theme.colors.primary, fontWeight: "700" },
-  amountBox: { marginTop: 12, padding: 16, backgroundColor: theme.colors.surfaceSecondary, borderRadius: 16 },
+  amountBox: { marginTop: 12, padding: 16, backgroundColor: theme.colors.surfaceSecondary, borderRadius: 20 },
   amountLabel: { color: theme.colors.textSecondary, fontSize: 12 },
   amount: { color: theme.colors.primary, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
   amountHint: { color: theme.colors.textSecondary, fontSize: 11 },
   detail: { color: theme.colors.textSecondary, fontSize: 12 },
-  mfBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#10B981", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  mfBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#10B981", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   mfBadgeText: { color: "#fff", fontWeight: "800", fontSize: 9, letterSpacing: 1 },
   opGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, marginBottom: 4 },
-  opChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  opChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   opChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   opText: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12 },
   lblSmall: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 10, marginBottom: 4 },
-  input: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 12, color: theme.colors.textPrimary, fontSize: 14 },
+  input: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 14, color: theme.colors.textPrimary, fontSize: 14 },
   hint: { color: theme.colors.textSecondary, fontSize: 11, fontStyle: "italic", marginTop: 4 },
   notice: { textAlign: "center", color: theme.colors.textSecondary, fontSize: 11, marginTop: 8 },
-  otpBox: { marginTop: 14, padding: 12, backgroundColor: "#EFF6FF", borderRadius: 12, borderWidth: 1, borderColor: "#BFDBFE" },
+  otpBox: { marginTop: 14, padding: 12, backgroundColor: "#EFF6FF", borderRadius: 14, borderWidth: 1, borderColor: "#BFDBFE" },
   otpTitle: { color: theme.colors.primary, fontWeight: "800", fontSize: 13 },
   otpHint: { color: theme.colors.textPrimary, fontSize: 12, marginTop: 6, marginBottom: 8 },
   altLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, paddingVertical: 6 },
   altLinkText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   step: { flexDirection: "row", gap: 12, marginTop: 8, alignItems: "flex-start" },
-  stepN: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
+  stepN: { width: 28, height: 28, borderRadius: 16, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
   stepNT: { color: "#fff", fontWeight: "800" },
   stepLbl: { fontWeight: "700", color: theme.colors.textPrimary },
   stepDesc: { color: theme.colors.textSecondary, fontSize: 12 },
@@ -1217,25 +1217,25 @@ const styles = StyleSheet.create({
   modesCol: { gap: 8, marginTop: 8 },
   modeCard: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    padding: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary,
+    padding: 12, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary,
     borderWidth: 2, borderColor: "transparent",
   },
   modeCardOn: { borderColor: theme.colors.primary, backgroundColor: "#EFF6FF" },
   modeCardOff: { opacity: 0.5 },
   modeIcon: {
-    width: 40, height: 40, borderRadius: 12,
+    width: 40, height: 40, borderRadius: 14,
     backgroundColor: theme.colors.primary,
     alignItems: "center", justifyContent: "center",
   },
   modeTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
   modeBody: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2, lineHeight: 15 },
-  copyBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.primary },
+  copyBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: theme.colors.primary },
 
   // AUTO-ACTIVATION priority CTA (Ashtech Pay)
   autoActivateBtn: {
     marginTop: 8,
     padding: 16,
-    borderRadius: 18,
+    borderRadius: 22,
     backgroundColor: "#0F172A",
     borderWidth: 2,
     borderColor: "#F59E0B",
@@ -1247,7 +1247,7 @@ const styles = StyleSheet.create({
   },
   autoActivateHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   autoActivateIcon: {
-    width: 48, height: 48, borderRadius: 14,
+    width: 48, height: 48, borderRadius: 16,
     backgroundColor: "#F59E0B",
     alignItems: "center", justifyContent: "center",
   },
@@ -1260,7 +1260,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(245, 158, 11, 0.18)",
     borderWidth: 1, borderColor: "rgba(245, 158, 11, 0.5)",
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 24,
   },
   autoActivateChipText: { color: "#FBBF24", fontSize: 11, fontWeight: "700" },
   // Harmonised variant for the Crypto Auto-activation banner — same

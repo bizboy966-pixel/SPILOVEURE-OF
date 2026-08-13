@@ -98,7 +98,7 @@ export default function TradingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 22, paddingBottom: 18 },
-  back: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  back: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", marginBottom: 6 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { color: "#fff", fontSize: 22, fontWeight: "800" },
   sub: { color: "#C7D9FF", marginTop: 2, fontSize: 12 },

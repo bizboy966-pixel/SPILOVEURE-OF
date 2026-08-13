@@ -400,13 +400,13 @@ export default function AdminEmploiScreen() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: theme.colors.primary },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   htitle: { color: "#fff", fontWeight: "900", fontSize: 17 },
   hsub: { color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600", marginTop: 2 },
 
   formCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 16,
     borderWidth: 1,
@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
   req: { color: theme.colors.danger },
   input: {
     backgroundColor: theme.colors.background,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
     paddingHorizontal: 10,
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   dropdownT: { fontSize: 13, color: theme.colors.textPrimary },
   dropdownList: {
     marginTop: 4,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.background,
@@ -439,7 +439,7 @@ const styles = StyleSheet.create({
   dropdownItemOn: { backgroundColor: "#EEF2FF" },
   dropdownItemT: { fontSize: 12, color: theme.colors.textPrimary },
   imgPreviewWrap: { marginTop: 6, position: "relative", alignSelf: "flex-start" },
-  imgPreview: { width: 140, height: 100, borderRadius: 8 },
+  imgPreview: { width: 140, height: 100, borderRadius: 10 },
   imgRemove: {
     position: "absolute", top: -6, right: -6,
     width: 22, height: 22, borderRadius: 11,
@@ -449,19 +449,19 @@ const styles = StyleSheet.create({
   uploadBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: theme.colors.primary,
-    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
   },
   uploadBtnT: { color: "#fff", fontWeight: "800", fontSize: 12 },
 
   switchRow: { marginTop: 12, flexDirection: "row", alignItems: "center" },
   switchTouch: { flexDirection: "row", alignItems: "center", gap: 8 },
   switch: {
-    width: 42, height: 24, borderRadius: 12,
+    width: 42, height: 24, borderRadius: 14,
     backgroundColor: theme.colors.border,
     padding: 2, justifyContent: "center",
   },
   switchOn: { backgroundColor: "#10B981" },
-  switchDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff" },
+  switchDot: { width: 20, height: 20, borderRadius: 12, backgroundColor: "#fff" },
   switchDotOn: { transform: [{ translateX: 18 }] },
   switchLbl: { fontSize: 12, fontWeight: "700", color: theme.colors.textPrimary },
 
@@ -470,12 +470,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     backgroundColor: theme.colors.primary,
-    paddingVertical: 12, borderRadius: 10,
+    paddingVertical: 12, borderRadius: 12,
   },
   saveBtnT: { color: "#fff", fontWeight: "900", fontSize: 13 },
   cancelBtn: {
     paddingHorizontal: 16, paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1, borderColor: theme.colors.border,
   },
   cancelBtnT: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 12 },
@@ -487,23 +487,23 @@ const styles = StyleSheet.create({
 
   jobCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1, borderColor: theme.colors.border,
   },
   jobCardActive: { borderColor: theme.colors.primary, borderWidth: 2 },
-  thumb: { width: 60, height: 60, borderRadius: 8, backgroundColor: "#EEF2FF" },
+  thumb: { width: 60, height: 60, borderRadius: 10, backgroundColor: "#EEF2FF" },
   thumbEmpty: { alignItems: "center", justifyContent: "center" },
   jobTitle: { fontSize: 14, fontWeight: "900", color: theme.colors.textPrimary, flex: 1 },
-  statusPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  statusPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   statusPillT: { fontSize: 9, fontWeight: "900" },
   jobMeta: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
   jobDesc: { fontSize: 11, color: theme.colors.textPrimary, marginTop: 4, lineHeight: 15 },
   actionRow: { flexDirection: "row", gap: 6, marginTop: 10, flexWrap: "wrap" },
   aBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8,
   },
   aBtnT: { color: "#fff", fontWeight: "800", fontSize: 11 },
 });

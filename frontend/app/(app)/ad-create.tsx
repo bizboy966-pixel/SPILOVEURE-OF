@@ -438,7 +438,7 @@ function AdCreateScreenInner() {
             )}
 
             {payInit?.method === "crypto" && payInit.deposit_address && (
-              <View style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 10 }}>
+              <View style={{ gap: 10, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 12 }}>
                 <Text style={{ fontWeight: "800", color: theme.colors.textPrimary }}>
                   Envoyez {String(payInit.amount_to_send)} USDT (BEP20)
                 </Text>
@@ -450,12 +450,12 @@ function AdCreateScreenInner() {
                       testID="ad-pay-qr"
                     />
                   ) : (
-                    <View style={{ width: 220, height: 220, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                    <View style={{ width: 220, height: 220, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                       <Ionicons name="qr-code" size={60} color={theme.colors.primary} />
                     </View>
                   )}
                 </View>
-                <View style={{ padding: 10, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                <View style={{ padding: 10, backgroundColor: theme.colors.background, borderRadius: 10 }}>
                   <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700" }}>Adresse USDT BEP20</Text>
                   <Text selectable style={{ fontSize: 12, fontFamily: Platform.select({ web: "monospace", default: undefined }), color: theme.colors.textPrimary, marginTop: 4 }} testID="ad-pay-address">
                     {payInit.deposit_address}
@@ -488,14 +488,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36, height: 36, borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
   title: { color: "#fff", fontWeight: "900", fontSize: 16, flex: 1 },
   stepper: { flexDirection: "row", justifyContent: "center", gap: 8, paddingVertical: 10, backgroundColor: theme.colors.surface },
   stepDot: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 32, height: 32, borderRadius: 20,
     backgroundColor: theme.colors.border,
     alignItems: "center", justifyContent: "center",
   },
@@ -504,35 +504,35 @@ const styles = StyleSheet.create({
   section: { fontSize: 15, fontWeight: "900", color: theme.colors.textPrimary },
   label: { fontSize: 12, fontWeight: "800", color: theme.colors.textPrimary, marginTop: 4 },
   input: {
-    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8,
+    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
     paddingHorizontal: 10, paddingVertical: 8, backgroundColor: theme.colors.surface, fontSize: 13,
   },
   textarea: {
-    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8,
+    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
     padding: 10, backgroundColor: theme.colors.surface, minHeight: 96, textAlignVertical: "top",
   },
-  preview: { width: "100%", height: 180, borderRadius: 10, backgroundColor: "#000" },
+  preview: { width: "100%", height: 180, borderRadius: 12, backgroundColor: "#000" },
   uploadBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: theme.colors.primary, borderRadius: 10, padding: 10, justifyContent: "center",
+    backgroundColor: theme.colors.primary, borderRadius: 12, padding: 10, justifyContent: "center",
   },
   uploadT: { color: "#fff", fontWeight: "800", fontSize: 13 },
   uploadInfo: { fontSize: 12, color: theme.colors.success, fontWeight: "700" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: {
     borderWidth: 1, borderColor: theme.colors.border,
-    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.colors.surface,
+    borderRadius: 24, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.colors.surface,
   },
   chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   chipT: { fontSize: 12, fontWeight: "700", color: theme.colors.textPrimary },
   next: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    backgroundColor: theme.colors.success, padding: 12, borderRadius: 10, marginTop: 8,
+    backgroundColor: theme.colors.success, padding: 12, borderRadius: 12, marginTop: 8,
   },
   nextT: { color: "#fff", fontWeight: "900" },
-  warn: { padding: 12, backgroundColor: theme.colors.warningBg, color: theme.colors.warning, borderRadius: 10 },
+  warn: { padding: 12, backgroundColor: theme.colors.warningBg, color: theme.colors.warning, borderRadius: 12 },
   priceBox: {
-    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
+    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12,
     backgroundColor: theme.colors.surface, padding: 12, gap: 4,
   },
   priceLbl: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 4 },

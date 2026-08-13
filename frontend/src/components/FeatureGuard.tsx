@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   card: {
     width: "100%", maxWidth: 420,
     backgroundColor: theme.colors.surface,
-    borderRadius: 20, padding: 28,
+    borderRadius: 24, padding: 28,
     borderWidth: 1, borderColor: theme.colors.border,
     alignItems: "center",
   },
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   btn: {
     flexDirection: "row", alignItems: "center", gap: 6,
     marginTop: 20, backgroundColor: theme.colors.primary,
-    paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12,
+    paddingHorizontal: 20, paddingVertical: 11, borderRadius: 14,
   },
   btnT: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });

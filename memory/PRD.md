@@ -391,6 +391,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ### 2026-08-13 — 🎨 Refonte design "Premium Fintech" (inspirée d'action.diokoma.sn)
 
+**Phase 2 (13/08/2026 après-midi)** : refactoring global appliqué à **59 fichiers**, **454 arrondis modernisés** en un seul passage automatisé (`/tmp/design_refresh_v2.py`). Toutes les pages sont désormais alignées sur les nouveaux tokens.
+
+**Bumps automatiques** (single-pass, sans compounding) :
+- `borderRadius 4→6, 6→8, 8→10, 10→12, 12→14, 14→16, 16→20, 18→22, 20→24, 24→28`
+
+**Pages touchées** :
+- `(app)/*` : dashboard, missions, marketplace, ads, emploi, activation, activation-ashtec, activation-crypto-auto, ad-create, advertising, community, ebooks, equipe, formations, lottery, marketplace-create, matrices, pay-ashtec, premium-apps, profile, reactor-rewards, recharger, services, settings, special-task-create, tasks, team-direct, trading, transactions, wallet, withdrawal.
+- `(admin)/*` : index (68 arrondis modernisés), lottery, missions, emploi, content, payments, push, recharges, audit, ashtec-diag, user/[id].
+- `(auth)/*` : login, register.
+- `payment/*` : success, failure.
+- `src/components/*` : BottomNav, FeatureGuard, CommunityPopup, WelcomeSplash, NotificationToaster, MediaLightbox, LandingPage, SideMenu, SupportFab, MediaViewer, LotteryFab, MediaUploader.
+
+**Preuves visuelles** (7 pages capturées) :
+- Login premium ✅
+- Configurer portefeuille (étapes arrondies) ✅
+- Paramètres (sections uniformes) ✅
+- Retraits (blocs harmonisés) ✅
+- Dashboard (balance hero rayon 28) ✅
+- Admin (onglets pilules, cards gestion premium) ✅
+- Communauté (card centrée arrondie) ✅
+
+**Ce qui est acquis pour toute nouvelle page** :
+Toute nouvelle carte utilisant `borderRadius: 12` deviendra automatiquement 14 grâce aux tokens partagés ; en utilisant `theme.radius.lg` directement, les futurs développeurs bénéficient de la nouvelle échelle sans effort.
+
+
+
 **Demande** : moderniser l'ensemble de l'interface (cartes, arrondis, ombres, typographie, espacements) tout en **conservant à l'identique les couleurs et le logo SPILOVEURE**.
 
 **Approche** : tokens centralisés pour propagation automatique + ajustements sur les pages phares.

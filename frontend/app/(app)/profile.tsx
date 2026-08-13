@@ -102,7 +102,7 @@ export default function Profile() {
                 testID="profile-enable-notifications"
                 style={{
                   backgroundColor: notifState === "granted" ? "#10B981" : theme.colors.primary,
-                  paddingVertical: 12, borderRadius: 10, alignItems: "center",
+                  paddingVertical: 12, borderRadius: 12, alignItems: "center",
                   flexDirection: "row", justifyContent: "center", gap: 8,
                 }}
               >
@@ -151,17 +151,17 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 24, alignItems: "center" },
-  back: { position: "absolute", top: 24, left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  back: { position: "absolute", top: 24, left: 16, width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", marginTop: 12 },
   username: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 12 },
   email: { color: "#C7D9FF" },
   section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 8 },
   itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, gap: 10 },
-  itemIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
+  itemIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
   itemLbl: { flex: 1, color: theme.colors.textSecondary, fontSize: 13 },
   itemVal: { color: theme.colors.textPrimary, fontWeight: "700" },
-  linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 12 },
+  linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 14 },
   linkText: { color: theme.colors.textPrimary, fontSize: 12 },
-  copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.secondary },
+  copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.secondary },
   copyBtnT: { color: "#fff", fontWeight: "700" },
 });

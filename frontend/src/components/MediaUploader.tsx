@@ -148,13 +148,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" },
   btn: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22,
     backgroundColor: theme.colors.primary,
   },
   btnTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
   clearBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20,
     backgroundColor: "#FEE2E2",
   },
   clearTxt: { color: theme.colors.danger, fontWeight: "700", fontSize: 11 },
@@ -162,10 +162,10 @@ const styles = StyleSheet.create({
   preview: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: theme.colors.surfaceSecondary,
-    borderRadius: 10, padding: 8, marginTop: 6,
+    borderRadius: 12, padding: 8, marginTop: 6,
     borderWidth: 1, borderColor: theme.colors.border,
   },
-  thumb: { width: 46, height: 46, borderRadius: 8, backgroundColor: "#fff" },
+  thumb: { width: 46, height: 46, borderRadius: 10, backgroundColor: "#fff" },
   thumbPh: { alignItems: "center", justifyContent: "center" },
   fileTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   fileUrl: { color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 },

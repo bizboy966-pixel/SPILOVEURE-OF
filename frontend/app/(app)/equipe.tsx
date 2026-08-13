@@ -263,14 +263,14 @@ function KV({ label, value, mono }: { label: string; value: string; mono?: boole
 const styles = StyleSheet.create({
   header: { paddingTop: 30, paddingBottom: 22, paddingHorizontal: 16 },
   headerTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.15)" },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.15)" },
   backTxt: { color: "#fff", fontWeight: "700", fontSize: 13 },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 4 },
 
   tabRow: { flexDirection: "row", gap: 6, marginBottom: 10 },
   tab: {
-    flex: 1, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface,
+    flex: 1, padding: 10, borderRadius: 12, backgroundColor: theme.colors.surface,
     alignItems: "center", justifyContent: "center",
     flexDirection: "row", gap: 6, borderWidth: 1, borderColor: theme.colors.border,
   },
@@ -278,13 +278,13 @@ const styles = StyleSheet.create({
   tabT: { fontSize: 12, fontWeight: "700", color: theme.colors.textPrimary },
 
   statsRow: { flexDirection: "row", gap: 6, marginBottom: 10 },
-  statBox: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center" },
+  statBox: { flex: 1, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, alignItems: "center" },
   statN: { fontSize: 22, fontWeight: "900", color: theme.colors.textPrimary },
   statL: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
 
   globalStatsCard: {
     backgroundColor: theme.colors.surfaceSecondary,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 10,
     marginBottom: 10,
     borderWidth: 1,
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
   },
 
   explainerBox: {
-    flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 8,
+    flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10,
     backgroundColor: theme.colors.surfaceSecondary, marginBottom: 10,
   },
   explainer: { flex: 1, fontSize: 11, color: theme.colors.textSecondary, lineHeight: 15 },
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   memberAvatarT: { color: "#fff", fontWeight: "900", fontSize: 14 },
   memberName: { fontSize: 14, fontWeight: "800", color: theme.colors.textPrimary },
   memberSub: { fontSize: 10, color: theme.colors.textSecondary },
-  statusPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   pillActive: { backgroundColor: "#D1FAE5" },
   pillInactive: { backgroundColor: "#FEE2E2" },
   pillT: { fontSize: 10, fontWeight: "800", color: "#1F2937" },

@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36, height: 36, borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   intro: { color: theme.colors.textSecondary, fontSize: 13, marginBottom: 4 },
   card: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    padding: 14, borderRadius: 14,
+    padding: 14, borderRadius: 16,
     backgroundColor: theme.colors.surface,
     borderWidth: 1, borderColor: theme.colors.border,
   },
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
   cardSub: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 },
   soonBadge: {
     backgroundColor: theme.colors.warning,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14,
   },
   soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
 });

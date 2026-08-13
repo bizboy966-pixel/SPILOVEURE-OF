@@ -139,10 +139,10 @@ export default function PaymentSuccess() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center", padding: 20 },
-  card: { width: "100%", maxWidth: 460, backgroundColor: theme.colors.card, borderRadius: 18, padding: 24, alignItems: "center" },
+  card: { width: "100%", maxWidth: 460, backgroundColor: theme.colors.card, borderRadius: 22, padding: 24, alignItems: "center" },
   iconCircle: { width: 110, height: 110, borderRadius: 60, alignItems: "center", justifyContent: "center", marginBottom: 12 },
   title: { color: theme.colors.text, fontSize: 22, fontWeight: "800", marginTop: 12, textAlign: "center" },
   sub: { color: theme.colors.textSecondary, fontSize: 14, marginTop: 8, textAlign: "center", lineHeight: 20 },
-  btn: { backgroundColor: theme.colors.primary, paddingVertical: 14, paddingHorizontal: 22, borderRadius: 12, width: "100%", alignItems: "center" },
+  btn: { backgroundColor: theme.colors.primary, paddingVertical: 14, paddingHorizontal: 22, borderRadius: 14, width: "100%", alignItems: "center" },
   btnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 });

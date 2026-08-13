@@ -253,7 +253,7 @@ function StatusBadge({ status }: { status: string }) {
     rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté" },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
-    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: cfg.bg }}>
+    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: cfg.bg }}>
       <Text style={{ color: cfg.color, fontWeight: "700", fontSize: 11 }}>{cfg.label}</Text>
     </View>
   );
@@ -262,23 +262,23 @@ function StatusBadge({ status }: { status: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 24, paddingBottom: 20 },
-  back: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  back: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
   title: { color: "#fff", fontSize: 20, fontWeight: "700", letterSpacing: -0.3 },
   sub: { color: "#C7D9FF" },
   section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 8 },
   hist: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-  feeBox: { padding: 12, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.border },
+  feeBox: { padding: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.border },
   feeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 2 },
   feeLbl: { color: theme.colors.textSecondary, fontSize: 12 },
   feeVal: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   feeTotal: { borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 6, paddingTop: 8 },
   scheduleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 },
   scheduleTxt: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "600" },
-  statusPill: { marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1 },
+  statusPill: { marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
   statusOpen: { backgroundColor: "#ECFDF5", borderColor: "#10B981" },
   statusClosed: { backgroundColor: "#FEF2F2", borderColor: theme.colors.danger },
   statusTxt: { fontWeight: "700", fontSize: 12 },
-  closedBanner: { padding: 12, borderRadius: 12, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger, marginBottom: 12 },
+  closedBanner: { padding: 12, borderRadius: 14, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: theme.colors.danger, marginBottom: 12 },
   closedTitle: { color: theme.colors.danger, fontWeight: "800", fontSize: 14, marginBottom: 4 },
   closedBody: { color: theme.colors.textPrimary, fontSize: 12, marginTop: 2 },
 });

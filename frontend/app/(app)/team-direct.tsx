@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
   back: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.15)",
     padding: 10,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
   },
   statLbl: { color: "#C7D9FF", fontSize: 10 },
@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
   depthChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
   refreshBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#DBEAFE",
     alignItems: "center",
     justifyContent: "center",
@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 6 },
   legendTxt: { color: theme.colors.textSecondary, fontSize: 11 },
 
   // tree
@@ -376,7 +376,7 @@ const styles = StyleSheet.create({
   node: {
     width: NODE_W,
     minHeight: 76,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 6,
     alignItems: "center",
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
   nodeEmpty: {
     width: NODE_W,
     minHeight: 76,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: "#F1F5F9",
     borderWidth: 2,
     borderColor: theme.colors.border,
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
   },
   nodeMeta: { color: theme.colors.textSecondary, fontSize: 10 },
   badgesRow: { flexDirection: "row", gap: 4, marginTop: 4, flexWrap: "wrap", justifyContent: "center" },
-  badge: { borderRadius: 6, paddingHorizontal: 4, paddingVertical: 1 },
+  badge: { borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 },
   badgeSpill: { backgroundColor: theme.colors.warningBg },
   badgeLeft: { backgroundColor: "#DBEAFE" },
   badgeRight: { backgroundColor: "#E0E7FF" },

@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36, height: 36, borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
   intro: { color: theme.colors.textSecondary, fontSize: 13, marginBottom: 4 },
   card: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    padding: 14, borderRadius: 14,
+    padding: 14, borderRadius: 16,
     backgroundColor: theme.colors.surface,
     borderWidth: 1, borderColor: theme.colors.border,
   },
@@ -340,24 +340,24 @@ const styles = StyleSheet.create({
   cardSub: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 },
   soonBadge: {
     backgroundColor: theme.colors.warning,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14,
   },
   soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
   newBadge: {
     backgroundColor: "#EF4444",
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
   },
   newBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9, letterSpacing: 0.5 },
   iconBadge: {
     position: "absolute", top: -4, right: -4,
-    minWidth: 20, height: 20, borderRadius: 10,
+    minWidth: 20, height: 20, borderRadius: 12,
     backgroundColor: "#EF4444",
     alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: "#fff",
     paddingHorizontal: 4,
   },
   iconBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
-  doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
   doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
   // Modal
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: "100%", maxWidth: 480,
-    backgroundColor: "#fff", borderRadius: 20, padding: 20,
+    backgroundColor: "#fff", borderRadius: 24, padding: 20,
   },
   modalHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
@@ -377,11 +377,11 @@ const styles = StyleSheet.create({
   modalStep: { fontSize: 13, color: theme.colors.textSecondary, marginBottom: 8, lineHeight: 19 },
   uploadBtn: {
     marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 14,
   },
   uploadTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
   previewBox: {
-    marginTop: 12, borderRadius: 12, overflow: "hidden",
+    marginTop: 12, borderRadius: 14, overflow: "hidden",
     borderWidth: 1, borderColor: theme.colors.border,
   },
   previewImg: { width: "100%", height: 180, backgroundColor: "#F1F5F9" },
@@ -390,13 +390,13 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: "row", gap: 10, marginTop: 18 },
   cancelBtn: {
     flex: 1, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 12,
+    paddingVertical: 12, borderRadius: 14,
     borderWidth: 1.5, borderColor: theme.colors.border,
   },
   cancelTxt: { color: theme.colors.textSecondary, fontWeight: "700" },
   submitBtn: {
     flex: 1, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 12,
+    paddingVertical: 12, borderRadius: 14,
     backgroundColor: theme.colors.success,
   },
   submitTxt: { color: "#fff", fontWeight: "900" },

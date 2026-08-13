@@ -135,18 +135,18 @@ const styles = StyleSheet.create({
   wrap: { width: "100%" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   thumb: {
-    width: 120, height: 120, borderRadius: 10, overflow: "hidden",
+    width: 120, height: 120, borderRadius: 12, overflow: "hidden",
     backgroundColor: "#F1F5F9", borderWidth: 1, borderColor: theme.colors.border,
     position: "relative",
   },
   thumbCompact: { width: 84, height: 84 },
   playBadge: {
     position: "absolute", top: 4, right: 4,
-    backgroundColor: "rgba(15, 23, 42, 0.7)", borderRadius: 12, padding: 4,
+    backgroundColor: "rgba(15, 23, 42, 0.7)", borderRadius: 14, padding: 4,
   },
   thumbIdx: {
     position: "absolute", bottom: 4, right: 4,
-    backgroundColor: "rgba(15, 23, 42, 0.75)", borderRadius: 6,
+    backgroundColor: "rgba(15, 23, 42, 0.75)", borderRadius: 8,
     paddingHorizontal: 5, paddingVertical: 2,
   },
   thumbIdxTxt: { color: "#fff", fontSize: 9, fontWeight: "700" },

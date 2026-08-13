@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     backgroundColor: "#DBEAFE",
     paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 12, marginTop: 4,
+    borderRadius: 14, marginTop: 4,
   },
   levelPillText: { color: theme.colors.primary, fontWeight: theme.font.semibold, fontSize: 12 },
   item: {
@@ -159,6 +159,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 12,
   },
-  itemIcon: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  itemIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   itemLabel: { flex: 1, fontSize: theme.font.bodyLg, fontWeight: theme.font.semibold, color: theme.colors.textPrimary },
 });

@@ -678,7 +678,7 @@ export default function AdminHome() {
             {stuck.length > 0 && (
               <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.danger + "22" }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.danger + "22" }}>
                     <Ionicons name="warning" size={20} color={theme.colors.danger} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -729,7 +729,7 @@ export default function AdminHome() {
 
             <Card style={{ marginTop: 14 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#0EA5E922" }}>
+                <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#0EA5E922" }}>
                   <Ionicons name="globe-outline" size={20} color="#0EA5E9" />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -743,7 +743,7 @@ export default function AdminHome() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <View style={{
                   flex: 1, minWidth: 180, paddingVertical: 12, paddingHorizontal: 14,
-                  backgroundColor: theme.colors.background, borderRadius: 10,
+                  backgroundColor: theme.colors.background, borderRadius: 12,
                   borderWidth: 1, borderColor: theme.colors.border,
                 }}>
                   <Text style={{
@@ -760,7 +760,7 @@ export default function AdminHome() {
                   disabled={ipLoading}
                   style={{
                     backgroundColor: theme.colors.primary, paddingVertical: 12, paddingHorizontal: 14,
-                    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6,
+                    borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 6,
                     opacity: ipLoading ? 0.6 : 1,
                   }}
                   testID="admin-server-ip-refresh"
@@ -775,7 +775,7 @@ export default function AdminHome() {
                   style={{
                     backgroundColor: serverIp ? theme.colors.success : theme.colors.border,
                     paddingVertical: 12, paddingHorizontal: 14,
-                    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6,
+                    borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 6,
                   }}
                   testID="admin-server-ip-copy"
                 >
@@ -1005,7 +1005,7 @@ export default function AdminHome() {
                   {a.validated_at ? <KvRow k="Validé le" v={formatDateTime(a.validated_at)} /> : null}
                   {a.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(a.rejected_at)} /> : null}
                   {a.activation_error ? (
-                    <View style={{ marginTop: 4, padding: 6, backgroundColor: "#FEE2E2", borderRadius: 6 }}>
+                    <View style={{ marginTop: 4, padding: 6, backgroundColor: "#FEE2E2", borderRadius: 8 }}>
                       <Text style={{ color: theme.colors.danger, fontSize: 10, fontWeight: "700" }}>⚠️ Erreur :</Text>
                       <Text style={{ color: theme.colors.danger, fontSize: 10, marginTop: 2 }} numberOfLines={3}>{a.activation_error}</Text>
                     </View>
@@ -1041,7 +1041,7 @@ export default function AdminHome() {
                   </View>
                 )}
                 {a.status === "pending" && isAuto && !isStuck && (
-                  <View style={{ marginTop: 8, padding: 8, backgroundColor: "#EFF6FF", borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <View style={{ marginTop: 8, padding: 8, backgroundColor: "#EFF6FF", borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <Ionicons name="phone-portrait" size={14} color={theme.colors.primary} />
                     <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "700", flex: 1 }}>
                       En attente de confirmation sur le téléphone du client…
@@ -1157,7 +1157,7 @@ export default function AdminHome() {
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
                     <Text style={styles.userName}>{w.username}</Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: isMission ? "#FEF3C7" : "#D1FAE5" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: isMission ? "#FEF3C7" : "#D1FAE5" }}>
                       <Ionicons name={isMission ? "trophy" : "cash"} size={11} color={isMission ? "#92400E" : "#065F46"} />
                       <Text style={{ color: isMission ? "#92400E" : "#065F46", fontWeight: "800", fontSize: 10, letterSpacing: 0.5 }}>
                         {isMission ? "MISSION" : "COMMISSIONS"}
@@ -1336,7 +1336,7 @@ export default function AdminHome() {
                     value={chgStartDate}
                     onChange={(e: any) => setChgStartDate(e.target.value)}
                     data-testid="chg-start-date"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
                 <View style={{ flex: 1, minWidth: 140 }}>
@@ -1347,7 +1347,7 @@ export default function AdminHome() {
                     value={chgStartTime}
                     onChange={(e: any) => setChgStartTime(e.target.value)}
                     data-testid="chg-start-time"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
               </View>
@@ -1360,7 +1360,7 @@ export default function AdminHome() {
                     value={chgEndDate}
                     onChange={(e: any) => setChgEndDate(e.target.value)}
                     data-testid="chg-end-date"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
                 <View style={{ flex: 1, minWidth: 140 }}>
@@ -1371,7 +1371,7 @@ export default function AdminHome() {
                     value={chgEndTime}
                     onChange={(e: any) => setChgEndTime(e.target.value)}
                     data-testid="chg-end-time"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
               </View>
@@ -1460,7 +1460,7 @@ export default function AdminHome() {
                   </View>
                   <View style={{
                     backgroundColor: c.active ? theme.colors.success : theme.colors.textSecondary,
-                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
                   }}>
                     <Text style={{ color: "#fff", fontWeight: "800", fontSize: 10 }}>{c.active ? "ACTIF" : "INACTIF"}</Text>
                   </View>
@@ -1555,7 +1555,7 @@ export default function AdminHome() {
                 testID="ads-pricing-save"
               />
               {adsPricing?.configured ? (
-                <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 10 }}>
                   <Text style={{ fontSize: 12 }}>✅ {adsPricing.price_per_day} {adsPricing.currency} / jour • Durées : {adsPricing.available_durations.join(", ")}</Text>
                 </View>
               ) : (
@@ -1573,7 +1573,7 @@ export default function AdminHome() {
                 Les vues et partages restent gratuits. Une seule récompense par utilisateur et par action.
               </Text>
 
-              <View style={{ backgroundColor: "#FEF3C7", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+              <View style={{ backgroundColor: "#FEF3C7", borderRadius: 12, padding: 10, marginBottom: 12 }}>
                 <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E", marginBottom: 6 }}>
                   💰 Répartition globale (doivent totaliser 100 %)
                 </Text>
@@ -1590,7 +1590,7 @@ export default function AdminHome() {
                       testID="ads-reactor-pct"
                     />
                   </View>
-                  <View style={{ flex: 1, backgroundColor: "#FFFBEB", borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                  <View style={{ flex: 1, backgroundColor: "#FFFBEB", borderRadius: 10, padding: 8, marginBottom: 4 }}>
                     <Text style={{ fontSize: 10, color: "#78350F", fontWeight: "700" }}>% plateforme (auto)</Text>
                     <Text style={{ fontSize: 16, fontWeight: "900", color: "#78350F" }} testID="ads-reactor-platform-pct">
                       {(100 - Number(adsReactor.distribution_percentage || 0)).toFixed(0)} %
@@ -1661,7 +1661,7 @@ export default function AdminHome() {
                 })}
                 testID="ads-reactor-save"
               />
-              <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+              <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.background, borderRadius: 10 }}>
                 <Text style={{ fontSize: 11 }}>
                   📊 Exemple : Pub à 10 000 FCFA →
                   pool réacteurs = {(10000 * (Number(adsReactor.distribution_percentage) || 0) / 100).toFixed(0)} FCFA
@@ -1681,7 +1681,7 @@ export default function AdminHome() {
                   <TouchableOpacity
                     key={k}
                     style={{
-                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
                       backgroundColor: adFilter === k ? theme.colors.primary : theme.colors.background,
                     }}
                     onPress={() => setAdFilter(k)}
@@ -1776,7 +1776,7 @@ export default function AdminHome() {
               d'action et les deux pourcentages globaux. Le système répartit automatiquement.
             </Text>
 
-            <View style={{ backgroundColor: "#FEF3C7", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+            <View style={{ backgroundColor: "#FEF3C7", borderRadius: 12, padding: 10, marginBottom: 12 }}>
               <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E", marginBottom: 6 }}>
                 💰 Répartition globale (doivent totaliser 100 %)
               </Text>
@@ -1793,7 +1793,7 @@ export default function AdminHome() {
                     testID="st-distribution-pct"
                   />
                 </View>
-                <View style={{ flex: 1, backgroundColor: "#FFFBEB", borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                <View style={{ flex: 1, backgroundColor: "#FFFBEB", borderRadius: 10, padding: 8, marginBottom: 4 }}>
                   <Text style={{ fontSize: 10, color: "#78350F", fontWeight: "700" }}>% plateforme (auto)</Text>
                   <Text style={{ fontSize: 16, fontWeight: "900", color: "#78350F" }} testID="st-platform-pct">
                     {(100 - stDistPct).toFixed(0)} %
@@ -1817,7 +1817,7 @@ export default function AdminHome() {
                     <Text style={{ fontWeight: "900", fontSize: 13 }}>{labels[at]}</Text>
                     <TouchableOpacity
                       onPress={() => setStCfg((v: any) => ({ ...v, [at]: { ...c, enabled: !c.enabled } }))}
-                      style={{ backgroundColor: c.enabled ? theme.colors.success : theme.colors.textSecondary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}
+                      style={{ backgroundColor: c.enabled ? theme.colors.success : theme.colors.textSecondary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}
                       testID={`st-toggle-${at}`}
                     >
                       <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>{c.enabled ? "ACTIF" : "INACTIF"}</Text>
@@ -1829,7 +1829,7 @@ export default function AdminHome() {
                         onChangeText={(v: string) => setStCfg((s: any) => ({ ...s, [at]: { ...c, price_per_action: Number(v) || 0, reward_per_action: undefined } }))}
                         keyboardType="numeric" testID={`st-price-${at}`} />
                     </View>
-                    <View style={{ flex: 1, backgroundColor: "#F1F5F9", borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                    <View style={{ flex: 1, backgroundColor: "#F1F5F9", borderRadius: 10, padding: 8, marginBottom: 4 }}>
                       <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: "700" }}>Récompense / user (auto)</Text>
                       <Text style={{ fontSize: 14, fontWeight: "900", color: "#0F172A" }} testID={`st-reward-computed-${at}`}>
                         {computedReward} FCFA
@@ -1861,7 +1861,7 @@ export default function AdminHome() {
                 {(["pending_payment", "active", "completed", "cancelled", "all"] as const).map((k) => (
                   <TouchableOpacity
                     key={k}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: stFilter === k ? theme.colors.primary : theme.colors.background }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: stFilter === k ? theme.colors.primary : theme.colors.background }}
                     onPress={() => setStFilter(k)}
                     testID={`st-filter-${k}`}
                   >
@@ -1897,7 +1897,7 @@ export default function AdminHome() {
                     extraInfo={t.link ? (
                       <TouchableOpacity
                         onPress={() => { if (typeof window !== "undefined") window.open(t.link, "_blank"); }}
-                        style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: "flex-start" }}
+                        style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, alignSelf: "flex-start" }}
                         testID={`admin-st-open-link-${t.id}`}
                       >
                         <Ionicons name="open-outline" size={14} color="#fff" />
@@ -1968,7 +1968,7 @@ export default function AdminHome() {
               <Text style={styles.section}>📋 Annonces</Text>
               <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                 {(["pending_admin_review", "approved", "expired", "rejected", "all"] as const).map((k) => (
-                  <TouchableOpacity key={k} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: mkFilter === k ? theme.colors.primary : theme.colors.background }} onPress={() => setMkFilter(k)} testID={`mk-filter-${k}`}>
+                  <TouchableOpacity key={k} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: mkFilter === k ? theme.colors.primary : theme.colors.background }} onPress={() => setMkFilter(k)} testID={`mk-filter-${k}`}>
                     <Text style={{ fontSize: 10, fontWeight: "700", color: mkFilter === k ? "#fff" : theme.colors.textPrimary }}>
                       {{"pending_admin_review": "En attente", "approved": "Approuvées", "expired": "Expirées", "rejected": "Rejetées", "all": "Toutes"}[k]}
                     </Text>
@@ -2818,7 +2818,7 @@ export default function AdminHome() {
                     value={chgEditStartDate}
                     onChange={(e: any) => setChgEditStartDate(e.target.value)}
                     data-testid="chg-edit-start-date"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
                 <View style={{ flex: 1, minWidth: 140 }}>
@@ -2829,7 +2829,7 @@ export default function AdminHome() {
                     value={chgEditStartTime}
                     onChange={(e: any) => setChgEditStartTime(e.target.value)}
                     data-testid="chg-edit-start-time"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
               </View>
@@ -2842,7 +2842,7 @@ export default function AdminHome() {
                     value={chgEditEndDate}
                     onChange={(e: any) => setChgEditEndDate(e.target.value)}
                     data-testid="chg-edit-end-date"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
                 <View style={{ flex: 1, minWidth: 140 }}>
@@ -2853,7 +2853,7 @@ export default function AdminHome() {
                     value={chgEditEndTime}
                     onChange={(e: any) => setChgEditEndTime(e.target.value)}
                     data-testid="chg-edit-end-time"
-                    style={{ padding: 10, borderRadius: 8, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
+                    style={{ padding: 10, borderRadius: 10, border: `1px solid ${theme.colors.border}`, fontSize: 13, width: "100%", boxSizing: "border-box" }}
                   />
                 </View>
               </View>
@@ -3042,7 +3042,7 @@ function PillStatus({ status }: { status: string }) {
     rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté" },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
-    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: cfg.bg }}>
+    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: cfg.bg }}>
       <Text style={{ color: cfg.color, fontWeight: "700", fontSize: 11 }}>{cfg.label}</Text>
     </View>
   );
@@ -3056,7 +3056,7 @@ function MethodBadge({ method, stuck }: { method?: string; stuck?: boolean }) {
     crypto_auto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO AUTO" },
   } as any)[method || "manual"] || { bg: "#E5E7EB", color: "#374151", icon: "help-circle", label: (method || "—").toUpperCase() };
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: cfg.bg }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: cfg.bg }}>
       <Ionicons name={cfg.icon as any} size={11} color={cfg.color} />
       <Text style={{ color: cfg.color, fontWeight: "800", fontSize: 10, letterSpacing: 0.5 }}>{cfg.label}</Text>
       {stuck ? (
@@ -3080,70 +3080,70 @@ const styles = StyleSheet.create({
   header: { padding: 16, paddingTop: 24, paddingBottom: 16 },
   title: { color: "#fff", fontSize: 18, fontWeight: "700", letterSpacing: -0.3 },
   sub: { color: "#C7D9FF", fontSize: 12, marginTop: 2 },
-  logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  logoutBtn: { width: 40, height: 40, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   tabs: { padding: 12, gap: 6 },
-  tab: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border },
+  tab: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fff", borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border },
   tabOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   tabT: { fontWeight: "700", color: theme.colors.primary, fontSize: 12 },
 
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  statCard: { width: "47%", backgroundColor: "#fff", padding: 14, borderRadius: 16, ...theme.shadow.card },
-  statIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  statCard: { width: "47%", backgroundColor: "#fff", padding: 14, borderRadius: 20, ...theme.shadow.card },
+  statIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   statLbl: { color: theme.colors.textSecondary, fontSize: 11 },
   statVal: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 20, marginTop: 2, letterSpacing: -0.3 },
 
   searchRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  searchBox: { flex: 1, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10 },
+  searchBox: { flex: 1, backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10 },
   searchI: { flex: 1, paddingVertical: 10, color: theme.colors.textPrimary },
-  refreshBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
+  refreshBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
 
-  avatar: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 32, height: 32, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   userName: { fontWeight: "700", color: theme.colors.textPrimary },
   userMeta: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 1 },
   actRow: { flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" },
-  actBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.danger },
+  actBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: theme.colors.danger },
   actT: { color: "#fff", fontWeight: "700", fontSize: 12 },
 
   empty: { textAlign: "center", color: theme.colors.textSecondary, padding: 24 },
   section: { fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 12, fontSize: 15, letterSpacing: -0.1 },
   lbl: { color: theme.colors.textPrimary, fontWeight: "600", marginBottom: 6 },
-  priChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  priChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   priChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   priChipT: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 12, textTransform: "capitalize" },
-  kvBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 10, borderRadius: 10, gap: 4 },
+  kvBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 10, borderRadius: 12, gap: 4 },
   kvRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   kvK: { color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 },
   kvV: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12, flex: 1, textAlign: "right" },
-  tag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  tag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   tagT: { fontSize: 9, fontWeight: "800" },
 
   helperTxt: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 },
-  toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, marginBottom: 14 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, marginBottom: 14 },
   toggleOn: { backgroundColor: theme.colors.success || "#10B981" },
   toggleOff: { backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   toggleTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 },
-  textarea: { backgroundColor: theme.colors.surfaceSecondary, borderRadius: 12, padding: 12, minHeight: 96, color: theme.colors.textPrimary, fontSize: 14, marginBottom: 12, textAlignVertical: "top" },
+  textarea: { backgroundColor: theme.colors.surfaceSecondary, borderRadius: 14, padding: 12, minHeight: 96, color: theme.colors.textPrimary, fontSize: 14, marginBottom: 12, textAlignVertical: "top" },
 
-  previewBox: { padding: 16, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8 },
+  previewBox: { padding: 16, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8 },
   previewTitle: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 14, marginBottom: 8, letterSpacing: -0.1 },
   previewInstr: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  previewKv: { marginTop: 10, padding: 10, backgroundColor: "#fff", borderRadius: 10 },
+  previewKv: { marginTop: 10, padding: 10, backgroundColor: "#fff", borderRadius: 12 },
   previewLine: { color: theme.colors.textPrimary, fontSize: 13, marginTop: 2 },
-  previewBtn: { marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary },
+  previewBtn: { marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary },
   previewBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 12, letterSpacing: 0.4 },
 
   subTabsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
-  subTab: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, backgroundColor: theme.colors.surfaceSecondary },
-  subTabDot: { width: 8, height: 8, borderRadius: 4 },
+  subTab: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, backgroundColor: theme.colors.surfaceSecondary },
+  subTabDot: { width: 8, height: 8, borderRadius: 6 },
   subTabLbl: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
-  subTabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, minWidth: 20, alignItems: "center" },
+  subTabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, minWidth: 20, alignItems: "center" },
   subTabBadgeT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 10 },
 
   countryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   countryChip: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12,
     backgroundColor: theme.colors.surfaceSecondary,
     borderWidth: 1, borderColor: theme.colors.border,
   },
@@ -3153,7 +3153,7 @@ const styles = StyleSheet.create({
   daysRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   dayChip: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 18,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 22,
     backgroundColor: theme.colors.surfaceSecondary,
     borderWidth: 1, borderColor: theme.colors.border,
   },
@@ -3169,19 +3169,19 @@ const styles = StyleSheet.create({
   stuckErr: { color: theme.colors.danger, fontSize: 11, marginTop: 3, fontStyle: "italic" },
   stuckBtn: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22,
     backgroundColor: theme.colors.danger,
   },
   stuckBtnTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
 
   contentMgmtCta: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    marginTop: 12, padding: 14, borderRadius: 16,
+    marginTop: 12, padding: 14, borderRadius: 20,
     backgroundColor: "#FF7A00",
     ...theme.shadow.card,
   },
   contentMgmtIcon: {
-    width: 44, height: 44, borderRadius: 12,
+    width: 44, height: 44, borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
@@ -3199,7 +3199,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     backgroundColor: "#fff",
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: "hidden",
     shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 12 },
     elevation: 20,
@@ -3211,7 +3211,7 @@ const styles = StyleSheet.create({
   historyTitle: { color: "#fff", fontWeight: "900", fontSize: 15 },
   historySub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
   historyClose: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 32, height: 32, borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
@@ -3292,23 +3292,23 @@ function PaymentGatewaysCard() {
       gwKey === "soleas"  ? "soleas_enabled"
                           : "ashtec_enabled";
     return (
-      <View key={gwKey} style={{ padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
+      <View key={gwKey} style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ fontSize: 15, fontWeight: "800", color: theme.colors.textPrimary }}>{label}</Text>
           {isActive ? (
-            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: theme.colors.success }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: theme.colors.success }}>
               <Text style={{ color: "#fff", fontWeight: "800", fontSize: 10 }}>✓ PASSERELLE ACTIVE</Text>
             </View>
           ) : null}
         </View>
 
         <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
-          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: meta.enabled ? "#D1FAE5" : "#FEE2E2" }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: meta.enabled ? "#D1FAE5" : "#FEE2E2" }}>
             <Text style={{ color: meta.enabled ? "#065F46" : "#991B1B", fontWeight: "700", fontSize: 11 }}>
               {meta.enabled ? "🟢 Activé" : "🔴 Désactivé"}
             </Text>
           </View>
-          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: meta.configured ? "#DBEAFE" : "#FEF3C7" }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: meta.configured ? "#DBEAFE" : "#FEF3C7" }}>
             <Text style={{ color: meta.configured ? "#1E40AF" : "#92400E", fontWeight: "700", fontSize: 11 }}>
               {meta.configured ? "⚙️ Configuré" : "⚙️ À configurer"}
             </Text>
@@ -3321,7 +3321,7 @@ function PaymentGatewaysCard() {
               Clé API actuelle : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{meta.api_key_masked || "—"}</Text>
             </Text>
             <TextInput
-              style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 8, color: theme.colors.textPrimary, fontSize: 12 }}
+              style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 8, color: theme.colors.textPrimary, fontSize: 12 }}
               placeholder="Nouvelle clé API (ak_…) — laisser vide pour conserver"
               placeholderTextColor={theme.colors.textSecondary}
               value={keyInput}
@@ -3331,7 +3331,7 @@ function PaymentGatewaysCard() {
             />
             {keyInput ? (
               <TouchableOpacity
-                style={{ marginTop: 6, padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary, alignItems: "center" }}
+                style={{ marginTop: 6, padding: 8, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center" }}
                 onPress={() => save({ ashtec_api_key: keyInput })}
                 disabled={saving}
                 testID="ashtec-key-save"
@@ -3344,7 +3344,7 @@ function PaymentGatewaysCard() {
 
         <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
           <TouchableOpacity
-            style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: meta.enabled ? theme.colors.danger : theme.colors.success, alignItems: "center" }}
+            style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: meta.enabled ? theme.colors.danger : theme.colors.success, alignItems: "center" }}
             onPress={() => save({ [enabledKey]: !meta.enabled })}
             disabled={saving}
             testID={`gw-toggle-${gwKey}`}
@@ -3355,7 +3355,7 @@ function PaymentGatewaysCard() {
           </TouchableOpacity>
           {!isActive && meta.enabled ? (
             <TouchableOpacity
-              style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary, alignItems: "center" }}
+              style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center" }}
               onPress={() => save({ active: gwKey })}
               disabled={saving}
               testID={`gw-set-active-${gwKey}`}
@@ -3385,7 +3385,7 @@ function PaymentGatewaysCard() {
         <View
           style={{
             flexDirection: "row", alignItems: "flex-start", gap: 10,
-            padding: 12, borderRadius: 10, marginBottom: 12,
+            padding: 12, borderRadius: 12, marginBottom: 12,
             borderWidth: 2,
             borderColor: health.ok ? theme.colors.success : theme.colors.danger,
             backgroundColor: health.ok ? "#D1FAE5" : "#FEE2E2",
@@ -3416,7 +3416,7 @@ function PaymentGatewaysCard() {
           <TouchableOpacity
             onPress={runHealth}
             disabled={healthLoading}
-            style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.6)" }}
+            style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.6)" }}
             testID="ashtec-health-refresh"
           >
             <Ionicons name={healthLoading ? "reload" : "refresh"} size={16} color="#111827" />
@@ -3428,7 +3428,7 @@ function PaymentGatewaysCard() {
           Guides the admin straight to the input below without needing to
           understand env vs DB fallback. */}
       {health && !health.ok && (health.step === "config" || health.api_key_source === "db" || !health.api_key_source) && (
-        <View style={{ padding: 12, backgroundColor: "#FEF3C7", borderRadius: 10, borderWidth: 2, borderStyle: "dashed", borderColor: "#F59E0B", marginBottom: 12 }} testID="ashtec-rescue-callout">
+        <View style={{ padding: 12, backgroundColor: "#FEF3C7", borderRadius: 12, borderWidth: 2, borderStyle: "dashed", borderColor: "#F59E0B", marginBottom: 12 }} testID="ashtec-rescue-callout">
           <Text style={{ fontWeight: "800", fontSize: 12, color: "#92400E" }}>
             🔑 Solution rapide — collez votre clé Ashtech ci-dessous
           </Text>

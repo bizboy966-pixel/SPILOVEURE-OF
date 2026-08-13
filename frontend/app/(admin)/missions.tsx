@@ -407,7 +407,7 @@ export default function AdminMissions() {
               Chaque jour, une seule catégorie de mission est visible pour l'utilisateur. Sélectionnez la catégorie associée à chaque jour de la semaine. Le système choisit automatiquement la prochaine mission non encore validée par l'utilisateur dans la file de cette catégorie.
             </Text>
             {schedule?.today_label ? (
-              <View style={{ padding: 8, borderRadius: 8, backgroundColor: "#FEF3C7", marginBottom: 8, borderWidth: 1, borderColor: "#FCD34D" }}>
+              <View style={{ padding: 8, borderRadius: 10, backgroundColor: "#FEF3C7", marginBottom: 8, borderWidth: 1, borderColor: "#FCD34D" }}>
                 <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 12 }}>📍 Aujourd'hui : {schedule.today_label}</Text>
               </View>
             ) : null}
@@ -491,7 +491,7 @@ export default function AdminMissions() {
             ) : null}
 
             {payout?.stats ? (
-              <View style={{ padding: 10, borderRadius: 10, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0", marginTop: 6 }}>
+              <View style={{ padding: 10, borderRadius: 12, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0", marginTop: 6 }}>
                 <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>💰 Total validé brut : {Math.round(payout.stats.validated_amount).toLocaleString("fr-FR")} FCFA</Text>
                 <Text style={{ color: theme.colors.success, fontSize: 11, marginTop: 2 }}>💵 Total payé net : {Math.round(payout.stats.validated_net).toLocaleString("fr-FR")} FCFA</Text>
                 <Text style={{ color: theme.colors.warning, fontSize: 11, marginTop: 2 }}>🟡 En attente : {Math.round(payout.stats.pending_amount).toLocaleString("fr-FR")} FCFA</Text>
@@ -627,61 +627,61 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12 },
   hTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
   tabRow: { flexDirection: "row", gap: 6, padding: 10, paddingBottom: 0 },
-  tab: { flex: 1, paddingVertical: 9, borderRadius: 18, backgroundColor: theme.colors.surfaceSecondary, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 22, backgroundColor: theme.colors.surfaceSecondary, alignItems: "center", borderWidth: 1, borderColor: theme.colors.border },
   tabOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   tabTxt: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
   statsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  stat: { flex: 1, padding: 10, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" },
+  stat: { flex: 1, padding: 10, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" },
   statN: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 16 },
   statL: { color: theme.colors.textSecondary, fontSize: 10, marginTop: 2 },
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 12 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 12 },
   searchI: { flex: 1, color: theme.colors.textPrimary, fontSize: 13 },
   empty: { color: theme.colors.textSecondary, textAlign: "center", marginTop: 30 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
   title: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 },
   meta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
   amt: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 13 },
-  editBtn: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.primary },
-  delBtn: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.danger },
-  formCard: { marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  editBtn: { padding: 8, borderRadius: 10, backgroundColor: theme.colors.primary },
+  delBtn: { padding: 8, borderRadius: 10, backgroundColor: theme.colors.danger },
+  formCard: { marginTop: 16, padding: 14, borderRadius: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   formTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14, marginBottom: 8 },
   lbl: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "600", marginTop: 8, marginBottom: 3 },
   help: { color: theme.colors.textSecondary, fontSize: 11, marginBottom: 6, fontStyle: "italic" },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, color: theme.colors.textPrimary, backgroundColor: theme.colors.background },
+  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, color: theme.colors.textPrimary, backgroundColor: theme.colors.background },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
-  tchip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  tchip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   tchipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   tchipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
-  toggleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 18, alignSelf: "flex-start", marginTop: 12 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 22, alignSelf: "flex-start", marginTop: 12 },
   togOn: { backgroundColor: theme.colors.success },
   togOff: { backgroundColor: theme.colors.danger },
   togTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  btn: { flex: 1, paddingVertical: 11, borderRadius: 18, alignItems: "center" },
+  btn: { flex: 1, paddingVertical: 11, borderRadius: 22, alignItems: "center" },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
   filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
-  fchip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  fchip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   fchipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   fchipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
-  wdRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
-  badge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  wdRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  badge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
   badgeTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
   bgPending: { backgroundColor: theme.colors.warning },
   bgValid: { backgroundColor: theme.colors.success },
   bgRejected: { backgroundColor: theme.colors.danger },
-  actBtn: { padding: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  schedBanner: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 12, backgroundColor: theme.colors.primary, marginBottom: 14 },
+  actBtn: { padding: 8, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  schedBanner: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 14, backgroundColor: theme.colors.primary, marginBottom: 14 },
   schedSection: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "800", marginTop: 14, marginBottom: 4 },
   schedHelp: { color: theme.colors.textSecondary, fontSize: 11, marginBottom: 8 },
   daysGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  dayChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  dayChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   dayChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   dayChipTxt: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" },
-  schedInfo: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14, padding: 10, borderRadius: 8, backgroundColor: "#EFF6FF" },
+  schedInfo: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14, padding: 10, borderRadius: 10, backgroundColor: "#EFF6FF" },
   schedInfoTxt: { color: theme.colors.primary, fontSize: 11, flex: 1, lineHeight: 16 },
   dayMapRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   dayMapLbl: { width: 90, color: theme.colors.textPrimary, fontSize: 12, fontWeight: "700" },
   typeChips: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  typeChip: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
+  typeChip: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 16, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   typeChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   typeChipTxt: { color: theme.colors.textPrimary, fontSize: 10, fontWeight: "700" },
 });

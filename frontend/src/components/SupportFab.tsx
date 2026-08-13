@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   menu: {
     marginBottom: 10,
     backgroundColor: "#fff",
-    borderRadius: 14,
+    borderRadius: 16,
     paddingVertical: 8,
     paddingHorizontal: 8,
     minWidth: 220,
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 9,
     paddingHorizontal: 8,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   iconCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   itemTxt: { flex: 1, color: theme.colors.textPrimary, fontWeight: "600", fontSize: 13 },

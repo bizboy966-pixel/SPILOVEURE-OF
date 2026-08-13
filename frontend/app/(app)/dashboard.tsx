@@ -327,13 +327,13 @@ const styles = StyleSheet.create({
   brand: { color: "#fff", fontSize: 17, fontWeight: "700", letterSpacing: 1.5 },
   brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 1.5 },
   menuBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36, height: 36, borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center", justifyContent: "center",
   },
   profileCard: {
     flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10,
-    backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
   },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center" },
   username: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
   reserveText: { color: "#FDE68A", fontSize: 12, fontWeight: "700" },
   statsRow: { flexDirection: "row", gap: 12, marginTop: 14 },
   statCard: { flex: 1, padding: theme.spacing.md, borderRadius: theme.radius.lg, alignItems: "flex-start", ...theme.shadow.card },
-  statIconBox: { width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  statIconBox: { width: 38, height: 38, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 10 },
   statLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", fontWeight: "600" },
   statValue: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 4, letterSpacing: -0.3 },
   statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
@@ -395,14 +395,14 @@ const styles = StyleSheet.create({
   },
   chHeadRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   chIconBox: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)",
+    width: 40, height: 40, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center", justifyContent: "center",
   },
   chTitle: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
   chSubtitle: { color: "rgba(255,255,255,0.9)", fontSize: 11, marginTop: 2 },
   chStatsRow: { flexDirection: "row", gap: 8, marginTop: 6 },
   chStatBox: {
-    flex: 1, backgroundColor: "rgba(255,255,255,0.15)", padding: 8, borderRadius: 10,
+    flex: 1, backgroundColor: "rgba(255,255,255,0.15)", padding: 8, borderRadius: 12,
   },
   chStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "600" },
   chStatValue: { color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
@@ -413,12 +413,12 @@ const styles = StyleSheet.create({
   chProgressFill: { height: 10, backgroundColor: "#fff", borderRadius: 5 },
   chProgressText: { color: "#fff", fontWeight: "700", fontSize: 12, marginTop: 6, textAlign: "right" },
   chBadgeWin: {
-    marginTop: 10, backgroundColor: "#065F46", padding: 10, borderRadius: 10,
+    marginTop: 10, backgroundColor: "#065F46", padding: 10, borderRadius: 12,
     flexDirection: "row", alignItems: "center", gap: 8,
   },
   chBadgeWinText: { color: "#D1FAE5", fontSize: 12, fontWeight: "700", flex: 1 },
   chBadgeWinBtn: {
-    backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
   },
   chBadgeWinBtnText: { color: "#065F46", fontWeight: "700", fontSize: 12 },
 });

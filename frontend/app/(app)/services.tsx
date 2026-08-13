@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
 
   profileCard: {
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 14,
     paddingTop: 12,
     borderWidth: 4,
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
   tilesRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
   tile: { flex: 1, alignItems: "center" },
   tileIconBox: {
-    width: 72, height: 72, borderRadius: 14,
+    width: 72, height: 72, borderRadius: 16,
     backgroundColor: ORANGE,
     alignItems: "center", justifyContent: "center",
     ...theme.shadow.card,
@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   },
 
   hero: {
-    borderRadius: 20, marginTop: 14, padding: 16, paddingRight: 8,
+    borderRadius: 24, marginTop: 14, padding: 16, paddingRight: 8,
     flexDirection: "row", alignItems: "center",
     ...theme.shadow.card,
   },
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   heroBtn: {
     marginTop: 14, alignSelf: "flex-start",
     backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 9,
-    borderRadius: 24,
+    borderRadius: 28,
     flexDirection: "row", alignItems: "center", gap: 6,
   },
   heroBtnTxt: { color: theme.colors.primary, fontWeight: "900", fontSize: 11, letterSpacing: 0.5 },
@@ -434,14 +434,14 @@ const styles = StyleSheet.create({
 
   presCard: {
     backgroundColor: "#EEF2FF",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 12,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
   presRow: { flexDirection: "row", gap: 12, paddingVertical: 8 },
   presIconCircle: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 32, height: 32, borderRadius: 20,
     borderWidth: 2, borderColor: ORANGE,
     backgroundColor: "#FFF7ED",
     alignItems: "center", justifyContent: "center",
@@ -450,7 +450,7 @@ const styles = StyleSheet.create({
   presBody: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
   presDivider: { height: 1, backgroundColor: "#DBE2FA" },
   missionBox: {
-    marginTop: 10, padding: 10, borderRadius: 12,
+    marginTop: 10, padding: 10, borderRadius: 14,
     backgroundColor: "#DBE2FA",
     flexDirection: "row", alignItems: "center", gap: 8,
     borderWidth: 1, borderColor: "#C2CFF4",

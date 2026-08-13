@@ -66,7 +66,7 @@ export default function AshtecDiag() {
             <View style={{ marginTop: 8 }}>
               <Text style={styles.subsection}>Probes exécutés :</Text>
               {(health.probes || []).map((p: any, i: number) => (
-                <View key={i} style={{ marginTop: 6, padding: 8, backgroundColor: "#F1F5F9", borderRadius: 8 }}>
+                <View key={i} style={{ marginTop: 6, padding: 8, backgroundColor: "#F1F5F9", borderRadius: 10 }}>
                   <Text style={styles.txt}>
                     [{p.country}] <Text style={{ fontWeight: "800" }}>{p.operator}</Text> →
                     <Text style={{ color: p.success ? "#10B981" : "#EF4444", fontWeight: "800" }}>

@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
   },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
+  avatar: { width: 40, height: 40, borderRadius: 24 },
   hello: {
     color: "#FDE68A",
     fontSize: 11,

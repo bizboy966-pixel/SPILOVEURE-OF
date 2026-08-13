@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   },
   centerDot: {
     position: "absolute", top: -4, right: -4,
-    minWidth: 20, height: 20, borderRadius: 10,
+    minWidth: 20, height: 20, borderRadius: 12,
     backgroundColor: "#EF4444",
     alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: theme.colors.surface,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   centerDotTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
   badge: {
     position: "absolute", top: -6, right: -8,
-    minWidth: 16, height: 16, borderRadius: 8,
+    minWidth: 16, height: 16, borderRadius: 10,
     backgroundColor: "#EF4444",
     alignItems: "center", justifyContent: "center",
     borderWidth: 1.5, borderColor: theme.colors.surface,
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
   gridItem: {
     width: "31%",
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: theme.colors.surface,
     alignItems: "center",
     borderWidth: 1,
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
   sheetClose: {
     marginTop: 16,
     backgroundColor: theme.colors.primary,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 12,
     alignItems: "center",
   },

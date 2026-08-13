@@ -147,9 +147,9 @@ function MarketplaceScreenInner() {
               <View key={i} style={styles.videoWrap} testID={`mk-video-${item.id}-${i}`}>
                 {Platform.OS === "web" ? (
                   // @ts-ignore raw HTML video element
-                  <video src={resolveMediaUrl(v)} controls playsInline style={{ width: "100%", maxHeight: 220, borderRadius: 8, background: "#000", display: "block" }} />
+                  <video src={resolveMediaUrl(v)} controls playsInline style={{ width: "100%", maxHeight: 220, borderRadius: 10, background: "#000", display: "block" }} />
                 ) : (
-                  <View style={{ height: 160, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                  <View style={{ height: 160, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                     <Ionicons name="videocam" size={24} color="#fff" />
                     <Text style={{ color: "#fff", fontSize: 12, marginTop: 4 }}>Vidéo</Text>
                   </View>
@@ -255,13 +255,13 @@ function MarketplaceScreenInner() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: theme.colors.primary },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  addBtn: { marginLeft: "auto", width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  addBtn: { marginLeft: "auto", width: 36, height: 36, borderRadius: 22, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
   title: { color: "#fff", fontWeight: "900", fontSize: 18, flex: 1 },
   card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, marginBottom: 14, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.card },
   img: { width: "100%", height: 220, backgroundColor: "#000" },
-  navBtn: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
-  imgCount: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  navBtn: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  imgCount: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   musicToggle: {
     position: "absolute", top: 8, left: 8,
     backgroundColor: "rgba(123,97,255,0.9)",
@@ -270,10 +270,10 @@ const styles = StyleSheet.create({
   },
   musicTxt: { color: "#fff", fontSize: 11, fontWeight: "800" },
   videoRow: { padding: 8, gap: 8, backgroundColor: "#0F172A" },
-  videoWrap: { borderRadius: 8, overflow: "hidden" },
+  videoWrap: { borderRadius: 10, overflow: "hidden" },
   name: { fontSize: 15, fontWeight: "900", color: theme.colors.textPrimary },
   meta: { fontSize: 11, color: theme.colors.textSecondary },
-  catBadge: { backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  catBadge: { backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   catT: { fontSize: 10, fontWeight: "700", color: theme.colors.primary },
   promo: { fontSize: 18, fontWeight: "900", color: theme.colors.primary },
   priceOld: { fontSize: 12, color: theme.colors.textSecondary, textDecorationLine: "line-through" },
@@ -283,10 +283,10 @@ const styles = StyleSheet.create({
     position: "absolute", top: 8, left: 8,
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 14,
   },
   zoomHintTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
-  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, padding: 8, borderRadius: 8 },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, padding: 8, borderRadius: 10 },
   btnT: { color: "#fff", fontWeight: "800", fontSize: 12 },
 });
 

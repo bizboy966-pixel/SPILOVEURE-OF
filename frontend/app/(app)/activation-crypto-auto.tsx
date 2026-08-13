@@ -148,7 +148,7 @@ function CryptoAutoInner() {
               {Platform.OS === "web" && qrUri ? (
                 <Image source={{ uri: qrUri }} style={{ width: 240, height: 240, backgroundColor: "#fff" }} testID="cauto-qr" />
               ) : (
-                <View style={{ width: 240, height: 240, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+                <View style={{ width: 240, height: 240, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                   <Ionicons name="qr-code" size={64} color={theme.colors.primary} />
                   <Text style={{ marginTop: 8, fontSize: 12, color: theme.colors.textSecondary }}>Adresse ci-dessous</Text>
                 </View>
@@ -223,27 +223,27 @@ function CryptoAutoInner() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: theme.colors.primary },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   title: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  card: { backgroundColor: theme.colors.surface, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
+  card: { backgroundColor: theme.colors.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border },
   section: { fontSize: 15, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 },
   kv: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderTopWidth: 1, borderColor: theme.colors.border },
   k: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "600" },
   v: { fontSize: 13, color: theme.colors.textPrimary, fontWeight: "700" },
   hint: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 8, lineHeight: 18 },
   err: { color: theme.colors.danger, marginTop: 8, fontWeight: "600" },
-  payBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#7B61FF", padding: 14, borderRadius: 12, marginTop: 12 },
+  payBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#7B61FF", padding: 14, borderRadius: 14, marginTop: 12 },
   payTxt: { color: "#fff", fontWeight: "900" },
-  addrBox: { backgroundColor: theme.colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  addrBox: { backgroundColor: theme.colors.background, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
   addrLabel: { fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700", marginBottom: 4 },
   addrValue: { fontSize: 12, color: theme.colors.textPrimary, fontFamily: Platform.select({ web: "monospace", default: undefined }) },
-  copyBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: theme.colors.success, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  copyBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: theme.colors.success, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   copyTxt: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  waitBox: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, padding: 10, backgroundColor: "#EFEAFF", borderRadius: 8 },
+  waitBox: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, padding: 10, backgroundColor: "#EFEAFF", borderRadius: 10 },
   hashBox: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderColor: theme.colors.border },
   hashInput: {
     marginTop: 8, padding: 12, borderWidth: 1, borderColor: theme.colors.border,
-    borderRadius: 10, color: theme.colors.textPrimary, backgroundColor: theme.colors.background,
+    borderRadius: 12, color: theme.colors.textPrimary, backgroundColor: theme.colors.background,
     fontSize: 13, fontFamily: Platform.select({ web: "monospace", default: undefined }),
   },
   okMsg: { color: theme.colors.success, marginTop: 8, fontWeight: "700" },
