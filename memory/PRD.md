@@ -387,6 +387,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 
 
+## Implementation Status (à jour 2026-08-13-b)
+
+### 2026-08-13 — 🎥 Missions : validation cross-type (YouTube / TikTok / Instagram / Facebook / Questionnaire)
+
+**Demande** : appliquer la refonte (bug fix + card style + auto-validation + anti-fraude + crédit auto + push) à **tous les autres types**, pas seulement YouTube.
+
+**Tests backend paramétrés** (`test_missions_all_types.py`) — 6/6 PASS ✅
+- `test_each_mission_type_credits_correct_wallet[youtube]` — heartbeats + complete → `balance_youtube += 100`, autres portefeuilles inchangés.
+- `test_each_mission_type_credits_correct_wallet[tiktok]` — idem sur `balance_tiktok`.
+- `test_each_mission_type_credits_correct_wallet[instagram]` — idem sur `balance_instagram`.
+- `test_each_mission_type_credits_correct_wallet[facebook]` — idem sur `balance_facebook`.
+- `test_each_mission_type_credits_correct_wallet[questionnaire]` — bonne réponse → `balance_questionnaire += 100`.
+- `test_questionnaire_rejects_wrong_answer` — mauvaise réponse → 400, aucun crédit.
+- **Aucun cross-crediting** vérifié : chaque test assert que **seul** le portefeuille du type ciblé est incrémenté, les 4 autres restent à 0.
+
+**Tests visuels E2E** — 4/4 embeds fonctionnels ✅
+- **TikTok** : pill noir/blanc, embed TikTok `/embed/v2/{id}` chargé, progression 3s/5s.
+- **Instagram** : pill rose, embed `/p/{id}/embed` chargé, progression 4s/5s.
+- **Facebook** : pill bleu, embed `plugins/video.php?href=...` chargé, progression 4s/5s.
+- **Questionnaire** : pill violette, modale avec question + champ texte + bouton "✅ Valider ma réponse" (pas d'iframe).
+
+**Confirmation** : les 5 types utilisent tous le même parcours serveur — `/watch/start`, `/watch/heartbeat`, `/complete` — donc bug fix, anti-fraude, crédit atomique, notif FCM et idempotence sont automatiquement appliqués partout.
+
+
+
 ## Implementation Status (à jour 2026-08-13)
 
 ### 2026-08-13 — 🎥 Missions Rémunérées : corrections & refonte complète
