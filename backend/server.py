@@ -1996,6 +1996,40 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
         soleaspay failed                           → "rejected"
     """
     db = request.app.state.db
+    # ── Auto-reject sweep (12h timeout) ─────────────────────────────────
+    # Any activation pending for more than 12 hours is auto-rejected here.
+    # Runs lazily on every admin page load — no cron needed. Users see the
+    # rejection in their history and can immediately submit a fresh request.
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
+    swept = await db.activations.update_many(
+        {"status": "pending", "created_at": {"$lt": cutoff}},
+        {"$set": {
+            "status": "rejected",
+            "rejected_at": datetime.now(timezone.utc),
+            "rejected_by": "auto:timeout-12h",
+            "reject_reason": "Rejeté automatiquement après 12h sans validation.",
+        }},
+    )
+    # Same sweep for automatic SoleasPay / IziChange payment intents that
+    # never landed. Only pending, unactivated activation-kind rows are touched.
+    await db.payments.update_many(
+        {
+            "status": "pending",
+            "activation_done": {"$ne": True},
+            "kind": {"$in": [None, "activation"]},
+            "created_at": {"$lt": cutoff},
+        },
+        {"$set": {
+            "status": "failed",
+            "activation_error": "Rejeté automatiquement après 12h sans confirmation.",
+            "rejected_at": datetime.now(timezone.utc),
+            "rejected_by": "auto:timeout-12h",
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    if swept.modified_count:
+        log.info("Auto-rejected %d activations older than 12h", swept.modified_count)
+
     q = {"status": status_filter} if status_filter else {}
     items = await db.activations.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     # Tag legacy activations rows (manual / crypto) so the UI knows for sure

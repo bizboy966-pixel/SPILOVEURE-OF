@@ -1171,7 +1171,7 @@ export default function AdminHome() {
                   <KvRow k="Montant demandé" v={formatFCFA(w.amount)} />
                   {w.fee != null ? <KvRow k="Frais de retrait" v={`${formatFCFA(w.fee)}${w.fee_percent != null ? ` (${w.fee_percent}%)` : ""}`} /> : null}
                   {w.net_payout != null ? <KvRow k="Montant net" v={formatFCFA(w.net_payout)} /> : null}
-                  {!isMission ? <KvRow k="Bénéficiaire" v={w.full_name || "—"} /> : null}
+                  {!isMission ? <KvRow k="Bénéficiaire" v={w.full_name || "—"} copyable testID={`admin-copy-name-${w.id}`} /> : null}
                   {!isMission && w.method === "crypto" ? (
                     <>
                       <KvRow k="Mode de retrait" v="Crypto USDT BEP20" />
@@ -1196,7 +1196,7 @@ export default function AdminHome() {
                     <>
                       <KvRow k="Mode de retrait" v="Mobile Money" />
                       <KvRow k="Opérateur" v={w.operator || "—"} />
-                      <KvRow k="Numéro" v={w.phone || "—"} />
+                      <KvRow k="Numéro" v={w.phone || "—"} copyable testID={`admin-copy-phone-${w.id}`} />
                     </>
                   ) : null}
                   {!isMission ? <KvRow k="Pays" v={w.country || "—"} /> : null}
@@ -3066,11 +3066,35 @@ function MethodBadge({ method, stuck }: { method?: string; stuck?: boolean }) {
   );
 }
 
-function KvRow({ k, v }: { k: string; v: string }) {
+function KvRow({ k, v, copyable = false, testID }: { k: string; v: string; copyable?: boolean; testID?: string }) {
+  const doCopy = () => {
+    if (!v || v === "—") return;
+    if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+      (navigator as any).clipboard.writeText(v);
+      if (typeof window !== "undefined") window.alert(`✅ Copié : ${v}`);
+    }
+  };
   return (
     <View style={styles.kvRow}>
       <Text style={styles.kvK}>{k}</Text>
-      <Text style={styles.kvV} numberOfLines={2}>{v}</Text>
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+        <Text style={styles.kvV} numberOfLines={2}>{v}</Text>
+        {copyable && v && v !== "—" ? (
+          <TouchableOpacity
+            onPress={doCopy}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{
+              paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+              backgroundColor: theme.colors.primary + "15",
+              flexDirection: "row", alignItems: "center", gap: 4,
+            }}
+            testID={testID}
+          >
+            <Ionicons name="copy-outline" size={13} color={theme.colors.primary} />
+            <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: "800", letterSpacing: 0.3 }}>COPIER</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
