@@ -3321,6 +3321,12 @@ app.include_router(ashtec_api)
 app.include_router(ashtec_webhook)
 app.include_router(ashtec_admin)
 
+# BizTransPay AUTO-ACTIVATION — USDT.BEP20, 5 USDT fixed, admin-configured.
+from biztranspay import api as biztranspay_api, admin as biztranspay_admin  # noqa: E402
+app.include_router(biztranspay_api)
+# Admin config router is protected via require_admin.
+app.include_router(biztranspay_admin, dependencies=[Depends(require_admin)])
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

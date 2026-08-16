@@ -389,7 +389,56 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-13 — 🎨 Refonte design "Premium Fintech" (inspirée d'action.diokoma.sn)
+### 2026-08-16 — 💎 Intégration BizTransPay (auto-activation USDT.BEP20)
+
+**Demande** : ajouter une méthode d'activation supplémentaire via BizTransPay (`https://biz-transppayy.com/api/v1`), 5 USDT fixe sur BEP20, sans casser aucune méthode existante.
+
+**Choix utilisateur** :
+- Clé prod `sk_live_...` (à saisir depuis l'admin panel, jamais dans le code)
+- 5 USDT fixe, configurable admin
+- Adresse extraite de `GET /payments/{id}` + QR généré localement (`api.qrserver.com`)
+- Tolérance ±0.05 USDT sur le montant reçu
+
+**Backend** (nouveau fichier `/app/backend/biztranspay.py`) :
+- Config stockée dans `db.app_settings` sous la clé `biztranspay` (enabled / api_key / mode / base_url / amount_usdt / network / tolerance_usdt) — l'admin change tout depuis le panneau, aucune clé dans le code ou `.env`.
+- `POST /api/payments/biztranspay/activation/initiate` : appelle `POST /payments` avec `Idempotency-Key`, puis `GET /payments/{id}` pour extraire l'adresse de dépôt (fallback multi-chemins : `deposit_address`, `address`, `payment_address`, `wallet_address`, `data.deposit_address`, etc.). Dédupe : réutilise une intent < 30 min old du même user.
+- `POST /api/payments/biztranspay/activation/verify` : user pose son tx_hash → serveur poll `GET /payments/{id}/status`, valide `paid`, tolère ±0.05 USDT, rejette tx_hash déjà utilisés.
+- `GET /api/payments/biztranspay/activation/status/{reference}` : endpoint de polling (frontend appelle toutes les 15s).
+- Crédit atomique via `find_one_and_update({activation_done: {$ne: true}})` + `activate_level(source="biztranspay")` — **impossible de double-créditer**.
+- Notification FCM "🎉 Paiement crypto confirmé" à la validation.
+- `GET / PUT /api/admin/payments/biztranspay/config` (protégés par `require_admin`) — clé retournée **masquée** (`sk_live_XXXXX…YYYY`).
+
+**Frontend** (nouveau fichier `/app/frontend/app/(app)/activation-biztranspay.tsx`) :
+- Écran dédié avec :
+  - Carte d'intro + bouton "Activer mon compte".
+  - Bloc adresse de dépôt + bouton COPIER + QR local (`api.qrserver.com` 220×220).
+  - Avertissement gras "Envoyez exactement 5 USDT sur BEP20 uniquement".
+  - Champ hash de transaction (facultatif) + bouton "Vérifier le paiement".
+  - **Polling auto toutes les 15s** ; sur `activated=true` → alert + redirection dashboard.
+- Bannière AUTO-ACTIVATION USDT (BizTransPay) ajoutée sur `/(app)/activation` — visible aux côtés du crypto_auto (IziChange) existant sans le remplacer.
+
+**Preuves E2E** (curl) :
+- `GET /admin/payments/biztranspay/config` (unset) → `{enabled: false, api_key_set: false, amount_usdt: 5, network: BEP20, tolerance_usdt: 0.05}` ✅
+- Non-authentifié → 401 ✅
+- User initiate sans config → 503 "désactivée par l'administrateur" ✅
+- Config PUT `enabled=true, api_key=sk_test_FAKE...` → sauvegardée + clé masquée dans la réponse ✅
+- User initiate avec compte déjà activé → 400 "Votre compte est déjà activé" (guard OK) ✅
+
+**Non-régression** :
+- Toutes les méthodes existantes (activation manuelle, activation-ashtec, activation-crypto-auto IziChange, activation crypto manuelle) restent intactes.
+- La nouvelle bannière est **additive** et n'apparaît que si l'admin configure les clés.
+
+**⚠️ À faire côté admin après déploiement** :
+1. Ouvrir le panneau Admin → Configuration → BizTransPay (à ajouter à l'UI admin dans une itération suivante).
+2. En attendant, configurer via curl :
+   ```
+   curl -X PUT https://spiloveure.com/api/admin/payments/biztranspay/config \
+     -H "Authorization: Bearer <ADMIN_TOKEN>" \
+     -H "Content-Type: application/json" \
+     -d '{"enabled":true,"api_key":"sk_live_XXXX","mode":"live"}'
+   ```
+
+
 
 **Phase 2 (13/08/2026 après-midi)** : refactoring global appliqué à **59 fichiers**, **454 arrondis modernisés** en un seul passage automatisé (`/tmp/design_refresh_v2.py`). Toutes les pages sont désormais alignées sur les nouveaux tokens.
 

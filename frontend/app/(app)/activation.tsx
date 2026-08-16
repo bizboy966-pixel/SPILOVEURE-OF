@@ -617,6 +617,45 @@ export default function Activation() {
                 </View>
               </TouchableOpacity>
             )}
+
+            {/* AUTO-ACTIVATION CRYPTO via BizTransPay — extra provider added
+                2026-08-16. Non-destructive: displayed in addition to the
+                existing crypto_auto (IziChange) banner so the user has both
+                options. The endpoint returns 503 if the admin hasn't
+                configured the API key yet. */}
+            <TouchableOpacity
+              style={[styles.autoActivateBtn, { backgroundColor: "#0EA5E9" }]}
+              onPress={() => router.push("/(app)/activation-biztranspay" as any)}
+              testID="btn-biztranspay-activation"
+              activeOpacity={0.85}
+            >
+              <View style={styles.autoActivateHeader}>
+                <View style={[styles.autoActivateIcon, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
+                  <Ionicons name="diamond" size={26} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.autoActivateTitle}>💎 AUTO-ACTIVATION USDT (BizTransPay)</Text>
+                  <Text style={styles.autoActivateSub}>
+                    USDT BEP20 — 5 USDT, confirmation automatique par polling
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={26} color="#fff" />
+              </View>
+              <View style={styles.autoActivateFooter}>
+                <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
+                  <Ionicons name="qr-code-outline" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>QR + Adresse</Text>
+                </View>
+                <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
+                  <Ionicons name="pulse-outline" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>Polling 15s</Text>
+                </View>
+                <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
+                  <Ionicons name="diamond-outline" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>5 USDT (BEP20)</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
           </Card>
         )}
 
