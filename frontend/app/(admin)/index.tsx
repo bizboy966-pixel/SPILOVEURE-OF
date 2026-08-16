@@ -3522,8 +3522,11 @@ function BizTransPayCard() {
         tolerance_usdt: parseFloat(tolerance) || 0.05,
       };
       if (apiKey.trim()) payload.api_key = apiKey.trim();
-      const r = await api.put<any>("/admin/payments/biztranspay/config", payload);
-      setCfg(r.config);
+      await api.put<any>("/admin/payments/biztranspay/config", payload);
+      // Re-fetch the full config so `api_key_set` / `api_key_masked` fields
+      // are refreshed — otherwise the "Aucune clé configurée" warning stays
+      // visible even though the key was saved successfully.
+      await load();
       setApiKey("");                    // clear the input after save
       if (typeof window !== "undefined") window.alert("✅ Configuration BizTransPay enregistrée.");
     } catch (e: any) {

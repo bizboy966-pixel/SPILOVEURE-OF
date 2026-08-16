@@ -389,7 +389,27 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-16 (b) — 💎 BizTransPay : panneau admin indépendant + bannière conditionnelle
+### 2026-08-16 (c) — 🔧 Correctifs BizTransPay : Save admin + navigation user
+
+**Problèmes signalés** :
+1. "Après avoir collé la clé et cliqué sur Enregistrer, ça n'enregistre pas."
+2. "Si tu cliques sur la bannière côté utilisateur, rien ne se passe."
+
+**Diagnostic** :
+1. Le PUT admin **fonctionnait bien** (curl + intercept réseau confirment 200 OK + persistance). MAIS l'UI réutilisait `r.config` (payload brut sans `api_key_masked` / `api_key_set`) → le bandeau jaune "⚠️ Aucune clé configurée" restait visible → l'admin croyait que rien ne s'était sauvegardé. **Fix** : après le PUT, on rappelle `load()` (GET) pour rafraîchir la vue avec la clé masquée.
+2. La page `/activation-biztranspay` était bloquée par le guard `_layout.tsx` : les utilisateurs `max_level=0` sont automatiquement redirigés vers `/activation` sauf pour une whitelist de pages. J'avais oublié d'y ajouter `activation-biztranspay`. **Fix** : ajout dans la whitelist (ligne 15 de `(app)/_layout.tsx`).
+
+**Preuves visuelles E2E** :
+- Admin save : screenshot après click → dialog "✅ Configuration BizTransPay enregistrée" + badge "ACTIVÉ" + checkbox "Activée" cochée automatiquement. Config bien persistée en DB.
+- User flow : login user non-activé → banner biztranspay visible → clic → navigation vers `/activation-biztranspay` → bouton "Activer mon compte" cliquable → API appelée (renvoyée 400 uniquement parce que la clé était fictive dans le test).
+
+**Code**:
+- `(admin)/index.tsx` — `BizTransPayCard.save()` remplace `setCfg(r.config)` par `await load()` pour re-fetcher la vraie forme retournée par le GET.
+- `(app)/_layout.tsx` — ajout `"activation-biztranspay"` dans la liste `ACTIVATION_WHITELIST`.
+
+**En production** : dès que l'admin colle la vraie clé `sk_live_...` et clique Enregistrer, le bandeau jaune disparaît → passe vert "🔑 Clé enregistrée : sk_live_XXXXX…YYYY". Les utilisateurs verront alors la bannière et pourront générer leur adresse de dépôt USDT + QR sans erreur.
+
+
 
 **Problèmes signalés par l'utilisateur** :
 1. Aucun panneau admin pour saisir les clés BizTransPay.
