@@ -389,7 +389,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-16 (c) — 🔧 Correctifs BizTransPay : Save admin + navigation user
+### 2026-08-16 (d) — 🚫 Suppression totale de la page hébergée BizTransPay
+
+**Problème signalé** : le bouton "Ouvrir la page de paiement sécurisée" redirigeait vers un checkout Easy Change externe. L'utilisateur veut une intégration 100 % native (adresse + QR + copier + tx_hash) sans jamais quitter SPILOVEURE.
+
+**Correctifs** :
+
+Backend (`biztranspay.py`) :
+- `_extract_deposit_details` élargi de **9 → 24 chemins possibles** pour extraire l'adresse BEP20 : top-level (`deposit_address`, `pay_address`, `crypto_address`, `receive_address`…), `data.*`, `payment_intent.*`, `crypto.*`, `attributes.*` (JSON:API), `intent.*`, `pay_currency.*`, `payment_details.*`, `payment_method.*`.
+- Sur `POST /activation/initiate` : après avoir créé l'intent, le serveur retente `GET /payments/{id}` **jusqu'à 3 fois avec 1.5s de backoff** — certaines passerelles génèrent l'adresse de façon asynchrone après création de l'intent.
+- Si l'adresse reste introuvable, un **log WARNING** est émis avec les vraies clés retournées par BizTransPay + un snippet de 600 chars du JSON brut → l'admin peut inspecter `/var/log/supervisor/backend.err.log` pour identifier immédiatement le vrai nom de champ à ajouter à `_extract_deposit_details`.
+- `GET /activation/status/{ref}` : si l'adresse manque toujours en base, retente `GET /payments/{id}` **à chaque poll** et met à jour la ligne `payments` dès qu'elle apparaît. Le payload de réponse inclut désormais `deposit_address`, `amount_to_send`, `network`.
+
+Frontend (`activation-biztranspay.tsx`) :
+- **Suppression totale** du bouton "Ouvrir la page de paiement sécurisée" et de la logique `payment_url` (aucune redirection externe possible).
+- Nouveau bloc "⏳ Génération de votre adresse de dépôt…" affiché tant que `deposit_address === null`. Message clair "cette page se met à jour automatiquement toutes les 15 secondes".
+- Polling client mis à jour : dès que le serveur renvoie `deposit_address` dans le status, le state charge est enrichi → l'adresse + QR + bouton COPIER apparaissent sans que l'utilisateur ait à recharger.
+
+**Conditions d'affichage final (adresse + QR)** :
+1. L'utilisateur clique "Activer mon compte" → intent créé, serveur retente 3× l'extraction.
+2. Si l'adresse est trouvée immédiatement → affichage instant.
+3. Sinon → écran "Génération…" pendant que le polling (15s) continue à re-fetch jusqu'à trouver l'adresse.
+4. **Aucun bouton externe** — l'utilisateur reste 100 % dans SPILOVEURE.
+
+**Diagnostic** : si en production BizTransPay retourne un format inconnu (ni parmi les 24 chemins), le log serveur affichera :
+```
+biztranspay: no deposit_address extracted for intent XXX. Raw keys: [...]. Snippet: {...}
+```
+Il suffira alors d'ajouter le nom de champ exact à `_extract_deposit_details` et redéployer — pas de nouvelle intégration.
+
+
 
 **Problèmes signalés** :
 1. "Après avoir collé la clé et cliqué sur Enregistrer, ça n'enregistre pas."

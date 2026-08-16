@@ -63,11 +63,16 @@ export default function BizTransPayActivation() {
   };
 
   // Auto-poll status every 15s once a charge exists — server-side check.
+  // ALSO refreshes the deposit_address if it arrived late (async wallet gen).
   useEffect(() => {
     if (!charge?.reference || done) return;
     const tick = async () => {
       try {
         const r = await api.get<any>(`/payments/biztranspay/activation/status/${charge.reference}`);
+        // Fill in the address the moment the gateway generates it.
+        if (r?.deposit_address && !charge.deposit_address) {
+          setCharge((c) => c ? { ...c, deposit_address: r.deposit_address, amount_to_send: r.amount_to_send ?? c.amount_to_send, network: r.network ?? c.network } : c);
+        }
         if (r?.activated) {
           setDone(true);
           setStatusMsg(r.message || "Compte activé.");
@@ -173,17 +178,16 @@ export default function BizTransPayActivation() {
                     />
                   </View>
                 </>
-              ) : charge.payment_url ? (
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: "#0EA5E9" }]}
-                  onPress={() => Platform.OS === "web" ? window.open(charge.payment_url!, "_blank") : Linking.openURL(charge.payment_url!)}
-                  testID="btp-open-hosted"
-                >
-                  <Ionicons name="open-outline" size={16} color="#fff" />
-                  <Text style={styles.primaryBtnT}>Ouvrir la page de paiement sécurisée</Text>
-                </TouchableOpacity>
               ) : (
-                <Text style={styles.err}>❌ Aucune adresse de dépôt fournie par la passerelle. Contactez le support.</Text>
+                <View style={{ padding: 16, borderRadius: theme.radius.md, backgroundColor: theme.colors.warningBg, borderWidth: 1, borderColor: theme.colors.warning, alignItems: "center", gap: 8 }} testID="btp-address-loading">
+                  <ActivityIndicator color={theme.colors.warning} />
+                  <Text style={{ color: "#92400E", fontSize: 13, fontWeight: "700", textAlign: "center" }}>
+                    Génération de votre adresse de dépôt…
+                  </Text>
+                  <Text style={{ color: "#78350F", fontSize: 11, textAlign: "center" }}>
+                    Le système attend la réponse de BizTransPay. Cette page se met à jour automatiquement toutes les 15 secondes.
+                  </Text>
+                </View>
               )}
 
               <View style={styles.kv}>

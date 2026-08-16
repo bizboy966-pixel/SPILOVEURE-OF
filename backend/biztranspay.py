@@ -75,7 +75,8 @@ async def _http(method: str, cfg: dict, path: str, *,
 
 
 def _extract_deposit_details(payment_data: dict) -> dict:
-    """BizTransPay's response shape isn't fully public — probe common paths."""
+    """BizTransPay's response shape isn't fully public — probe MANY common
+    paths. Deposit-address gateways typically nest it under one of these."""
     def _first(*paths: str) -> Any:
         for p in paths:
             v = payment_data
@@ -89,17 +90,40 @@ def _extract_deposit_details(payment_data: dict) -> dict:
                 return v
         return None
     addr = _first(
+        # Top-level candidates
         "deposit_address", "address", "payment_address", "wallet_address",
-        "pay_address", "data.deposit_address", "data.address",
-        "payment_intent.deposit_address", "crypto.address",
+        "pay_address", "receive_address", "crypto_address", "recipient_address",
+        # data.* nesting (common in RESTful payment providers)
+        "data.deposit_address", "data.address", "data.pay_address",
+        "data.payment_address", "data.wallet_address", "data.crypto_address",
+        # payment_intent.* nesting
+        "payment_intent.deposit_address", "payment_intent.address",
+        "payment_intent.pay_address", "payment_intent.wallet_address",
+        # crypto.* nesting
+        "crypto.address", "crypto.deposit_address", "crypto.pay_address",
+        # payment_method / details
+        "payment_details.address", "payment_details.deposit_address",
+        "payment_method.address", "payment_method.deposit_address",
+        # attributes.* (JSON:API style)
+        "attributes.deposit_address", "attributes.address", "attributes.pay_address",
+        # intent.* nesting
+        "intent.deposit_address", "intent.address", "intent.pay_address",
+        # pay_currency object (some gateways return currency-specific info)
+        "pay_currency.address", "pay_currency.deposit_address",
     )
     network = _first(
-        "network", "chain", "data.network", "crypto.network",
+        "network", "chain", "blockchain",
+        "data.network", "crypto.network", "payment_intent.network",
+        "attributes.network", "pay_currency.network",
     ) or "BEP20"
-    coin = _first("coin", "currency", "data.coin") or "USDT"
+    coin = _first(
+        "coin", "currency", "pay_currency.symbol",
+        "data.coin", "data.currency", "attributes.coin",
+    ) or "USDT"
     amount_to_send = _first(
         "amount_to_send", "amount", "expected_amount",
         "crypto.amount", "data.amount", "payment_intent.amount",
+        "attributes.amount", "pay_amount", "pay_currency.amount",
     )
     return {
         "deposit_address": addr,
@@ -182,13 +206,32 @@ async def biztranspay_initiate(body: InitiateIn, request: Request, user=Depends(
     expires_at = intent.get("expires_at")
 
     # Immediately fetch full details to try to extract the deposit address.
+    # Retry up to 3× with 1.5s backoff — some gateways expose the deposit
+    # address a moment after the intent is created (async wallet gen).
+    import asyncio
     details: dict = {}
-    try:
-        d = await _http("GET", cfg, f"/payments/{intent_id}")
-        if d.status_code < 400:
-            details = _extract_deposit_details(d.json() or {})
-    except Exception as e:
-        log.warning("biztranspay details fetch failed: %s", e)
+    raw_last: dict = {}
+    for attempt in range(3):
+        try:
+            d = await _http("GET", cfg, f"/payments/{intent_id}")
+            if d.status_code < 400:
+                raw_last = d.json() or {}
+                details = _extract_deposit_details(raw_last)
+                if details.get("deposit_address"):
+                    break
+        except Exception as e:
+            log.warning("biztranspay details fetch failed (try %s): %s", attempt + 1, e)
+        await asyncio.sleep(1.5)
+
+    if not details.get("deposit_address"):
+        # Log the raw response so the admin can inspect the actual field names
+        # BizTransPay uses. This is invaluable if the API shape differs from
+        # the 20+ paths already probed in `_extract_deposit_details`.
+        log.warning(
+            "biztranspay: no deposit_address extracted for intent %s. Raw keys: %s. Snippet: %s",
+            intent_id, list(raw_last.keys()) if isinstance(raw_last, dict) else "n/a",
+            str(raw_last)[:600],
+        )
 
     deposit_address = details.get("deposit_address")
     amount_to_send = details.get("amount_to_send") or cfg["amount_usdt"]
@@ -368,7 +411,32 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
         raise HTTPException(403, "Interdit.")
     if pay.get("activation_done"):
         return {"ok": True, "status": "paid", "activated": True}
-    return await _try_confirm(db, cfg, pay)
+    # If we still don't have a deposit_address, retry to fetch it — some
+    # gateways generate the address asynchronously after the intent is
+    # created. Update the payment row so the next call sees the fresh value.
+    if not pay.get("deposit_address") and pay.get("provider_intent_id"):
+        try:
+            d = await _http("GET", cfg, f"/payments/{pay['provider_intent_id']}")
+            if d.status_code < 400:
+                details = _extract_deposit_details(d.json() or {})
+                if details.get("deposit_address"):
+                    await db.payments.update_one(
+                        {"reference": reference},
+                        {"$set": {"deposit_address": details["deposit_address"],
+                                  "amount_to_send": details.get("amount_to_send") or pay.get("amount"),
+                                  "network": details.get("network") or pay.get("network"),
+                                  "updated_at": datetime.now(timezone.utc)}},
+                    )
+                    pay = await db.payments.find_one({"reference": reference})
+        except Exception as e:
+            log.warning("biztranspay late-address fetch failed: %s", e)
+    result = await _try_confirm(db, cfg, pay)
+    # Expose the deposit_address in the status payload so the client can
+    # display it even if it appeared late (post-initiate).
+    result["deposit_address"] = pay.get("deposit_address")
+    result["amount_to_send"] = pay.get("amount_to_send") or pay.get("amount")
+    result["network"] = pay.get("network")
+    return result
 
 
 # ────────────────────────────────────────────────────────────────────────
