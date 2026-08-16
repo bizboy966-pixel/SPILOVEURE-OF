@@ -389,7 +389,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-16 — 💎 Intégration BizTransPay (auto-activation USDT.BEP20)
+### 2026-08-16 (b) — 💎 BizTransPay : panneau admin indépendant + bannière conditionnelle
+
+**Problèmes signalés par l'utilisateur** :
+1. Aucun panneau admin pour saisir les clés BizTransPay.
+2. La bannière apparaissait même quand la passerelle était désactivée → clic sans effet visible.
+
+**Correctifs** :
+
+Backend (`biztranspay.py`) :
+- Nouveau endpoint public (auth) `GET /api/payments/biztranspay/public/status` → renvoie `{enabled, amount_usdt, network}` sans exposer la clé. `enabled = true` uniquement si `admin.enabled = true` **ET** `api_key` non vide.
+
+Frontend admin (`(admin)/index.tsx`) :
+- Nouveau composant **`BizTransPayCard`** — **totalement indépendant** du `PaymentGatewaysCard` existant (Soleas/Ashtec) :
+  - En-tête "💎 BizTransPay — Passerelle indépendante" + badge ACTIVÉ/DÉSACTIVÉ live.
+  - Bannière verte "🔑 Clé enregistrée : sk_live_XXXX…YYYY" ou orange "⚠️ Aucune clé configurée".
+  - Champ clé API masquée (placeholder `sk_live_...` en mode Production, `sk_test_...` en Sandbox).
+  - Toggle **🚀 Production (live)** / **🧪 Sandbox (test)**.
+  - 3 inputs : Montant / Réseau / Tolérance.
+  - Champ URL API BizTransPay (défaut `https://biz-transppayy.com/api/v1`).
+  - Case Activée/Désactivée avec libellé explicite.
+  - Bouton "💾 Enregistrer BizTransPay" (couleur cyan `#0EA5E9`).
+- Rendue dans l'onglet **Réglages** juste après `PaymentGatewaysCard`.
+
+Frontend user (`(app)/activation.tsx`) :
+- Nouveau state `btpEnabled` chargé via `GET /payments/biztranspay/public/status` au montage.
+- La bannière AUTO-ACTIVATION USDT (BizTransPay) est désormais rendue **uniquement si `btpEnabled === true`** → plus jamais de bouton qui n'aboutit pas.
+
+**Preuves** :
+- Screenshot admin : card BizTransPay complète et indépendante, avec toggle Live/Test, tous les champs + bouton Enregistrer.
+- curl `/public/status` : `enabled=false` par défaut, `enabled=true` après config admin, retombe à `false` si clé effacée.
+
+
 
 **Demande** : ajouter une méthode d'activation supplémentaire via BizTransPay (`https://biz-transppayy.com/api/v1`), 5 USDT fixe sur BEP20, sans casser aucune méthode existante.
 

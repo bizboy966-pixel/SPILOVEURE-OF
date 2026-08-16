@@ -2209,6 +2209,7 @@ export default function AdminHome() {
         {tab === "payment" && (
           <>
             <PaymentGatewaysCard />
+            <BizTransPayCard />
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
@@ -3466,6 +3467,175 @@ function PaymentGatewaysCard() {
 
       {renderGw("soleas")}
       {renderGw("ashtec")}
+    </Card>
+  );
+}
+
+
+/**
+ * BizTransPayCard — independent admin section for the BizTransPay gateway.
+ *
+ * Completely decoupled from PaymentGatewaysCard (Soleas / Ashtec) because
+ * BizTransPay is a separate provider with its own USDT.BEP20 auto-activation
+ * flow. Config is stored in `db.app_settings.biztranspay` and served via
+ * `GET/PUT /api/admin/payments/biztranspay/config`.
+ */
+function BizTransPayCard() {
+  const [cfg, setCfg] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");            // user-typed replacement (blank = leave unchanged)
+  const [amount, setAmount] = useState("5");
+  const [network, setNetwork] = useState("BEP20");
+  const [tolerance, setTolerance] = useState("0.05");
+  const [mode, setMode] = useState<"live" | "test">("live");
+  const [enabled, setEnabled] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("https://biz-transppayy.com/api/v1");
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await api.get<any>("/admin/payments/biztranspay/config");
+      setCfg(r);
+      setAmount(String(r.amount_usdt ?? 5));
+      setNetwork(r.network || "BEP20");
+      setTolerance(String(r.tolerance_usdt ?? 0.05));
+      setMode(r.mode === "test" ? "test" : "live");
+      setEnabled(!!r.enabled);
+      setBaseUrl(r.base_url || "https://biz-transppayy.com/api/v1");
+    } catch (e: any) {
+      setError(e?.detail || "Impossible de charger la configuration BizTransPay.");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setBusy(true); setError(null);
+    try {
+      const payload: any = {
+        enabled,
+        mode,
+        base_url: baseUrl.trim(),
+        amount_usdt: parseFloat(amount) || 5,
+        network: network.trim().toUpperCase() || "BEP20",
+        tolerance_usdt: parseFloat(tolerance) || 0.05,
+      };
+      if (apiKey.trim()) payload.api_key = apiKey.trim();
+      const r = await api.put<any>("/admin/payments/biztranspay/config", payload);
+      setCfg(r.config);
+      setApiKey("");                    // clear the input after save
+      if (typeof window !== "undefined") window.alert("✅ Configuration BizTransPay enregistrée.");
+    } catch (e: any) {
+      setError(e?.detail || "Échec de l'enregistrement.");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Card style={{ marginTop: 12 }} testID="biztranspay-admin-card">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ width: 34, height: 34, borderRadius: 22, backgroundColor: "#0EA5E9", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="diamond" size={18} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 16, fontWeight: "800", color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
+            💎 BizTransPay — Passerelle indépendante
+          </Text>
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>
+            USDT BEP20 · 5 USDT · Polling automatique (pas de webhook)
+          </Text>
+        </View>
+        <View style={{
+          paddingHorizontal: 8, paddingVertical: 4, borderRadius: 14,
+          backgroundColor: enabled ? theme.colors.successBg : theme.colors.surfaceMuted,
+          borderWidth: 1, borderColor: enabled ? theme.colors.success : theme.colors.border,
+        }}>
+          <Text style={{ color: enabled ? theme.colors.success : theme.colors.textSecondary, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 }}>
+            {enabled ? "ACTIVÉ" : "DÉSACTIVÉ"}
+          </Text>
+        </View>
+      </View>
+
+      {error ? (
+        <View style={{ padding: 10, backgroundColor: theme.colors.dangerBg, borderRadius: 10, marginTop: 10 }}>
+          <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}>❌ {error}</Text>
+        </View>
+      ) : null}
+
+      {cfg?.api_key_set ? (
+        <View style={{ marginTop: 12, padding: 10, backgroundColor: "#ECFDF5", borderRadius: 10, borderWidth: 1, borderColor: theme.colors.success }}>
+          <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>🔑 Clé API enregistrée : {cfg.api_key_masked}</Text>
+          <Text style={{ color: "#065F46", fontSize: 11, marginTop: 4 }}>
+            Laissez le champ ci-dessous vide pour conserver cette clé. Collez une nouvelle valeur pour la remplacer.
+          </Text>
+        </View>
+      ) : (
+        <View style={{ marginTop: 12, padding: 10, backgroundColor: "#FEF3C7", borderRadius: 10, borderWidth: 1, borderColor: theme.colors.warning }}>
+          <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 12 }}>⚠️ Aucune clé configurée</Text>
+          <Text style={{ color: "#78350F", fontSize: 11, marginTop: 4 }}>
+            Récupérez votre clé sur https://biz-transppayy.com puis collez-la ci-dessous. Utilisez `sk_live_...` pour la production, `sk_test_...` pour le sandbox.
+          </Text>
+        </View>
+      )}
+
+      <View style={{ marginTop: 12, gap: 10 }}>
+        <View>
+          <Text style={styles.lbl}>🔐 Clé API BizTransPay ({mode === "live" ? "sk_live_..." : "sk_test_..."})</Text>
+          <Input value={apiKey} onChangeText={setApiKey} placeholder={cfg?.api_key_set ? "•••••••••• (laisser vide pour conserver)" : "sk_live_XXXXXXXXXXXXXXXX"} testID="btp-api-key" />
+        </View>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TouchableOpacity
+            style={{ flex: 1, padding: 10, borderRadius: 12, alignItems: "center", backgroundColor: mode === "live" ? theme.colors.primary : theme.colors.surfaceMuted, borderWidth: 1, borderColor: mode === "live" ? theme.colors.primary : theme.colors.border }}
+            onPress={() => setMode("live")}
+            testID="btp-mode-live"
+          >
+            <Text style={{ color: mode === "live" ? "#fff" : theme.colors.textPrimary, fontWeight: "800", fontSize: 12 }}>🚀 Production (live)</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ flex: 1, padding: 10, borderRadius: 12, alignItems: "center", backgroundColor: mode === "test" ? theme.colors.warning : theme.colors.surfaceMuted, borderWidth: 1, borderColor: mode === "test" ? theme.colors.warning : theme.colors.border }}
+            onPress={() => setMode("test")}
+            testID="btp-mode-test"
+          >
+            <Text style={{ color: mode === "test" ? "#fff" : theme.colors.textPrimary, fontWeight: "800", fontSize: 12 }}>🧪 Sandbox (test)</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.lbl}>Montant (USDT)</Text>
+            <Input value={amount} onChangeText={setAmount} keyboardType="numeric" testID="btp-amount" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.lbl}>Réseau</Text>
+            <Input value={network} onChangeText={setNetwork} testID="btp-network" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.lbl}>Tolérance (USDT)</Text>
+            <Input value={tolerance} onChangeText={setTolerance} keyboardType="numeric" testID="btp-tolerance" />
+          </View>
+        </View>
+        <View>
+          <Text style={styles.lbl}>URL API BizTransPay</Text>
+          <Input value={baseUrl} onChangeText={setBaseUrl} testID="btp-base-url" />
+        </View>
+        <TouchableOpacity
+          onPress={() => setEnabled(!enabled)}
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}
+          testID="btp-toggle-enabled"
+        >
+          <Ionicons name={enabled ? "checkbox" : "square-outline"} size={22} color={enabled ? theme.colors.success : theme.colors.textSecondary} />
+          <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>
+            {enabled ? "Activée — visible pour les utilisateurs" : "Désactivée — masquée pour les utilisateurs"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={save}
+          disabled={busy}
+          style={{ marginTop: 8, backgroundColor: "#0EA5E9", padding: 14, borderRadius: 14, alignItems: "center", opacity: busy ? 0.6 : 1, ...theme.shadow.button }}
+          testID="btp-save"
+        >
+          <Text style={{ color: "#fff", fontWeight: "800", letterSpacing: 0.3 }}>{busy ? "Enregistrement..." : "💾 Enregistrer BizTransPay"}</Text>
+        </TouchableOpacity>
+      </View>
     </Card>
   );
 }

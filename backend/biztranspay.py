@@ -109,6 +109,19 @@ def _extract_deposit_details(payment_data: dict) -> dict:
     }
 
 
+@api.get("/payments/biztranspay/public/status")
+async def biztranspay_public_status(request: Request, user=Depends(get_current_user)):
+    """Lightweight status probe for the activation UI. Non-admin: returns
+    only what a normal user needs to know — `enabled` + `amount_usdt`. The
+    API key is never returned here."""
+    cfg = await _load_config(request.app.state.db)
+    return {
+        "enabled": bool(cfg.get("enabled") and cfg.get("api_key")),
+        "amount_usdt": float(cfg.get("amount_usdt") or 5),
+        "network": cfg.get("network") or "BEP20",
+    }
+
+
 # ────────────────────────────────────────────────────────────────────────
 # User endpoints
 # ────────────────────────────────────────────────────────────────────────

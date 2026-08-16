@@ -169,6 +169,18 @@ export default function Activation() {
   const [ashtecEnabled, setAshtecEnabled] = useState(false);
   const cryptoAutoEnabled = useFeature("crypto_auto");
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
+  // BizTransPay availability — fetched from `/payments/biztranspay/public/status`.
+  // Hides the banner when the admin hasn't configured the API key yet, so the
+  // user never sees a button that leads nowhere.
+  const [btpEnabled, setBtpEnabled] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get<any>("/payments/biztranspay/public/status");
+        setBtpEnabled(!!r?.enabled);
+      } catch { setBtpEnabled(false); }
+    })();
+  }, []);
 
   // Active payment method (user choice)
   const [paymentMode, setPaymentMode] = useState<"soleas" | "manual" | "crypto" | null>(null);
@@ -621,8 +633,9 @@ export default function Activation() {
             {/* AUTO-ACTIVATION CRYPTO via BizTransPay — extra provider added
                 2026-08-16. Non-destructive: displayed in addition to the
                 existing crypto_auto (IziChange) banner so the user has both
-                options. The endpoint returns 503 if the admin hasn't
-                configured the API key yet. */}
+                options. Rendered ONLY when the admin has enabled BizTransPay
+                and set an API key (`/payments/biztranspay/public/status`). */}
+            {btpEnabled && (
             <TouchableOpacity
               style={[styles.autoActivateBtn, { backgroundColor: "#0EA5E9" }]}
               onPress={() => router.push("/(app)/activation-biztranspay" as any)}
@@ -656,6 +669,7 @@ export default function Activation() {
                 </View>
               </View>
             </TouchableOpacity>
+            )}
           </Card>
         )}
 
