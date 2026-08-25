@@ -39,6 +39,17 @@ export default function ManageUser() {
   const [history, setHistory] = useState<any[] | null>(null);
   const [historyFilter, setHistoryFilter] = useState<"all" | "commission" | "activation" | "withdrawal" | "mission">("all");
   const [historySearch, setHistorySearch] = useState("");
+  // Track which withdrawal rows are expanded to reveal the payout wallet
+  // details (phone, operator, country, etc.) — admin clicks a row to unfold.
+  const [expandedWd, setExpandedWd] = useState<Record<string, boolean>>({});
+  const toggleExpand = (key: string) =>
+    setExpandedWd((prev) => ({ ...prev, [key]: !prev[key] }));
+  const copy = (v: string) => {
+    if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+      (navigator as any).clipboard.writeText(v);
+      if (typeof window !== "undefined") window.alert(`✅ Copié : ${v}`);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -393,8 +404,10 @@ export default function ManageUser() {
                   const sign = isWd ? "−" : isIncoming ? "+" : "↓";
                   const color = isIncoming ? theme.colors.success : isWd ? theme.colors.danger : theme.colors.textPrimary;
                   const icon = isCommission ? "trending-up" : t.type === "mission" ? "trophy" : isWd ? "arrow-up-circle" : t.type === "payment" ? "card" : "ribbon";
-                  return (
-                    <View key={`${t.ref || idx}-${t.type}-${idx}`} style={styles.historyItem}>
+                  const rowKey = `${t.ref || idx}-${t.type}-${idx}`;
+                  const wdOpen = !!expandedWd[rowKey];
+                  const RowContent = (
+                    <View style={styles.historyItem}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <View style={[styles.histIcon, { backgroundColor: isCommission ? "#DCFCE7" : isWd ? "#FEE2E2" : t.type === "mission" ? "#FEF3C7" : "#DBEAFE" }]}>
                           <Ionicons name={icon as any} size={14} color={isCommission ? theme.colors.success : isWd ? theme.colors.danger : t.type === "mission" ? theme.colors.warning : theme.colors.primary} />
@@ -407,6 +420,9 @@ export default function ManageUser() {
                           <Text style={{ color, fontWeight: "800", fontSize: 13 }}>{sign} {formatFCFA(t.amount)}</Text>
                           <Text style={{ color: theme.colors.textSecondary, fontSize: 9 }}>{t.status}</Text>
                         </View>
+                        {isWd ? (
+                          <Ionicons name={wdOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.colors.textSecondary} />
+                        ) : null}
                       </View>
                       {isCommission && (t.from_username || t.from_user_id) && (
                         <View style={styles.histMeta}>
@@ -424,7 +440,58 @@ export default function ManageUser() {
                       {t.meta?.transaction_ref ? (
                         <Text style={[styles.histMetaTxt, { fontFamily: "monospace", fontSize: 9, marginTop: 2 }]} numberOfLines={1}>Réf : {t.meta.transaction_ref}</Text>
                       ) : null}
+                      {isWd && wdOpen ? (
+                        <View style={{
+                          marginTop: 10, padding: 12,
+                          borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceMuted,
+                          borderWidth: 1, borderColor: theme.colors.border, gap: 6,
+                        }} testID={`wd-details-${rowKey}`}>
+                          <Text style={{ color: theme.colors.textPrimary, fontWeight: "800", fontSize: 12, marginBottom: 2 }}>
+                            💳 Portefeuille utilisé pour ce retrait
+                          </Text>
+                          {t.meta?.full_name ? (
+                            <WdKv k="Bénéficiaire" v={t.meta.full_name} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.phone ? (
+                            <WdKv k="Numéro" v={t.meta.phone} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.operator ? (
+                            <WdKv k="Opérateur" v={t.meta.operator} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.country ? (
+                            <WdKv k="Pays" v={t.meta.country} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.network ? (
+                            <WdKv k="Réseau" v={t.meta.network} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.wallet_address ? (
+                            <WdKv k="Adresse" v={t.meta.wallet_address} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.wallet ? (
+                            <WdKv k="Portefeuille source" v={t.meta.wallet} onCopy={copy} />
+                          ) : null}
+                          {t.meta?.reject_reason ? (
+                            <Text style={{ color: theme.colors.danger, fontSize: 11, marginTop: 4 }}>❌ {t.meta.reject_reason}</Text>
+                          ) : null}
+                          {t.fee != null ? (
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 4 }}>
+                              Frais : {formatFCFA(t.fee)} · Net : {formatFCFA(t.net ?? t.amount)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
+                  );
+                  if (!isWd) return <View key={rowKey}>{RowContent}</View>;
+                  return (
+                    <TouchableOpacity
+                      key={rowKey}
+                      activeOpacity={0.7}
+                      onPress={() => toggleExpand(rowKey)}
+                      testID={`wd-toggle-${rowKey}`}
+                    >
+                      {RowContent}
+                    </TouchableOpacity>
                   );
                 });
               })()
@@ -575,3 +642,27 @@ const styles = StyleSheet.create({
   histMeta: { marginTop: 4, paddingLeft: 40, gap: 2 },
   histMetaTxt: { color: theme.colors.textSecondary, fontSize: 11 },
 });
+
+/**
+ * WdKv — key/value row for the expanded withdrawal details panel.
+ * Includes a small COPIER pill on the right so the admin can grab a phone
+ * number or an address in one tap.
+ */
+function WdKv({ k, v, onCopy }: { k: string; v: string; onCopy: (t: string) => void }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700", letterSpacing: 0.2 }}>{k}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", flex: 1, justifyContent: "flex-end", gap: 6 }}>
+        <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: "700" }} numberOfLines={1}>{v}</Text>
+        <TouchableOpacity
+          onPress={() => onCopy(v)}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8, backgroundColor: theme.colors.primary + "18" }}
+        >
+          <Ionicons name="copy-outline" size={11} color={theme.colors.primary} />
+          <Text style={{ color: theme.colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 0.3 }}>COPIER</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}

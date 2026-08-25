@@ -389,7 +389,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-20 — 🚨 Fix critique routage commissions (matrix_placements)
+### 2026-08-25 — 📇 Détails portefeuille dans l'historique retraits admin
+
+**Demande** : côté admin panel, en consultant l'historique des transactions d'un utilisateur, permettre de cliquer sur une ligne de retrait pour révéler le portefeuille utilisé (numéro, opérateur, pays, etc.).
+
+**Backend** (`server.py` — endpoint history utilisé par la page admin/user/[id]) :
+- **Retraits classiques** : les métas ne contenaient que `operator`, `phone`, `country`. Enrichies avec `network`, `wallet_address`, `full_name`, `reject_reason` → l'admin voit toutes les infos crypto/Mobile Money.
+- **Retraits Missions** : les métas ne contenaient que `wallet` et `reject_reason`. Enrichies avec `operator`, `phone`, `country`, `network`, `wallet_address`, `full_name` → cohérence avec les retraits classiques (le fix du 15/08 avait déjà copié ces champs dans la collection `mission_withdrawals`).
+
+**Frontend** (`(admin)/user/[id].tsx`) :
+- Nouveau state `expandedWd` — track quelles lignes de retraits sont dépliées.
+- Chaque ligne `type === "withdrawal"` est désormais **cliquable** avec chevron ↓/↑ indicateur.
+- Panneau déplié avec fond doux + bordure : **"💳 Portefeuille utilisé pour ce retrait"** + rows Bénéficiaire / Numéro / Opérateur / Pays / Réseau / Adresse / Portefeuille source / motif de rejet / frais + net.
+- Composant `WdKv` avec bouton **📋 COPIER** par ligne pour saisir instantanément le numéro / adresse dans un outil externe.
+
+**Preuve visuelle** :
+- Screenshot 1 : historique replié, toutes lignes retraits avec chevron ↓.
+- Screenshot 2 : après clic sur une ligne Retrait Mission → chevron ↑ + panneau déplié montrant "💳 Portefeuille utilisé pour ce retrait" avec la ligne source + bouton COPIER.
+
+
 
 **Bug** : `distribute_commission` utilisait `_walk_up_sponsors(sponsor_id, level-1)` pour trouver le bénéficiaire, ignorant complètement l'enregistrement `matrix_placements` du niveau concerné → toute activation L ≥ 2 payait le mauvais parrain (décalé de level-1 hops vers le haut) et le split 50/50 spillover n'était appliqué qu'au niveau 1.
 

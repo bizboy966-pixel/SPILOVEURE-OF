@@ -945,6 +945,10 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
                 "operator": w.get("operator"),
                 "phone": w.get("phone"),
                 "country": w.get("country"),
+                "network": w.get("network"),
+                "wallet_address": w.get("wallet_address"),
+                "full_name": w.get("full_name"),
+                "reject_reason": w.get("reject_reason"),
             },
         })
 
@@ -964,6 +968,12 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
                 "meta": {
                     "withdrawal_type": "mission",
                     "wallet": w.get("wallet"),
+                    "operator": w.get("operator"),
+                    "phone": w.get("phone"),
+                    "country": w.get("country"),
+                    "network": w.get("network"),
+                    "wallet_address": w.get("wallet_address"),
+                    "full_name": w.get("full_name"),
                     "reject_reason": w.get("reject_reason"),
                 },
             })
