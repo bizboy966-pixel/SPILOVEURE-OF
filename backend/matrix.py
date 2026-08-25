@@ -93,48 +93,28 @@ async def _walk_up_sponsors(db, start_user_id: Optional[str], hops: int) -> Opti
 
 async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
     """Credit level-N commission to the proper ancestor(s) — official SPILOVEURE
-    compensation plan (2026-07-30).
+    compensation plan.
 
-    Trigger — a level-N commission is emitted **only** when a descendant
-    activates level N. The eligible recipient is the ancestor exactly N hops
-    up the sponsor chain (i.e. the N-th generation ancestor). If that ancestor
-    has NOT itself reached level N, the commission is skipped (not paid
-    retroactively when they later upgrade — that's the official spec).
+    ⚠️ Correction bug 2026-08-20 : les arguments `sponsor_id` et `parent_id`
+    proviennent directement du record `matrix_placements` pour (user, level=N)
+    créé lors de `activate_level` → `place_in_matrix`. Ces valeurs représentent
+    déjà le vrai sponsor et parent AU NIVEAU N. Il ne faut donc PAS remonter
+    la chaîne `users.sponsor_id` via `_walk_up_sponsors` — cela produisait un
+    décalage de (level−1) hops trop haut. On paie strictement les IDs stockés
+    dans le placement du niveau concerné.
 
-    ▸ Direct placement (1st or 2nd direct invitee of the sponsor, at level N)
-        100 % of `commission_per_invite` → direct ancestor (N-th hop up).
+    Règles :
+    ▸ Non-spillover (`is_spillover=false`, ou `parent_id == sponsor_id`) :
+        100 % du `commission_per_invite` → `sponsor_id` (kind="direct").
+    ▸ Spillover (`is_spillover=true` ET `parent_id != sponsor_id`) :
+        50 % → `sponsor_id`  (kind="spillover_sponsor")
+        50 % → `parent_id`   (kind="spillover_beneficiary")
+      Ce partage 50/50 s'applique à TOUS les niveaux où le placement est
+      un spillover (correction bug utilisateur 2026-08-20 : anciennement
+      restreint au level 1, ce qui contredisait la structure `matrix_placements`).
 
-    ▸ Spillover placement (3rd+ direct invitee at level N — placed under the
-      sponsor's weakest leg by `place_in_matrix`)
-        ▸ IF level == 1 (initial placement of the new user in the network) :
-            50 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
-            50 % → spillover beneficiary  (N-th hop up the MATRIX chain).
-          This is the ONLY moment the 50/50 split is applied — spec 2026-02
-          clarification: "Le Spillover est un mode de PLACEMENT, pas un mode
-          de CALCUL permanent des commissions."
-        ▸ IF level >= 2 (any subsequent level activation) :
-            100 % → direct-sponsor ancestor (N-th hop up the SPONSOR chain).
-          The Spillover placement does NOT influence commissions above L1.
-          Level-2 through Level-12 commissions are ALWAYS paid integrally
-          to the direct sponsor-chain ancestor.
-
-    ▸ Reserve/profit split — depends on the recipient kind:
-        - `direct` and `spillover_beneficiary` :
-            need = max(0, price_of_recipient_next_level − recipient.balance_upgrade)
-            upgrade_share = min(amount // 2, need)   # never over-fill
-            profit_share  = amount − upgrade_share
-          Once the reserve is full (or the recipient is at max level 12) →
-          100 % goes straight into `balance_profit`.
-        - `spillover_sponsor` (sponsor who invited a spillovered downline,
-          only fires at L1 per the clarified spec) :
-            100 % → `balance_profit`. The sponsor's reserve is fed only by
-            direct commissions and by the beneficiary's share (spec 2026-02).
-
-    ▸ Additional guards (spec §10):
-        - Recipient user must exist and be at level ≥ N.
-        - No commission for max_level == 12 (already at top).
-        - Same person on both chains (spillover collapses to direct) → treat
-          as a single direct credit (no double-payment).
+    ▸ Reserve/profit split — inchangé (voir plus bas).
+    ▸ Guards §10 — inchangés : recipient must exist and be at level ≥ N.
     """
     if not sponsor_id:
         return []
@@ -143,37 +123,20 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         return []
     commission = lv["commission_per_invite"]
 
-    direct_ancestor = await _walk_up_sponsors(db, sponsor_id, level - 1)
-
     credits: list[dict] = []
-    # Spec 2026-02 clarification: the 50/50 Spillover split applies ONLY at
-    # Level 1 (the initial placement of the new user in the network). For
-    # every level >= 2, commissions are paid integrally to the direct
-    # sponsor-chain ancestor, no matter how the activating user's L-N matrix
-    # slot was filled. Spillover = mode de PLACEMENT, pas mode de CALCUL.
-    is_spill = bool(
-        is_spillover and parent_id and parent_id != sponsor_id and level == 1
-    )
+    # Route directement depuis les IDs du placement niveau-N.
+    is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
 
-    # Build the list of (recipient_id, amount, kind) tuples.
     if is_spill:
-        spillover_ancestor = await _walk_up_sponsors(db, parent_id, level - 1)
-        if spillover_ancestor and direct_ancestor and spillover_ancestor == direct_ancestor:
-            # Same ancestor on both chains — collapse to a single direct credit
-            # so we never double-pay the same person.
-            recipients = [(direct_ancestor, commission, "direct")]
-        else:
-            half = commission // 2
-            other_half = commission - half
-            recipients = []
-            if direct_ancestor:
-                recipients.append((direct_ancestor, half, "spillover_sponsor"))
-            if spillover_ancestor:
-                recipients.append((spillover_ancestor, other_half, "spillover_beneficiary"))
+        # Same person on both chains → collapse to a single direct credit.
+        half = commission // 2
+        other_half = commission - half
+        recipients = [
+            (sponsor_id, half, "spillover_sponsor"),
+            (parent_id, other_half, "spillover_beneficiary"),
+        ]
     else:
-        recipients = []
-        if direct_ancestor:
-            recipients.append((direct_ancestor, commission, "direct"))
+        recipients = [(sponsor_id, commission, "direct")]
 
     for user_id, amount, kind in recipients:
         recipient = await db.users.find_one(

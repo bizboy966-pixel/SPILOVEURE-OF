@@ -389,7 +389,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-13-c)
 
-### 2026-08-16 (d) — 🚫 Suppression totale de la page hébergée BizTransPay
+### 2026-08-20 — 🚨 Fix critique routage commissions (matrix_placements)
+
+**Bug** : `distribute_commission` utilisait `_walk_up_sponsors(sponsor_id, level-1)` pour trouver le bénéficiaire, ignorant complètement l'enregistrement `matrix_placements` du niveau concerné → toute activation L ≥ 2 payait le mauvais parrain (décalé de level-1 hops vers le haut) et le split 50/50 spillover n'était appliqué qu'au niveau 1.
+
+**Cas reportés par l'utilisateur** :
+- `nassar235` L2 spillover → aurait dû partager entre `okah515` (sponsor) et `theodor09` (parent), a payé 1000 à `Bizboy91` (2 hops trop haut).
+- `ae9b8ae5` L2 non-spillover → aurait dû payer `Bizboy91`, a payé `admin` (sponsor de Bizboy91).
+- `ae9b8ae5` L3 spillover → aurait dû payer les deux, a payé `admin` au lieu de `dbac9d5f…` et n'a jamais émis la part spillover_sponsor.
+
+**Fix** (`matrix.py::distribute_commission`) :
+- Suppression totale de l'appel à `_walk_up_sponsors` dans la détermination du bénéficiaire.
+- Les arguments `sponsor_id` et `parent_id` reçus proviennent déjà de `matrix_placements` du niveau N (via `activate_level` → `place_in_matrix`). On paie strictement ces IDs.
+- Le split 50/50 spillover s'applique désormais **à tous les niveaux** (L1 à L12) quand `is_spillover=true` ET `parent_id != sponsor_id` — plus de restriction "L1 uniquement" qui contredisait la structure de `matrix_placements`.
+- Montants, split reserve/profit, guards §10 (recipient level ≥ N) : **inchangés**.
+
+**Tests** (nouveau `tests/test_matrix_placement_routing.py`) :
+- `test_L2_spillover_splits_50_50_between_placement_sponsor_and_parent` (cas nassar235) ✅
+- `test_L2_non_spillover_pays_placement_sponsor_fully` (cas ae9b8ae5 L2) ✅
+- `test_L3_spillover_credits_both_placement_sponsor_and_parent` (cas ae9b8ae5 L3) ✅
+
+Ancien test `test_spillover_l1_only.py` **supprimé** — il codifiait justement le bug (spec "L1-only spillover") que l'utilisateur a demandé de corriger.
+
+**Audit d'ampleur** (`scripts/audit_commissions_mismatch.py`, read-only) :
+- Scanne tous les commissions L ≥ 2, compare avec `matrix_placements` de ce niveau.
+- Sur DB preview `spilivere` : 26 L≥2 scannés → 9 mal routés + 15 parts spillover jamais émises.
+- À lancer sur la DB de prod pour connaître l'ampleur exacte :
+  ```
+  MONGO_URL=... DB_NAME=spiloveure-deploy-spilivere python3 audit_commissions_mismatch.py
+  ```
+
+**Correction rétroactive** : NON automatique — décision admin à prendre au vu de l'audit. Les corrections futures partiront du fix, tout nouveau commissionnement suit désormais `matrix_placements`.
+
+
 
 **Problème signalé** : le bouton "Ouvrir la page de paiement sécurisée" redirigeait vers un checkout Easy Change externe. L'utilisateur veut une intégration 100 % native (adresse + QR + copier + tx_hash) sans jamais quitter SPILOVEURE.
 
