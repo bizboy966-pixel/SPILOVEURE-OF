@@ -1,19 +1,21 @@
 /**
  * Admin Support tab — inbox of user↔admin conversations.
  *
- * Displays all conversations sorted by most-recent-activity. Selecting a
- * conversation opens the messages panel with an inline composer. A background
- * heartbeat every 30 s keeps the admin marked as "online" for user-facing
- * status without needing WebSockets.
+ * Telegram-style enhancements matching the user-side ChatBubble :
+ *  ▸ Tap image → full-screen MediaLightbox with zoom + navigation.
+ *  ▸ Long-press / right-click a bubble → context menu (Répondre / Copier
+ *    / Supprimer — admins can only delete their own outgoing messages).
+ *  ▸ Double blue ticks when the user has read admin messages.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, ScrollView, StyleSheet,
-  Text, TextInput, TouchableOpacity, View,
+  ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
 
 type ConvItem = {
   id: string; user_id: string; username: string; email: string;
@@ -21,12 +23,13 @@ type ConvItem = {
   preview: string; last_sender_role: string;
 };
 type Msg = {
-  id: string; sender_role: "user" | "admin"; sender_username?: string;
+  id: string; sender_id: string; sender_role: "user" | "admin"; sender_username?: string;
   text: string; images: string[]; audio?: string | null;
   status: "sent" | "delivered" | "read";
   reply_to?: string | null;
   reply_preview?: { id: string; sender_role: string; sender_username: string; preview: string } | null;
   created_at: string; read_at?: string | null;
+  deleted?: boolean;
 };
 
 function fmtDate(iso: string | null) {
@@ -65,16 +68,46 @@ async function compressImage(file: File, maxBytes = 780 * 1024): Promise<string>
   return canvas.toDataURL("image/jpeg", 0.5);
 }
 
+function useSelfId(): string | null {
+  // Support and admin agents get their id embedded in tokens the same way,
+  // but the AdminSupportTab is reused in two shells :
+  //  - admin dashboard: /(admin)/index.tsx → useAuth() supplies user
+  //  - support-desk    : /support-desk.tsx → user stored in localStorage
+  // To keep this component simple we read both possible sources.
+  const [id, setId] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const supp = window.localStorage.getItem("spilv_support_token_user");
+      if (supp) { const u = JSON.parse(supp); if (u?.id) { setId(u.id); return; } }
+    } catch {}
+    try {
+      const usr = window.localStorage.getItem("spilv_user");
+      if (usr) { const u = JSON.parse(usr); if (u?.id) { setId(u.id); return; } }
+    } catch {}
+    // last resort: fetch /auth/me
+    (async () => {
+      try {
+        const r = await api.get<any>("/auth/me");
+        if (r?.id) setId(r.id);
+      } catch {}
+    })();
+  }, []);
+  return id;
+}
+
 export default function AdminSupportTab() {
+  const selfId = useSelfId();
   const [convs, setConvs] = useState<ConvItem[]>([]);
   const [selected, setSelected] = useState<ConvItem | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [loading, setLoading] = useState(false);
   const [text, setText] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [menuMsg, setMenuMsg] = useState<Msg | null>(null);
+  const [lightbox, setLightbox] = useState<{ slides: Slide[]; index: number } | null>(null);
   const scrollRef = useRef<any>(null);
   const hbTimer = useRef<any>(null);
   const pollTimer = useRef<any>(null);
@@ -99,7 +132,6 @@ export default function AdminSupportTab() {
     }
   }, []);
 
-  // Heartbeat: keep admin marked as online.
   useEffect(() => {
     const beat = () => { api.post("/chat/admin/heartbeat", {}).catch(() => {}); };
     beat();
@@ -107,14 +139,12 @@ export default function AdminSupportTab() {
     return () => clearInterval(hbTimer.current);
   }, []);
 
-  // Load conversation list every 5 s.
   useEffect(() => {
     loadConvs();
     const t = setInterval(loadConvs, 5_000);
     return () => clearInterval(t);
   }, [loadConvs]);
 
-  // Poll selected conversation every 2 s.
   useEffect(() => {
     if (!selected) return;
     loadMsgs(selected.id);
@@ -151,9 +181,42 @@ export default function AdminSupportTab() {
     } finally { setSending(false); }
   };
 
+  const openImage = (m: Msg, i: number) => {
+    const slides: Slide[] = (m.images || []).map((u) => ({ kind: "image", url: u }));
+    if (slides.length > 0) setLightbox({ slides, index: i });
+  };
+  const openMenuFor = (m: Msg) => { if (!m.deleted) setMenuMsg(m); };
+  const doReply = (m: Msg) => { setReplyTo(m); setMenuMsg(null); };
+  const doCopy = (m: Msg) => {
+    setMenuMsg(null);
+    if (!m.text) return;
+    try { navigator?.clipboard?.writeText(m.text); } catch {}
+  };
+  const runDelete = async (m: Msg) => {
+    if (!selected) return;
+    try {
+      await api.delete(`/chat/admin/conversations/${selected.id}/messages/${m.id}`);
+      setMsgs((prev) => prev.map((x) => x.id === m.id
+        ? { ...x, deleted: true, text: "", images: [], audio: null, reply_preview: null } : x));
+    } catch (e: any) {
+      setErr(e?.detail || "Suppression impossible.");
+    }
+  };
+  const doDelete = (m: Msg) => {
+    setMenuMsg(null);
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && !window.confirm("Supprimer ce message ?")) return;
+      void runDelete(m);
+    } else {
+      Alert.alert("Supprimer ce message ?", "", [
+        { text: "Annuler", style: "cancel" },
+        { text: "Supprimer", style: "destructive", onPress: () => runDelete(m) },
+      ]);
+    }
+  };
+
   return (
     <View style={{ flexDirection: "row", flex: 1, minHeight: 500, gap: 12 }} testID="admin-support-tab">
-      {/* Left column — conversation list */}
       <View style={styles.leftCol}>
         <Text style={styles.leftTitle}>💬 Support · {convs.length} conversation{convs.length > 1 ? "s" : ""}</Text>
         <ScrollView style={{ flex: 1 }}>
@@ -185,7 +248,6 @@ export default function AdminSupportTab() {
         </ScrollView>
       </View>
 
-      {/* Right column — messages */}
       <View style={styles.rightCol}>
         {!selected ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -201,42 +263,79 @@ export default function AdminSupportTab() {
               <Text style={styles.chatHeaderS}>{selected.email}</Text>
             </View>
             <ScrollView ref={scrollRef} style={{ flex: 1, backgroundColor: theme.colors.surfaceMuted }} contentContainerStyle={{ padding: 12, gap: 6 }}>
-              {msgs.map((m) => (
-                <TouchableOpacity key={m.id} activeOpacity={0.85} onPress={() => setReplyTo(m)} style={[styles.msg, m.sender_role === "admin" ? styles.msgAdmin : styles.msgUser]} testID={`admin-msg-${m.id}`}>
-                  {m.reply_preview ? (
-                    <View style={{ borderLeftWidth: 3, borderLeftColor: m.sender_role === "admin" ? "rgba(255,255,255,0.6)" : theme.colors.primary, paddingLeft: 8, marginBottom: 4 }}>
-                      <Text style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
-                        {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Utilisateur")}
-                      </Text>
-                      <Text numberOfLines={2} style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
-                        {m.reply_preview.preview}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {m.text ? (
-                    <Text style={m.sender_role === "admin" ? styles.msgTextAdmin : styles.msgText}>{m.text}</Text>
-                  ) : null}
-                  {m.images && m.images.length > 0 ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: m.text ? 6 : 0 }}>
-                      {m.images.map((src, i) => (<Image key={i} source={{ uri: src }} style={styles.msgImg} />))}
-                    </View>
-                  ) : null}
-                  {m.audio ? (
-                    /* @ts-ignore */
-                    <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220 }} />
-                  ) : null}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
-                    <Text style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.8)" : theme.colors.textSecondary, fontSize: 10 }}>
-                      {fmtDate(m.created_at)}
-                    </Text>
-                    {m.sender_role === "admin" ? (
-                      <Text style={{ color: m.status === "read" ? "#3B82F6" : "rgba(255,255,255,0.8)", fontSize: 11 }}>
-                        {m.status === "sent" ? "✓" : "✓✓"}
-                      </Text>
-                    ) : null}
+              {msgs.map((m) => {
+                const mine = m.sender_role === "admin";
+                const isDeleted = !!m.deleted;
+                return (
+                  <View key={m.id} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                    <Pressable
+                      onLongPress={() => openMenuFor(m)}
+                      // @ts-ignore web contextmenu
+                      onContextMenu={Platform.OS === "web" ? (e: any) => { e.preventDefault?.(); openMenuFor(m); } : undefined}
+                      delayLongPress={350}
+                      style={({ pressed }) => [
+                        styles.msg,
+                        mine ? styles.msgAdmin : styles.msgUser,
+                        pressed && { opacity: 0.85 },
+                        isDeleted && { opacity: 0.75 },
+                      ]}
+                      testID={`admin-msg-${m.id}`}
+                    >
+                      {isDeleted ? (
+                        <Text style={[mine ? styles.msgTextAdmin : styles.msgText, { fontStyle: "italic", opacity: 0.85 }]}>
+                          🚫 Message supprimé
+                        </Text>
+                      ) : (
+                        <>
+                          {m.reply_preview ? (
+                            <View style={{ borderLeftWidth: 3, borderLeftColor: mine ? "rgba(255,255,255,0.6)" : theme.colors.primary, paddingLeft: 8, marginBottom: 4 }}>
+                              <Text style={{ color: mine ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
+                                {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Utilisateur")}
+                              </Text>
+                              <Text numberOfLines={2} style={{ color: mine ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
+                                {m.reply_preview.preview}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {m.text ? (
+                            <Text style={mine ? styles.msgTextAdmin : styles.msgText} selectable>{m.text}</Text>
+                          ) : null}
+                          {m.images && m.images.length > 0 ? (
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: m.text ? 6 : 0 }}>
+                              {m.images.map((src, i) => (
+                                <TouchableOpacity key={i} onPress={() => openImage(m, i)}
+                                  activeOpacity={0.85}
+                                  testID={`admin-msg-img-${m.id}-${i}`}>
+                                  <Image source={{ uri: src }} style={styles.msgImg} />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          ) : null}
+                          {m.audio ? (
+                            /* @ts-ignore */
+                            <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220, borderRadius: 8 }} />
+                          ) : null}
+                        </>
+                      )}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
+                        <Text style={{ color: mine ? "rgba(255,255,255,0.8)" : theme.colors.textSecondary, fontSize: 10 }}>
+                          {fmtDate(m.created_at)}
+                        </Text>
+                        {mine && !isDeleted ? (
+                          <Text style={{
+                            color: m.status === "read" ? "#60A5FA"
+                              : m.status === "delivered" ? "rgba(255,255,255,0.75)"
+                              : "rgba(255,255,255,0.6)",
+                            fontSize: 11, fontWeight: "800",
+                          }}>
+                            {m.status === "sent" ? "✓" : "✓✓"}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
                   </View>
-                </TouchableOpacity>
-              ))}
+                );
+              })}
             </ScrollView>
             {images.length > 0 ? (
               <View style={{ flexDirection: "row", gap: 6, padding: 6, backgroundColor: theme.colors.surface }}>
@@ -270,6 +369,45 @@ export default function AdminSupportTab() {
           </>
         )}
       </View>
+
+      {/* Context menu */}
+      <Modal transparent visible={!!menuMsg} animationType="fade" onRequestClose={() => setMenuMsg(null)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuMsg(null)}>
+          <Pressable style={styles.menuCard} onPress={(e) => e.stopPropagation()} testID="admin-msg-menu">
+            <Text style={styles.menuTitle}>Actions</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doReply(menuMsg)} testID="admin-menu-reply">
+              <Ionicons name="arrow-undo" size={18} color={theme.colors.primary} />
+              <Text style={styles.menuItemT}>Répondre</Text>
+            </TouchableOpacity>
+            {menuMsg?.text ? (
+              <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doCopy(menuMsg)} testID="admin-menu-copy">
+                <Ionicons name="copy" size={18} color={theme.colors.textPrimary} />
+                <Text style={styles.menuItemT}>Copier le texte</Text>
+              </TouchableOpacity>
+            ) : null}
+            {menuMsg && selfId && menuMsg.sender_id === selfId ? (
+              <TouchableOpacity style={[styles.menuItem, styles.menuItemDanger]} onPress={() => menuMsg && doDelete(menuMsg)} testID="admin-menu-delete">
+                <Ionicons name="trash" size={18} color={theme.colors.danger} />
+                <Text style={[styles.menuItemT, { color: theme.colors.danger }]}>Supprimer</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity style={[styles.menuItem, { justifyContent: "center" }]} onPress={() => setMenuMsg(null)}>
+              <Text style={{ color: theme.colors.textSecondary, fontWeight: "700", fontSize: 13 }}>Annuler</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {lightbox ? (
+        <MediaLightbox
+          open
+          slides={lightbox.slides}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(i) => setLightbox((lb) => lb ? { ...lb, index: i } : lb)}
+          testID="admin-chat-lightbox"
+        />
+      ) : null}
     </View>
   );
 }
@@ -289,8 +427,8 @@ const styles = StyleSheet.create({
   chatHeaderT: { color: "#fff", fontWeight: "800", fontSize: 14 },
   chatHeaderS: { color: "rgba(255,255,255,0.8)", fontSize: 11 },
   msg: { maxWidth: "80%", padding: 10, borderRadius: 14 },
-  msgAdmin: { alignSelf: "flex-end", backgroundColor: theme.colors.primary, borderBottomRightRadius: 4 },
-  msgUser: { alignSelf: "flex-start", backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border, borderBottomLeftRadius: 4 },
+  msgAdmin: { backgroundColor: theme.colors.primary, borderBottomRightRadius: 4 },
+  msgUser: { backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border, borderBottomLeftRadius: 4 },
   msgText: { color: theme.colors.textPrimary, fontSize: 13, lineHeight: 18 },
   msgTextAdmin: { color: "#fff", fontSize: 13, lineHeight: 18 },
   msgImg: { width: 120, height: 120, borderRadius: 6 },
@@ -298,4 +436,21 @@ const styles = StyleSheet.create({
   attach: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   input: { flex: 1, minHeight: 40, maxHeight: 120, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, color: theme.colors.textPrimary, fontSize: 13, borderWidth: 1, borderColor: theme.colors.border },
   send: { width: 42, height: 42, borderRadius: 22, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
+  menuBackdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center", justifyContent: "center", padding: 20,
+  },
+  menuCard: {
+    width: "100%", maxWidth: 320,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16, padding: 8,
+    ...theme.shadow.lifted,
+  },
+  menuTitle: { color: theme.colors.textSecondary, fontWeight: "800", fontSize: 11, textTransform: "uppercase", padding: 8, letterSpacing: 0.5 },
+  menuItem: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 10,
+  },
+  menuItemDanger: { backgroundColor: theme.colors.danger + "10" },
+  menuItemT: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13.5 },
 });

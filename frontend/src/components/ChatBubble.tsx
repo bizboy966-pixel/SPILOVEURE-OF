@@ -1,29 +1,29 @@
 /**
  * Floating chat bubble → conversation with SPILOVEURE support (admins).
  *
- * Positioned bottom-right on every page under (app). Polls /api/chat/me
- * every 3 seconds while the panel is open, every 20 seconds while closed
- * (only to refresh the unread badge). Admin online status shown in the
- * header. Read receipts: single grey tick = sent, double grey = delivered,
- * double blue = admin has read.
- *
- * Photos: user can attach up to 4 images per message (800 KB max each,
- * client-side compressed to <= 800 KB via canvas). Photos are stored as
- * base64 data-URLs directly in the message document (Phase 1 MVP).
+ * Telegram-style features:
+ *  ▸ Tap image → full-screen MediaLightbox with pinch/zoom.
+ *  ▸ Long-press (mobile) / right-click (web) on a bubble → context menu
+ *    with Répondre, Copier, Supprimer (own messages only).
+ *  ▸ Ticks : ✓ sent, ✓✓ delivered, ✓✓ blue = read.
+ *  ▸ Voice notes : native <audio> controls (progress + play/pause).
+ *  ▸ Global master switch : if admin disabled chat, the bubble is hidden.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Platform, ScrollView,
+  ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
 
 type Msg = {
   id: string;
   conversation_id: string;
+  sender_id: string;
   sender_role: "user" | "admin";
   sender_username?: string;
   text: string;
@@ -34,6 +34,7 @@ type Msg = {
   reply_preview?: { id: string; sender_role: string; sender_username: string; preview: string } | null;
   created_at: string;
   read_at?: string | null;
+  deleted?: boolean;
 };
 
 type Payload = {
@@ -50,7 +51,6 @@ async function compressImageFile(file: File, maxBytes = 780 * 1024): Promise<str
     r.readAsDataURL(file);
   });
   if (dataUrl.length * 0.75 <= maxBytes) return dataUrl;
-  // Load into canvas and iteratively compress.
   const img = new window.Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
   const canvas = document.createElement("canvas");
@@ -77,13 +77,14 @@ function fmtTime(iso: string): string {
 }
 
 function TicksIcon({ status }: { status: Msg["status"] }) {
-  if (status === "read") return <Text style={{ color: "#3B82F6", fontSize: 11 }}>✓✓</Text>;
-  if (status === "delivered") return <Text style={{ color: "#6B7280", fontSize: 11 }}>✓✓</Text>;
-  return <Text style={{ color: "#9CA3AF", fontSize: 11 }}>✓</Text>;
+  if (status === "read") return <Text style={{ color: "#60A5FA", fontSize: 11, fontWeight: "800" }}>✓✓</Text>;
+  if (status === "delivered") return <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "800" }}>✓✓</Text>;
+  return <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "800" }}>✓</Text>;
 }
 
 export default function ChatBubble() {
   const { user } = useAuth();
+  const [chatEnabled, setChatEnabled] = useState<boolean>(true);
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<Payload | null>(null);
   const [unread, setUnread] = useState(0);
@@ -98,8 +99,24 @@ export default function ChatBubble() {
   const recordTimer = useRef<any>(null);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [menuMsg, setMenuMsg] = useState<Msg | null>(null);
+  const [lightbox, setLightbox] = useState<{ slides: Slide[]; index: number } | null>(null);
   const timer = useRef<any>(null);
   const scrollRef = useRef<any>(null);
+
+  // Poll global chat-enabled every 60s (not open-dependent).
+  useEffect(() => {
+    if (!user) return;
+    const check = async () => {
+      try {
+        const r = await api.get<{ enabled: boolean }>("/support/chat-enabled");
+        setChatEnabled(!!r.enabled);
+      } catch { /* silent */ }
+    };
+    check();
+    const t = setInterval(check, 60_000);
+    return () => clearInterval(t);
+  }, [user]);
 
   const fetchState = useCallback(async () => {
     try {
@@ -110,16 +127,14 @@ export default function ChatBubble() {
     } catch { /* silent */ }
   }, []);
 
-  // Poll: fast while open, slow while closed. Skip entirely if unauthenticated.
   useEffect(() => {
-    if (!user) return;
+    if (!user || !chatEnabled) return;
     fetchState();
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(fetchState, open ? 3000 : 20000);
     return () => clearInterval(timer.current);
-  }, [user, open, fetchState]);
+  }, [user, open, fetchState, chatEnabled]);
 
-  // Mark read on open.
   useEffect(() => {
     if (!open || !payload) return;
     (async () => {
@@ -128,9 +143,20 @@ export default function ChatBubble() {
         setUnread(0);
       } catch { /* silent */ }
     })();
-    // Scroll to bottom.
     setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: false }), 60);
   }, [open, payload?.messages.length]);
+
+  // Re-check chat-enabled flag when user opens the panel (avoids waiting for
+  // the 60s background poll if the admin just flipped the switch).
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const r = await api.get<{ enabled: boolean }>("/support/chat-enabled");
+        if (!r.enabled) { setChatEnabled(false); setOpen(false); }
+      } catch { /* silent */ }
+    })();
+  }, [open]);
 
   const pickImages = async () => {
     if (Platform.OS !== "web") { setErr("Attachements photo disponibles uniquement sur le web pour l'instant."); return; }
@@ -223,11 +249,49 @@ export default function ChatBubble() {
     setRecording(false); setRecordSecs(0);
   };
 
+  const openImage = (m: Msg, i: number) => {
+    const slides: Slide[] = (m.images || []).map((u) => ({ kind: "image", url: u }));
+    if (slides.length > 0) setLightbox({ slides, index: i });
+  };
+
+  const doReply = (m: Msg) => { setReplyTo(m); setMenuMsg(null); };
+  const doCopy = (m: Msg) => {
+    setMenuMsg(null);
+    if (!m.text) return;
+    try { navigator?.clipboard?.writeText(m.text); } catch {}
+  };
+  const runDelete = async (m: Msg) => {
+    try {
+      await api.delete(`/chat/me/messages/${m.id}`);
+      setPayload((p) => p ? {
+        ...p,
+        messages: p.messages.map((x) => x.id === m.id
+          ? { ...x, deleted: true, text: "", images: [], audio: null, reply_preview: null } : x),
+      } : p);
+    } catch (e: any) {
+      setErr(e?.detail || "Suppression impossible.");
+    }
+  };
+  const doDelete = (m: Msg) => {
+    setMenuMsg(null);
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && !window.confirm("Supprimer ce message ?")) return;
+      void runDelete(m);
+    } else {
+      Alert.alert("Supprimer ce message ?", "", [
+        { text: "Annuler", style: "cancel" },
+        { text: "Supprimer", style: "destructive", onPress: () => runDelete(m) },
+      ]);
+    }
+  };
+
+  const openMenuFor = (m: Msg) => { if (!m.deleted) setMenuMsg(m); };
+
   if (!user) return null;
+  if (!chatEnabled) return null;
 
   return (
     <>
-      {/* Bubble */}
       <TouchableOpacity
         onPress={() => setOpen(true)}
         style={styles.bubble}
@@ -245,7 +309,6 @@ export default function ChatBubble() {
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>
           <View style={styles.panel}>
-            {/* Header */}
             <View style={styles.header}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.headerT}>💬 Support SPILOVEURE</Text>
@@ -261,7 +324,6 @@ export default function ChatBubble() {
               </TouchableOpacity>
             </View>
 
-            {/* Messages */}
             <ScrollView
               ref={scrollRef}
               style={styles.msgs}
@@ -278,59 +340,78 @@ export default function ChatBubble() {
                     👋 Bienvenue. L'équipe support SPILOVEURE est à votre écoute — écrivez votre message ci-dessous.
                   </Text>
                 </View>
-              ) : payload.messages.map((m) => (
-                <TouchableOpacity
-                  key={m.id}
-                  activeOpacity={0.85}
-                  onLongPress={() => setReplyTo(m)}
-                  onPress={() => setReplyTo(m)}
-                  style={[
-                    styles.bubbleMsg,
-                    m.sender_role === "user" ? styles.bubbleMsgMe : styles.bubbleMsgOther,
-                  ]}
-                  testID={`chat-msg-${m.id}`}
-                >
-                  {m.reply_preview ? (
-                    <View style={[styles.replyQuote, m.sender_role === "user" && { borderLeftColor: "rgba(255,255,255,0.6)" }]}>
-                      <Text style={{ color: m.sender_role === "user" ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
-                        {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Vous")}
-                      </Text>
-                      <Text numberOfLines={2} style={{ color: m.sender_role === "user" ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
-                        {m.reply_preview.preview}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {m.text ? (
-                    <Text style={m.sender_role === "user" ? styles.msgTextMe : styles.msgText}>
-                      {m.text}
-                    </Text>
-                  ) : null}
-                  {m.images && m.images.length > 0 ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: m.text ? 6 : 0 }}>
-                      {m.images.map((src, i) => (
-                        <Image key={i} source={{ uri: src }} style={styles.msgImg} />
-                      ))}
-                    </View>
-                  ) : null}
-                  {m.audio ? (
-                    Platform.OS === "web" ? (
-                      /* @ts-ignore */
-                      <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220 }} />
-                    ) : (
-                      <Text style={m.sender_role === "user" ? styles.msgTextMe : styles.msgText}>🎤 Message vocal</Text>
-                    )
-                  ) : null}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
-                    <Text style={m.sender_role === "user" ? styles.msgTsMe : styles.msgTs}>
-                      {fmtTime(m.created_at)}
-                    </Text>
-                    {m.sender_role === "user" ? <TicksIcon status={m.status} /> : null}
+              ) : payload.messages.map((m) => {
+                const mine = m.sender_role === "user";
+                const isDeleted = !!m.deleted;
+                return (
+                  <View key={m.id} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                    <Pressable
+                      onLongPress={() => openMenuFor(m)}
+                      // @ts-ignore web-only contextmenu
+                      onContextMenu={Platform.OS === "web" ? (e: any) => { e.preventDefault?.(); openMenuFor(m); } : undefined}
+                      delayLongPress={350}
+                      style={({ pressed }) => [
+                        styles.bubbleMsg,
+                        mine ? styles.bubbleMsgMe : styles.bubbleMsgOther,
+                        pressed && { opacity: 0.85 },
+                        isDeleted && { opacity: 0.75 },
+                      ]}
+                      testID={`chat-msg-${m.id}`}
+                    >
+                      {isDeleted ? (
+                        <Text style={[mine ? styles.msgTextMe : styles.msgText, { fontStyle: "italic", opacity: 0.85 }]}>
+                          🚫 Message supprimé
+                        </Text>
+                      ) : (
+                        <>
+                          {m.reply_preview ? (
+                            <View style={[styles.replyQuote, mine && { borderLeftColor: "rgba(255,255,255,0.6)" }]}>
+                              <Text style={{ color: mine ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
+                                {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Vous")}
+                              </Text>
+                              <Text numberOfLines={2} style={{ color: mine ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
+                                {m.reply_preview.preview}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {m.text ? (
+                            <Text style={mine ? styles.msgTextMe : styles.msgText} selectable>
+                              {m.text}
+                            </Text>
+                          ) : null}
+                          {m.images && m.images.length > 0 ? (
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: m.text ? 6 : 0 }}>
+                              {m.images.map((src, i) => (
+                                <TouchableOpacity key={i} onPress={() => openImage(m, i)}
+                                  activeOpacity={0.85}
+                                  testID={`chat-msg-img-${m.id}-${i}`}>
+                                  <Image source={{ uri: src }} style={styles.msgImg} />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          ) : null}
+                          {m.audio ? (
+                            Platform.OS === "web" ? (
+                              /* @ts-ignore */
+                              <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220, borderRadius: 8 }} />
+                            ) : (
+                              <Text style={mine ? styles.msgTextMe : styles.msgText}>🎤 Message vocal</Text>
+                            )
+                          ) : null}
+                        </>
+                      )}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
+                        <Text style={mine ? styles.msgTsMe : styles.msgTs}>
+                          {fmtTime(m.created_at)}
+                        </Text>
+                        {mine && !isDeleted ? <TicksIcon status={m.status} /> : null}
+                      </View>
+                    </Pressable>
                   </View>
-                </TouchableOpacity>
-              ))}
+                );
+              })}
             </ScrollView>
 
-            {/* Attachments preview */}
             {images.length > 0 ? (
               <View style={styles.previewRow}>
                 {images.map((src, i) => (
@@ -370,7 +451,6 @@ export default function ChatBubble() {
               </View>
             ) : null}
 
-            {/* Composer */}
             <View style={styles.composer}>
               {recording ? (
                 <>
@@ -421,6 +501,46 @@ export default function ChatBubble() {
           </View>
         </View>
       </Modal>
+
+      {/* Context menu */}
+      <Modal transparent visible={!!menuMsg} animationType="fade" onRequestClose={() => setMenuMsg(null)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuMsg(null)}>
+          <Pressable style={styles.menuCard} onPress={(e) => e.stopPropagation()} testID="chat-msg-menu">
+            <Text style={styles.menuTitle}>Actions</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doReply(menuMsg)} testID="chat-menu-reply">
+              <Ionicons name="arrow-undo" size={18} color={theme.colors.primary} />
+              <Text style={styles.menuItemT}>Répondre</Text>
+            </TouchableOpacity>
+            {menuMsg?.text ? (
+              <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doCopy(menuMsg)} testID="chat-menu-copy">
+                <Ionicons name="copy" size={18} color={theme.colors.textPrimary} />
+                <Text style={styles.menuItemT}>Copier le texte</Text>
+              </TouchableOpacity>
+            ) : null}
+            {menuMsg?.sender_id === user?.id ? (
+              <TouchableOpacity style={[styles.menuItem, styles.menuItemDanger]} onPress={() => menuMsg && doDelete(menuMsg)} testID="chat-menu-delete">
+                <Ionicons name="trash" size={18} color={theme.colors.danger} />
+                <Text style={[styles.menuItemT, { color: theme.colors.danger }]}>Supprimer</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity style={[styles.menuItem, { justifyContent: "center" }]} onPress={() => setMenuMsg(null)}>
+              <Text style={{ color: theme.colors.textSecondary, fontWeight: "700", fontSize: 13 }}>Annuler</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Fullscreen image viewer */}
+      {lightbox ? (
+        <MediaLightbox
+          open
+          slides={lightbox.slides}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(i) => setLightbox((lb) => lb ? { ...lb, index: i } : lb)}
+          testID="chat-lightbox"
+        />
+      ) : null}
     </>
   );
 }
@@ -469,12 +589,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   bubbleMsgMe: {
-    alignSelf: "flex-end",
     backgroundColor: theme.colors.primary,
     borderBottomRightRadius: 4,
   },
   bubbleMsgOther: {
-    alignSelf: "flex-start",
     backgroundColor: "#fff",
     borderBottomLeftRadius: 4,
     borderWidth: 1, borderColor: theme.colors.border,
@@ -528,4 +646,21 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3, borderLeftColor: theme.colors.primary,
     paddingLeft: 8, paddingVertical: 3, marginBottom: 4,
   },
+  menuBackdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center", justifyContent: "center", padding: 20,
+  },
+  menuCard: {
+    width: "100%", maxWidth: 320,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16, padding: 8,
+    ...theme.shadow.lifted,
+  },
+  menuTitle: { color: theme.colors.textSecondary, fontWeight: "800", fontSize: 11, textTransform: "uppercase", padding: 8, letterSpacing: 0.5 },
+  menuItem: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 10,
+  },
+  menuItemDanger: { backgroundColor: theme.colors.danger + "10" },
+  menuItemT: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13.5 },
 });

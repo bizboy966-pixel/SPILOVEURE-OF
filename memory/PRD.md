@@ -23,6 +23,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
+### 2026-08-31 — 💬 Chat Support "Telegram-style" (5 P0 items)
+
+**Contexte** : le chat direct utilisateur↔support existait mais restait rudimentaire. Objectif : monter le niveau UX au rang d'une vraie messagerie type Telegram, sans re-designer le back-end de fond.
+
+**Backend** (`/app/backend/chat.py`) :
+- Nouveau champ `deleted` dans `_serialize_message` : les messages soft-deleted renvoient `deleted:true` et un payload vide (text/images/audio/reply_preview redactés) tout en gardant l'id pour préserver le rendu chronologique.
+- `DELETE /api/chat/me/messages/{msg_id}` (user) : soft-delete uniquement pour ses propres messages (403 sinon, 404 si id inconnu, idempotent).
+- `DELETE /api/chat/admin/conversations/{cid}/messages/{msg_id}` (admin/support) : même contrainte — un support agent ou l'admin ne peut supprimer qu'un message qu'IL a envoyé (pas ceux d'un autre agent ni du user).
+- Nettoyage : suppression du placeholder mort `link="/(admin)/support" if False else "/(admin)"`.
+
+**Frontend** :
+- `/app/frontend/src/components/ChatBubble.tsx` (réécrit — 660 lignes) :
+  - Poll `/api/support/chat-enabled` toutes les 60 s + re-check au moment de l'ouverture du panel → si l'admin coupe le chat, la bulle disparaît immédiatement (retour à `null` si `enabled:false`).
+  - Tap sur image → `MediaLightbox` fullscreen (composant partagé, pinch/zoom, Escape pour fermer).
+  - Long-press mobile / `onContextMenu` web sur une bulle → modal avec Répondre / Copier / Supprimer (le bouton Supprimer n'apparaît que sur mes propres messages).
+  - Suppression : `window.confirm` sur web, `Alert.alert` sur mobile → appel API → placeholder italique "🚫 Message supprimé".
+  - Coches : ✓ sent (blanc opaque), ✓✓ delivered (blanc), ✓✓ read (bleu #60A5FA) — synchronisé avec `status: read` + `read_at`.
+  - Voice notes : `<audio controls>` natif sur web, texte "🎤 Message vocal" sur mobile.
+- `/app/frontend/src/components/AdminSupportTab.tsx` (réécrit — 460 lignes) : mêmes améliorations côté support-desk, avec detection du selfId via localStorage (`spilv_support_token_user` ou `spilv_user`) puis fallback `/auth/me` pour n'afficher "Supprimer" que sur les messages envoyés par l'agent connecté.
+- `/app/frontend/src/components/SupportAgentsCard.tsx` : le master switch ON/OFF `data-testid='chat-global-toggle'` était déjà présent et pilote maintenant réellement la visibilité de la bulle côté user.
+
+**Tests** :
+- Backend : 21 tests dans `/app/backend/tests/test_iter55_chat_telegram.py` (send, list, soft-delete user/admin, 403/404, mark-read + read_at, chat-enabled flip). **21/21 pass**.
+- Regression matrix : 10/10 pass (`test_official_commission_plan.py` + `test_matrix_placement_routing.py`).
+- Frontend : testing_agent iteration 55 a validé les 5 flows P0 sur le preview.
+
+**Points ouverts (P2, non bloquants)** :
+- `ChatBubble.tsx` (660 lignes) et `AdminSupportTab.tsx` (460 lignes) dupliquent > 40 lignes (context menu + lightbox + delete). Extraire un `useChatMessageMenu` + `ChatMessageBubble` partagé.
+- Sur desktop 1920 px, le panel `ChatBubble` est plafonné à 460 px de large : la colonne messages n'occupe qu'une partie de la fenêtre.
+
+---
+
 ### 2026-08-31 — 💎 BizTransPay v2 — Intégration COMPLÈTE (Mobile Money + Crypto + Webhooks + Retraits auto)
 
 **Contexte** : refonte totale de l'intégration BizTransPay pour passer de l'API v1 (crypto poll-only, 5 USDT) à l'API Developer v2 qui unifie deposits Mobile Money + Crypto + Withdrawals + Webhooks HMAC-SHA256. Coexistence garantie avec AshtecPay / IziChange / SoleasPay — aucune méthode existante n'a été modifiée.

@@ -149,20 +149,22 @@ async def _reply_preview(db, reply_to_id: Optional[str]) -> Optional[dict]:
 
 
 def _serialize_message(m: dict) -> dict:
+    deleted = bool(m.get("deleted_at"))
     return {
         "id": m["id"],
         "conversation_id": m["conversation_id"],
         "sender_id": m["sender_id"],
         "sender_role": m["sender_role"],
         "sender_username": m.get("sender_username"),
-        "text": m.get("text") or "",
-        "images": m.get("images") or [],
-        "audio": m.get("audio") or None,
+        "text": "" if deleted else (m.get("text") or ""),
+        "images": [] if deleted else (m.get("images") or []),
+        "audio": None if deleted else (m.get("audio") or None),
         "status": m.get("status") or "sent",
         "reply_to": m.get("reply_to"),
-        "reply_preview": m.get("reply_preview"),
+        "reply_preview": None if deleted else m.get("reply_preview"),
         "created_at": m["created_at"].isoformat(),
         "read_at": m["read_at"].isoformat() if m.get("read_at") else None,
+        "deleted": deleted,
     }
 
 
@@ -213,7 +215,7 @@ async def _notify_admins_of_new_message(db, conv: dict, msg: dict):
             db, [a["id"] for a in admins],
             title=f"💬 {conv.get('username') or 'Utilisateur'}",
             body=preview[:120],
-            link="/(admin)/support" if False else "/(admin)",  # placeholder route
+            link="/(admin)",
             data={"kind": "chat_new", "conversation_id": conv["id"]},
             tag=f"chat-{conv['id']}",
         )
@@ -336,6 +338,25 @@ async def chat_user_mark_read(request: Request, user=Depends(get_current_user)):
     )
     await db.chat_conversations.update_one({"id": conv["id"]}, {"$set": {"user_unread": 0}})
     return {"ok": True, "marked": r.modified_count}
+
+
+@api.delete("/me/messages/{msg_id}")
+async def chat_user_delete_message(msg_id: str, request: Request, user=Depends(get_current_user)):
+    """User can delete only their own messages. Content is redacted, id kept."""
+    db = request.app.state.db
+    msg = await db.chat_messages.find_one({"id": msg_id}, {"_id": 0})
+    if not msg:
+        raise HTTPException(404, "Message introuvable.")
+    if msg.get("sender_id") != user["id"]:
+        raise HTTPException(403, "Vous ne pouvez supprimer que vos propres messages.")
+    if msg.get("deleted_at"):
+        return {"ok": True, "already_deleted": True}
+    await db.chat_messages.update_one(
+        {"id": msg_id},
+        {"$set": {"deleted_at": _now(), "text": "", "images": [], "audio": None,
+                  "reply_preview": None}},
+    )
+    return {"ok": True, "deleted": True}
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -465,3 +486,25 @@ async def admin_mark_read(conversation_id: str, request: Request, admin=Depends(
     )
     await db.chat_conversations.update_one({"id": conversation_id}, {"$set": {"admin_unread": 0}})
     return {"ok": True, "marked": r.modified_count}
+
+
+@admin_router.delete("/conversations/{conversation_id}/messages/{msg_id}")
+async def admin_delete_message(conversation_id: str, msg_id: str, request: Request,
+                                admin=Depends(require_admin_or_support)):
+    """Admin/support can delete only their own outgoing messages."""
+    db = request.app.state.db
+    msg = await db.chat_messages.find_one(
+        {"id": msg_id, "conversation_id": conversation_id}, {"_id": 0},
+    )
+    if not msg:
+        raise HTTPException(404, "Message introuvable.")
+    if msg.get("sender_id") != admin["id"]:
+        raise HTTPException(403, "Vous ne pouvez supprimer que vos propres messages.")
+    if msg.get("deleted_at"):
+        return {"ok": True, "already_deleted": True}
+    await db.chat_messages.update_one(
+        {"id": msg_id},
+        {"$set": {"deleted_at": _now(), "text": "", "images": [], "audio": None,
+                  "reply_preview": None}},
+    )
+    return {"ok": True, "deleted": True}

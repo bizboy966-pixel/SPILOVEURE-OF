@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 55 — Telegram-style chat upgrade (5 P0 items) tested end-to-end. BACKEND: created /app/backend/tests/test_iter55_chat_telegram.py with 21 pytest cases — ALL PASS (send/list with new `deleted` flag, user soft-delete incl. 403/404/idempotency, admin soft-delete route with 403 for user route abuse + 403 when admin targets a user message, admin/user mark-read → status='read' + read_at, GET /api/support/chat-enabled default true, POST /api/admin/support/chat-status flip + non-admin 403, audio data-url validation). FRONTEND: verified on the public preview URL with the admin account — floating chat bubble on /dashboard, modal panel, text send, right-click context menu (Répondre/Copier/Supprimer), delete → '🚫 Message supprimé' italic placeholder (synced on both user and admin side), image tap → MediaLightbox (chat-lightbox / admin-chat-lightbox) with zoom bar + Escape close, voice note rendered as native <audio controls> on both sides, global ON/OFF master switch hides/restores the bubble after reload, /support-desk login → AdminSupportTab with 3 conversations, admin reply + admin context menu + admin delete all work. Global chat flag was restored to enabled=true at the end (verified via API).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "ChatBubble panel (desktop 1920px)",
+        "issues": [
+          "Panel is bottom-anchored with maxWidth 460 so on a 1920px desktop the message column occupies only the right ~40% of the panel while the left half of the message area stays empty white — acceptable on mobile, slightly odd on desktop.",
+          "Native <audio> player inside the blue own-message bubble keeps the browser default light chrome; the delivery tick next to it is low-contrast on the blue background."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter55_chat_telegram.py",
+    "/app/test_reports/pytest/iter55_chat.xml"
+  ],
+  "action_items": [
+    "ENVIRONMENT (important): Metro was serving a STALE transform of app/(app)/_layout.tsx (a pre-ChatBubble version) — the compiled module in the served bundle rendered only CommunityPopup/NotificationToaster/PushBootstrap and NO <ChatBubble />, so the floating bubble was completely absent from the DOM on the preview URL. Two `sudo supervisorctl restart frontend` cycles were needed before the new chat code entered the bundle; a subsequent file edit was still NOT picked up without another restart. Hot reload / Metro FileStore cache invalidation cannot be trusted in this pod — always restart the frontend and re-verify the bundle after frontend edits.",
+    "Cosmetic: remove the unused `useMemo` import in ChatBubble.tsx (line 12).",
+    "Cosmetic: chat.py _notify_admins_of_new_message uses a dead expression `link=\"/(admin)/support\" if False else \"/(admin)\"` — replace with the real deep-link route.",
+    "Optional UX: the global ON/OFF switch only reaches an already-open client after the 60s /support/chat-enabled poll; consider also re-checking when the panel is opened."
+  ],
+  "critical_code_review_comments": [
+    "chat.py soft-delete is correctly authorization-scoped (sender_id check on both routes) and _serialize_message redacts text/images/audio/reply_preview while keeping the id — no _id leakage anywhere.",
+    "DELETE /api/chat/admin/conversations/{cid}/messages/{id} is guarded by require_admin_or_support AND sender_id equality, so a support agent cannot delete another agent's or a user's message — verified with 403 responses.",
+    "ChatBubble.tsx is 644 lines and AdminSupportTab.tsx 446 lines with largely duplicated context-menu / lightbox / delete logic (>40 duplicated lines); extract a shared useChatMessageMenu hook + ChatMessageBubble component to stay under the 700-line guideline and keep both sides in sync.",
+    "Message deletion uses window.confirm(); on React-Native (non-web) targets window.confirm does not exist, so the delete path will silently no-op on native — use Alert.alert for Platform.OS !== 'web'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter55_chat_telegram.py"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% of the 5 P0 flows verified"},
+  "seed_data_creation": "Two throwaway users registered via /api/auth/register (usernames prefixed TESTchat…, sponsor=admin) for the 403/ownership tests. Several TEST_* chat messages (text, image data-url, audio data-url, deleted placeholders) remain in the admin's own support conversation.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Chat testids: chat-bubble, chat-close, chat-input, chat-send, chat-msg-{id}, chat-msg-img-{id}-{i}, chat-msg-menu, chat-menu-{reply|copy|delete}, chat-lightbox, chat-cancel-reply; admin side: admin-support-tab, chat-conv-{id}, admin-chat-input, admin-chat-send, admin-msg-{id}, admin-msg-menu, admin-menu-*, admin-chat-lightbox. Context menu opens reliably with `await locator.click(button='right')` on web. The delete flow uses window.confirm — register the dialog handler as `page.on('dialog', lambda d: asyncio.ensure_future(d.accept()))`; a bare `lambda d: (print(...), d.accept())` leaves the coroutine unawaited, the dialog blocks the JS thread and the delete silently fails. Global switch: POST /api/admin/support/chat-status {enabled:false} then reload; ALWAYS flip back to true (it is currently true). If a UI change seems to have no effect, verify the served bundle: curl the entry.bundle and grep for a unique string, then restart the frontend.",
+  "rca_of_the_issue": "Initial symptom: [data-testid='chat-bubble'] absent from the DOM on /dashboard and no /api/support/chat-enabled or /api/chat/me request at all. RCA: fetched the served bundle (http://localhost:3000/node_modules/expo-router/entry.bundle?platform=web...) and inspected the compiled module \"app/(app)/_layout.tsx\" (module id 890) — its dependency list and JSX line numbers (60/65/66/67) corresponded to an older revision of the file that did not import or render ChatBubble, while the on-disk file imports it at line 9 and renders it at line 69. Metro's FileStore cache (.metro-cache, configured in metro.config.js) plus a non-firing file watcher served that stale transform. After `sudo supervisorctl restart frontend` the bundle contained ChatBubble (chat-msg-menu/chat-lightbox strings present) and every frontend flow passed. No application code defect."
+}
