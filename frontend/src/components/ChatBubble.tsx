@@ -28,7 +28,10 @@ type Msg = {
   sender_username?: string;
   text: string;
   images: string[];
+  audio?: string | null;
   status: "sent" | "delivered" | "read";
+  reply_to?: string | null;
+  reply_preview?: { id: string; sender_role: string; sender_username: string; preview: string } | null;
   created_at: string;
   read_at?: string | null;
 };
@@ -87,6 +90,12 @@ export default function ChatBubble() {
   const [supportOnline, setSupportOnline] = useState(false);
   const [text, setText] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunks = useRef<BlobPart[]>([]);
+  const recordTimer = useRef<any>(null);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<any>(null);
@@ -146,13 +155,72 @@ export default function ChatBubble() {
     if (!t && images.length === 0) return;
     setSending(true); setErr(null);
     try {
-      const msg = await api.post<Msg>("/chat/me/messages", { text: t, images });
-      setText(""); setImages([]);
+      const msg = await api.post<Msg>("/chat/me/messages", {
+        text: t, images, reply_to: replyTo?.id || null,
+      });
+      setText(""); setImages([]); setReplyTo(null);
       setPayload((p) => p ? { ...p, messages: [...p.messages, msg] } : p);
       setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 40);
     } catch (e: any) {
       setErr(e?.detail || "Envoi impossible.");
     } finally { setSending(false); }
+  };
+
+  const startRecording = async () => {
+    if (Platform.OS !== "web") { setErr("Enregistrement vocal disponible uniquement sur le web."); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const rec = new MediaRecorder(stream, { mimeType: mime });
+      recordedChunks.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.current.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordedChunks.current, { type: "audio/webm" });
+        if (blob.size < 1500) { setErr("Enregistrement trop court."); return; }
+        if (blob.size > 1.9 * 1024 * 1024) { setErr("Enregistrement trop long (max 2 Mo)."); return; }
+        const dataUrl: string = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onerror = rej; r.onload = () => res(String(r.result));
+          r.readAsDataURL(blob);
+        });
+        setSending(true);
+        try {
+          const msg = await api.post<Msg>("/chat/me/messages", {
+            text: "", audio: dataUrl, reply_to: replyTo?.id || null,
+          });
+          setReplyTo(null);
+          setPayload((p) => p ? { ...p, messages: [...p.messages, msg] } : p);
+          setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 40);
+        } catch (e: any) {
+          setErr(e?.detail || "Envoi du vocal impossible.");
+        } finally { setSending(false); }
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true); setRecordSecs(0);
+      recordTimer.current = setInterval(() => setRecordSecs((s) => {
+        if (s >= 59) { stopRecording(); return 60; }
+        return s + 1;
+      }), 1000);
+    } catch (e: any) {
+      setErr("Micro refusé : autorisez l'accès micro dans votre navigateur.");
+    }
+  };
+  const stopRecording = () => {
+    try { recorderRef.current?.stop(); } catch {}
+    if (recordTimer.current) clearInterval(recordTimer.current);
+    setRecording(false); setRecordSecs(0);
+  };
+  const cancelRecording = () => {
+    try {
+      if (recorderRef.current) {
+        recorderRef.current.onstop = null as any;
+        recorderRef.current.stop();
+      }
+    } catch {}
+    if (recordTimer.current) clearInterval(recordTimer.current);
+    setRecording(false); setRecordSecs(0);
   };
 
   if (!user) return null;
@@ -211,13 +279,27 @@ export default function ChatBubble() {
                   </Text>
                 </View>
               ) : payload.messages.map((m) => (
-                <View
+                <TouchableOpacity
                   key={m.id}
+                  activeOpacity={0.85}
+                  onLongPress={() => setReplyTo(m)}
+                  onPress={() => setReplyTo(m)}
                   style={[
                     styles.bubbleMsg,
                     m.sender_role === "user" ? styles.bubbleMsgMe : styles.bubbleMsgOther,
                   ]}
+                  testID={`chat-msg-${m.id}`}
                 >
+                  {m.reply_preview ? (
+                    <View style={[styles.replyQuote, m.sender_role === "user" && { borderLeftColor: "rgba(255,255,255,0.6)" }]}>
+                      <Text style={{ color: m.sender_role === "user" ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
+                        {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Vous")}
+                      </Text>
+                      <Text numberOfLines={2} style={{ color: m.sender_role === "user" ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
+                        {m.reply_preview.preview}
+                      </Text>
+                    </View>
+                  ) : null}
                   {m.text ? (
                     <Text style={m.sender_role === "user" ? styles.msgTextMe : styles.msgText}>
                       {m.text}
@@ -230,13 +312,21 @@ export default function ChatBubble() {
                       ))}
                     </View>
                   ) : null}
+                  {m.audio ? (
+                    Platform.OS === "web" ? (
+                      /* @ts-ignore */
+                      <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220 }} />
+                    ) : (
+                      <Text style={m.sender_role === "user" ? styles.msgTextMe : styles.msgText}>🎤 Message vocal</Text>
+                    )
+                  ) : null}
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
                     <Text style={m.sender_role === "user" ? styles.msgTsMe : styles.msgTs}>
                       {fmtTime(m.created_at)}
                     </Text>
                     {m.sender_role === "user" ? <TicksIcon status={m.status} /> : null}
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
 
@@ -264,33 +354,69 @@ export default function ChatBubble() {
               </View>
             ) : null}
 
+            {replyTo ? (
+              <View style={styles.replyBar}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
+                    ↩ Répondre à {replyTo.sender_role === "admin" ? "Support" : "vous"}
+                  </Text>
+                  <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                    {replyTo.text || (replyTo.audio ? "🎤 Message vocal" : "📷 Photo")}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setReplyTo(null)} testID="chat-cancel-reply">
+                  <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             {/* Composer */}
             <View style={styles.composer}>
-              <TouchableOpacity onPress={pickImages} style={styles.attachBtn} testID="chat-attach">
-                <Ionicons name="image" size={20} color={theme.colors.primary} />
-              </TouchableOpacity>
-              <TextInput
-                style={styles.input}
-                value={text}
-                onChangeText={setText}
-                placeholder="Écrivez votre message…"
-                placeholderTextColor={theme.colors.textSecondary}
-                multiline
-                maxLength={4000}
-                testID="chat-input"
-              />
-              <TouchableOpacity
-                onPress={send}
-                disabled={sending || (!text.trim() && images.length === 0)}
-                style={[
-                  styles.sendBtn,
-                  (sending || (!text.trim() && images.length === 0)) && { opacity: 0.4 },
-                ]}
-                testID="chat-send"
-              >
-                {sending ? <ActivityIndicator color="#fff" size="small" /> :
-                  <Ionicons name="send" size={18} color="#fff" />}
-              </TouchableOpacity>
+              {recording ? (
+                <>
+                  <TouchableOpacity onPress={cancelRecording} style={[styles.attachBtn, { backgroundColor: "#FEE2E2" }]} testID="chat-cancel-rec">
+                    <Ionicons name="trash" size={18} color="#DC2626" />
+                  </TouchableOpacity>
+                  <View style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 8 }]}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "#EF4444" }} />
+                    <Text style={{ color: theme.colors.textPrimary, fontWeight: "700" }}>Enregistrement… {recordSecs}s</Text>
+                  </View>
+                  <TouchableOpacity onPress={stopRecording} style={styles.sendBtn} testID="chat-send-rec">
+                    <Ionicons name="send" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity onPress={pickImages} style={styles.attachBtn} testID="chat-attach">
+                    <Ionicons name="image" size={20} color={theme.colors.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={startRecording} style={styles.attachBtn} testID="chat-mic">
+                    <Ionicons name="mic" size={20} color={theme.colors.primary} />
+                  </TouchableOpacity>
+                  <TextInput
+                    style={styles.input}
+                    value={text}
+                    onChangeText={setText}
+                    placeholder="Écrivez votre message…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    multiline
+                    maxLength={4000}
+                    testID="chat-input"
+                  />
+                  <TouchableOpacity
+                    onPress={send}
+                    disabled={sending || (!text.trim() && images.length === 0)}
+                    style={[
+                      styles.sendBtn,
+                      (sending || (!text.trim() && images.length === 0)) && { opacity: 0.4 },
+                    ]}
+                    testID="chat-send"
+                  >
+                    {sending ? <ActivityIndicator color="#fff" size="small" /> :
+                      <Ionicons name="send" size={18} color="#fff" />}
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -391,5 +517,15 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: "center", justifyContent: "center",
     ...theme.shadow.button,
+  },
+  replyBar: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    padding: 8, paddingHorizontal: 12,
+    backgroundColor: theme.colors.primary + "10",
+    borderTopWidth: 1, borderTopColor: theme.colors.primary + "40",
+  },
+  replyQuote: {
+    borderLeftWidth: 3, borderLeftColor: theme.colors.primary,
+    paddingLeft: 8, paddingVertical: 3, marginBottom: 4,
   },
 });

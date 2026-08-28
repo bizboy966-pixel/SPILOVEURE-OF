@@ -38,6 +38,9 @@ admin_router = APIRouter(prefix="/api/chat/admin", tags=["chat-admin"])
 MAX_TEXT_LEN = 4000
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 800 * 1024        # 800 KB per image after base64 decode
+MAX_AUDIO_BYTES = 2 * 1024 * 1024   # 2 MB per voice note after base64 decode
+RATE_LIMIT_WINDOW_SECS = 60
+RATE_LIMIT_MAX_MSGS = 15            # per user per window (both roles)
 ONLINE_WINDOW_SECS = 90
 
 
@@ -68,6 +71,7 @@ async def _get_or_create_conversation(db, user: dict) -> dict:
 
 
 DATA_URL_RE = re.compile(r"^data:image/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$")
+AUDIO_URL_RE = re.compile(r"^data:audio/(webm|mp3|mp4|mpeg|ogg|wav|x-m4a|aac);base64,([A-Za-z0-9+/=]+)$")
 
 
 def _validate_images(images: List[str]) -> List[str]:
@@ -87,6 +91,53 @@ def _validate_images(images: List[str]) -> List[str]:
     return out
 
 
+def _validate_audio(audio: Optional[str]) -> Optional[str]:
+    if not audio:
+        return None
+    m = AUDIO_URL_RE.match(audio.strip())
+    if not m:
+        raise HTTPException(400, "Message vocal : format invalide (attendu data:audio/*;base64,...).")
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except Exception:
+        raise HTTPException(400, "Message vocal : encodage base64 invalide.")
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise HTTPException(400, "Message vocal : taille max 2 MB dépassée.")
+    return audio.strip()
+
+
+async def _enforce_rate_limit(db, sender_id: str):
+    cutoff = _now() - timedelta(seconds=RATE_LIMIT_WINDOW_SECS)
+    n = await db.chat_messages.count_documents({
+        "sender_id": sender_id, "created_at": {"$gte": cutoff},
+    })
+    if n >= RATE_LIMIT_MAX_MSGS:
+        raise HTTPException(429, f"Ralentissez : maximum {RATE_LIMIT_MAX_MSGS} messages par minute.")
+
+
+async def _reply_preview(db, reply_to_id: Optional[str]) -> Optional[dict]:
+    if not reply_to_id:
+        return None
+    doc = await db.chat_messages.find_one(
+        {"id": reply_to_id}, {"_id": 0, "text": 1, "sender_role": 1,
+                              "sender_username": 1, "images": 1, "audio": 1},
+    )
+    if not doc:
+        return None
+    txt = (doc.get("text") or "").strip()
+    if not txt:
+        if doc.get("audio"):
+            txt = "🎤 Message vocal"
+        elif doc.get("images"):
+            txt = "📷 Photo"
+    return {
+        "id": reply_to_id,
+        "sender_role": doc.get("sender_role") or "",
+        "sender_username": doc.get("sender_username") or "",
+        "preview": txt[:120],
+    }
+
+
 def _serialize_message(m: dict) -> dict:
     return {
         "id": m["id"],
@@ -96,8 +147,10 @@ def _serialize_message(m: dict) -> dict:
         "sender_username": m.get("sender_username"),
         "text": m.get("text") or "",
         "images": m.get("images") or [],
+        "audio": m.get("audio") or None,
         "status": m.get("status") or "sent",
         "reply_to": m.get("reply_to"),
+        "reply_preview": m.get("reply_preview"),
         "created_at": m["created_at"].isoformat(),
         "read_at": m["read_at"].isoformat() if m.get("read_at") else None,
     }
@@ -115,7 +168,14 @@ async def _notify_admins_of_new_message(db, conv: dict, msg: dict):
         admins = await db.users.find(
             {"role": "admin"}, {"_id": 0, "id": 1}
         ).to_list(200)
-        preview = (msg.get("text") or "").strip() or ("📷 Photo" if msg.get("images") else "Nouveau message")
+        preview = (msg.get("text") or "").strip()
+        if not preview:
+            if msg.get("audio"):
+                preview = "🎤 Message vocal"
+            elif msg.get("images"):
+                preview = "📷 Photo"
+            else:
+                preview = "Nouveau message"
         await push_to_users(
             db, [a["id"] for a in admins],
             title=f"💬 {conv.get('username') or 'Utilisateur'}",
@@ -131,7 +191,14 @@ async def _notify_admins_of_new_message(db, conv: dict, msg: dict):
 async def _notify_user_of_admin_reply(db, conv: dict, msg: dict):
     try:
         from push_helper import push_to_user
-        preview = (msg.get("text") or "").strip() or ("📷 Photo" if msg.get("images") else "Nouveau message")
+        preview = (msg.get("text") or "").strip()
+        if not preview:
+            if msg.get("audio"):
+                preview = "🎤 Message vocal"
+            elif msg.get("images"):
+                preview = "📷 Photo"
+            else:
+                preview = "Nouveau message"
         await push_to_user(
             db, conv["user_id"],
             title="💬 Support SPILOVEURE",
@@ -150,6 +217,7 @@ async def _notify_user_of_admin_reply(db, conv: dict, msg: dict):
 class SendMessageIn(BaseModel):
     text: Optional[str] = ""
     images: Optional[List[str]] = None
+    audio: Optional[str] = None
     reply_to: Optional[str] = None
 
 
@@ -187,12 +255,15 @@ async def chat_me(request: Request, user=Depends(get_current_user), limit: int =
 @api.post("/me/messages")
 async def chat_send_user(body: SendMessageIn, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
+    await _enforce_rate_limit(db, user["id"])
     text = (body.text or "").strip()[:MAX_TEXT_LEN]
     images = _validate_images(body.images or [])
-    if not text and not images:
-        raise HTTPException(400, "Message vide : ajoutez du texte ou au moins une image.")
+    audio = _validate_audio(body.audio)
+    if not text and not images and not audio:
+        raise HTTPException(400, "Message vide : ajoutez du texte, une image ou un vocal.")
 
     conv = await _get_or_create_conversation(db, user)
+    reply_preview = await _reply_preview(db, body.reply_to)
     now = _now()
     msg = {
         "id": str(uuid.uuid4()),
@@ -202,8 +273,10 @@ async def chat_send_user(body: SendMessageIn, request: Request, user=Depends(get
         "sender_username": user.get("username") or "",
         "text": text,
         "images": images,
-        "status": "delivered",             # delivered to server (single tick was for pure client-side offline flow, we skip it)
-        "reply_to": body.reply_to,
+        "audio": audio,
+        "status": "delivered",
+        "reply_to": body.reply_to if reply_preview else None,
+        "reply_preview": reply_preview,
         "created_at": now,
     }
     await db.chat_messages.insert_one(msg)
@@ -310,11 +383,14 @@ async def admin_send_message(conversation_id: str, body: SendMessageIn, request:
     conv = await db.chat_conversations.find_one({"id": conversation_id}, {"_id": 0})
     if not conv:
         raise HTTPException(404, "Conversation introuvable.")
+    await _enforce_rate_limit(db, admin["id"])
     text = (body.text or "").strip()[:MAX_TEXT_LEN]
     images = _validate_images(body.images or [])
-    if not text and not images:
+    audio = _validate_audio(body.audio)
+    if not text and not images and not audio:
         raise HTTPException(400, "Message vide.")
 
+    reply_preview = await _reply_preview(db, body.reply_to)
     now = _now()
     msg = {
         "id": str(uuid.uuid4()),
@@ -324,8 +400,10 @@ async def admin_send_message(conversation_id: str, body: SendMessageIn, request:
         "sender_username": admin.get("username") or "Support",
         "text": text,
         "images": images,
+        "audio": audio,
         "status": "delivered",
-        "reply_to": body.reply_to,
+        "reply_to": body.reply_to if reply_preview else None,
+        "reply_preview": reply_preview,
         "created_at": now,
     }
     await db.chat_messages.insert_one(msg)
