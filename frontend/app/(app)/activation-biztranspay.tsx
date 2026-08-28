@@ -73,6 +73,8 @@ export default function BizTransPayActivation() {
 
   // Crypto flow
   const [cryptoCharge, setCryptoCharge] = useState<CryptoCharge | null>(null);
+  const [txHash, setTxHash] = useState("");
+  const [verifying, setVerifying] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -147,6 +149,33 @@ export default function BizTransPayActivation() {
     } catch (e: any) {
       setErr(e?.detail || "Impossible de générer l'adresse de dépôt.");
     } finally { setLoading(false); }
+  };
+
+  const verifyCryptoHash = async () => {
+    if (!cryptoCharge) return;
+    if (txHash.trim().length < 10) {
+      setErr("Merci de coller un hash de transaction valide.");
+      return;
+    }
+    setVerifying(true); setErr(null);
+    try {
+      const r = await api.post<any>("/payments/biztranspay/crypto/verify", {
+        reference: cryptoCharge.reference,
+        tx_hash: txHash.trim(),
+      });
+      if (r?.activated) {
+        setDone(true);
+        setStatusMsg(r.message || "Compte activé.");
+        if (pollTimer.current) clearInterval(pollTimer.current);
+        try { if (typeof refresh === "function") await refresh(); } catch {}
+        if (typeof window !== "undefined") window.alert("🎉 Paiement confirmé — votre compte SPILOVEURE est activé !");
+        setTimeout(() => router.replace("/(app)/dashboard" as any), 400);
+        return;
+      }
+      setStatusMsg(r?.message || "Transaction en cours de confirmation.");
+    } catch (e: any) {
+      setErr(e?.detail || "Vérification impossible. Réessayez dans quelques instants.");
+    } finally { setVerifying(false); }
   };
 
   if (!status) {
@@ -331,6 +360,34 @@ export default function BizTransPayActivation() {
             <View style={styles.kv}><Text style={styles.kvK}>Montant</Text><Text style={styles.kvV}>{cryptoCharge.amount} USDT</Text></View>
             <View style={styles.kv}><Text style={styles.kvK}>Réseau</Text><Text style={styles.kvV}>{cryptoCharge.network}</Text></View>
             <View style={styles.kv}><Text style={styles.kvK}>Référence</Text><Text style={styles.kvV}>{cryptoCharge.reference}</Text></View>
+
+            {/* HASH / TXID verification block */}
+            <View style={{ marginTop: 16, padding: 12, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border }}>
+              <Text style={{ fontWeight: "800", fontSize: 13, color: theme.colors.textPrimary, marginBottom: 6 }}>🔍 Vérifier votre transaction</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
+                Après avoir envoyé les {cryptoCharge.amount} USDT, collez ci-dessous le hash de votre transaction (TxID) puis cliquez sur Vérifier.
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={txHash}
+                onChangeText={setTxHash}
+                placeholder="0x… (hash de la transaction USDT BEP20)"
+                placeholderTextColor={theme.colors.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                testID="btp-crypto-txhash"
+              />
+              <TouchableOpacity
+                style={[styles.primaryBtn, verifying && { opacity: 0.5 }, { marginTop: 10 }]}
+                onPress={verifyCryptoHash}
+                disabled={verifying}
+                testID="btp-crypto-verify"
+              >
+                {verifying ? <ActivityIndicator color="#fff" /> :
+                  <><Ionicons name="checkmark-circle" size={16} color="#fff" /><Text style={styles.primaryBtnT}>VÉRIFIER LA TRANSACTION</Text></>}
+              </TouchableOpacity>
+            </View>
+
             <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 8, textAlign: "center" }}>
               La confirmation est automatique — cette page se met à jour toutes les 15 secondes.
             </Text>

@@ -613,6 +613,82 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
 
 
 # ────────────────────────────────────────────────────────────────────────
+# CRYPTO — Manual TXID verification
+# ────────────────────────────────────────────────────────────────────────
+class CryptoVerifyIn(BaseModel):
+    reference: str
+    tx_hash: str
+
+
+@api.post("/payments/biztranspay/crypto/verify")
+async def biztranspay_crypto_verify(
+    body: CryptoVerifyIn, request: Request, user=Depends(get_current_user),
+):
+    """User submits a blockchain TXID → we ask BizTransPay for the real status.
+
+    STRICT: The TXID by itself never activates the account. We just record it
+    (traceability) and ask BizTransPay whether THIS deposit intent is
+    completed. Only a `completed` status on the intent triggers `_apply_activation`.
+
+    Idempotent: safe to call repeatedly. Reuses the /status logic.
+    """
+    db = request.app.state.db
+    cfg = await _load_config(db)
+    pay = await db.payments.find_one({
+        "reference": body.reference,
+        "provider": "biztranspay",
+        "channel": "crypto",
+    })
+    if not pay:
+        raise HTTPException(404, "Demande de paiement introuvable.")
+    if pay.get("user_id") != user["id"]:
+        raise HTTPException(403, "Interdit.")
+    if pay.get("activation_done"):
+        return {"status": "completed", "activated": True,
+                "message": "Votre compte est déjà activé."}
+
+    tx_hash = (body.tx_hash or "").strip()
+    if len(tx_hash) < 10:
+        raise HTTPException(400, "Hash de transaction invalide.")
+    # Record the hash for traceability, even if verification fails/pending.
+    await db.payments.update_one(
+        {"reference": body.reference},
+        {"$set": {"user_submitted_tx_hash": tx_hash,
+                  "user_submitted_at": datetime.now(timezone.utc)}},
+    )
+
+    intent_id = pay.get("provider_intent_id")
+    if not intent_id:
+        raise HTTPException(500, "Identifiant de transaction manquant côté passerelle.")
+
+    tx = await _fetch_transaction(cfg, intent_id) or {}
+    status = str(tx.get("status") or "").lower()
+
+    if status == "completed":
+        # Real activation via the shared _apply_activation helper (uses
+        # exactly the same code path as the webhook — no parallel logic).
+        result = await _apply_activation(db, pay, tx)
+        if result.get("activated"):
+            return {"status": "completed", "activated": True,
+                    "message": result.get("message") or "Paiement confirmé. Votre compte est activé au Niveau 1."}
+        # activate_level failed — user sees a clear error, no false success.
+        return {"status": "completed", "activated": False,
+                "message": result.get("message") or "Paiement confirmé mais activation impossible. Contactez le support."}
+    if status == "failed":
+        await db.payments.update_one(
+            {"reference": body.reference, "status": "pending"},
+            {"$set": {"status": "failed", "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"status": "failed", "activated": False,
+                "message": "La transaction a échoué côté passerelle. Réessayez avec un nouveau paiement."}
+
+    # pending / unknown → keep the user informed, no false success.
+    return {"status": status or "pending", "activated": False,
+            "message": ("La blockchain n'a pas encore confirmé votre transaction. "
+                        "Attendez 1 à 3 minutes puis cliquez à nouveau sur \"Vérifier\".")}
+
+
+# ────────────────────────────────────────────────────────────────────────
 # WEBHOOKS (HMAC-SHA256 signature + replay protection)
 # ────────────────────────────────────────────────────────────────────────
 def _verify_signature(secret: str, raw_body: bytes, timestamp: str, signature: str) -> bool:
