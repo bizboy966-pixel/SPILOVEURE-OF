@@ -276,6 +276,52 @@ async def biztranspay_catalog(request: Request, user=Depends(get_current_user)):
     return {"countries": countries}
 
 
+async def _reuse_verdict(db, cfg: dict, existing: dict) -> str:
+    """Decide whether a still-`pending` local intent may be handed back as-is.
+
+    BizTransPay closes an unpaid deposit after ~11 minutes, but our dedupe
+    window below is 30 minutes. In that 19-minute gap the initiate routes used
+    to return the stored reference WITHOUT calling the gateway again: the user
+    pressed "Activer", got a 200 back, and no payment request was ever sent to
+    the operator - "tu lances l'activation, aucune requete ne se lance".
+    So ask the gateway what it actually thinks before reusing a row.
+
+    Returns one of:
+        "live"      - gateway still has it open; reuse is correct.
+        "completed" - it was paid after all; settled here.
+        "stale"     - gateway closed it; closed locally too, so the caller
+                      must create a brand-new deposit.
+    """
+    intent_id = existing.get("provider_intent_id")
+    if not intent_id:
+        return "stale"
+    tx = await _fetch_transaction(cfg, intent_id)
+    if tx is None:
+        # Gateway unreachable. Reuse is the safe side of this trade-off:
+        # creating a second deposit we cannot see risks a double charge.
+        return "live"
+    status = str(tx.get("status") or "").lower()
+    if status in ("", "pending", "processing", "created"):
+        return "live"
+    now = datetime.now(timezone.utc)
+    if status == "completed":
+        await _apply_activation(db, existing, tx)
+        return "completed"
+    # failed / expired / cancelled / rejected / anything else terminal.
+    await db.payments.update_one(
+        {"reference": existing["reference"], "status": "pending"},
+        {"$set": {"status": "failed", "provider_status": status,
+                  "updated_at": now}},
+    )
+    await db.activations.update_one(
+        {"reference": existing["reference"], "status": "pending"},
+        {"$set": {"status": "rejected", "rejected_at": now,
+                  "rejected_by": "auto:gateway-closed",
+                  "reject_reason": "Depot cloture par BizTransPay (%s)." % status}},
+    )
+    return "stale"
+
+
 # ────────────────────────────────────────────────────────────────────────
 # DEPOSITS — Mobile Money
 # ────────────────────────────────────────────────────────────────────────
@@ -319,12 +365,31 @@ async def biztranspay_mobile_initiate(
     }, sort=[("created_at", -1)])
     if existing and existing.get("created_at") \
             and existing["created_at"].timestamp() > fresh_cutoff:
-        return {
-            "reference": existing["reference"],
-            "provider_intent_id": existing.get("provider_intent_id"),
-            "status": "pending",
-            "amount": amount, "currency": currency,
-        }
+        verdict = await _reuse_verdict(db, cfg, existing)
+        if verdict == "live":
+            return {
+                "reference": existing["reference"],
+                "provider_intent_id": existing.get("provider_intent_id"),
+                "status": "pending",
+                "provider_status": "pending",
+                "reused": True,
+                "provider_message": (
+                    "Une demande de paiement est déjà en cours pour ce compte. "
+                    "Validez l'invite reçue sur votre téléphone."
+                ),
+                "amount": amount, "currency": currency,
+            }
+        if verdict == "completed":
+            return {
+                "reference": existing["reference"],
+                "provider_intent_id": existing.get("provider_intent_id"),
+                "status": "completed",
+                "provider_status": "completed",
+                "reused": True,
+                "amount": amount, "currency": currency,
+            }
+        # verdict == "stale": BizTransPay has closed that deposit. Fall
+        # through and create a brand-new one right now.
 
     reference = f"SPLV_BTPMM_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
     payload = {
@@ -414,15 +479,32 @@ async def biztranspay_crypto_initiate(request: Request, user=Depends(get_current
     if existing and existing.get("deposit_address") \
             and existing.get("created_at") \
             and existing["created_at"].timestamp() > fresh_cutoff:
-        return {
-            "reference": existing["reference"],
-            "provider_intent_id": existing.get("provider_intent_id"),
-            "deposit_address": existing["deposit_address"],
-            "qr_data": existing.get("qr_data"),
-            "amount": existing.get("amount"),
-            "asset_code": existing.get("asset_code") or cfg["activation_asset_code"],
-            "network": existing.get("network") or cfg["activation_network"],
-        }
+        verdict = await _reuse_verdict(db, cfg, existing)
+        if verdict == "live":
+            return {
+                "reference": existing["reference"],
+                "provider_intent_id": existing.get("provider_intent_id"),
+                "deposit_address": existing["deposit_address"],
+                "qr_data": existing.get("qr_data"),
+                "amount": existing.get("amount"),
+                "asset_code": existing.get("asset_code") or cfg["activation_asset_code"],
+                "network": existing.get("network") or cfg["activation_network"],
+                "reused": True,
+            }
+        if verdict == "completed":
+            return {
+                "reference": existing["reference"],
+                "provider_intent_id": existing.get("provider_intent_id"),
+                "deposit_address": existing["deposit_address"],
+                "qr_data": existing.get("qr_data"),
+                "amount": existing.get("amount"),
+                "asset_code": existing.get("asset_code") or cfg["activation_asset_code"],
+                "network": existing.get("network") or cfg["activation_network"],
+                "status": "completed",
+                "reused": True,
+            }
+        # verdict == "stale": BizTransPay has closed that deposit. Fall
+        # through and create a brand-new one right now.
 
     reference = f"SPLV_BTPCR_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
     payload: dict = {

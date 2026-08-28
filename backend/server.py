@@ -1985,6 +1985,14 @@ async def admin_user_action(user_id: str, data: AdminUserActionIn, request: Requ
         updates["max_level"] = new_max
         if new_max == 0:
             updates["status"] = "pending"
+        # Drop the activation timestamp for the level being removed. Leaving
+        # it behind made a deactivated account read as "activated but stuck
+        # at level 0", and kept it counting towards challenge progress -
+        # challenges.py keys off users.level_activated_at.1.
+        await db.users.update_one(
+            {"id": user_id},
+            {"$unset": {"level_activated_at.%d" % int(data.level): ""}},
+        )
     elif action == "move_matrix":
         if not data.level or not data.new_parent_username or data.new_leg not in ("left", "right"):
             raise HTTPException(400, "Niveau, parent et jambe (left/right) requis.")
