@@ -52,10 +52,11 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - `POST /api/payments/biztranspay/mobile/initiate`
 - `POST /api/payments/biztranspay/crypto/initiate`
 - `GET  /api/payments/biztranspay/status/{reference}`
-- `POST /webhooks/biztranspay` — **URL officielle** (proxy Expo Router → backend, HMAC-vérifié). Accepte aussi GET/HEAD/OPTIONS pour la validation d'URL BizTransPay (renvoient 200).
-- `POST /api/webhooks/biztranspay` — endpoint backend brut (utilisé en interne par le proxy).
+- `POST /api/webhooks/biztranspay` — URL webhook officielle (POST HMAC-vérifié, GET/HEAD/OPTIONS renvoient 200 pour la validation d'URL).
 - `GET  /api/admin/payments/biztranspay/config`
 - `PUT  /api/admin/payments/biztranspay/config`
+
+**⚠️ Note du 2026-08-31 (soir)** : Une tentative de servir le webhook sur `/webhooks/biztranspay` (sans `/api/`) via un proxy Expo Router API route a été TENTÉE puis ANNULÉE. Le passage `web.output: "static" → "server"` a cassé le build de production (nginx retombait sur sa page par défaut, aucun fichier statique généré). L'URL webhook DOIT rester avec le préfixe `/api/` — l'hébergement statique en prod ne peut pas exécuter de proxy Node.
 
 **Validation** :
 - Import Python OK, backend tourne, curl `/public/status` renvoie `{enabled, amount_xof:2500, amount_usdt:5, network:BEP20, auto_withdraw_*:false}`.
