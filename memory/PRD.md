@@ -52,7 +52,8 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - `POST /api/payments/biztranspay/mobile/initiate`
 - `POST /api/payments/biztranspay/crypto/initiate`
 - `GET  /api/payments/biztranspay/status/{reference}`
-- `POST /api/webhooks/biztranspay` — public HMAC-SHA256
+- `POST /webhooks/biztranspay` — **URL officielle** (proxy Expo Router → backend, HMAC-vérifié). Accepte aussi GET/HEAD/OPTIONS pour la validation d'URL BizTransPay (renvoient 200).
+- `POST /api/webhooks/biztranspay` — endpoint backend brut (utilisé en interne par le proxy).
 - `GET  /api/admin/payments/biztranspay/config`
 - `PUT  /api/admin/payments/biztranspay/config`
 
