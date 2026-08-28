@@ -183,7 +183,13 @@ def _biztp_error(r: httpx.Response) -> str:
         return fr
     if msg:
         return str(msg)[:200]
-    return f"BizTransPay a refusé la requête (HTTP {r.status_code})."
+    if 500 <= r.status_code < 600:
+        return "La passerelle de paiement rencontre un incident. Réessayez dans quelques minutes ou choisissez un autre moyen de paiement."
+    if r.status_code == 400:
+        return "Requête refusée par la passerelle. Vérifiez votre numéro de téléphone ou choisissez un autre opérateur."
+    if r.status_code == 401 or r.status_code == 403:
+        return "Passerelle non autorisée. Contactez l'administrateur du site."
+    return "Paiement momentanément indisponible. Réessayez ou choisissez un autre moyen."
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -285,15 +291,10 @@ async def biztranspay_mobile_initiate(
         "country": cc,
         "operator": body.operator_code,
         "phone_number": phone,
-        # Spec 2026-08-31 : les frais sont à la charge du marchand.
-        # Le client doit débourser EXACTEMENT `amount` (ex : 2500 XOF),
-        # jamais 2650. On envoie plusieurs synonymes pour maximiser la
-        # compatibilité avec les schémas BizTransPay documentés/attendus.
-        "fees_paid_by": "merchant",
-        "merchant_pays_fees": True,
-        "fee_bearer": "merchant",
-        "customer_pays_fees": False,
     }
+    # NB : les frais mobile money sont réglés côté BizTransPay dans les
+    # paramètres marchand (option "Frais à charge marchand"). Ce n'est pas
+    # un flag de requête — l'envoi de champs inconnus déclenchait un 500.
     try:
         r = await _http("POST", cfg, "/deposits/mobile-money",
                         json_body=payload, idempotency_key=reference)
