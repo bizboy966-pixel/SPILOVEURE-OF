@@ -101,20 +101,8 @@ COUNTRIES: dict[str, dict] = {
     "CI": {"name": "Côte d'Ivoire", "currency": "XOF",
            "operators": [("MTN Money", "mtn_ci"), ("Moov Money", "moov_ci"),
                          ("Orange Money", "orange_ci"), ("Wave Money", "wave_ci")]},
-    "SN": {"name": "Sénégal",       "currency": "XOF",
-           "operators": [("Orange Money", "orange_sn"), ("Wave Money", "wave_sn"),
-                         ("Free Money", "free_sn"), ("E-money", "emoney_sn")]},
-    "ML": {"name": "Mali",          "currency": "XOF",
-           "operators": [("Moov Money", "moov_ml"), ("Orange Money", "orange_ml")]},
-    "NE": {"name": "Niger",         "currency": "XOF",
-           "operators": [("Airtel Money", "airtel_ne")]},
     "CM": {"name": "Cameroun",      "currency": "XAF",
            "operators": [("MTN Money", "mtn_cm"), ("Orange Money", "orange_cm")]},
-    "GA": {"name": "Gabon",         "currency": "XAF",
-           "operators": [("Airtel Money", "airtel_ga"), ("Moov Money", "moov_ga")]},
-    "CD": {"name": "RD Congo",      "currency": "CDF",
-           "operators": [("Airtel Money", "airtel_cd"), ("Orange Money", "orange_cd"),
-                         ("Vodacom (Mpesa)", "vodacom_cd"), ("Afri Money", "afrimoney_cd")]},
 }
 
 
@@ -297,6 +285,14 @@ async def biztranspay_mobile_initiate(
         "country": cc,
         "operator": body.operator_code,
         "phone_number": phone,
+        # Spec 2026-08-31 : les frais sont à la charge du marchand.
+        # Le client doit débourser EXACTEMENT `amount` (ex : 2500 XOF),
+        # jamais 2650. On envoie plusieurs synonymes pour maximiser la
+        # compatibilité avec les schémas BizTransPay documentés/attendus.
+        "fees_paid_by": "merchant",
+        "merchant_pays_fees": True,
+        "fee_bearer": "merchant",
+        "customer_pays_fees": False,
     }
     try:
         r = await _http("POST", cfg, "/deposits/mobile-money",

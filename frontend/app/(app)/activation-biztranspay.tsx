@@ -60,7 +60,7 @@ const FLAGS: Record<string, string> = {
 
 export default function BizTransPayActivation() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth() as any;
   const [status, setStatus] = useState<PublicStatus | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
   const [channel, setChannel] = useState<"choose" | "mobile" | "crypto">("choose");
@@ -108,8 +108,11 @@ export default function BizTransPayActivation() {
         if (r?.activated) {
           setDone(true);
           setStatusMsg(r.message || "Compte activé.");
+          if (pollTimer.current) clearInterval(pollTimer.current);
+          try { if (typeof refresh === "function") await refresh(); } catch {}
           if (typeof window !== "undefined") window.alert("🎉 Paiement confirmé — votre compte SPILOVEURE est activé !");
-          setTimeout(() => router.replace("/(app)/dashboard" as any), 1500);
+          // Small delay so refresh() finishes propagating before the guard evaluates max_level.
+          setTimeout(() => router.replace("/(app)/dashboard" as any), 400);
           return;
         }
         if (r?.status && r.status !== "pending") setStatusMsg(r.message || `Statut : ${r.status}`);
