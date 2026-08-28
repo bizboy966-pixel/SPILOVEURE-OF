@@ -647,25 +647,25 @@ export default function Activation() {
                   <Ionicons name="diamond" size={26} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.autoActivateTitle}>💎 AUTO-ACTIVATION USDT (BizTransPay)</Text>
+                  <Text style={styles.autoActivateTitle}>💎 ACTIVATION MIXTE</Text>
                   <Text style={styles.autoActivateSub}>
-                    USDT BEP20 — 5 USDT, confirmation automatique par polling
+                    Mobile Money et Crypto Money — confirmation automatique
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={26} color="#fff" />
               </View>
               <View style={styles.autoActivateFooter}>
                 <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
-                  <Ionicons name="qr-code-outline" size={12} color="#fff" />
-                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>QR + Adresse</Text>
+                  <Ionicons name="phone-portrait-outline" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>Mobile Money 2 500 XOF</Text>
                 </View>
                 <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
-                  <Ionicons name="pulse-outline" size={12} color="#fff" />
-                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>Polling 15s</Text>
+                  <Ionicons name="logo-bitcoin" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>Crypto 5 USDT</Text>
                 </View>
                 <View style={[styles.autoActivateChip, { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.28)" }]}>
-                  <Ionicons name="diamond-outline" size={12} color="#fff" />
-                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>5 USDT (BEP20)</Text>
+                  <Ionicons name="checkmark-circle-outline" size={12} color="#fff" />
+                  <Text style={[styles.autoActivateChipText, { color: "#fff" }]}>Activation auto</Text>
                 </View>
               </View>
             </TouchableOpacity>

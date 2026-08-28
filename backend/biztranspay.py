@@ -61,6 +61,10 @@ DEFAULTS: dict[str, Any] = {
     "activation_amount_usdt": 5.0,                   # locked crypto price
     "activation_network": "BEP20",                   # crypto network
     "activation_asset_code": "USDT.BEP20",           # BizTransPay asset code
+    # Refund address envoyée à BizTransPay lors de la création d'un dépôt
+    # crypto. La doc v2 exige un champ non-vide, mais en pratique BizTransPay
+    # peut l'exiger. À configurer par l'admin = adresse BEP20 du merchant.
+    "refund_address": "",
     # Auto-withdrawals (independent toggles)
     "auto_withdraw_mobile": False,
     "auto_withdraw_crypto": False,
@@ -374,16 +378,20 @@ async def biztranspay_crypto_initiate(request: Request, user=Depends(get_current
         }
 
     reference = f"SPLV_BTPCR_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
-    payload = {
+    payload: dict = {
         "amount": float(cfg["activation_amount_usdt"]),
         "asset_code": cfg["activation_asset_code"],
         "full_name": user.get("username") or "SPILOVEURE User",
         "email": user.get("email") or "user@spiloveure.com",
-        # `refund_address` requis par la doc — on met un placeholder générique
-        # que l'utilisateur ne verra pas (les remboursements crypto passent
-        # par un contact support explicite en production).
-        "refund_address": "SUPPORT_REQUIRED",
     }
+    # `refund_address` : BizTransPay v2 refuse toute valeur invalide (ex.
+    # "SUPPORT_REQUIRED"). On envoie uniquement une vraie adresse BEP20
+    # configurée par l'admin dans le panel. Si le champ est vide, on omet
+    # la clé pour laisser BizTransPay utiliser son adresse de repli
+    # marchand par défaut.
+    refund_addr = (cfg.get("refund_address") or "").strip()
+    if refund_addr:
+        payload["refund_address"] = refund_addr
     try:
         r = await _http("POST", cfg, "/deposits/crypto",
                         json_body=payload, idempotency_key=reference)
@@ -457,32 +465,63 @@ async def _fetch_transaction(cfg: dict, intent_id: str) -> Optional[dict]:
 
 
 async def _apply_activation(db, pay: dict, provider_tx: dict) -> dict:
-    """Idempotent single-shot activation from a completed payment."""
+    """Idempotent single-shot activation from a completed payment.
+
+    Order matters:
+      1. Atomically CLAIM the payment (status→paid) so webhook+polling can't race.
+      2. Call `activate_level` — the real MLM activation. If it raises, we
+         revert the claim and surface the error. The user will NOT see a
+         false "compte activé" success message.
+      3. Only when activate_level succeeds do we set `activation_done=True`
+         (the /status endpoint uses this flag as the short-circuit).
+    """
+    now = datetime.now(timezone.utc)
     tx_hash = provider_tx.get("tx_hash") or provider_tx.get("hash") or None
+
+    # Step 1 — atomic claim (prevents double-processing).
     claimed = await db.payments.find_one_and_update(
         {"reference": pay["reference"], "activation_done": {"$ne": True}},
-        {"$set": {"status": "paid", "activation_done": True,
-                  "paid_at": datetime.now(timezone.utc),
-                  "tx_hash": tx_hash,
-                  "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {"status": "paid", "paid_at": now,
+                  "tx_hash": tx_hash, "updated_at": now}},
         return_document=True,
     )
     if not claimed:
+        # Already activated by a previous webhook/polling call — idempotent success.
         return {"ok": True, "activated": True, "already_activated": True}
+
+    # Step 2 — mark activation row so activate_level's security guard finds it.
     await db.activations.update_one(
         {"reference": pay["reference"], "status": "pending"},
-        {"$set": {"status": "validated",
-                  "validated_at": datetime.now(timezone.utc),
-                  "validated_by": "auto:biztranspay",
-                  "tx_hash": tx_hash}},
+        {"$set": {"tx_hash": tx_hash}},
     )
+
+    # Step 3 — REAL activation (matrix placement + Niveau 1 + commissions).
     try:
         await activate_level(db, pay["user_id"], 1, source="biztranspay")
     except Exception as e:
         log.exception("biztranspay activate_level failed for ref=%s: %s",
                       pay["reference"], e)
+        # Record the error but do NOT flip activation_done — the next
+        # webhook / polling attempt will retry.
+        await db.payments.update_one(
+            {"reference": pay["reference"]},
+            {"$set": {"activation_error": str(e)[:300],
+                      "activation_error_at": now}},
+        )
         return {"ok": False, "activated": False,
-                "message": "Activation impossible côté SPILOVEURE. Contactez le support."}
+                "message": "Paiement bien reçu mais activation impossible. Le support a été alerté."}
+
+    # Step 4 — success: seal activation_done + activation row.
+    await db.payments.update_one(
+        {"reference": pay["reference"]},
+        {"$set": {"activation_done": True, "activated_at": now}},
+    )
+    await db.activations.update_one(
+        {"reference": pay["reference"], "status": "pending"},
+        {"$set": {"status": "validated",
+                  "validated_at": now,
+                  "validated_by": "auto:biztranspay"}},
+    )
     try:
         from push_helper import push_to_user
         await push_to_user(
@@ -828,6 +867,7 @@ class ConfigIn(BaseModel):
     activation_amount_usdt: Optional[float] = None
     activation_network: Optional[str] = None
     activation_asset_code: Optional[str] = None
+    refund_address: Optional[str] = None
     auto_withdraw_mobile: Optional[bool] = None
     auto_withdraw_crypto: Optional[bool] = None
 
@@ -848,6 +888,7 @@ async def admin_get_config(request: Request):
         "activation_amount_usdt": float(cfg["activation_amount_usdt"]),
         "activation_network": cfg["activation_network"],
         "activation_asset_code": cfg["activation_asset_code"],
+        "refund_address": cfg.get("refund_address") or "",
         "auto_withdraw_mobile": bool(cfg.get("auto_withdraw_mobile")),
         "auto_withdraw_crypto": bool(cfg.get("auto_withdraw_crypto")),
     }
@@ -877,6 +918,9 @@ async def admin_set_config(body: ConfigIn, request: Request):
         upd["activation_network"] = body.activation_network.strip().upper()
     if body.activation_asset_code and body.activation_asset_code.strip():
         upd["activation_asset_code"] = body.activation_asset_code.strip().upper()
+    if body.refund_address is not None:
+        # Empty string is meaningful (= reset). Strip whitespace.
+        upd["refund_address"] = body.refund_address.strip()
     if body.auto_withdraw_mobile is not None:
         upd["auto_withdraw_mobile"] = bool(body.auto_withdraw_mobile)
     if body.auto_withdraw_crypto is not None:

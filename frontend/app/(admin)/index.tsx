@@ -3493,6 +3493,7 @@ function BizTransPayCard() {
   const [baseUrl, setBaseUrl] = useState("https://biz-transppayy.com/api/developer/v2");
   const [amountXof, setAmountXof] = useState("2500");
   const [amountUsdt, setAmountUsdt] = useState("5");
+  const [refundAddress, setRefundAddress] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -3506,6 +3507,7 @@ function BizTransPayCard() {
       setBaseUrl(r.base_url || "https://biz-transppayy.com/api/developer/v2");
       setAmountXof(String(r.activation_amount_xof ?? 2500));
       setAmountUsdt(String(r.activation_amount_usdt ?? 5));
+      setRefundAddress(r.refund_address || "");
     } catch (e: any) {
       setError(e?.detail || "Impossible de charger la configuration BizTransPay.");
     }
@@ -3523,6 +3525,7 @@ function BizTransPayCard() {
         base_url: baseUrl.trim(),
         activation_amount_xof: parseFloat(amountXof) || 2500,
         activation_amount_usdt: parseFloat(amountUsdt) || 5,
+        refund_address: refundAddress.trim(),
       };
       if (publicKey.trim()) payload.public_key = publicKey.trim();
       if (secretKey.trim()) payload.secret_key = secretKey.trim();
@@ -3620,6 +3623,15 @@ function BizTransPayCard() {
         <View>
           <Text style={styles.lbl}>URL API BizTransPay v2</Text>
           <Input value={baseUrl} onChangeText={setBaseUrl} testID="btp-base-url" />
+        </View>
+        <View>
+          <Text style={styles.lbl}>💰 Adresse de remboursement crypto USDT BEP20 (obligatoire)</Text>
+          <Input value={refundAddress} onChangeText={setRefundAddress}
+            placeholder="0x… (votre wallet BEP20 pour recevoir les remboursements)"
+            testID="btp-refund-address" />
+          <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 4 }}>
+            BizTransPay refuse la création d'un dépôt crypto sans cette adresse. Renseignez votre propre wallet USDT BEP20.
+          </Text>
         </View>
 
         <View style={{ marginTop: 6, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border, gap: 8 }}>

@@ -185,8 +185,8 @@ export default function BizTransPayActivation() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>💎 Auto-activation BizTransPay</Text>
-        <Text style={styles.sub}>Mobile Money · Crypto USDT.{status.network}</Text>
+        <Text style={styles.title}>💎 Activation Mixte</Text>
+        <Text style={styles.sub}>Mobile Money et Crypto Money</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
