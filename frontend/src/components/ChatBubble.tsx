@@ -19,6 +19,7 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
+import VoiceMessage from "@/src/components/VoiceMessage";
 
 type Msg = {
   id: string;
@@ -392,8 +393,7 @@ export default function ChatBubble() {
                           ) : null}
                           {m.audio ? (
                             Platform.OS === "web" ? (
-                              /* @ts-ignore */
-                              <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220, borderRadius: 8 }} />
+                              <VoiceMessage src={m.audio} tint={mine ? "own" : "other"} testID={`chat-voice-${m.id}`} />
                             ) : (
                               <Text style={mine ? styles.msgTextMe : styles.msgText}>🎤 Message vocal</Text>
                             )

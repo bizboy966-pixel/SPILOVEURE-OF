@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
+import VoiceMessage from "@/src/components/VoiceMessage";
 
 type ConvItem = {
   id: string; user_id: string; username: string; email: string;
@@ -312,8 +313,7 @@ export default function AdminSupportTab() {
                             </View>
                           ) : null}
                           {m.audio ? (
-                            /* @ts-ignore */
-                            <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220, borderRadius: 8 }} />
+                            <VoiceMessage src={m.audio} tint={mine ? "own" : "other"} testID={`admin-voice-${m.id}`} />
                           ) : null}
                         </>
                       )}

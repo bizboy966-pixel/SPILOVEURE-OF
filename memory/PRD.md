@@ -23,6 +23,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
+### 2026-08-31 — 🗑️ Chat Direct — Rétention automatique + verrouillage backend + player vocal
+
+**Contexte** : après le round Telegram-style (iter 55), l'utilisateur a précisé la spec — durée de conservation configurable côté admin avec purge serveur, blocage effectif du chat côté API (pas juste l'UI), et un vrai player vocal.
+
+**Backend** (`/app/backend/chat.py`) :
+- `require_chat_enabled` (nouvelle dépendance FastAPI) : bloque `POST /me/messages` + `POST /admin/conversations/{cid}/messages` avec `423 Locked` + message français quand le master switch est OFF. Les lectures + suppressions + mark-read restent ouvertes pour laisser voir/supprimer l'historique.
+- `GET /api/chat/admin/retention` : renvoie `{hours, presets: [0,1,6,12,24,168,720]}`. Ouvert admin **et** support agent.
+- `POST /api/chat/admin/retention` : `require_admin` (support agent 403). Range 0–8760 h.
+- `purge_expired_messages(db)` : `chat_messages.delete_many({created_at: {$lt: cutoff}})` — suppression **réelle** (pas soft), no-op si retention = 0.
+- `start_retention_worker(db)` : boucle asyncio infinie, sleep 30 min entre les passes. Lancée depuis `server.py::lifespan` en `asyncio.create_task`, annulée proprement au shutdown.
+
+**Backend** (`/app/backend/server.py`) : import `asyncio` + task de rétention créée dans `lifespan` juste après le seed des feature flags, annulée avant `client.close()`.
+
+**Frontend** :
+- `/app/frontend/src/components/SupportAgentsCard.tsx` : nouvelle carte `chat-retention-box` (7 presets Jamais/1h/6h/12h/24h/7j/30j + input personnalisé). Feedback en direct « ✓ Actuellement : messages supprimés après X h » (avec conversion en jours seulement pour ≥ 24 h).
+- `/app/frontend/src/components/VoiceMessage.tsx` (nouveau, 155 lignes) : lecteur vocal custom pill (play/pause + barre + `mm:ss / mm:ss`), seek au clic sur la barre, workaround Chromium/webm `Infinity` duration via seek à `1e101`. Tinte adaptée selon side (own/other).
+- `/app/frontend/src/components/ChatBubble.tsx` + `AdminSupportTab.tsx` : `<audio controls>` natif remplacé par `<VoiceMessage>` sur les deux côtés.
+
+**Tests** :
+- `/app/backend/tests/test_iter56_chat_retention_and_lock.py` — 17/17 pass (retention persist, RBAC, 423 lock/unlock, purge worker).
+- Regression `test_iter55_chat_telegram.py` — 21/21 pass.
+- `test_official_commission_plan.py` + `test_matrix_placement_routing.py` — 10/10 pass.
+- Frontend testing_agent iter 56 : tous les flows validés sur le preview.
+
+**Points ouverts (P2, non bloquants)** :
+- Ajouter un index Mongo sur `chat_messages.created_at` avant montée en charge (la purge scanne tous les docs).
+- Déclencher un purge immédiat sur `POST /retention` pour feedback admin instantané (aujourd'hui délai jusqu'à 30 min).
+- Extraire un `useChatMessageMenu` + `ChatMessageBubble` partagé (duplication ~40 lignes entre `ChatBubble.tsx` et `AdminSupportTab.tsx`).
+
+---
+
+## Implementation Status (à jour 2026-08-31)
+
 ### 2026-08-31 — 💬 Chat Support "Telegram-style" (5 P0 items)
 
 **Contexte** : le chat direct utilisateur↔support existait mais restait rudimentaire. Objectif : monter le niveau UX au rang d'une vraie messagerie type Telegram, sans re-designer le back-end de fond.

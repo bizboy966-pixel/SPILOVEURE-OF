@@ -1,5 +1,6 @@
 """SPILIVERE FastAPI backend - main entrypoint."""
 from __future__ import annotations
+import asyncio
 import os
 import logging
 import uuid
@@ -141,7 +142,22 @@ async def lifespan(app: FastAPI):
         log.info("Feature flags seeded")
     except Exception as _e:
         log.warning(f"Feature flags seed failed: {_e}")
+    # Launch chat retention background worker. It sleeps 30 min between passes
+    # and permanently removes messages older than the admin-configured window.
+    retention_task = None
+    try:
+        from chat import start_retention_worker as _start_retention  # noqa: WPS433
+        retention_task = asyncio.create_task(_start_retention(db))
+        log.info("Chat retention worker scheduled")
+    except Exception as _e:
+        log.warning(f"Chat retention worker failed to start: {_e}")
     yield
+    if retention_task:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except Exception:
+            pass
     client.close()
 
 

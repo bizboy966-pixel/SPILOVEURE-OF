@@ -7,6 +7,9 @@ Features:
   ▸ Admin presence : heartbeat every 30s, "online" if last_seen < 90s.
   ▸ Push notifications to every admin on new user message; to the user on admin reply.
   ▸ Strict authorization : a user only sees their own conversation; admins see all.
+  ▸ Global master switch (app_settings.chat_enabled) enforced server-side.
+  ▸ Message retention : admin sets hours, background purge_expired_messages()
+    permanently deletes older messages every 30 min (see server.py lifespan).
 
 Collections:
   chat_conversations : { id, user_id, username, last_message_at,
@@ -18,6 +21,7 @@ Collections:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import re
@@ -44,6 +48,20 @@ async def require_admin_or_support(user: dict = Depends(get_current_user)) -> di
     if role == "support" and user.get("status") == "authorized":
         return user
     raise HTTPException(403, "Accès réservé à l'équipe support autorisée.")
+
+
+async def _is_chat_globally_enabled(db) -> bool:
+    row = await db.app_settings.find_one({"key": "chat_enabled"}, {"_id": 0})
+    return True if not row else bool(row.get("value", True))
+
+
+async def require_chat_enabled(request: Request):
+    """Reject send/mutate calls when admin has flipped the global master switch off."""
+    if not await _is_chat_globally_enabled(request.app.state.db):
+        raise HTTPException(
+            status_code=423,  # Locked — cleaner than 403 for a policy toggle
+            detail="Le chat direct est temporairement désactivé par l'administration.",
+        )
 
 MAX_TEXT_LEN = 4000
 MAX_IMAGES = 4
@@ -288,7 +306,9 @@ async def chat_me(request: Request, user=Depends(get_current_user), limit: int =
 
 
 @api.post("/me/messages")
-async def chat_send_user(body: SendMessageIn, request: Request, user=Depends(get_current_user)):
+async def chat_send_user(body: SendMessageIn, request: Request,
+                         user=Depends(get_current_user),
+                         _enabled=Depends(require_chat_enabled)):
     db = request.app.state.db
     await _enforce_rate_limit(db, user["id"])
     text = (body.text or "").strip()[:MAX_TEXT_LEN]
@@ -432,7 +452,8 @@ async def admin_get_messages(conversation_id: str, request: Request,
 
 @admin_router.post("/conversations/{conversation_id}/messages")
 async def admin_send_message(conversation_id: str, body: SendMessageIn, request: Request,
-                              admin=Depends(require_admin_or_support)):
+                              admin=Depends(require_admin_or_support),
+                              _enabled=Depends(require_chat_enabled)):
     db = request.app.state.db
     conv = await db.chat_conversations.find_one({"id": conversation_id}, {"_id": 0})
     if not conv:
@@ -508,3 +529,71 @@ async def admin_delete_message(conversation_id: str, msg_id: str, request: Reque
                   "reply_preview": None}},
     )
     return {"ok": True, "deleted": True}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Retention policy — admin-controlled, server-enforced
+# ────────────────────────────────────────────────────────────────────────
+# Preset options exposed to the admin UI. 0 = never expire.
+RETENTION_PRESET_HOURS = [0, 1, 6, 12, 24, 24 * 7, 24 * 30]
+
+
+class RetentionIn(BaseModel):
+    hours: int = Field(..., ge=0, le=24 * 365)  # up to 1 year
+
+
+@admin_router.get("/retention")
+async def admin_get_retention(request: Request, admin=Depends(require_admin_or_support)):
+    row = await request.app.state.db.app_settings.find_one(
+        {"key": "chat_message_retention_hours"}, {"_id": 0},
+    )
+    return {
+        "hours": int((row or {}).get("value", 0)),
+        "presets": RETENTION_PRESET_HOURS,
+    }
+
+
+@admin_router.post("/retention")
+async def admin_set_retention(body: RetentionIn, request: Request,
+                               admin=Depends(require_admin)):
+    """Only a real admin (not support agents) can change retention."""
+    await request.app.state.db.app_settings.update_one(
+        {"key": "chat_message_retention_hours"},
+        {"$set": {"value": int(body.hours)}},
+        upsert=True,
+    )
+    return {"ok": True, "hours": int(body.hours)}
+
+
+async def purge_expired_messages(db) -> dict:
+    """Permanently delete chat_messages older than the configured retention.
+
+    Returns a small stats dict for logging. Called every 30 minutes from the
+    FastAPI lifespan background task. Safe to run when retention is 0 (no-op).
+    """
+    row = await db.app_settings.find_one(
+        {"key": "chat_message_retention_hours"}, {"_id": 0},
+    )
+    hours = int((row or {}).get("value", 0))
+    if hours <= 0:
+        return {"purged": 0, "hours": 0, "skipped": True}
+    cutoff = _now() - timedelta(hours=hours)
+    r = await db.chat_messages.delete_many({"created_at": {"$lt": cutoff}})
+    if r.deleted_count:
+        log.info("chat retention purge : %s messages < %sh removed", r.deleted_count, hours)
+    return {"purged": int(r.deleted_count), "hours": hours, "skipped": False}
+
+
+async def start_retention_worker(db):
+    """Background loop launched from server.py lifespan. Runs every 30 min."""
+    log.info("chat retention worker started (30-min interval)")
+    while True:
+        try:
+            await purge_expired_messages(db)
+        except Exception as e:  # never let a purge failure kill the loop
+            log.exception("chat retention purge failed: %s", e)
+        try:
+            await asyncio.sleep(30 * 60)
+        except asyncio.CancelledError:
+            log.info("chat retention worker stopped")
+            raise

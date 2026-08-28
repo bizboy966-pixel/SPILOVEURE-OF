@@ -14,6 +14,16 @@ import { theme } from "@/src/theme";
 
 type Agent = { id: string; email?: string; username?: string; status: string; created_at: string | null; last_seen: string | null };
 
+const RETENTION_OPTIONS: { hours: number; label: string }[] = [
+  { hours: 0, label: "Jamais" },
+  { hours: 1, label: "1 h" },
+  { hours: 6, label: "6 h" },
+  { hours: 12, label: "12 h" },
+  { hours: 24, label: "24 h" },
+  { hours: 24 * 7, label: "7 jours" },
+  { hours: 24 * 30, label: "30 jours" },
+];
+
 function StatusPill({ s }: { s: string }) {
   const map: Record<string, { c: string; bg: string; label: string }> = {
     pending: { c: "#92400E", bg: "#FEF3C7", label: "🟡 En attente" },
@@ -34,17 +44,31 @@ export default function SupportAgentsCard() {
   const [chatEnabled, setChatEnabled] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [sched, setSched] = useState<any>({ mode: "auto", schedule_enabled: false, start_hour: 8, end_hour: 18, days: [0,1,2,3,4] });
+  const [retention, setRetention] = useState<number>(0);
+  const [customHours, setCustomHours] = useState<string>("");
 
   const load = useCallback(async () => {
     try {
-      const [a, cs, sc] = await Promise.all([
+      const [a, cs, sc, rt] = await Promise.all([
         api.get<{ agents: Agent[] }>("/admin/support/agents"),
         api.get<{ enabled: boolean }>("/admin/support/chat-status"),
         api.get<any>("/admin/support/schedule"),
+        api.get<{ hours: number }>("/chat/admin/retention"),
       ]);
       setAgents(a.agents || []); setChatEnabled(!!cs.enabled); setSched(sc);
+      setRetention(rt.hours || 0);
     } catch { /* silent */ } finally { setLoading(false); }
   }, []);
+
+  const saveRetention = async (hours: number) => {
+    try {
+      const r = await api.post<{ ok: boolean; hours: number }>("/chat/admin/retention", { hours });
+      setRetention(r.hours || 0);
+      setCustomHours("");
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert("Erreur : " + (e?.detail || "sauvegarde impossible"));
+    }
+  };
 
   const saveSched = async (patch: any) => {
     try {
@@ -172,6 +196,72 @@ export default function SupportAgentsCard() {
               </>
             )}
           </>
+        )}
+      </View>
+
+      {/* Retention policy — server-side purge every 30 min */}
+      <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border }} testID="chat-retention-box">
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <Ionicons name="time" size={14} color={theme.colors.primary} />
+          <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.textPrimary, flex: 1 }}>
+            🗑️ Durée de conservation des messages
+          </Text>
+        </View>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 10.5, marginBottom: 8, lineHeight: 15 }}>
+          Les messages plus anciens seront <Text style={{ fontWeight: "800" }}>définitivement supprimés</Text> par le serveur (purge toutes les 30 min).
+          Les utilisateurs ne peuvent pas modifier ce paramètre.
+        </Text>
+        <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+          {RETENTION_OPTIONS.map((opt) => {
+            const active = retention === opt.hours;
+            return (
+              <TouchableOpacity key={opt.hours} onPress={() => saveRetention(opt.hours)}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1,
+                  borderColor: active ? theme.colors.primary : theme.colors.border,
+                  backgroundColor: active ? theme.colors.primary : "transparent" }}
+                testID={`retention-${opt.hours}`}>
+                <Text style={{ color: active ? "#fff" : theme.colors.textPrimary, fontSize: 11, fontWeight: "700" }}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>Personnalisé :</Text>
+          <TextInput
+            style={styles.hourIn}
+            value={customHours}
+            keyboardType="numeric"
+            placeholder={String(retention || 0)}
+            placeholderTextColor={theme.colors.textSecondary}
+            onChangeText={setCustomHours}
+            testID="retention-custom-input"
+          />
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>heures</Text>
+          <TouchableOpacity
+            onPress={() => {
+              const h = parseInt(customHours || "0", 10);
+              if (isNaN(h) || h < 0 || h > 24 * 365) {
+                if (typeof window !== "undefined") window.alert("Valeur invalide (0 à 8760 heures)");
+                return;
+              }
+              saveRetention(h);
+            }}
+            style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.colors.primary }}
+            testID="retention-custom-save"
+          >
+            <Text style={{ color: "#fff", fontSize: 10.5, fontWeight: "800" }}>Appliquer</Text>
+          </TouchableOpacity>
+        </View>
+        {retention > 0 ? (
+          <Text style={{ marginTop: 6, color: theme.colors.success, fontSize: 10.5, fontWeight: "700" }}>
+            ✓ Actuellement : messages supprimés après {retention} h{retention >= 24 ? ` (${(retention / 24).toFixed(0)} j)` : ""}
+          </Text>
+        ) : (
+          <Text style={{ marginTop: 6, color: theme.colors.textSecondary, fontSize: 10.5 }}>
+            ℹ Actuellement : les messages ne sont jamais supprimés automatiquement.
+          </Text>
         )}
       </View>
 

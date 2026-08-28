@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 56 (chat retention purge + server-side global chat lock + custom voice player) tested end-to-end. Backend: new pytest suite test_iter56_chat_retention_and_lock.py — 17/17 passed (retention GET/POST persistence, presets [0,1,6,12,24,168,720], 422 on >8760h and negative, RBAC: user 403, authorized support agent GET 200 / POST 403, admin 200; chat master switch → HTTP 423 with French detail on both user and admin send endpoints while reads/deletes keep working, sends restored after re-enable; chat.purge_expired_messages() hard-deletes a 100h-old message with retention=1h while keeping recent one, and is a strict no-op at retention=0; retention worker startup log verified). Regression suite test_iter55_chat_telegram.py 21/21 still passing. Frontend (real preview URL, admin creds): admin Support tab shows chat-retention-box with all 7 presets + custom input + Appliquer; clicking retention-24 updates label to '✓ Actuellement : messages supprimés après 24 h (1 j)', custom 6h applies, retention-0 resets to 'jamais supprimés'. chat-global-toggle flips ACTIVÉ→DÉSACTIVÉ, floating chat-bubble disappears on user dashboard after reload and reappears after re-enabling. VoiceMessage custom player renders (play/pause pill + progress bar + 0:00/0:02 timers), zero native <audio controls> in DOM, icon toggles play↔pause and back, progress advances during playback. Regression: text send, right-click context menu, reply (with quoted preview), delete (confirm dialog → bubble becomes 'Message supprimé', persists after reload), mic button starts/cancels recording UI, image lightbox opens. Final state restored: chat_enabled=true, retention=0, leftover TEST support agent removed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Admin > Support > chat-retention-box",
+        "issues": ["Sub-24h retention labels show a days conversion that reads oddly: '✓ Actuellement : messages supprimés après 6 h (0.3 j)'. Suggest hiding the (x j) part when hours < 24.", "Custom hours TextInput has no maxLength/validation hint inline; invalid values only surface through window.alert (works, but a native alert on web is inconsistent with the rest of the UI)."]
+      },
+      {
+        "screen": "User dashboard / chat bubble (console)",
+        "issues": ["Recurring console error on every app screen: 'Invalid style property of \"background\". Please use long-form properties.' — pre-existing RN-web style bug (a gradient/background shorthand somewhere), harmless but pollutes logs."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_chat_retention_and_lock.py",
+    "/app/backend/tests/seed_voice_message.py",
+    "/app/backend/tests/cleanup_iter56.py",
+    "/app/test_reports/pytest/iter56_results.xml"
+  ],
+  "action_items": [
+    "Optional polish: don't render '(0.3 j)' for retention < 24h in SupportAgentsCard.",
+    "Optional hardening in VoiceMessage.tsx: Chromium reports duration=Infinity for MediaRecorder webm blobs. Currently fmt() falls back to '0:00' and the progress bar stays empty in that case. Apply the standard workaround (set audio.currentTime = 1e101 once on loadedmetadata, then reset to 0 on durationchange) so in-app recorded notes show a real duration. NOTE: not reproduced with a real in-browser recording (headless env has no mic input); the only webm rows in DB are 31-byte fakes from previous test iterations, which render 0:00/0:00 silently."
+  ],
+  "critical_code_review_comments": [
+    "chat.py require_chat_enabled is applied only to the two send endpoints; DELETE/mark-read/heartbeat intentionally stay open — verified and matches spec. Good.",
+    "purge_expired_messages() deletes by created_at only (no conversation filter) — correct, but there is no index on chat_messages.created_at; consider creating one before volume grows so the 30-min purge and the sort in /api/chat/me stay cheap.",
+    "POST /api/chat/admin/retention correctly uses require_admin while GET uses require_admin_or_support — RBAC verified by test.",
+    "start_retention_worker sleeps 30 min AFTER the first pass, so a retention change takes up to 30 min to take effect; acceptable, but an immediate purge trigger on POST /retention would make admin feedback instant.",
+    "VoiceMessage.tsx has no error/failed-load state: if the audio blob is corrupt, play() rejects silently and the UI keeps showing 0:00 with no feedback."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56_chat_retention_and_lock.py",
+    "/app/backend/tests/seed_voice_message.py",
+    "/app/backend/tests/cleanup_iter56.py"
+  ],
+  "success_rate": {"backend": "100% (17/17 new + 21/21 iter55 regression)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Two TEST users via /api/auth/register (TESTret*), one temporary support agent (deleted), one valid 2s WAV voice note sent as admin (msg 3d912154-ceca-4509-8752-639d987d105a) kept for future voice-player E2E, plus a few TEST_iter56_* chat messages. All app_settings restored (chat_enabled=true, retention=0).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Run `python3 /app/backend/tests/seed_voice_message.py` to (re)create a valid WAV voice note for the custom player test; the existing webm rows in chat_messages are 31-byte fakes and render 0:00. ChatBubble delete uses window.confirm — Playwright auto-dismisses dialogs, so you MUST register page.on('dialog', accept) or the delete silently no-ops. Retention/global-toggle state lives in app_settings (keys chat_enabled, chat_message_retention_hours); always restore to true/0 (use /app/backend/tests/cleanup_iter56.py). Suite files: test_iter56_chat_retention_and_lock.py, test_iter55_chat_telegram.py.",
+  "rca_of_the_issue": "No defects found. One earlier false-negative during my own run: the right-click delete appeared to fail because Playwright auto-dismisses window.confirm; re-run with an accepting dialog handler confirmed delete works and persists after reload."
+}
