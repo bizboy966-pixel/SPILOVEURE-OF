@@ -52,6 +52,12 @@ async def lifespan(app: FastAPI):
     db = client[os.environ.get("DB_NAME", "spilivere")]
     app.state.mongo = client
     app.state.db = db
+    # Bind DB to modules that need it for observability (BizTransPay API logs).
+    try:
+        from biztranspay import _bind_db as _biztranspay_bind_db
+        _biztranspay_bind_db(db)
+    except Exception:
+        pass
     # indexes
     await db.users.create_index("id", unique=True)
     await db.users.create_index("email", unique=True)

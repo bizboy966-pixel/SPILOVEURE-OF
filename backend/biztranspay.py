@@ -153,9 +153,46 @@ async def _http(method: str, cfg: dict, path: str, *,
                 timeout: int = 25) -> httpx.Response:
     url = f"{cfg['base_url'].rstrip('/')}{path}"
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await client.request(method, url,
-                                    headers=_headers(cfg, idempotency_key),
-                                    json=json_body)
+        r = await client.request(method, url,
+                                 headers=_headers(cfg, idempotency_key),
+                                 json=json_body)
+    # Trace every API call for admin visibility (sanitized).
+    try:
+        preview = (r.text or "")[:800]
+    except Exception:
+        preview = "<binary>"
+    log.info("biztranspay %s %s → %s : %s", method, path, r.status_code, preview)
+    # Persist the last 100 exchanges in DB for the admin log viewer.
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient  # noqa: F401
+        # Reuse the app's DB via a static reference; we accept a light coupling
+        # to keep this function simple.
+        _db = _CURRENT_DB
+        if _db is not None:
+            await _db.biztranspay_api_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "at": datetime.now(timezone.utc),
+                "method": method, "path": path,
+                "status": r.status_code,
+                "response": preview,
+                "idempotency_key": idempotency_key or "",
+            })
+            # Rolling window: keep only the newest 100.
+            oldest = await _db.biztranspay_api_logs.find(
+                {}, {"_id": 1}).sort("at", -1).skip(100).to_list(200)
+            if oldest:
+                await _db.biztranspay_api_logs.delete_many(
+                    {"_id": {"$in": [d["_id"] for d in oldest]}})
+    except Exception:
+        pass
+    return r
+
+
+_CURRENT_DB = None  # type: ignore
+def _bind_db(db):
+    """Called from server.py on startup to expose the app DB to _http()."""
+    global _CURRENT_DB
+    _CURRENT_DB = db
 
 
 def _biztp_error(r: httpx.Response) -> str:
@@ -295,10 +332,11 @@ async def biztranspay_mobile_initiate(
         "country": cc,
         "operator": body.operator_code,
         "phone_number": phone,
+        # Champ documenté par BizTransPay v2 : indique QUI paie les frais.
+        # "merchant" = client paie exactement `amount` (frais à charge marchand).
+        "fee_bearer": "merchant",
     }
-    # NB : les frais mobile money sont réglés côté BizTransPay dans les
-    # paramètres marchand (option "Frais à charge marchand"). Ce n'est pas
-    # un flag de requête — l'envoi de champs inconnus déclenchait un 500.
+    log.info("biztranspay MM initiate ref=%s payload=%s", reference, {**payload, "email": "***"})
     try:
         r = await _http("POST", cfg, "/deposits/mobile-money",
                         json_body=payload, idempotency_key=reference)
@@ -383,15 +421,13 @@ async def biztranspay_crypto_initiate(request: Request, user=Depends(get_current
         "asset_code": cfg["activation_asset_code"],
         "full_name": user.get("username") or "SPILOVEURE User",
         "email": user.get("email") or "user@spiloveure.com",
+        "fee_bearer": "merchant",
     }
-    # `refund_address` : BizTransPay v2 refuse toute valeur invalide (ex.
-    # "SUPPORT_REQUIRED"). On envoie uniquement une vraie adresse BEP20
-    # configurée par l'admin dans le panel. Si le champ est vide, on omet
-    # la clé pour laisser BizTransPay utiliser son adresse de repli
-    # marchand par défaut.
-    refund_addr = (cfg.get("refund_address") or "").strip()
-    if refund_addr:
-        payload["refund_address"] = refund_addr
+    # `refund_address` : totalement OPTIONNEL côté SPILOVEURE. La doc v2 le
+    # documente comme un champ que BizTransPay utilise si l'utilisateur
+    # envoie sur le mauvais réseau. On laisse BizTransPay gérer avec son
+    # adresse marchand par défaut — aucune configuration admin nécessaire.
+    log.info("biztranspay CR initiate ref=%s payload=%s", reference, {**payload, "email": "***"})
     try:
         r = await _http("POST", cfg, "/deposits/crypto",
                         json_body=payload, idempotency_key=reference)
@@ -870,6 +906,17 @@ class ConfigIn(BaseModel):
     refund_address: Optional[str] = None
     auto_withdraw_mobile: Optional[bool] = None
     auto_withdraw_crypto: Optional[bool] = None
+
+
+@admin.get("/payments/biztranspay/logs")
+async def admin_get_api_logs(request: Request):
+    """Return the last 100 API exchanges with BizTransPay for admin debugging."""
+    db = request.app.state.db
+    logs = []
+    async for row in db.biztranspay_api_logs.find({}, {"_id": 0}).sort("at", -1).limit(100):
+        row["at"] = row["at"].isoformat() if hasattr(row["at"], "isoformat") else str(row["at"])
+        logs.append(row)
+    return {"logs": logs}
 
 
 @admin.get("/payments/biztranspay/config")

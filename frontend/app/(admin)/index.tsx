@@ -3624,15 +3624,6 @@ function BizTransPayCard() {
           <Text style={styles.lbl}>URL API BizTransPay v2</Text>
           <Input value={baseUrl} onChangeText={setBaseUrl} testID="btp-base-url" />
         </View>
-        <View>
-          <Text style={styles.lbl}>💰 Adresse de remboursement crypto USDT BEP20 (obligatoire)</Text>
-          <Input value={refundAddress} onChangeText={setRefundAddress}
-            placeholder="0x… (votre wallet BEP20 pour recevoir les remboursements)"
-            testID="btp-refund-address" />
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 4 }}>
-            BizTransPay refuse la création d'un dépôt crypto sans cette adresse. Renseignez votre propre wallet USDT BEP20.
-          </Text>
-        </View>
 
         <View style={{ marginTop: 6, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border, gap: 8 }}>
           <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.textPrimary }}>🚦 Contrôles indépendants</Text>
