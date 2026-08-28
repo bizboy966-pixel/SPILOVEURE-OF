@@ -35,6 +35,16 @@ log = logging.getLogger("chat")
 api = APIRouter(prefix="/api/chat", tags=["chat"])
 admin_router = APIRouter(prefix="/api/chat/admin", tags=["chat-admin"])
 
+
+# Allow either admin OR an authorized support agent to reach admin endpoints.
+async def require_admin_or_support(user: dict = Depends(get_current_user)) -> dict:
+    role = (user.get("role") or "").lower()
+    if role == "admin":
+        return user
+    if role == "support" and user.get("status") == "authorized":
+        return user
+    raise HTTPException(403, "Accès réservé à l'équipe support autorisée.")
+
 MAX_TEXT_LEN = 4000
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 800 * 1024        # 800 KB per image after base64 decode
@@ -309,7 +319,7 @@ async def chat_user_mark_read(request: Request, user=Depends(get_current_user)):
 # ADMIN endpoints
 # ────────────────────────────────────────────────────────────────────────
 @admin_router.post("/heartbeat")
-async def admin_heartbeat(request: Request, admin=Depends(require_admin)):
+async def admin_heartbeat(request: Request, admin=Depends(require_admin_or_support)):
     db = request.app.state.db
     now = _now()
     await db.admin_presence.update_one(
@@ -325,7 +335,7 @@ async def admin_heartbeat(request: Request, admin=Depends(require_admin)):
 
 
 @admin_router.get("/conversations")
-async def admin_list_conversations(request: Request, admin=Depends(require_admin)):
+async def admin_list_conversations(request: Request, admin=Depends(require_admin_or_support)):
     """List all conversations, most recently active first."""
     db = request.app.state.db
     convs = []
@@ -355,7 +365,7 @@ async def admin_list_conversations(request: Request, admin=Depends(require_admin
 
 @admin_router.get("/conversations/{conversation_id}/messages")
 async def admin_get_messages(conversation_id: str, request: Request,
-                              admin=Depends(require_admin), limit: int = 200):
+                              admin=Depends(require_admin_or_support), limit: int = 200):
     db = request.app.state.db
     conv = await db.chat_conversations.find_one({"id": conversation_id}, {"_id": 0})
     if not conv:
@@ -378,7 +388,7 @@ async def admin_get_messages(conversation_id: str, request: Request,
 
 @admin_router.post("/conversations/{conversation_id}/messages")
 async def admin_send_message(conversation_id: str, body: SendMessageIn, request: Request,
-                              admin=Depends(require_admin)):
+                              admin=Depends(require_admin_or_support)):
     db = request.app.state.db
     conv = await db.chat_conversations.find_one({"id": conversation_id}, {"_id": 0})
     if not conv:
@@ -423,7 +433,7 @@ async def admin_send_message(conversation_id: str, body: SendMessageIn, request:
 
 
 @admin_router.post("/conversations/{conversation_id}/mark-read")
-async def admin_mark_read(conversation_id: str, request: Request, admin=Depends(require_admin)):
+async def admin_mark_read(conversation_id: str, request: Request, admin=Depends(require_admin_or_support)):
     db = request.app.state.db
     now = _now()
     r = await db.chat_messages.update_many(

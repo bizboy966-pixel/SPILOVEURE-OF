@@ -3385,6 +3385,11 @@ from chat import api as chat_api, admin_router as chat_admin  # noqa: E402
 app.include_router(chat_api)
 app.include_router(chat_admin)
 
+# Support desk (Phase 3a) — dedicated agent workflow + admin authorization.
+from support import public as support_public, admin_router as support_admin  # noqa: E402
+app.include_router(support_public)
+app.include_router(support_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

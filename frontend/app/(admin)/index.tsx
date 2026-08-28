@@ -34,6 +34,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
+import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 
 type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support";
 
@@ -2209,7 +2210,10 @@ export default function AdminHome() {
         )}
 
         {tab === "support" && (
-          <AdminSupportTab />
+          <>
+            <SupportAgentsCard />
+            <AdminSupportTab />
+          </>
         )}
 
         {tab === "payment" && (
