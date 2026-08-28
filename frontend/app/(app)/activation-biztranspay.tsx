@@ -34,6 +34,7 @@ type Country = { code: string; name: string; currency: string; dial_code: string
 
 type MobileCharge = {
   reference: string; provider_intent_id?: string; status: string;
+  provider_status?: string | null; provider_message?: string | null;
   amount: number; currency: string; country: string; operator: string; phone: string;
 };
 
@@ -135,7 +136,18 @@ export default function BizTransPayActivation() {
         country: countryCode, operator_code: operatorCode, phone: phone.trim(),
       });
       setMobileCharge(r);
-      setStatusMsg("📱 Consultez votre téléphone : validez la demande de paiement mobile money.");
+      // Only show the "confirm on phone" message when the gateway actually
+      // returned a pending/processing status (i.e. the request was routed to
+      // the operator). Otherwise surface the real gateway status so the user
+      // doesn't waste time waiting for a phone prompt that will never come.
+      const status = (r.provider_status || r.status || "").toLowerCase();
+      if (status === "pending" || status === "processing" || status === "") {
+        setStatusMsg("📱 Consultez votre téléphone : validez la demande de paiement mobile money.");
+      } else if (status === "failed") {
+        setStatusMsg("❌ La passerelle a refusé la demande. " + (r.provider_message || "Réessayez avec un autre opérateur."));
+      } else {
+        setStatusMsg(`ℹ️ Statut passerelle : ${status}. ` + (r.provider_message || ""));
+      }
     } catch (e: any) {
       setErr(e?.detail || "Impossible de démarrer le paiement Mobile Money.");
     } finally { setLoading(false); }

@@ -68,6 +68,10 @@ DEFAULTS: dict[str, Any] = {
     # Auto-withdrawals (independent toggles)
     "auto_withdraw_mobile": False,
     "auto_withdraw_crypto": False,
+    # If True, we include `fee_bearer: "merchant"` in every deposit payload.
+    # Some BizTransPay merchant profiles reject unknown fields → set to False
+    # if you see repeated rejections/HTTP 500 on Mobile Money POST.
+    "send_fee_bearer": True,
     # Security
     "webhook_replay_window_sec": 300,                # reject webhooks older than 5min
 }
@@ -332,10 +336,9 @@ async def biztranspay_mobile_initiate(
         "country": cc,
         "operator": body.operator_code,
         "phone_number": phone,
-        # Champ documenté par BizTransPay v2 : indique QUI paie les frais.
-        # "merchant" = client paie exactement `amount` (frais à charge marchand).
-        "fee_bearer": "merchant",
     }
+    if cfg.get("send_fee_bearer", True):
+        payload["fee_bearer"] = "merchant"
     log.info("biztranspay MM initiate ref=%s payload=%s", reference, {**payload, "email": "***"})
     try:
         r = await _http("POST", cfg, "/deposits/mobile-money",
@@ -350,8 +353,10 @@ async def biztranspay_mobile_initiate(
         raise HTTPException(400, _biztp_error(r))
     intent = r.json() or {}
     intent_id = intent.get("transaction_id") or intent.get("id")
+    provider_status = str(intent.get("status") or "").lower()
     if not intent_id:
-        raise HTTPException(502, "Réponse invalide de BizTransPay.")
+        log.error("biztranspay mobile-money: missing transaction_id in %s", str(intent)[:400])
+        raise HTTPException(502, "Réponse invalide de BizTransPay (transaction_id manquant).")
 
     now = datetime.now(timezone.utc)
     await db.payments.insert_one({
@@ -378,7 +383,12 @@ async def biztranspay_mobile_initiate(
     return {
         "reference": reference,
         "provider_intent_id": intent_id,
-        "status": "pending",
+        # Renvoie le status RÉEL retourné par BizTransPay pour que le frontend
+        # ne mente pas ("Confirmez sur téléphone" alors que la passerelle a
+        # renvoyé "failed" ou une réponse inattendue).
+        "status": provider_status or "pending",
+        "provider_status": provider_status or None,
+        "provider_message": intent.get("message") or intent.get("detail") or None,
         "amount": amount, "currency": currency,
         "country": cc, "operator": body.operator_code, "phone": phone,
     }
