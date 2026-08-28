@@ -26,7 +26,6 @@ et `secret_key` sont uniquement masqués (`sk_btp_XXXXXX…YYYY`).
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import logging
@@ -37,7 +36,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from auth import get_current_user
 from matrix import activate_level
