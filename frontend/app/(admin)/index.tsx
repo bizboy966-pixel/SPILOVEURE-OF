@@ -3484,25 +3484,28 @@ function BizTransPayCard() {
   const [cfg, setCfg] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState("");            // user-typed replacement (blank = leave unchanged)
-  const [amount, setAmount] = useState("5");
-  const [network, setNetwork] = useState("BEP20");
-  const [tolerance, setTolerance] = useState("0.05");
-  const [mode, setMode] = useState<"live" | "test">("live");
+  const [publicKey, setPublicKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [enabled, setEnabled] = useState(false);
-  const [baseUrl, setBaseUrl] = useState("https://biz-transppayy.com/api/v1");
+  const [autoMobile, setAutoMobile] = useState(false);
+  const [autoCrypto, setAutoCrypto] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("https://biz-transppayy.com/api/developer/v2");
+  const [amountXof, setAmountXof] = useState("2500");
+  const [amountUsdt, setAmountUsdt] = useState("5");
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const r = await api.get<any>("/admin/payments/biztranspay/config");
       setCfg(r);
-      setAmount(String(r.amount_usdt ?? 5));
-      setNetwork(r.network || "BEP20");
-      setTolerance(String(r.tolerance_usdt ?? 0.05));
-      setMode(r.mode === "test" ? "test" : "live");
+      setPublicKey(r.public_key || "");
       setEnabled(!!r.enabled);
-      setBaseUrl(r.base_url || "https://biz-transppayy.com/api/v1");
+      setAutoMobile(!!r.auto_withdraw_mobile);
+      setAutoCrypto(!!r.auto_withdraw_crypto);
+      setBaseUrl(r.base_url || "https://biz-transppayy.com/api/developer/v2");
+      setAmountXof(String(r.activation_amount_xof ?? 2500));
+      setAmountUsdt(String(r.activation_amount_usdt ?? 5));
     } catch (e: any) {
       setError(e?.detail || "Impossible de charger la configuration BizTransPay.");
     }
@@ -3515,24 +3518,26 @@ function BizTransPayCard() {
     try {
       const payload: any = {
         enabled,
-        mode,
+        auto_withdraw_mobile: autoMobile,
+        auto_withdraw_crypto: autoCrypto,
         base_url: baseUrl.trim(),
-        amount_usdt: parseFloat(amount) || 5,
-        network: network.trim().toUpperCase() || "BEP20",
-        tolerance_usdt: parseFloat(tolerance) || 0.05,
+        activation_amount_xof: parseFloat(amountXof) || 2500,
+        activation_amount_usdt: parseFloat(amountUsdt) || 5,
       };
-      if (apiKey.trim()) payload.api_key = apiKey.trim();
+      if (publicKey.trim()) payload.public_key = publicKey.trim();
+      if (secretKey.trim()) payload.secret_key = secretKey.trim();
+      if (webhookSecret.trim()) payload.webhook_secret = webhookSecret.trim();
       await api.put<any>("/admin/payments/biztranspay/config", payload);
-      // Re-fetch the full config so `api_key_set` / `api_key_masked` fields
-      // are refreshed — otherwise the "Aucune clé configurée" warning stays
-      // visible even though the key was saved successfully.
       await load();
-      setApiKey("");                    // clear the input after save
+      setSecretKey(""); setWebhookSecret("");
       if (typeof window !== "undefined") window.alert("✅ Configuration BizTransPay enregistrée.");
     } catch (e: any) {
       setError(e?.detail || "Échec de l'enregistrement.");
     } finally { setBusy(false); }
   };
+
+  const backendBase = (process.env.EXPO_PUBLIC_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : ""));
+  const webhookUrl = `${backendBase}/api/webhooks/biztranspay`;
 
   return (
     <Card style={{ marginTop: 12 }} testID="biztranspay-admin-card">
@@ -3542,10 +3547,10 @@ function BizTransPayCard() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 16, fontWeight: "800", color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
-            💎 BizTransPay — Passerelle indépendante
+            💎 BizTransPay — API v2 complète
           </Text>
           <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>
-            USDT BEP20 · 5 USDT · Polling automatique (pas de webhook)
+            Mobile Money + Crypto USDT.BEP20 · Webhooks HMAC-SHA256 · Retraits auto
           </Text>
         </View>
         <View style={{
@@ -3565,71 +3570,80 @@ function BizTransPayCard() {
         </View>
       ) : null}
 
-      {cfg?.api_key_set ? (
+      {(cfg?.secret_key_set && cfg?.webhook_secret_set) ? (
         <View style={{ marginTop: 12, padding: 10, backgroundColor: "#ECFDF5", borderRadius: 10, borderWidth: 1, borderColor: theme.colors.success }}>
-          <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>🔑 Clé API enregistrée : {cfg.api_key_masked}</Text>
+          <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>🔑 Clés enregistrées</Text>
           <Text style={{ color: "#065F46", fontSize: 11, marginTop: 4 }}>
-            Laissez le champ ci-dessous vide pour conserver cette clé. Collez une nouvelle valeur pour la remplacer.
+            Secrète : {cfg.secret_key_masked}  ·  Webhook : {cfg.webhook_secret_masked}
           </Text>
         </View>
       ) : (
         <View style={{ marginTop: 12, padding: 10, backgroundColor: "#FEF3C7", borderRadius: 10, borderWidth: 1, borderColor: theme.colors.warning }}>
-          <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 12 }}>⚠️ Aucune clé configurée</Text>
+          <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 12 }}>⚠️ Configuration incomplète</Text>
           <Text style={{ color: "#78350F", fontSize: 11, marginTop: 4 }}>
-            Récupérez votre clé sur https://biz-transppayy.com puis collez-la ci-dessous. Utilisez `sk_live_...` pour la production, `sk_test_...` pour le sandbox.
+            Renseignez les 3 clés (publique, secrète, webhook) sur https://biz-transppayy.com puis collez-les ci-dessous.
           </Text>
         </View>
       )}
 
       <View style={{ marginTop: 12, gap: 10 }}>
         <View>
-          <Text style={styles.lbl}>🔐 Clé API BizTransPay ({mode === "live" ? "sk_live_..." : "sk_test_..."})</Text>
-          <Input value={apiKey} onChangeText={setApiKey} placeholder={cfg?.api_key_set ? "•••••••••• (laisser vide pour conserver)" : "sk_live_XXXXXXXXXXXXXXXX"} testID="btp-api-key" />
+          <Text style={styles.lbl}>🔑 Clé publique (pk_btp_...)</Text>
+          <Input value={publicKey} onChangeText={setPublicKey} placeholder="pk_btp_XXXXXXXXXXXXXXXX" testID="btp-public-key" />
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <TouchableOpacity
-            style={{ flex: 1, padding: 10, borderRadius: 12, alignItems: "center", backgroundColor: mode === "live" ? theme.colors.primary : theme.colors.surfaceMuted, borderWidth: 1, borderColor: mode === "live" ? theme.colors.primary : theme.colors.border }}
-            onPress={() => setMode("live")}
-            testID="btp-mode-live"
-          >
-            <Text style={{ color: mode === "live" ? "#fff" : theme.colors.textPrimary, fontWeight: "800", fontSize: 12 }}>🚀 Production (live)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{ flex: 1, padding: 10, borderRadius: 12, alignItems: "center", backgroundColor: mode === "test" ? theme.colors.warning : theme.colors.surfaceMuted, borderWidth: 1, borderColor: mode === "test" ? theme.colors.warning : theme.colors.border }}
-            onPress={() => setMode("test")}
-            testID="btp-mode-test"
-          >
-            <Text style={{ color: mode === "test" ? "#fff" : theme.colors.textPrimary, fontWeight: "800", fontSize: 12 }}>🧪 Sandbox (test)</Text>
+        <View>
+          <Text style={styles.lbl}>🔐 Clé secrète (sk_btp_...)</Text>
+          <Input value={secretKey} onChangeText={setSecretKey} placeholder={cfg?.secret_key_set ? "•••••••••• (laisser vide pour conserver)" : "sk_btp_XXXXXXXXXXXXXXXX"} testID="btp-secret-key" />
+        </View>
+        <View>
+          <Text style={styles.lbl}>🪝 Secret Webhook</Text>
+          <Input value={webhookSecret} onChangeText={setWebhookSecret} placeholder={cfg?.webhook_secret_set ? "•••••••••• (laisser vide pour conserver)" : "whsec_XXXXXXXX ou clé fournie par BizTransPay"} testID="btp-webhook-secret" />
+        </View>
+
+        <View style={{ padding: 10, backgroundColor: "#EFF6FF", borderRadius: 10, borderWidth: 1, borderColor: "#BFDBFE" }}>
+          <Text style={{ color: "#1E40AF", fontWeight: "800", fontSize: 11 }}>📡 URL de webhook à copier sur BizTransPay :</Text>
+          <TouchableOpacity onPress={() => { if (typeof navigator !== "undefined" && (navigator as any).clipboard) { (navigator as any).clipboard.writeText(webhookUrl); if (typeof window !== "undefined") window.alert("✅ URL copiée"); } }} testID="btp-copy-webhook-url">
+            <Text style={{ color: "#1E40AF", fontFamily: "monospace", fontSize: 11, marginTop: 4 }}>{webhookUrl}</Text>
           </TouchableOpacity>
         </View>
+
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.lbl}>Montant (USDT)</Text>
-            <Input value={amount} onChangeText={setAmount} keyboardType="numeric" testID="btp-amount" />
+            <Text style={styles.lbl}>Montant Activation Mobile Money (XOF)</Text>
+            <Input value={amountXof} onChangeText={setAmountXof} keyboardType="numeric" testID="btp-amount-xof" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.lbl}>Réseau</Text>
-            <Input value={network} onChangeText={setNetwork} testID="btp-network" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.lbl}>Tolérance (USDT)</Text>
-            <Input value={tolerance} onChangeText={setTolerance} keyboardType="numeric" testID="btp-tolerance" />
+            <Text style={styles.lbl}>Montant Activation Crypto (USDT)</Text>
+            <Input value={amountUsdt} onChangeText={setAmountUsdt} keyboardType="numeric" testID="btp-amount-usdt" />
           </View>
         </View>
         <View>
-          <Text style={styles.lbl}>URL API BizTransPay</Text>
+          <Text style={styles.lbl}>URL API BizTransPay v2</Text>
           <Input value={baseUrl} onChangeText={setBaseUrl} testID="btp-base-url" />
         </View>
-        <TouchableOpacity
-          onPress={() => setEnabled(!enabled)}
-          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}
-          testID="btp-toggle-enabled"
-        >
-          <Ionicons name={enabled ? "checkbox" : "square-outline"} size={22} color={enabled ? theme.colors.success : theme.colors.textSecondary} />
-          <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>
-            {enabled ? "Activée — visible pour les utilisateurs" : "Désactivée — masquée pour les utilisateurs"}
-          </Text>
-        </TouchableOpacity>
+
+        <View style={{ marginTop: 6, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border, gap: 8 }}>
+          <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.textPrimary }}>🚦 Contrôles indépendants</Text>
+          <TouchableOpacity onPress={() => setEnabled(!enabled)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }} testID="btp-toggle-enabled">
+            <Ionicons name={enabled ? "checkbox" : "square-outline"} size={22} color={enabled ? theme.colors.success : theme.colors.textSecondary} />
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>
+              {enabled ? "BizTransPay Activée (Master)" : "BizTransPay Désactivée (Master)"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setAutoMobile(!autoMobile)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }} testID="btp-toggle-auto-mobile">
+            <Ionicons name={autoMobile ? "checkbox" : "square-outline"} size={22} color={autoMobile ? theme.colors.success : theme.colors.textSecondary} />
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>
+              📱 Retrait automatique Mobile Money : {autoMobile ? "Activé" : "Désactivé"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setAutoCrypto(!autoCrypto)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }} testID="btp-toggle-auto-crypto">
+            <Ionicons name={autoCrypto ? "checkbox" : "square-outline"} size={22} color={autoCrypto ? theme.colors.success : theme.colors.textSecondary} />
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 13 }}>
+              ₿ Retrait automatique Crypto : {autoCrypto ? "Activé" : "Désactivé"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           onPress={save}
           disabled={busy}

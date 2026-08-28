@@ -21,9 +21,55 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
-## Implementation Status (à jour 2026-08-30)
+## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-30 — 🎯 Vérification & tests fix MLM Générations (spec finale)
+### 2026-08-31 — 💎 BizTransPay v2 — Intégration COMPLÈTE (Mobile Money + Crypto + Webhooks + Retraits auto)
+
+**Contexte** : refonte totale de l'intégration BizTransPay pour passer de l'API v1 (crypto poll-only, 5 USDT) à l'API Developer v2 qui unifie deposits Mobile Money + Crypto + Withdrawals + Webhooks HMAC-SHA256. Coexistence garantie avec AshtecPay / IziChange / SoleasPay — aucune méthode existante n'a été modifiée.
+
+**Backend** (`/app/backend/biztranspay.py` — refonte totale, 550 lignes) :
+- **Auth double** : `X-BizTransPay-Public-Key: pk_btp_…` + `Authorization: Bearer sk_btp_…` + `Idempotency-Key` sur tout POST financier.
+- **Config admin** (`app_settings.biztranspay`) : `enabled` (Master), `public_key`, `secret_key`, `webhook_secret`, `base_url` (v2), `activation_amount_xof=2500`, `activation_amount_usdt=5`, `activation_asset_code=USDT.BEP20`, `auto_withdraw_mobile`, `auto_withdraw_crypto`, `webhook_replay_window_sec=300`. Auto-migration de l'ancienne URL `/api/v1` vers `/api/developer/v2`.
+- **Deposits Mobile Money** : `POST /api/payments/biztranspay/mobile/initiate` → forward `POST /deposits/mobile-money` avec pays, opérateur, phone_number normalisé E.164, montant XOF locked. Dédupe intent < 30 min. Catalogue 10 pays × opérateurs (TG, BJ, BF, CI, ML, SN, NE, CM, GA, CD).
+- **Deposits Crypto** : `POST /api/payments/biztranspay/crypto/initiate` → forward `POST /deposits/crypto` avec `asset_code=USDT.BEP20`, `refund_address` placeholder. Réponse : `deposit_address` + `qr_data` + `transaction_id`.
+- **Polling** : `GET /api/payments/biztranspay/status/{ref}` → forward `GET /transactions/{id}` toutes les 15 s. Idempotent atomique via `find_one_and_update({activation_done:{$ne:true}})`.
+- **Webhooks HMAC-SHA256** : `POST /api/webhooks/biztranspay` public. Signature vérifiée via `hmac.compare_digest(hex(HMAC(secret, timestamp + "." + raw_body)), provided)`. Rejet des timestamps hors fenêtre (5 min). Rejet des `event_id` déjà reçus (collection `biztranspay_webhook_events`). Audit trail `biztranspay_webhook_logs`.
+- **Retraits automatiques** : `dispatch_auto_withdrawal(db, wd)` appelée depuis `server.py::request_withdrawal`. Ne s'active que si `enabled` + toggle correspondant (`auto_withdraw_mobile` / `auto_withdraw_crypto`). Utilise `POST /withdrawals` avec `transfer_type=biz_to_mobile|biz_to_crypto`. Sur échec passerelle : retrait reste "pending" pour validation admin manuelle (coexistence). Sur succès : `status=dispatched`, `gateway=biztranspay`, `gateway_intent_id=…`. Webhook `transaction.completed` marque `completed` + push. Webhook `transaction.failed` rembourse `balance_profit`.
+- **Erreurs** : mapping FR des 13 codes documentés (`INVALID_API_CREDENTIALS`, `KYC_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `LEDGER_INTEGRITY_FAILURE`, etc.). Les messages techniques restent dans les logs backend.
+- **Sécurité** : clés secrètes JAMAIS renvoyées au frontend (masking `sk_btp_XXXX…YYYY`). `Idempotency-Key` = `wd_<uuid>` pour withdrawals, `<reference>` pour deposits.
+
+**Backend intégration** (`server.py`) :
+- `request_withdrawal` (L789+) appelle `dispatch_auto_withdrawal` juste après création de la ligne `withdrawals`. Fallback silencieux vers "pending" si BizTransPay désactivé/refuse.
+- 3 routers montés : `api` (public authentifié), `webhook` (public HMAC), `admin` (dependencies=require_admin).
+
+**Frontend** :
+- `/app/frontend/app/(app)/activation-biztranspay.tsx` (refonte totale) : sélecteur "Mobile Money OU Crypto", pré-remplissage user (username/full_name/email), catalogue pays/opérateurs, polling auto 15 s, banner attente confirmation mobile, adresse + QR + copier pour crypto, redirection dashboard dès activation confirmée.
+- `/app/frontend/app/(admin)/index.tsx::BizTransPayCard` : 3 champs clés (publique, secrète, webhook), 3 toggles indépendants (Master, Auto Mobile, Auto Crypto), 2 montants (XOF / USDT), URL v2 par défaut, bloc "URL webhook à copier sur BizTransPay" avec bouton COPIER.
+
+**Endpoints exposés** :
+- `GET  /api/payments/biztranspay/public/status` — état + montants + toggles auto-withdraw
+- `GET  /api/payments/biztranspay/catalog` — 10 pays × opérateurs Mobile Money
+- `POST /api/payments/biztranspay/mobile/initiate`
+- `POST /api/payments/biztranspay/crypto/initiate`
+- `GET  /api/payments/biztranspay/status/{reference}`
+- `POST /api/webhooks/biztranspay` — public HMAC-SHA256
+- `GET  /api/admin/payments/biztranspay/config`
+- `PUT  /api/admin/payments/biztranspay/config`
+
+**Validation** :
+- Import Python OK, backend tourne, curl `/public/status` renvoie `{enabled, amount_xof:2500, amount_usdt:5, network:BEP20, auto_withdraw_*:false}`.
+- curl `/catalog` renvoie 10 pays avec opérateurs codés (`tmoney_tg`, `flooz_tg`, etc.).
+- curl `/admin/config` (admin token) renvoie config complète avec clés masquées.
+
+**⚠️ À faire côté admin** : saisir les 3 clés BizTransPay v2 (`pk_btp_…`, `sk_btp_…`, secret webhook) dans l'admin panel, activer le Master switch, puis (optionnel) activer les retraits automatiques Mobile/Crypto. L'URL de webhook à coller sur BizTransPay est affichée dans la card admin.
+
+**Non-régression** : AshtecPay, IziChange, SoleasPay, retraits manuels admin, tous inchangés. Test `python -c "import biztranspay; import server"` → OK.
+
+
+---
+
+
+
 
 **Contexte** : le fork précédent avait patché `matrix.py::distribute_commission` pour appliquer la nouvelle règle stricte (Spillover uniquement au L1, L2+ = walk L1 tree, 100% à l'ancêtre à N sauts). Ce fork valide et teste cette implémentation.
 

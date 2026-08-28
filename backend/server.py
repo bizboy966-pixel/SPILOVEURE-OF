@@ -787,7 +787,7 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         {"id": user["id"]}, {"$inc": {"balance_profit": -data.amount}},
     )
     wd_id = str(uuid.uuid4())
-    await db.withdrawals.insert_one({
+    wd_doc = {
         "id": wd_id, "user_id": user["id"], "username": user["username"],
         "amount": data.amount, "fee": fee, "net_payout": net,
         "status": "pending",
@@ -796,8 +796,32 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         "network": wallet.get("network", ""), "wallet_address": wallet.get("wallet_address", ""),
         "full_name": wallet["full_name"], "country": wallet["country"],
         "created_at": datetime.now(timezone.utc),
-    })
-    return {"id": wd_id, "status": "pending", "amount": data.amount, "fee": fee, "net_payout": net}
+    }
+    await db.withdrawals.insert_one(wd_doc)
+
+    # ── BizTransPay auto-dispatch (Phase 5) ──────────────────────────────
+    # If the admin has toggled auto-withdrawal ON for this channel and all
+    # gateway prerequisites are met, we send the payout to BizTransPay
+    # immediately. On failure the withdrawal stays "pending" so an admin
+    # can still validate manually (coexistence guaranteed).
+    auto_result = {"auto_dispatched": False}
+    try:
+        from biztranspay import dispatch_auto_withdrawal
+        auto_result = await dispatch_auto_withdrawal(db, wd_doc)
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger("biztranspay").exception(
+            "auto-dispatch failed for wd_id=%s: %s", wd_id, e)
+
+    resp = {"id": wd_id, "status": "dispatched" if auto_result.get("auto_dispatched") else "pending",
+            "amount": data.amount, "fee": fee, "net_payout": net}
+    if auto_result.get("auto_dispatched"):
+        resp["auto_dispatched"] = True
+        resp["gateway"] = "biztranspay"
+    elif auto_result.get("error"):
+        # Silent: user just sees "pending" — admin will see the error tag.
+        pass
+    return resp
 
 
 @api.get("/withdrawals/mine")
@@ -3331,9 +3355,14 @@ app.include_router(ashtec_api)
 app.include_router(ashtec_webhook)
 app.include_router(ashtec_admin)
 
-# BizTransPay AUTO-ACTIVATION — USDT.BEP20, 5 USDT fixed, admin-configured.
-from biztranspay import api as biztranspay_api, admin as biztranspay_admin  # noqa: E402
+# BizTransPay AUTO-ACTIVATION — v2 API (Mobile Money + Crypto + Webhooks + Auto-Withdrawals).
+from biztranspay import (  # noqa: E402
+    api as biztranspay_api,
+    admin as biztranspay_admin,
+    webhook as biztranspay_webhook,
+)
 app.include_router(biztranspay_api)
+app.include_router(biztranspay_webhook)  # public (HMAC-verified inside handler)
 # Admin config router is protected via require_admin.
 app.include_router(biztranspay_admin, dependencies=[Depends(require_admin)])
 
