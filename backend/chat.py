@@ -171,6 +171,29 @@ async def _admins_online_count(db) -> int:
     return await db.admin_presence.count_documents({"last_seen": {"$gte": cutoff}})
 
 
+async def _support_online_effective(db) -> bool:
+    """Effective online = force override, else schedule + heartbeat."""
+    row = await db.app_settings.find_one({"key": "chat_schedule"}, {"_id": 0})
+    sched = (row or {}).get("value") or {}
+    mode = sched.get("mode") or "auto"
+    if mode == "force_online":
+        return True
+    if mode == "force_offline":
+        return False
+    # auto: schedule check + at least one live heartbeat.
+    if sched.get("schedule_enabled"):
+        from datetime import datetime as _dt
+        now = _dt.now(timezone.utc)
+        # Monday=0 per Python weekday()
+        if now.weekday() not in (sched.get("days") or [0, 1, 2, 3, 4]):
+            return False
+        h = now.hour
+        s = int(sched.get("start_hour", 8)); e = int(sched.get("end_hour", 18))
+        if not (s <= h < e):
+            return False
+    return (await _admins_online_count(db)) > 0
+
+
 async def _notify_admins_of_new_message(db, conv: dict, msg: dict):
     """Push notification to every admin on new user message."""
     try:
@@ -233,10 +256,10 @@ class SendMessageIn(BaseModel):
 
 @api.get("/support/status")
 async def chat_support_status(request: Request, user=Depends(get_current_user)):
-    """Public status : is at least one admin online?"""
+    """Public status : is support effectively online right now?"""
     db = request.app.state.db
-    n = await _admins_online_count(db)
-    return {"online": n > 0, "online_count": n}
+    online = await _support_online_effective(db)
+    return {"online": online, "online_count": await _admins_online_count(db)}
 
 
 @api.get("/me")
@@ -257,7 +280,7 @@ async def chat_me(request: Request, user=Depends(get_current_user), limit: int =
             "last_message_at": conv["last_message_at"].isoformat()
                 if conv.get("last_message_at") else None,
         },
-        "support_online": (await _admins_online_count(db)) > 0,
+        "support_online": await _support_online_effective(db),
         "messages": msgs,
     }
 

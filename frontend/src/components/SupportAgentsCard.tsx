@@ -6,7 +6,7 @@
  * /support-desk link. Actions per agent: authorize, revoke, delete.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
@@ -33,16 +33,30 @@ export default function SupportAgentsCard() {
   const [loading, setLoading] = useState(true);
   const [chatEnabled, setChatEnabled] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [sched, setSched] = useState<any>({ mode: "auto", schedule_enabled: false, start_hour: 8, end_hour: 18, days: [0,1,2,3,4] });
 
   const load = useCallback(async () => {
     try {
-      const [a, cs] = await Promise.all([
+      const [a, cs, sc] = await Promise.all([
         api.get<{ agents: Agent[] }>("/admin/support/agents"),
         api.get<{ enabled: boolean }>("/admin/support/chat-status"),
+        api.get<any>("/admin/support/schedule"),
       ]);
-      setAgents(a.agents || []); setChatEnabled(!!cs.enabled);
+      setAgents(a.agents || []); setChatEnabled(!!cs.enabled); setSched(sc);
     } catch { /* silent */ } finally { setLoading(false); }
   }, []);
+
+  const saveSched = async (patch: any) => {
+    try {
+      const r = await api.post<any>("/admin/support/schedule", patch);
+      setSched(r);
+    } catch (e: any) { if (typeof window !== "undefined") window.alert("Erreur : " + (e?.detail || "sauvegarde impossible")); }
+  };
+  const toggleDay = (d: number) => {
+    const cur = new Set<number>(sched.days || []);
+    if (cur.has(d)) cur.delete(d); else cur.add(d);
+    saveSched({ days: Array.from(cur).sort() });
+  };
 
   useEffect(() => { load(); const t = setInterval(load, 15_000); return () => clearInterval(t); }, [load]);
 
@@ -102,6 +116,65 @@ export default function SupportAgentsCard() {
         Envoyez ce lien aux personnes de confiance. Elles pourront créer un compte, mais devront être <Text style={{ fontWeight: "800" }}>autorisées ici</Text> avant d'accéder aux conversations.
       </Text>
 
+      {/* Mode + horaires (Phase 3b) */}
+      <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border }} testID="chat-schedule-box">
+        <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.textPrimary, marginBottom: 6 }}>⏰ Disponibilité du support</Text>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          {[
+            { k: "auto", l: "🔄 Auto" },
+            { k: "force_online", l: "🟢 Forcer en ligne" },
+            { k: "force_offline", l: "⚪ Forcer hors ligne" },
+          ].map((m) => (
+            <TouchableOpacity key={m.k} onPress={() => saveSched({ mode: m.k })}
+              style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, borderWidth: 1,
+                borderColor: sched.mode === m.k ? theme.colors.primary : theme.colors.border,
+                backgroundColor: sched.mode === m.k ? theme.colors.primary : "transparent" }}
+              testID={`schedule-mode-${m.k}`}>
+              <Text style={{ color: sched.mode === m.k ? "#fff" : theme.colors.textPrimary, fontSize: 10, fontWeight: "700" }}>{m.l}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {sched.mode === "auto" && (
+          <>
+            <TouchableOpacity onPress={() => saveSched({ schedule_enabled: !sched.schedule_enabled })} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }} testID="schedule-toggle">
+              <Ionicons name={sched.schedule_enabled ? "checkbox" : "square-outline"} size={16} color={sched.schedule_enabled ? theme.colors.success : theme.colors.textSecondary} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" }}>
+                {sched.schedule_enabled ? "Horaires programmés activés" : "Horaires programmés désactivés (support toujours dispo si heartbeat)"}
+              </Text>
+            </TouchableOpacity>
+            {sched.schedule_enabled && (
+              <>
+                <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>Ouverture</Text>
+                  <TextInput style={styles.hourIn} value={String(sched.start_hour ?? 8)} keyboardType="numeric"
+                    onChangeText={(t) => saveSched({ start_hour: Math.max(0, Math.min(23, parseInt(t) || 0)) })}
+                    testID="schedule-start" />
+                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>h → Fermeture</Text>
+                  <TextInput style={styles.hourIn} value={String(sched.end_hour ?? 18)} keyboardType="numeric"
+                    onChangeText={(t) => saveSched({ end_hour: Math.max(0, Math.min(23, parseInt(t) || 0)) })}
+                    testID="schedule-end" />
+                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>h (UTC)</Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
+                  {["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map((d, i) => {
+                    const on = (sched.days || []).includes(i);
+                    return (
+                      <TouchableOpacity key={i} onPress={() => toggleDay(i)}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1,
+                          borderColor: on ? theme.colors.primary : theme.colors.border,
+                          backgroundColor: on ? theme.colors.primary : "transparent" }}
+                        testID={`schedule-day-${i}`}>
+                        <Text style={{ color: on ? "#fff" : theme.colors.textPrimary, fontSize: 10, fontWeight: "700" }}>{d}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+          </>
+        )}
+      </View>
+
       {loading ? (
         <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 10 }} />
       ) : agents.length === 0 ? (
@@ -147,4 +220,5 @@ const styles = StyleSheet.create({
   btnOk: { backgroundColor: theme.colors.success },
   btnWarn: { backgroundColor: "#F59E0B" },
   btnDel: { backgroundColor: theme.colors.danger, paddingHorizontal: 6 },
+  hourIn: { width: 40, padding: 4, textAlign: "center", borderRadius: 4, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: "#fff", color: theme.colors.textPrimary, fontSize: 11 },
 });

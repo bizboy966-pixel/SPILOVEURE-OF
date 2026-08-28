@@ -191,6 +191,56 @@ async def admin_delete_agent(agent_id: str, request: Request, admin=Depends(requ
 
 
 # ────────────────────────────────────────────────────────────────────────
+# Admin — chat schedule + force override
+# ────────────────────────────────────────────────────────────────────────
+class ScheduleIn(BaseModel):
+    mode: Optional[str] = None                 # "auto" | "force_online" | "force_offline"
+    schedule_enabled: Optional[bool] = None
+    start_hour: Optional[int] = None           # 0..23
+    end_hour: Optional[int] = None             # 0..23 (exclusive)
+    days: Optional[list] = None                # 0=Mon .. 6=Sun
+
+
+DEFAULT_SCHEDULE = {
+    "mode": "auto",
+    "schedule_enabled": False,
+    "start_hour": 8, "end_hour": 18,
+    "days": [0, 1, 2, 3, 4],
+}
+
+
+async def _get_schedule(db) -> dict:
+    row = await db.app_settings.find_one({"key": "chat_schedule"}, {"_id": 0})
+    cfg = (row or {}).get("value") or {}
+    return {**DEFAULT_SCHEDULE, **cfg}
+
+
+@admin_router.get("/schedule")
+async def get_schedule(request: Request, admin=Depends(require_admin)):
+    return await _get_schedule(request.app.state.db)
+
+
+@admin_router.post("/schedule")
+async def set_schedule(body: ScheduleIn, request: Request, admin=Depends(require_admin)):
+    db = request.app.state.db
+    cur = await _get_schedule(db)
+    if body.mode in ("auto", "force_online", "force_offline"):
+        cur["mode"] = body.mode
+    if body.schedule_enabled is not None:
+        cur["schedule_enabled"] = bool(body.schedule_enabled)
+    if body.start_hour is not None and 0 <= body.start_hour <= 23:
+        cur["start_hour"] = int(body.start_hour)
+    if body.end_hour is not None and 0 <= body.end_hour <= 23:
+        cur["end_hour"] = int(body.end_hour)
+    if body.days is not None:
+        cur["days"] = [int(d) for d in body.days if 0 <= int(d) <= 6]
+    await db.app_settings.update_one(
+        {"key": "chat_schedule"}, {"$set": {"value": cur}}, upsert=True,
+    )
+    return cur
+
+
+# ────────────────────────────────────────────────────────────────────────
 # Admin — chat global on/off
 # ────────────────────────────────────────────────────────────────────────
 class ChatStatusIn(BaseModel):
