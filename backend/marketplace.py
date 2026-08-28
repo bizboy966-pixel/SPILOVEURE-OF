@@ -164,6 +164,15 @@ async def marketplace_mark_seen(request: Request, user=Depends(get_current_user)
     return {"ok": True, "at": now.isoformat()}
 
 
+@public.get("/marketplace/mine")
+async def my_listings(request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    items = []
+    async for l in db.marketplace_listings.find({"seller_id": user["id"]}).sort("created_at", -1):
+        items.append(_serialize(l))
+    return {"items": items}
+
+
 @public.get("/marketplace/{listing_id}")
 async def get_listing(listing_id: str, request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
@@ -208,15 +217,6 @@ async def add_review(listing_id: str, data: Review, request: Request, user=Depen
     await db.marketplace_listings.update_one({"id": listing_id}, {"$push": {"reviews": review}})
     review["at"] = review["at"].isoformat()
     return {"review": review}
-
-
-@public.get("/marketplace/mine")
-async def my_listings(request: Request, user=Depends(get_current_user)):
-    db = request.app.state.db
-    items = []
-    async for l in db.marketplace_listings.find({"seller_id": user["id"]}).sort("created_at", -1):
-        items.append(_serialize(l))
-    return {"items": items}
 
 
 # ---------- ADMIN ----------

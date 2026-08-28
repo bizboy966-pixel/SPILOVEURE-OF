@@ -1,0 +1,971 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="31" failures="27" skipped="8" tests="490" time="250.002" timestamp="2026-08-28T08:36:18.397760+00:00" hostname="agent-env-6c5ed6c4-e172-4870-a06a-f6e552a7782b"><testcase classname="tests.test_activation_gateway_visibility.TestPaymentGatewayVisibility" name="test_disable_soleas_but_keep_ashtec" time="0.839" /><testcase classname="tests.test_activation_gateway_visibility.TestPaymentGatewayVisibility" name="test_reenable_soleas" time="0.242" /><testcase classname="tests.test_activation_gateway_visibility.TestPaymentGatewayVisibility" name="test_disable_both_shows_no_auto" time="0.216" /><testcase classname="tests.test_activation_gateway_visibility.TestPaymentGatewayVisibility" name="test_restore_initial_state" time="0.266" /><testcase classname="tests.test_activation_guard" name="test_activate_level_refuses_unknown_source" time="0.236" /><testcase classname="tests.test_activation_guard" name="test_activate_level_refuses_external_source_without_payment" time="0.237" /><testcase classname="tests.test_activation_guard" name="test_admin_validate_bypasses_payment_check" time="0.258" /><testcase classname="tests.test_activation_guard" name="test_activate_level_accepts_when_payment_row_exists" time="0.255" /><testcase classname="tests.test_activation_guard" name="test_admin_manual_still_works_at_l1_without_payment" time="0.256" /><testcase classname="tests.test_admin_activation_notify" name="test_admin_login" time="0.576" /><testcase classname="tests.test_admin_activation_notify" name="test_validate_flow_end_to_end" time="1.200" /><testcase classname="tests.test_admin_activation_notify" name="test_reject_flow" time="1.041" /><testcase classname="tests.test_admin_activation_notify" name="test_validate_404_invalid_id" time="0.095" /><testcase classname="tests.test_admin_activations_pending_sync" name="test_pending_list_matches_dashboard_counter" time="0.611" /><testcase classname="tests.test_admin_activations_pending_sync" name="test_validated_status_filter_returns_only_validated" time="0.162" /><testcase classname="tests.test_admin_activations_pending_sync" name="test_rejected_status_filter_returns_only_rejected" time="0.149" /><testcase classname="tests.test_admin_payments_mgmt.TestAuthGating" name="test_list_payments_requires_auth" time="0.144" /><testcase classname="tests.test_admin_payments_mgmt.TestAuthGating" name="test_reprocess_requires_auth" time="0.116" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_basic_shape" time="0.608" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_status_filter_pending" time="0.140" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_status_filter_paid" time="0.112" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_stuck_only_filter" time="0.122" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_search_filter" time="0.124" /><testcase classname="tests.test_admin_payments_mgmt.TestListPayments" name="test_no_mongo_id_leak" time="0.193" /><testcase classname="tests.test_admin_payments_mgmt.TestReprocess" name="test_reprocess_not_found" time="0.111" /><testcase classname="tests.test_admin_payments_mgmt.TestReprocess" name="test_reprocess_already_activated" time="0.131" /><testcase classname="tests.test_admin_payments_mgmt.TestReprocess" name="test_reprocess_stuck_activates" time="0.619" /><testcase classname="tests.test_admin_user_mgmt.TestAdminUserDetail" name="test_user_detail_full_shape" time="0.114"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminUserDetail" name="test_user_detail_404" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminUserDetail" name="test_user_detail_forbidden_for_non_admin" time="0.334" /><testcase classname="tests.test_admin_user_mgmt.TestAdminUserTree" name="test_tree_layers_structure" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminWallet" name="test_credit_profit_bucket" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminWallet" name="test_credit_upgrade_bucket" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminWallet" name="test_debit_insufficient_funds" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminWallet" name="test_debit_sufficient_funds" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminPrivileges" name="test_make_admin_then_remove_admin" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminPrivileges" name="test_make_promoter_then_remove_promoter" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminLevels" name="test_activate_level_wrong_next" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminLevels" name="test_activate_level_one" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminLevels" name="test_activate_level_two_uses_upgrade_balance" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminLevels" name="test_deactivate_top_level" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminLevels" name="test_deactivate_non_top_level_rejected" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminNotes" name="test_add_note_appears_in_detail" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminNotes" name="test_add_empty_note_rejected" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminMatrixMove" name="test_move_matrix_to_dave_as_parent" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminMatrixMove" name="test_move_matrix_to_occupied_slot" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminActivationDetail" name="test_activation_detail_includes_user" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminActivationDetail" name="test_activation_detail_404" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe6716abd3d0&gt;
+
+    @pytest.fixture(scope="module")
+    def admin_token(session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_admin_user_mgmt.py:40: AssertionError</error></testcase><testcase classname="tests.test_admin_user_mgmt.TestAdminGuard" name="test_non_admin_cannot_call_action" time="0.053" /><testcase classname="tests.test_ads_badge_http" name="test_unread_count_route_not_shadowed" time="0.464" /><testcase classname="tests.test_ads_badge_http" name="test_mark_seen_resets_counter" time="0.233" /><testcase classname="tests.test_ads_badge_http" name="test_unread_count_requires_auth" time="0.117" /><testcase classname="tests.test_ads_budget_and_delete" name="test_admin_can_delete_ad_in_any_status" time="0.427" /><testcase classname="tests.test_ads_budget_and_delete" name="test_admin_can_delete_special_task_in_any_status" time="0.117" /><testcase classname="tests.test_ads_budget_and_delete" name="test_reactor_pool_initialised_at_approval" time="0.236" /><testcase classname="tests.test_ads_comment_flow" name="test_comment_short_input_rejected_with_readable_detail" time="0.402" /><testcase classname="tests.test_ads_comment_flow" name="test_comment_happy_path_persists_and_returns_comment" time="0.427" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_normal_user_can_post_root_comment" time="0.717" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_non_creator_cannot_reply" time="0.071" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_reply_to_missing_comment_404" time="0.068" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_creator_can_reply" time="0.070" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_antispam_ignores_replies" time="0.141" /><testcase classname="tests.test_ads_comment_reply_iter50.TestReplyEndpoint" name="test_duplicate_root_comment_still_blocked" time="0.071" /><testcase classname="tests.test_ads_comment_reply_iter50.TestAdminDelete" name="test_admin_delete_reply" time="0.077" /><testcase classname="tests.test_ads_comment_reply_iter50.TestAdminDelete" name="test_admin_delete_root_comment" time="0.075" /><testcase classname="tests.test_ads_comment_reply_iter50.TestAdminDelete" name="test_admin_delete_missing_404" time="0.071" /><testcase classname="tests.test_ads_comment_reply_iter50.TestAdminDelete" name="test_normal_user_cannot_delete" time="0.071" /><testcase classname="tests.test_ads_comment_reply_iter50.TestApproveBroadcast" name="test_admin_approve_ad_triggers_push" time="0.075" /><testcase classname="tests.test_ads_comment_reply_iter50.TestApproveBroadcast" name="test_admin_approve_marketplace_triggers_push" time="0.073" /><testcase classname="tests.test_ads_comment_reply_iter50.TestCommentPushNoCrash" name="test_comment_flow_survives_push" time="0.084" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_ads_reactor_config_public_get" time="0.469" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_ads_reactor_config_admin_update" time="0.246" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_ads_reactor_config_rejects_max_lt_min" time="0.111" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_ads_reactor_config_pct_bounded" time="0.135" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_st_config_computes_price_from_reward_and_pct" time="0.195" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_st_config_public_endpoint_reflects_dist_pct" time="0.255" /><testcase classname="tests.test_ads_reactor_and_st_pct" name="test_st_config_rejects_pct_out_of_bounds" time="0.146" /><testcase classname="tests.test_ads_reactor_v2" name="test_new_fields_persisted_and_returned" time="0.493" /><testcase classname="tests.test_ads_reactor_v2" name="test_platform_pct_always_sums_to_100" time="1.050" /><testcase classname="tests.test_ads_reactor_v2" name="test_legacy_share_percentage_aliases_to_distribution" time="0.114" /><testcase classname="tests.test_ads_reactor_v2" name="test_public_reactor_config_shape" time="0.665" /><testcase classname="tests.test_ads_reactor_v2" name="test_distribution_percentage_upper_bound" time="0.131" /><testcase classname="tests.test_ads_reactor_v2" name="test_max_likes_min_1" time="0.123" /><testcase classname="tests.test_ads_unread_badge" name="test_unread_count_excludes_own_and_stale_ads" time="0.007"><failure message="AssertionError: only the fresh ad from u2 should count&#10;assert 2 == 1">db = AsyncIOMotorDatabase(Database(MongoClient(host=['localhost:27017'], document_class=dict, tz_aware=False, connect=False, driver=DriverInfo(name='Motor', version='3.3.1', platform='asyncio')), 'spilivere'))
+
+    @pytest.mark.asyncio
+    async def test_unread_count_excludes_own_and_stale_ads(db):
+        # Simulate two users
+        u1 = f"test_user_{uuid.uuid4().hex[:8]}"
+        u2 = f"test_user_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+    
+        # u1 has seen up to 10 min ago
+        await db.users.insert_one({
+            "id": u1, "email": f"{u1}@t.io", "username": u1, "wallet_pool": 0,
+            "last_ads_seen_at": now - timedelta(minutes=10),
+        })
+        await db.users.insert_one({
+            "id": u2, "email": f"{u2}@t.io", "username": u2, "wallet_pool": 0,
+        })
+    
+        ad_stale = {
+            "id": f"ad_stale_{uuid.uuid4().hex[:8]}", "user_id": u2,
+            "status": "published", "published_at": now - timedelta(hours=1),
+            "expires_at": None, "cover_image_url": "", "video_url": "",
+            "description": "", "username": u2, "likes": [], "viewers": [],
+            "comments": [], "views_count": 0, "shares_count": 0,
+        }
+        ad_fresh = {
+            "id": f"ad_fresh_{uuid.uuid4().hex[:8]}", "user_id": u2,
+            "status": "published", "published_at": now - timedelta(minutes=2),
+            "expires_at": None, "cover_image_url": "", "video_url": "",
+            "description": "", "username": u2, "likes": [], "viewers": [],
+            "comments": [], "views_count": 0, "shares_count": 0,
+        }
+        ad_own = {
+            "id": f"ad_own_{uuid.uuid4().hex[:8]}", "user_id": u1,
+            "status": "published", "published_at": now - timedelta(minutes=1),
+            "expires_at": None, "cover_image_url": "", "video_url": "",
+            "description": "", "username": u1, "likes": [], "viewers": [],
+            "comments": [], "views_count": 0, "shares_count": 0,
+        }
+        await db.ads.insert_many([ad_stale, ad_fresh, ad_own])
+    
+        try:
+            # Replicate the same aggregation the endpoint uses.
+            u = await db.users.find_one({"id": u1}, {"last_ads_seen_at": 1})
+            seen = u["last_ads_seen_at"]
+            q = {
+                "status": "published",
+                "user_id": {"$ne": u1},
+                "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
+                "published_at": {"$gt": seen},
+            }
+            count = await db.ads.count_documents(q)
+&gt;           assert count == 1, "only the fresh ad from u2 should count"
+E           AssertionError: only the fresh ad from u2 should count
+E           assert 2 == 1
+
+tests/test_ads_unread_badge.py:80: AssertionError</failure></testcase><testcase classname="tests.test_api_team_endpoints.TestAuth" name="test_login_success" time="0.334" /><testcase classname="tests.test_api_team_endpoints.TestAuth" name="test_login_invalid" time="0.349" /><testcase classname="tests.test_api_team_endpoints.TestAuth" name="test_me" time="0.414" /><testcase classname="tests.test_api_team_endpoints.TestTeamTree" name="test_team_tree_admin_returns_self_root" time="0.138" /><testcase classname="tests.test_api_team_endpoints.TestTeamTree" name="test_team_tree_default_max_depth" time="0.131" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_valid" time="0.115" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_all_levels" time="1.475" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_invalid_zero" time="0.103" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_invalid_13" time="0.125" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_missing_param" time="0.112" /><testcase classname="tests.test_api_team_endpoints.TestTeamLevel" name="test_team_level_no_auth" time="0.127" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_dashboard" time="0.099" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_team_direct" time="0.177" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_transactions" time="0.192" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_activations_mine" time="0.141" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_withdrawals_mine" time="0.135" /><testcase classname="tests.test_api_team_endpoints.TestNonRegression" name="test_config" time="0.139" /><testcase classname="tests.test_ashtec_activation" name="test_catalog_public_xof_xaf_only" time="0.107"><failure message="AssertionError: assert 10 == 14&#10; +  where 10 = len({'BF', 'BJ', 'CD', 'CI', 'CM', 'GA', ...})">def test_catalog_public_xof_xaf_only():
+        r = requests.get(f"{API}/payments/ashtec/catalog", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["amount"] == 2500
+        assert d["level"] == 1
+        assert d["countdown_minutes"] == 10
+        codes = {c["code"] for c in d["countries"]}
+        # 14 XOF/XAF countries expected
+&gt;       assert len(codes) == 14
+E       AssertionError: assert 10 == 14
+E        +  where 10 = len({'BF', 'BJ', 'CD', 'CI', 'CM', 'GA', ...})
+
+tests/test_ashtec_activation.py:88: AssertionError</failure></testcase><testcase classname="tests.test_ashtec_activation" name="test_initiate_requires_auth" time="0.119" /><testcase classname="tests.test_ashtec_activation" name="test_initiate_rejects_bad_country" time="0.480" /><testcase classname="tests.test_ashtec_activation" name="test_initiate_rejects_bad_operator" time="0.104" /><testcase classname="tests.test_ashtec_activation" name="test_initiate_locks_amount_at_2500" time="2.038" /><testcase classname="tests.test_ashtec_activation" name="test_initiate_returns_10min_expiry" time="0.000" /><testcase classname="tests.test_ashtec_activation" name="test_status_returns_pending" time="0.105" /><testcase classname="tests.test_ashtec_activation" name="test_status_ownership_guard" time="0.477" /><testcase classname="tests.test_ashtec_activation" name="test_webhook_ignores_unknown_reference" time="0.115" /><testcase classname="tests.test_ashtec_activation" name="test_webhook_ignores_empty_body" time="0.110" /><testcase classname="tests.test_ashtec_activation" name="test_activation_actually_lifts_max_level" time="1.201" /><testcase classname="tests.test_ashtec_activation_stats" name="test_ashtec_validated_activation_hits_total" time="0.571" /><testcase classname="tests.test_ashtec_activation_stats" name="test_ashtec_pending_activation_not_counted" time="0.838" /><testcase classname="tests.test_ashtec_activation_stats" name="test_soleas_validated_activation_still_counted" time="0.565" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_ads_pay_mobile_money_requires_fields" time="1.851" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_ads_pay_mobile_money_rejects_bad_country" time="0.103" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_ads_pay_mobile_money_happy" time="1.785" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_task_pay_rejects_unsupported_method" time="1.202" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_task_pay_rejects_bad_operator" time="0.121" /><testcase classname="tests.test_ashtec_ads_tasks" name="test_task_pay_happy" time="1.671" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_public_no_auth" time="0.140" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_has_10_official_countries" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_removes_old_countries" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_operators_match_doc" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_currency_and_activation_amount" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_cd_specific" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_no_api_key_leak" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_catalog_version_bumped" time="0.000" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_initiate_requires_auth" time="0.118" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_initiate_rejects_unknown_country" time="0.473" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_initiate_uses_correct_currency_amount" time="2.062" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_admin_diag_hides_full_key" time="0.581" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_admin_health_hides_full_key" time="2.074" /><testcase classname="tests.test_ashtec_catalog_v3" name="test_admin_diag_requires_admin" time="0.135" /><testcase classname="tests.test_ashtec_toggle_ads_tasks" name="test_ads_mobile_money_blocked_when_ashtec_off" time="1.648" /><testcase classname="tests.test_ashtec_toggle_ads_tasks" name="test_task_mobile_money_blocked_when_ashtec_off" time="0.838" /><testcase classname="tests.test_ashtec_toggle_ads_tasks" name="test_settings_payments_exposes_soleas_enabled" time="0.094" /><testcase classname="tests.test_ashtec_toggle_visibility" name="test_catalog_hides_when_disabled" time="0.148" /><testcase classname="tests.test_ashtec_toggle_visibility" name="test_catalog_reveals_when_enabled" time="0.108"><failure message="AssertionError: assert 10 == 14&#10; +  where 10 = len([{'activation_amount': 2500.0, 'code': 'BF', 'currency': 'XOF', 'name': 'Burkina Faso', ...}, {'activation_amount': 25...'XAF', 'name': 'Gabon', ...}, {'activation_amount': 2500.0, 'code': 'ML', 'currency': 'XOF', 'name': 'Mali', ...}, ...])">toggle_ashtec = &lt;function toggle_ashtec.&lt;locals&gt;._set at 0xfe6717fd3560&gt;
+
+    def test_catalog_reveals_when_enabled(toggle_ashtec):
+        toggle_ashtec(True)
+        r = requests.get(f"{API}/payments/ashtec/catalog", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("enabled") is True
+&gt;       assert len(d["countries"]) == 14
+E       AssertionError: assert 10 == 14
+E        +  where 10 = len([{'activation_amount': 2500.0, 'code': 'BF', 'currency': 'XOF', 'name': 'Burkina Faso', ...}, {'activation_amount': 25...'XAF', 'name': 'Gabon', ...}, {'activation_amount': 2500.0, 'code': 'ML', 'currency': 'XOF', 'name': 'Mali', ...}, ...])
+
+tests/test_ashtec_toggle_visibility.py:96: AssertionError</failure></testcase><testcase classname="tests.test_ashtec_toggle_visibility" name="test_initiate_blocked_when_disabled" time="0.459" /><testcase classname="tests.test_ashtec_toggle_visibility" name="test_initiate_allowed_when_enabled" time="1.764" /><testcase classname="tests.test_ashtec_toggle_visibility" name="test_settings_payments_exposes_ashtec_enabled" time="0.237" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_health" time="0.132" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_config_returns_59_countries" time="0.097"><failure message="AssertionError: Expected 59 countries, got 60&#10;assert 60 == 59&#10; +  where 60 = len([{'code': 'BJ', 'dial': '+229', 'flag': '#x1F1E7#x1F1EF', 'name': 'Bénin'}, {'code': 'BF', 'dial': '+226', 'flag': '#x1F1E7#x1F1EB', 'name': '...': '+224', 'flag': '#x1F1EC#x1F1F3', 'name': 'Guinée'}, {'code': 'GW', 'dial': '+245', 'flag': '#x1F1EC#x1F1FC', 'name': 'Guinée-Bissau'}, ...])">self = &lt;test_bugfix_validation.TestRegression object at 0xfe671d0116d0&gt;
+
+    def test_config_returns_59_countries(self):
+        r = requests.get(f"{API}/config", timeout=15)
+        assert r.status_code == 200
+        data = r.json()
+        assert "countries" in data
+&gt;       assert len(data["countries"]) == 59, f"Expected 59 countries, got {len(data['countries'])}"
+E       AssertionError: Expected 59 countries, got 60
+E       assert 60 == 59
+E        +  where 60 = len([{'code': 'BJ', 'dial': '+229', 'flag': '#x1F1E7#x1F1EF', 'name': 'Bénin'}, {'code': 'BF', 'dial': '+226', 'flag': '#x1F1E7#x1F1EB', 'name': '...': '+224', 'flag': '#x1F1EC#x1F1F3', 'name': 'Guinée'}, {'code': 'GW', 'dial': '+245', 'flag': '#x1F1EC#x1F1FC', 'name': 'Guinée-Bissau'}, ...])
+
+tests/test_bugfix_validation.py:86: AssertionError</failure></testcase><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_admin_login_and_me" time="0.504" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_register_and_me" time="0.464" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_services_endpoint" time="0.480" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_matrix_tree" time="0.104" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_dashboard" time="0.127" /><testcase classname="tests.test_bugfix_validation.TestRegression" name="test_admin_lists" time="0.537" /><testcase classname="tests.test_bugfix_validation.TestDynamicWallet" name="test_wallet_initially_empty_then_save_mobile" time="0.190" /><testcase classname="tests.test_bugfix_validation.TestDynamicWallet" name="test_wallet_switch_to_crypto_clears_mobile_fields" time="0.249" /><testcase classname="tests.test_bugfix_validation.TestDynamicWallet" name="test_wallet_mobile_validation" time="0.093" /><testcase classname="tests.test_bugfix_validation.TestDynamicWallet" name="test_wallet_crypto_validation" time="0.110" /><testcase classname="tests.test_bugfix_validation.TestWithdrawalCrypto" name="test_withdrawal_with_crypto_wallet" time="0.822" /><testcase classname="tests.test_bugfix_validation.TestCryptoActivationTxHash" name="test_crypto_request_stores_and_admin_sees_tx_hash" time="0.726" /><testcase classname="tests.test_bugfix_validation.TestAutoUpgradeCascade" name="test_credit_upgrade_balance_persists" time="0.191" /><testcase classname="tests.test_bugfix_validation.TestAutoUpgradeCascade" name="test_activate_level_cascades_via_admin_action" time="1.517" /><testcase classname="tests.test_bugfix_validation.TestAutoUpgradeCascade" name="test_while_loop_present_in_matrix_py" time="0.144" /><testcase classname="tests.test_challenges_http.TestChallengeCRUD" name="test_create_challenge" time="0.611" /><testcase classname="tests.test_challenges_http.TestChallengeCRUD" name="test_create_active_deactivates_previous" time="0.490" /><testcase classname="tests.test_challenges_http.TestChallengeCRUD" name="test_update_rejects_end_before_start" time="0.355" /><testcase classname="tests.test_challenges_http.TestChallengeCRUD" name="test_update_ok" time="0.341" /><testcase classname="tests.test_challenges_http.TestChallengeCRUD" name="test_delete_challenge" time="0.351" /><testcase classname="tests.test_challenges_http.TestCurrentEndpoint" name="test_returns_null_when_no_active" time="0.099" /><testcase classname="tests.test_challenges_http.TestCurrentEndpoint" name="test_progress_counting_rules" time="0.344"><failure message="AssertionError: expected 2, got {'challenge': {'id': 'a84e4530-f782-4912-846f-5109a6997371', 'name': 'TEST_progress', 'target': 100, 'reward_amount': 500.0, 'reward_currency': 'FCFA', 'start_at': '2026-08-18T08:37:14.932000+00:00', 'end_at': '2026-09-27T08:37:14.932000+00:00', 'active': True, 'created_at': '2026-08-28T08:37:15.023000+00:00', 'updated_at': '2026-08-28T08:37:15.023000+00:00'}, 'progress': 9, 'completed': False}&#10;assert 9 == 2">self = &lt;test_challenges_http.TestCurrentEndpoint object at 0xfe671cff4410&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MjMyLCJleHAiOjE3ODc5NDk0MzJ9.07Z6V6tmWyd8FAL38rhKDjx0g-9ff5yEzhxYCvPcI-8', 'Content-Type': 'application/json'}
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2MjMyLCJleHAiOjE3ODc5NDk0MzJ9.07Z6V6tmWyd8FAL38rhKDjx0g-9ff5yEzhxYCvPcI-8'
+db = Database(MongoClient(host=['localhost:27017'], document_class=dict, tz_aware=False, connect=True), 'spilivere')
+admin_user_id = 'f3314320-bab3-47ab-b750-c4873cc3faa2'
+cleanup_challenges = ['a84e4530-f782-4912-846f-5109a6997371']
+cleanup_users = ['f0f23eb3-57c6-43bf-a254-9ca5a7cfb7c3', '82d748e1-0901-4efd-931f-e1b91f77b957', '304d1955-2ca9-4c7e-ba49-c6eb36981041', '6c52152d-9ed6-4f2e-9ea3-2bbde5a2f861']
+
+    def test_progress_counting_rules(self, admin_headers, admin_token, db,
+                                     admin_user_id, cleanup_challenges, cleanup_users):
+        """Create a fresh active challenge, insert 4 synthetic direct referrals of
+        the admin with different level_activated_at.1 values, then assert progress=2.
+        """
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=10)
+        end = now + timedelta(days=30)
+        # Deactivate seed challenge(s) temporarily so ours becomes the current one.
+        previously_active = [d["id"] for d in db.challenges.find({"active": True})]
+        db.challenges.update_many({"active": True}, {"$set": {"active": False}})
+    
+        p = {"name": "TEST_progress", "target": 100, "reward_amount": 500,
+             "reward_currency": "FCFA",
+             "start_at": _iso(start), "end_at": _iso(end), "active": True}
+        r = requests.post(f"{BASE_URL}/api/admin/challenges",
+                          json=p, headers=admin_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        challenge = r.json()
+        cleanup_challenges.append(challenge["id"])
+    
+        try:
+            # Insert 4 synthetic users as direct referrals of admin.
+            in_win_1 = now - timedelta(days=5)
+            in_win_2 = now - timedelta(days=1)
+            before = now - timedelta(days=20)
+    
+            users = [
+                # Cas 1: registered before window, activated in window → COUNTS
+                {"id": str(uuid.uuid4()), "username": f"TEST_cas1_{uuid.uuid4().hex[:6]}",
+                 "email": f"cas1_{uuid.uuid4().hex[:6]}@t.local", "sponsor_id": admin_user_id,
+                 "status": "active", "max_level": 1,
+                 "created_at": now - timedelta(days=40),
+                 "level_activated_at": {"1": in_win_1}},
+                # Cas 2: reg &amp; activated in window → COUNTS
+                {"id": str(uuid.uuid4()), "username": f"TEST_cas2_{uuid.uuid4().hex[:6]}",
+                 "email": f"cas2_{uuid.uuid4().hex[:6]}@t.local", "sponsor_id": admin_user_id,
+                 "status": "active", "max_level": 1,
+                 "created_at": now - timedelta(days=3),
+                 "level_activated_at": {"1": in_win_2}},
+                # Cas 3: activated BEFORE window → EXCLUDED
+                {"id": str(uuid.uuid4()), "username": f"TEST_cas3_{uuid.uuid4().hex[:6]}",
+                 "email": f"cas3_{uuid.uuid4().hex[:6]}@t.local", "sponsor_id": admin_user_id,
+                 "status": "active", "max_level": 1,
+                 "created_at": now - timedelta(days=60),
+                 "level_activated_at": {"1": before}},
+                # Cas 4: pending, never activated → EXCLUDED
+                {"id": str(uuid.uuid4()), "username": f"TEST_cas4_{uuid.uuid4().hex[:6]}",
+                 "email": f"cas4_{uuid.uuid4().hex[:6]}@t.local", "sponsor_id": admin_user_id,
+                 "status": "pending", "max_level": 0,
+                 "created_at": now - timedelta(days=2),
+                 "level_activated_at": {}},
+            ]
+            db.users.insert_many(users)
+            cleanup_users.extend([u["id"] for u in users])
+    
+            # As admin — check /current
+            headers = {"Authorization": f"Bearer {admin_token}"}
+            r = requests.get(f"{BASE_URL}/api/challenges/current",
+                             headers=headers, timeout=15)
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["challenge"] is not None
+            assert body["challenge"]["id"] == challenge["id"]
+&gt;           assert body["progress"] == 2, f"expected 2, got {body}"
+E           AssertionError: expected 2, got {'challenge': {'id': 'a84e4530-f782-4912-846f-5109a6997371', 'name': 'TEST_progress', 'target': 100, 'reward_amount': 500.0, 'reward_currency': 'FCFA', 'start_at': '2026-08-18T08:37:14.932000+00:00', 'end_at': '2026-09-27T08:37:14.932000+00:00', 'active': True, 'created_at': '2026-08-28T08:37:15.023000+00:00', 'updated_at': '2026-08-28T08:37:15.023000+00:00'}, 'progress': 9, 'completed': False}
+E           assert 9 == 2
+
+tests/test_challenges_http.py:295: AssertionError</failure></testcase><testcase classname="tests.test_challenges_http.TestAuth" name="test_current_requires_auth" time="0.115" /><testcase classname="tests.test_challenges_http.TestAuth" name="test_admin_endpoints_require_admin" time="0.125" /><testcase classname="tests.test_crypto_activation_stats" name="test_crypto_activation_counts_as_fcfa_in_stats" time="0.658" /><testcase classname="tests.test_crypto_activation_stats" name="test_fcfa_activation_unchanged" time="0.578" /><testcase classname="tests.test_digital_content.TestAuthGating" name="test_public_endpoints_require_auth" time="0.297" /><testcase classname="tests.test_digital_content.TestAuthGating" name="test_admin_endpoints_require_admin_role" time="0.917" /><testcase classname="tests.test_digital_content.TestFormations" name="test_create_enabled_and_disabled" time="0.252" /><testcase classname="tests.test_digital_content.TestFormations" name="test_update_formation" time="0.066" /><testcase classname="tests.test_digital_content.TestFormations" name="test_delete_formation" time="0.124" /><testcase classname="tests.test_digital_content.TestEbooks" name="test_create_and_list" time="0.128" /><testcase classname="tests.test_digital_content.TestEbooks" name="test_update_ebook" time="0.063" /><testcase classname="tests.test_digital_content.TestPremiumApps" name="test_create_disabled_not_in_public" time="0.187" /><testcase classname="tests.test_digital_content.TestTrading" name="test_initial_disabled_state" time="0.062" /><testcase classname="tests.test_digital_content.TestTrading" name="test_admin_update_and_public_reflects" time="0.126" /><testcase classname="tests.test_digital_content.TestTrading" name="test_zz_reset_trading" time="0.062" /><testcase classname="tests.test_digital_content.TestAvatar" name="test_update_avatar_reflects_in_me" time="0.127" /><testcase classname="tests.test_digital_content.TestZZZCleanup" name="test_zz_delete_test_items" time="0.252" /><testcase classname="tests.test_digital_content.TestZZZCleanup" name="test_zz_delete_test_user" time="0.160" /><testcase classname="tests.test_engagement_v2" name="test_reactor_rewards_shape_defaults" time="0.962" /><testcase classname="tests.test_engagement_v2" name="test_reactor_rewards_filter_by_action_accepts_valid_values" time="0.714" /><testcase classname="tests.test_engagement_v2" name="test_reactor_rewards_ignores_bogus_filter" time="0.591" /><testcase classname="tests.test_engagement_v2" name="test_notifications_endpoints_exist" time="0.832" /><testcase classname="tests.test_engagement_v2" name="test_notifications_unread_only_filter" time="0.580" /><testcase classname="tests.test_feature_flags.TestPublicFeatures" name="test_public_features_returns_all_keys" time="0.597"><failure message="AssertionError: assert {'ads', 'ads_...ng_page', ...} == {'ads', 'ads_...publish', ...}&#10;  &#10;  Extra items in the left set:&#10;  'crypto_auto'&#10;  'auto_withdrawal'&#10;  Use -v to get more diff">self = &lt;test_feature_flags.TestPublicFeatures object at 0xfe671cf60d50&gt;
+
+    def test_public_features_returns_all_keys(self):
+        r = requests.get(f"{API}/features", timeout=10)
+        assert r.status_code == 200
+        body = r.json()
+        assert "features" in body
+        feats = body["features"]
+&gt;       assert set(feats.keys()) == ALL_KEYS
+E       AssertionError: assert {'ads', 'ads_...ng_page', ...} == {'ads', 'ads_...publish', ...}
+E         
+E         Extra items in the left set:
+E         'crypto_auto'
+E         'auto_withdrawal'
+E         Use -v to get more diff
+
+tests/test_feature_flags.py:96: AssertionError</failure></testcase><testcase classname="tests.test_feature_flags.TestPublicFeatures" name="test_public_features_no_auth_required" time="0.105" /><testcase classname="tests.test_feature_flags.TestAdminFeatureFlags" name="test_unauthenticated_gets_401_or_403" time="0.150" /><testcase classname="tests.test_feature_flags.TestAdminFeatureFlags" name="test_non_admin_gets_403" time="0.774" /><testcase classname="tests.test_feature_flags.TestAdminFeatureFlags" name="test_admin_lists_all_flags" time="0.100"><failure message="AssertionError: assert {'ads', 'ads_...ng_page', ...} == {'ads', 'ads_...publish', ...}&#10;  &#10;  Extra items in the left set:&#10;  'crypto_auto'&#10;  'auto_withdrawal'&#10;  Use -v to get more diff">self = &lt;test_feature_flags.TestAdminFeatureFlags object at 0xfe671cf62390&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...taW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2MjQzLCJleHAiOjE3ODc5NDk0NDN9.KUJRizsvTzTNKAE9Km90n2MdVZwJ3FZL3u4fKnaENjw'}
+
+    def test_admin_lists_all_flags(self, admin_headers):
+        r = requests.get(f"{API}/admin/feature-flags", headers=admin_headers, timeout=10)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        keys = {it["key"] for it in items}
+&gt;       assert keys == ALL_KEYS
+E       AssertionError: assert {'ads', 'ads_...ng_page', ...} == {'ads', 'ads_...publish', ...}
+E         
+E         Extra items in the left set:
+E         'crypto_auto'
+E         'auto_withdrawal'
+E         Use -v to get more diff
+
+tests/test_feature_flags.py:121: AssertionError</failure></testcase><testcase classname="tests.test_feature_flags.TestAdminFeatureFlags" name="test_put_unknown_key_returns_404" time="0.116" /><testcase classname="tests.test_feature_flags.TestAdminFeatureFlags" name="test_toggle_persists" time="0.455" /><testcase classname="tests.test_feature_flags.TestAdsGuards" name="test_ads_off_post_returns_503" time="0.249" /><testcase classname="tests.test_feature_flags.TestAdsGuards" name="test_ads_off_get_returns_empty_list" time="0.243" /><testcase classname="tests.test_feature_flags.TestAdsGuards" name="test_ads_on_but_video_off_returns_503" time="0.392" /><testcase classname="tests.test_feature_flags.TestAdsGuards" name="test_ads_on_and_video_on_creates_draft" time="0.356" /><testcase classname="tests.test_feature_flags.TestSpecialTasksGuard" name="test_special_tasks_off_returns_503" time="0.210" /><testcase classname="tests.test_feature_flags.TestMarketplaceGuards" name="test_marketplace_off_returns_503" time="0.350" /><testcase classname="tests.test_feature_flags.TestMarketplaceGuards" name="test_marketplace_publish_off_returns_503" time="0.369" /><testcase classname="tests.test_feature_flags.TestPersistenceAcrossRestart" name="test_flags_survive_restart" time="3.851" /><testcase classname="tests.test_i18n_haiti_gating" name="test_haiti_in_config_countries" time="0.117" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_no_token_returns_401" time="0.095" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_set_en_then_fr_persisted" time="0.825" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_invalid_returns_400[bad0]" time="0.109" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_invalid_returns_400[bad1]" time="0.172" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_invalid_returns_400[bad2]" time="0.115" /><testcase classname="tests.test_i18n_haiti_gating" name="test_language_null_returns_4xx" time="0.117" /><testcase classname="tests.test_i18n_haiti_gating" name="test_register_creates_pending_user" time="0.459" /><testcase classname="tests.test_i18n_haiti_gating" name="test_pending_user_can_set_language" time="0.127" /><testcase classname="tests.test_integrity_audit.TestAuthGuard" name="test_free_activations_requires_auth" time="0.127" /><testcase classname="tests.test_integrity_audit.TestAuthGuard" name="test_orphan_commissions_requires_auth" time="0.098" /><testcase classname="tests.test_integrity_audit.TestAuthGuard" name="test_user_trace_requires_auth" time="0.111" /><testcase classname="tests.test_integrity_audit.TestFreeActivations" name="test_structure" time="0.549" /><testcase classname="tests.test_integrity_audit.TestFreeActivations" name="test_admin_whitelisted" time="0.356" /><testcase classname="tests.test_integrity_audit.TestOrphanCommissions" name="test_structure" time="0.165" /><testcase classname="tests.test_integrity_audit.TestUserTrace" name="test_404_unknown_user" time="0.120" /><testcase classname="tests.test_integrity_audit.TestUserTrace" name="test_admin_trace_structure" time="0.186" /><testcase classname="tests.test_integrity_audit.TestActivationEventInsert" name="test_admin_manual_l1_creates_activation_event" time="0.686" /><testcase classname="tests.test_integrity_audit.TestManualUpgradeDebitRegression" name="test_prior_test_file_present" time="0.000" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_shape_defaults" time="0.494" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_filter_action_like" time="0.105" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_filter_action_comment" time="0.121" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_filter_action_bogus_ignored" time="0.124" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_filter_date_range" time="0.119" /><testcase classname="tests.test_iter40_engagement.TestReactorRewards" name="test_by_day_row_shape" time="0.116" /><testcase classname="tests.test_iter40_engagement.TestNotifications" name="test_list" time="0.108" /><testcase classname="tests.test_iter40_engagement.TestNotifications" name="test_unread_count" time="0.139" /><testcase classname="tests.test_iter40_engagement.TestNotifications" name="test_unread_only_filter" time="0.108" /><testcase classname="tests.test_iter40_engagement.TestNotifications" name="test_mark_all_read_idempotent" time="0.239" /><testcase classname="tests.test_iter40_engagement.TestNotifications" name="test_mark_read_unknown_id_404" time="0.116" /><testcase classname="tests.test_iter40_engagement.TestAntiSpam" name="test_too_short" time="0.573"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:164: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestAntiSpam" name="test_no_letter" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:169: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestAntiSpam" name="test_repetitive" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:174: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestAntiSpam" name="test_near_duplicate" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:179: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestRegressionReactorEndpoints" name="test_like_endpoint" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:216: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestRegressionReactorEndpoints" name="test_view_endpoint_reward_null" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:223: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter40_engagement.TestRegressionReactorEndpoints" name="test_share_endpoint_reward_null" time="0.000"><skipped type="pytest.skip" message="No published ad available for anti-spam test.">/app/backend/tests/test_iter40_engagement.py:231: No published ad available for anti-spam test.</skipped></testcase><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestJobs" name="test_unread_count_endpoint" time="0.403" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestJobs" name="test_mark_seen" time="0.130" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestJobs" name="test_create_active_job_triggers_push_and_unread" time="1.696" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestJobs" name="test_toggle_inactive_to_active_fires_push" time="2.759" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestChallengeUpdateNonDestructive" name="test_put_challenge_does_not_touch_progress" time="0.192" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestDashboardSafetyNet" name="test_dashboard_no_crash" time="0.068" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestDashboardSafetyNet" name="test_dashboard_second_call_still_ok" time="0.199" /><testcase classname="tests.test_iter52_jobs_challenges_dashboard.TestCommissionPushBug" name="test_no_key_error_in_backend_log" time="0.002" /><testcase classname="tests.test_iter53_commission_push_fix" name="test_commission_doc_has_id_uuid_field" time="0.010" /><testcase classname="tests.test_iter53_commission_push_fix" name="test_upgrade_share_profit_share_unchanged" time="0.009" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_L1_direct_full_to_sponsor_with_reserve_cap" time="0.013" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_L1_spillover_split_and_sponsor_share_is_profit_only" time="0.014" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_L2_pays_ancestor_2_hops_and_ignores_spillover" time="0.017" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_L3_pays_ancestor_3_hops" time="0.012" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_guard_section10_skips_recipient_below_level" time="0.021" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_L2_short_tree_no_commission" time="0.051" /><testcase classname="tests.test_iter54_commission_spec_final" name="test_activate_level_soleaspay_L1_then_L2_end_to_end" time="0.042" /><testcase classname="tests.test_iter7_missions_audit.TestMissionCRUD" name="test_create_mission_valid" time="0.452" /><testcase classname="tests.test_iter7_missions_audit.TestMissionCRUD" name="test_create_mission_422_when_empty_strings" time="0.145" /><testcase classname="tests.test_iter7_missions_audit.TestMissionCRUD" name="test_update_mission" time="0.122" /><testcase classname="tests.test_iter7_missions_audit.TestMissionCRUD" name="test_delete_mission" time="0.114" /><testcase classname="tests.test_iter7_missions_audit.TestAuditRemoved" name="test_audit_root_404" time="0.093" /><testcase classname="tests.test_iter7_missions_audit.TestAuditRemoved" name="test_audit_user_404" time="0.133" /><testcase classname="tests.test_iter7_missions_audit.TestAuditRemoved" name="test_audit_recompute_404" time="0.125" /><testcase classname="tests.test_iter7_missions_audit.TestMissionWithdrawalsRegression" name="test_list_pending" time="0.104" /><testcase classname="tests.test_izichange" name="test_create_returns_inline_bep20_address" time="1.798" /><testcase classname="tests.test_izichange" name="test_verify_unknown_reference_404" time="0.125" /><testcase classname="tests.test_izichange" name="test_verify_hash_too_short_400" time="0.112" /><testcase classname="tests.test_izichange" name="test_verify_fake_hash_returns_pending" time="0.466" /><testcase classname="tests.test_izichange" name="test_webhook_valid_signature_unknown_ref_ok" time="0.117" /><testcase classname="tests.test_izichange" name="test_webhook_invalid_signature_401" time="0.095" /><testcase classname="tests.test_izichange" name="test_webhook_stale_timestamp_401" time="0.107" /><testcase classname="tests.test_izichange" name="test_webhook_completes_real_activation" time="1.880" /><testcase classname="tests.test_izichange" name="test_admin_activations_contains_crypto_auto" time="0.125" /><testcase classname="tests.test_izichange" name="test_admin_feature_flags_lists_auto_withdrawal" time="0.090" /><testcase classname="tests.test_izichange" name="test_toggle_auto_withdrawal_flag" time="0.188" /><testcase classname="tests.test_izichange" name="test_create_payout_rejects_invalid_amount" time="0.001" /><testcase classname="tests.test_izichange" name="test_create_payout_rejects_short_address" time="0.001" /><testcase classname="tests.test_jobs_crud" name="test_jobs_full_crud_flow" time="0.712" /><testcase classname="tests.test_jobs_crud" name="test_jobs_required_fields_rejected" time="0.443" /><testcase classname="tests.test_jobs_crud" name="test_jobs_public_endpoint_requires_auth" time="0.116" /><testcase classname="tests.test_jobs_crud" name="test_admin_endpoints_require_admin" time="0.116" /><testcase classname="tests.test_lottery_jackpot_flow.TestCreateDraw" name="test_create_draw_status_open" time="0.581" /><testcase classname="tests.test_lottery_jackpot_flow.TestSelectWinnersValidations" name="test_select_requires_participant" time="0.513" /><testcase classname="tests.test_lottery_jackpot_flow.TestSelectWinnersValidations" name="test_select_count_mismatch" time="0.473" /><testcase classname="tests.test_lottery_jackpot_flow.TestSelectWinnersValidations" name="test_select_duplicate_user" time="0.469" /><testcase classname="tests.test_lottery_jackpot_flow.TestSelectWinnersValidations" name="test_select_incomplete_ranks" time="0.466" /><testcase classname="tests.test_lottery_jackpot_flow.TestLaunchPresetEnforcement" name="test_launch_blocked_without_preset" time="0.533" /><testcase classname="tests.test_lottery_jackpot_flow.TestLaunchPresetEnforcement" name="test_launch_succeeds_after_preset" time="0.638" /><testcase classname="tests.test_lottery_jackpot_flow.TestSelectAfterLaunch" name="test_select_blocked_after_launch" time="0.667" /><testcase classname="tests.test_lottery_jackpot_flow.TestJoinAfterLaunch" name="test_join_refused_if_running" time="0.715" /><testcase classname="tests.test_lottery_jackpot_flow.TestStats" name="test_stats_has_required_fields" time="0.149" /><testcase classname="tests.test_lottery_jackpot_flow.TestE2EPresetWinners" name="test_full_flow_preset_match" time="70.945" /><testcase classname="tests.test_manual_payment_flow.TestManualPaymentSettings" name="test_public_get_includes_allowed_countries" time="0.095" /><testcase classname="tests.test_manual_payment_flow.TestManualPaymentSettings" name="test_admin_put_persists_allowed_countries" time="0.598" /><testcase classname="tests.test_manual_payment_flow.TestManualPaymentSettings" name="test_admin_put_normalizes_country_codes" time="0.220" /><testcase classname="tests.test_manual_payment_flow.TestManualActivationFlow" name="test_disabled_returns_400" time="1.035" /><testcase classname="tests.test_manual_payment_flow.TestManualActivationFlow" name="test_country_not_allowed_returns_400" time="1.020" /><testcase classname="tests.test_manual_payment_flow.TestManualActivationFlow" name="test_create_pending_and_visible_in_admin" time="1.197" /><testcase classname="tests.test_manual_payment_flow.TestManualActivationFlow" name="test_already_activated_returns_400" time="1.183" /><testcase classname="tests.test_manual_payment_flow" name="test_zz_restore_default_settings" time="0.126" /><testcase classname="tests.test_manual_upgrade_debit" name="test_admin_manual_debits_reserve_when_sufficient" time="0.017" /><testcase classname="tests.test_manual_upgrade_debit" name="test_user_manual_upgrade_debits_reserve" time="0.011" /><testcase classname="tests.test_manual_upgrade_debit" name="test_user_manual_upgrade_insufficient_reserve_raises" time="0.002" /><testcase classname="tests.test_manual_upgrade_debit" name="test_external_payment_does_not_debit_reserve[soleaspay]" time="0.014" /><testcase classname="tests.test_manual_upgrade_debit" name="test_external_payment_does_not_debit_reserve[gateway_return]" time="0.025" /><testcase classname="tests.test_manual_upgrade_debit" name="test_external_payment_does_not_debit_reserve[sendavapay]" time="0.019" /><testcase classname="tests.test_manual_upgrade_debit" name="test_external_payment_does_not_debit_reserve[manual_reprocess]" time="0.014" /><testcase classname="tests.test_manual_upgrade_debit" name="test_external_payment_does_not_debit_reserve[admin_validate]" time="0.012" /><testcase classname="tests.test_manual_upgrade_debit" name="test_admin_manual_insufficient_reserve_now_refuses" time="0.003" /><testcase classname="tests.test_manual_upgrade_debit" name="test_admin_manual_sufficient_reserve_debits" time="0.013" /><testcase classname="tests.test_manual_upgrade_debit" name="test_auto_upgrade_still_debits" time="0.015" /><testcase classname="tests.test_manual_upgrade_debit" name="test_auto_upgrade_with_insufficient_reserve_raises" time="0.005" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_mp3_returns_url" time="1.520" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_other_audio_formats[m4a-audio/mp4]" time="0.369" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_other_audio_formats[aac-audio/aac]" time="0.280" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_other_audio_formats[ogg-audio/ogg]" time="0.244" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_other_audio_formats[wav-audio/wav]" time="0.228" /><testcase classname="tests.test_marketplace_media.TestUploadAudioExtensions" name="test_upload_txt_returns_415" time="0.134" /><testcase classname="tests.test_marketplace_media.TestMarketplaceCreateMedia" name="test_create_with_images_only_defaults" time="0.238" /><testcase classname="tests.test_marketplace_media.TestMarketplaceCreateMedia" name="test_create_with_videos_and_audio" time="0.255" /><testcase classname="tests.test_marketplace_media.TestMarketplaceCreateMedia" name="test_create_with_too_many_videos_returns_422" time="0.137" /><testcase classname="tests.test_marketplace_media.TestAdminMarketplaceMedia" name="test_admin_list_returns_media_fields" time="0.241" /><testcase classname="tests.test_marketplace_media.TestPublicFeedMedia" name="test_public_feed_preserves_media_after_approval" time="0.555" /><testcase classname="tests.test_marketplace_unread_badge" name="test_marketplace_badge_route_ordering" time="0.761" /><testcase classname="tests.test_marketplace_unread_badge" name="test_marketplace_unread_semantics" time="0.008"><failure message="AssertionError: only the fresh listing owned by u2 should count&#10;assert 2 == 1">db = AsyncIOMotorDatabase(Database(MongoClient(host=['localhost:27017'], document_class=dict, tz_aware=False, connect=False, driver=DriverInfo(name='Motor', version='3.3.1', platform='asyncio')), 'spilivere'))
+
+    @pytest.mark.asyncio
+    async def test_marketplace_unread_semantics(db):
+        """Direct Mongo check: approved listing after last_seen counts; owner-owned doesn't."""
+        u1 = f"test_mk_{uuid.uuid4().hex[:8]}"
+        u2 = f"test_mk_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+    
+        await db.users.insert_one({
+            "id": u1, "email": f"{u1}@t.io", "username": u1, "wallet_pool": 0,
+            "last_marketplace_seen_at": now - timedelta(minutes=10),
+        })
+        await db.users.insert_one({
+            "id": u2, "email": f"{u2}@t.io", "username": u2, "wallet_pool": 0,
+        })
+    
+        stale = {
+            "id": f"mk_stale_{uuid.uuid4().hex[:8]}", "seller_id": u2,
+            "status": "approved", "approved_at": now - timedelta(hours=1),
+            "created_at": now - timedelta(hours=2), "expires_at": None,
+            "title": "Old", "description": "", "images": [], "price": 100,
+        }
+        fresh = {
+            "id": f"mk_fresh_{uuid.uuid4().hex[:8]}", "seller_id": u2,
+            "status": "approved", "approved_at": now - timedelta(minutes=2),
+            "created_at": now - timedelta(minutes=3), "expires_at": None,
+            "title": "New", "description": "", "images": [], "price": 100,
+        }
+        own = {
+            "id": f"mk_own_{uuid.uuid4().hex[:8]}", "seller_id": u1,
+            "status": "approved", "approved_at": now - timedelta(minutes=1),
+            "created_at": now - timedelta(minutes=2), "expires_at": None,
+            "title": "Own", "description": "", "images": [], "price": 100,
+        }
+        pending = {
+            "id": f"mk_pending_{uuid.uuid4().hex[:8]}", "seller_id": u2,
+            "status": "pending", "approved_at": None,
+            "created_at": now, "expires_at": None,
+            "title": "Pending", "description": "", "images": [], "price": 100,
+        }
+        await db.marketplace_listings.insert_many([stale, fresh, own, pending])
+    
+        try:
+            u = await db.users.find_one({"id": u1}, {"last_marketplace_seen_at": 1})
+            q = {
+                "status": "approved",
+                "seller_id": {"$ne": u1},
+                "approved_at": {"$gt": u["last_marketplace_seen_at"]},
+            }
+            c = await db.marketplace_listings.count_documents(q)
+&gt;           assert c == 1, "only the fresh listing owned by u2 should count"
+E           AssertionError: only the fresh listing owned by u2 should count
+E           assert 2 == 1
+
+tests/test_marketplace_unread_badge.py:108: AssertionError</failure></testcase><testcase classname="tests.test_matrix_placement_routing" name="test_L1_spillover_splits_50_50_between_sponsor_and_parent" time="0.011" /><testcase classname="tests.test_matrix_placement_routing" name="test_L1_non_spillover_pays_sponsor_fully" time="0.008" /><testcase classname="tests.test_matrix_placement_routing" name="test_L2_pays_100pct_to_grandparent_in_L1_tree" time="0.013" /><testcase classname="tests.test_matrix_placement_routing" name="test_L2_ignores_spillover_flag_no_split" time="0.012" /><testcase classname="tests.test_matrix_placement_routing" name="test_L3_pays_100pct_to_3hop_ancestor" time="0.011" /><testcase classname="tests.test_matrix_placement_routing" name="test_L2_no_commission_when_ancestor_missing" time="0.007" /><testcase classname="tests.test_mission_withdrawals.TestMissionWallets" name="test_get_my_mission_wallets" time="0.426" /><testcase classname="tests.test_mission_withdrawals.TestMissionWallets" name="test_get_mission_history" time="0.114" /><testcase classname="tests.test_mission_withdrawals.TestMissionWallets" name="test_get_mission_withdrawals" time="0.128" /><testcase classname="tests.test_mission_withdrawals.TestWithdrawalFlow" name="test_insufficient_balance_returns_400" time="0.101" /><testcase classname="tests.test_mission_withdrawals.TestWithdrawalFlow" name="test_invalid_wallet_returns_400" time="0.107" /><testcase classname="tests.test_mission_withdrawals.TestWithdrawalFlow" name="test_amount_validation" time="0.117" /><testcase classname="tests.test_mission_withdrawals.TestWithdrawalFlow" name="test_create_withdrawal_and_balance_decreases" time="0.263"><failure message="AssertionError: {&quot;detail&quot;:&quot;Montant minimum requis : 500 FCFA.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">self = &lt;test_mission_withdrawals.TestWithdrawalFlow object at 0xfe671c66fc90&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+
+    def test_create_withdrawal_and_balance_decreases(self, admin_headers):
+        wallet = "youtube"
+        bal_before = self._get_balance(admin_headers, wallet)
+        if bal_before &lt; 100:
+            pytest.skip(f"Insufficient seed balance for {wallet}: {bal_before}")
+        amount = 100
+        r = requests.post(f"{BASE_URL}/api/me/mission-withdrawals",
+                          headers=admin_headers,
+                          json={"wallet": wallet, "amount": amount},
+                          timeout=15)
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Montant minimum requis : 500 FCFA."}
+E       assert 400 == 200
+E        +  where 400 = &lt;Response [400]&gt;.status_code
+
+tests/test_mission_withdrawals.py:101: AssertionError</failure></testcase><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_admin_list_withdrawals" time="0.127" /><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_admin_list_filtered_by_status" time="0.319" /><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_validate_keeps_balance_reserved" time="0.310"><failure message="AssertionError: {&quot;detail&quot;:&quot;Montant minimum requis : 500 FCFA.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66f150&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+
+    def test_validate_keeps_balance_reserved(self, admin_headers):
+        wallet = "youtube"
+        bal_before = self._get_balance(admin_headers, wallet)
+        if bal_before &lt; 50:
+            pytest.skip("Insufficient balance")
+&gt;       wid = self._create_withdrawal(admin_headers, wallet, 50)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_mission_withdrawals.py:168: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66f150&gt;
+headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+wallet = 'youtube', amount = 50
+
+    def _create_withdrawal(self, headers, wallet="youtube", amount=50):
+        bal = 0
+        r = requests.get(f"{BASE_URL}/api/me/mission-wallets", headers=headers, timeout=15)
+        for w in r.json()["wallets"]:
+            if w["type"] == wallet:
+                bal = float(w["balance"])
+        if bal &lt; amount:
+            return None
+        rr = requests.post(f"{BASE_URL}/api/me/mission-withdrawals",
+                           headers=headers, json={"wallet": wallet, "amount": amount}, timeout=15)
+&gt;       assert rr.status_code == 200, rr.text
+E       AssertionError: {"detail":"Montant minimum requis : 500 FCFA."}
+E       assert 400 == 200
+E        +  where 400 = &lt;Response [400]&gt;.status_code
+
+tests/test_mission_withdrawals.py:139: AssertionError</failure></testcase><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_reject_refunds_balance" time="0.352"><failure message="AssertionError: {&quot;detail&quot;:&quot;Montant minimum requis : 500 FCFA.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66e990&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+
+    def test_reject_refunds_balance(self, admin_headers):
+        wallet = "youtube"
+        bal_before = self._get_balance(admin_headers, wallet)
+        if bal_before &lt; 30:
+            pytest.skip("Insufficient balance")
+&gt;       wid = self._create_withdrawal(admin_headers, wallet, 30)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_mission_withdrawals.py:184: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66e990&gt;
+headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+wallet = 'youtube', amount = 30
+
+    def _create_withdrawal(self, headers, wallet="youtube", amount=50):
+        bal = 0
+        r = requests.get(f"{BASE_URL}/api/me/mission-wallets", headers=headers, timeout=15)
+        for w in r.json()["wallets"]:
+            if w["type"] == wallet:
+                bal = float(w["balance"])
+        if bal &lt; amount:
+            return None
+        rr = requests.post(f"{BASE_URL}/api/me/mission-withdrawals",
+                           headers=headers, json={"wallet": wallet, "amount": amount}, timeout=15)
+&gt;       assert rr.status_code == 200, rr.text
+E       AssertionError: {"detail":"Montant minimum requis : 500 FCFA."}
+E       assert 400 == 200
+E        +  where 400 = &lt;Response [400]&gt;.status_code
+
+tests/test_mission_withdrawals.py:139: AssertionError</failure></testcase><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_idempotency_double_action_rejected" time="0.223"><failure message="AssertionError: {&quot;detail&quot;:&quot;Montant minimum requis : 500 FCFA.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66db10&gt;
+admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+
+    def test_idempotency_double_action_rejected(self, admin_headers):
+        wallet = "youtube"
+&gt;       wid = self._create_withdrawal(admin_headers, wallet, 10)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_mission_withdrawals.py:195: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;test_mission_withdrawals.TestAdminWithdrawalActions object at 0xfe671c66db10&gt;
+headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...xNzg3OTA2MzU5LCJleHAiOjE3ODc5NDk1NTl9.X_htC8KAQE3InMyH3ockGnw1sN1jZn7ZsyZ77O0H-eY', 'Content-Type': 'application/json'}
+wallet = 'youtube', amount = 10
+
+    def _create_withdrawal(self, headers, wallet="youtube", amount=50):
+        bal = 0
+        r = requests.get(f"{BASE_URL}/api/me/mission-wallets", headers=headers, timeout=15)
+        for w in r.json()["wallets"]:
+            if w["type"] == wallet:
+                bal = float(w["balance"])
+        if bal &lt; amount:
+            return None
+        rr = requests.post(f"{BASE_URL}/api/me/mission-withdrawals",
+                           headers=headers, json={"wallet": wallet, "amount": amount}, timeout=15)
+&gt;       assert rr.status_code == 200, rr.text
+E       AssertionError: {"detail":"Montant minimum requis : 500 FCFA."}
+E       assert 400 == 200
+E        +  where 400 = &lt;Response [400]&gt;.status_code
+
+tests/test_mission_withdrawals.py:139: AssertionError</failure></testcase><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_invalid_action" time="0.092" /><testcase classname="tests.test_mission_withdrawals.TestAdminWithdrawalActions" name="test_unknown_withdrawal_404" time="0.113" /><testcase classname="tests.test_mission_withdrawals.TestAdminStatsAndCrud" name="test_stats_endpoint" time="0.092" /><testcase classname="tests.test_mission_withdrawals.TestAdminStatsAndCrud" name="test_mission_crud" time="0.446" /><testcase classname="tests.test_mission_withdrawals.TestAdminStatsAndCrud" name="test_invalid_mission_type_rejected" time="0.089" /><testcase classname="tests.test_mission_withdrawals.TestAuth" name="test_admin_endpoint_requires_auth" time="0.105" /><testcase classname="tests.test_mission_withdrawals.TestAuth" name="test_user_endpoint_requires_auth" time="0.194" /><testcase classname="tests.test_missions_all_types" name="test_each_mission_type_credits_correct_wallet[youtube-https://www.youtube.com/watch?v=dQw4w9WgXcQ-True]" time="4.024" /><testcase classname="tests.test_missions_all_types" name="test_each_mission_type_credits_correct_wallet[tiktok-https://www.tiktok.com/@user/video/7000000000000000000-True]" time="4.021" /><testcase classname="tests.test_missions_all_types" name="test_each_mission_type_credits_correct_wallet[instagram-https://www.instagram.com/p/ABCDEF123/-True]" time="4.022" /><testcase classname="tests.test_missions_all_types" name="test_each_mission_type_credits_correct_wallet[facebook-https://www.facebook.com/watch/?v=1000000000000000-True]" time="4.020" /><testcase classname="tests.test_missions_all_types" name="test_each_mission_type_credits_correct_wallet[questionnaire--False]" time="0.010" /><testcase classname="tests.test_missions_all_types" name="test_questionnaire_rejects_wrong_answer" time="0.011" /><testcase classname="tests.test_missions_watch_flow" name="test_watch_session_credits_wallet_and_is_idempotent" time="4.024" /><testcase classname="tests.test_missions_watch_flow" name="test_watch_rejects_too_fast_completion" time="0.013" /><testcase classname="tests.test_official_commission_plan" name="test_L1_first_invite_splits_1000_reserve_and_1000_profit" time="0.515" /><testcase classname="tests.test_official_commission_plan" name="test_L1_second_invite_all_to_profit_when_reserve_full" time="0.769" /><testcase classname="tests.test_official_commission_plan" name="test_L1_spillover_splits_50_50_between_sponsor_and_beneficiary" time="0.983" /><testcase classname="tests.test_official_commission_plan" name="test_commission_skipped_when_ancestor_not_at_level_N" time="0.473" /><testcase classname="tests.test_push_notifications.TestPushTokens" name="test_register_token_upsert" time="0.763" /><testcase classname="tests.test_push_notifications.TestPushTokens" name="test_register_requires_auth" time="0.105" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_stats_requires_admin" time="0.116" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_stats_ok" time="0.483" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_push_all_no_crash" time="0.122" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_push_user_404" time="0.092" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_push_user_exists" time="0.254" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_push_group_no_filter_400" time="0.111" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_push_group_with_filter" time="0.133" /><testcase classname="tests.test_push_notifications.TestAdminPush" name="test_admin_endpoints_reject_user" time="0.312" /><testcase classname="tests.test_push_notifications" name="test_service_worker_served" time="0.112" /><testcase classname="tests.test_push_test_self_iter51" name="test_absolute_link_unit" time="0.001" /><testcase classname="tests.test_push_test_self_iter51" name="test_register_fake_token" time="0.433" /><testcase classname="tests.test_push_test_self_iter51" name="test_push_test_self_prunes_fake_token" time="1.836" /><testcase classname="tests.test_push_test_self_iter51" name="test_fake_token_removed_from_db_via_second_call" time="0.113" /><testcase classname="tests.test_reactor_rewards" name="test_first_view_credits_reactor" time="2.385"><failure message="assert (None is not None)">published_ad = ('a2720ca1-5ea2-4af3-b7e0-f1f48c11b375', {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZW...5MDYzOTEsImV4cCI6MTc4Nzk0OTU5MX0.9YNzFNSezMI91dxm8skFq7EVixR5BDIwUmgq6BNFv2I'}, '5eaf439f-5902-4667-9f4f-60179a6478ce')
+reactor_cfg = {'comment_reward': 100.0, 'currency': 'FCFA', 'distribution_percentage': 50.0, 'like_reward': 10.0, ...}
+
+    def test_first_view_credits_reactor(published_ad, reactor_cfg):
+        ad_id, _, _ = published_ad
+        hdrs, _ = _register("v")
+        before = _balance(hdrs)
+        r = requests.post(f"{API}/ads/{ad_id}/view", headers=hdrs, timeout=15)
+        assert r.status_code == 200, r.text[:200]
+        body = r.json()
+        assert body["counted"] is True
+&gt;       assert body["reward"] is not None and body["reward"] &gt; 0
+E       assert (None is not None)
+
+tests/test_reactor_rewards.py:121: AssertionError</failure></testcase><testcase classname="tests.test_reactor_rewards" name="test_view_is_idempotent_no_double_credit" time="0.416"><failure message="assert None is not None">published_ad = ('a2720ca1-5ea2-4af3-b7e0-f1f48c11b375', {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZW...5MDYzOTEsImV4cCI6MTc4Nzk0OTU5MX0.9YNzFNSezMI91dxm8skFq7EVixR5BDIwUmgq6BNFv2I'}, '5eaf439f-5902-4667-9f4f-60179a6478ce')
+
+    def test_view_is_idempotent_no_double_credit(published_ad):
+        ad_id, _, _ = published_ad
+        hdrs, _ = _register("v2")
+        r1 = requests.post(f"{API}/ads/{ad_id}/view", headers=hdrs, timeout=15)
+&gt;       assert r1.json()["reward"] is not None
+E       assert None is not None
+
+tests/test_reactor_rewards.py:130: AssertionError</failure></testcase><testcase classname="tests.test_reactor_rewards" name="test_comment_pays_more_than_view" time="0.517"><failure message="KeyError: 'reward'">published_ad = ('a2720ca1-5ea2-4af3-b7e0-f1f48c11b375', {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZW...5MDYzOTEsImV4cCI6MTc4Nzk0OTU5MX0.9YNzFNSezMI91dxm8skFq7EVixR5BDIwUmgq6BNFv2I'}, '5eaf439f-5902-4667-9f4f-60179a6478ce')
+reactor_cfg = {'comment_reward': 100.0, 'currency': 'FCFA', 'distribution_percentage': 50.0, 'like_reward': 10.0, ...}
+
+    def test_comment_pays_more_than_view(published_ad, reactor_cfg):
+        ad_id, _, _ = published_ad
+        hdrs, _ = _register("c")
+        v = requests.post(f"{API}/ads/{ad_id}/view", headers=hdrs, timeout=15).json()["reward"]
+&gt;       c = requests.post(f"{API}/ads/{ad_id}/comment", headers=hdrs,
+                          json={"text": "nice ad!"}, timeout=15).json()["reward"]
+E       KeyError: 'reward'
+
+tests/test_reactor_rewards.py:143: KeyError</failure></testcase><testcase classname="tests.test_reactor_rewards" name="test_creator_cannot_self_reward" time="0.129" /><testcase classname="tests.test_reactor_rewards" name="test_share_credits_and_records_reward" time="0.559"><failure message="assert (None is not None)">published_ad = ('a2720ca1-5ea2-4af3-b7e0-f1f48c11b375', {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZW...5MDYzOTEsImV4cCI6MTc4Nzk0OTU5MX0.9YNzFNSezMI91dxm8skFq7EVixR5BDIwUmgq6BNFv2I'}, '5eaf439f-5902-4667-9f4f-60179a6478ce')
+
+    def test_share_credits_and_records_reward(published_ad):
+        ad_id, _, _ = published_ad
+        hdrs, _ = _register("s")
+        before = _balance(hdrs)
+        r = requests.post(f"{API}/ads/{ad_id}/share", headers=hdrs, timeout=15)
+        assert r.status_code == 200
+        reward = r.json()["reward"]
+&gt;       assert reward is not None and reward &gt; 0
+E       assert (None is not None)
+
+tests/test_reactor_rewards.py:162: AssertionError</failure></testcase><testcase classname="tests.test_reactor_rewards" name="test_reactor_status_reports_pool_and_earned" time="0.551" /><testcase classname="tests.test_reactor_rewards" name="test_my_reactor_rewards_history" time="0.730"><failure message="AssertionError: assert ('view' in {'like'})">published_ad = ('a2720ca1-5ea2-4af3-b7e0-f1f48c11b375', {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZW...5MDYzOTEsImV4cCI6MTc4Nzk0OTU5MX0.9YNzFNSezMI91dxm8skFq7EVixR5BDIwUmgq6BNFv2I'}, '5eaf439f-5902-4667-9f4f-60179a6478ce')
+
+    def test_my_reactor_rewards_history(published_ad):
+        ad_id, _, _ = published_ad
+        hdrs, _ = _register("h")
+        requests.post(f"{API}/ads/{ad_id}/view", headers=hdrs, timeout=15)
+        requests.post(f"{API}/ads/{ad_id}/like", headers=hdrs, timeout=15)
+        r = requests.get(f"{API}/me/reactor-rewards", headers=hdrs, timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["total_earned"] &gt; 0
+        # Two entries (view + like) minimum
+        actions = {it["action"] for it in d["items"]}
+&gt;       assert "view" in actions and "like" in actions
+E       AssertionError: assert ('view' in {'like'})
+
+tests/test_reactor_rewards.py:190: AssertionError</failure></testcase><testcase classname="tests.test_reactor_rewards" name="test_unlike_does_not_reverse_reward" time="1.037" /><testcase classname="tests.test_reactor_rewards" name="test_reactor_feed_public_anonymised" time="0.558" /><testcase classname="tests.test_reactor_rewards" name="test_notification_emitted_on_reward" time="0.585" /><testcase classname="tests.test_recharge_ashtec_idempotent" name="test_recharge_credits_once_even_with_double_dispatch" time="0.011" /><testcase classname="tests.test_reprocess_idempotency" name="test_place_in_matrix_is_idempotent" time="0.024" /><testcase classname="tests.test_reprocess_idempotency" name="test_reprocess_reconciles_already_activated_user" time="0.456" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/payments/secure/initiate-POST]" time="0.110" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/payments/secure/webhook-POST]" time="0.118" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/payments/secure/verify/ABC123-GET]" time="0.119" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/payments/westpay/initiate-POST]" time="0.115" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/westpay-webhook-POST]" time="0.134" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/settings/westpay-GET]" time="0.106" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/admin/settings/secure-payment-GET]" time="0.119" /><testcase classname="tests.test_sendava_refactor.TestRemovedRoutes" name="test_route_returns_404[/admin/settings/westpay-GET]" time="0.116" /><testcase classname="tests.test_sendava_refactor.TestPaymentsSettings" name="test_schema_uses_sendava_keys" time="0.120"><failure message="AssertionError: assert 'sendava_enabled' in {'active_gateway': 'ashtec', 'ashtec_enabled': True, 'auto_enabled': True, 'crypto': {'amount_usdt': 5.0, 'instruction... hash et soumettez-le.', 'network': 'USDT BEP20', 'wallet_address': '0x1234567890abcdef1234567890abcdef12345678'}, ...}">self = &lt;test_sendava_refactor.TestPaymentsSettings object at 0xfe671c4ed9d0&gt;
+
+    def test_schema_uses_sendava_keys(self):
+        r = requests.get(f"{API}/settings/payments", timeout=10)
+        assert r.status_code == 200, r.text
+        data = r.json()
+&gt;       assert "sendava_enabled" in data
+E       AssertionError: assert 'sendava_enabled' in {'active_gateway': 'ashtec', 'ashtec_enabled': True, 'auto_enabled': True, 'crypto': {'amount_usdt': 5.0, 'instruction... hash et soumettez-le.', 'network': 'USDT BEP20', 'wallet_address': '0x1234567890abcdef1234567890abcdef12345678'}, ...}
+
+tests/test_sendava_refactor.py:92: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestPaymentsSettings" name="test_excluded_countries_contains_cd" time="0.114"><failure message="KeyError: 'sendava_excluded_countries'">self = &lt;test_sendava_refactor.TestPaymentsSettings object at 0xfe671c4ee110&gt;
+
+    def test_excluded_countries_contains_cd(self):
+        r = requests.get(f"{API}/settings/payments", timeout=10)
+        data = r.json()
+        # RDC = CD must be excluded
+&gt;       assert "CD" in data["sendava_excluded_countries"]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'sendava_excluded_countries'
+
+tests/test_sendava_refactor.py:105: KeyError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaRoutesAlive" name="test_webhook_ping_get" time="0.090"><failure message="AssertionError: {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">self = &lt;test_sendava_refactor.TestSendavaRoutesAlive object at 0xfe671c4ee850&gt;
+
+    def test_webhook_ping_get(self):
+        r = requests.get(f"{API}/sendavapay-webhook", timeout=10)
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Not Found"}
+E       assert 404 == 200
+E        +  where 404 = &lt;Response [404]&gt;.status_code
+
+tests/test_sendava_refactor.py:113: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaRoutesAlive" name="test_initiate_requires_auth" time="0.111"><failure message="AssertionError: expected 401/403, got 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 in (401, 403)&#10; +  where 404 = &lt;Response [404]&gt;.status_code">self = &lt;test_sendava_refactor.TestSendavaRoutesAlive object at 0xfe671c4eef10&gt;
+
+    def test_initiate_requires_auth(self):
+        r = requests.post(f"{API}/payments/sendava/initiate", json={"phone": "22890123456", "country_code": "TG"}, timeout=10)
+&gt;       assert r.status_code in (401, 403), f"expected 401/403, got {r.status_code} {r.text[:120]}"
+E       AssertionError: expected 401/403, got 404 {"detail":"Not Found"}
+E       assert 404 in (401, 403)
+E        +  where 404 = &lt;Response [404]&gt;.status_code
+
+tests/test_sendava_refactor.py:119: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaInitiate" name="test_initiate_tg_returns_payment_url" time="0.463"><failure message="AssertionError: initiate failed: 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">self = &lt;test_sendava_refactor.TestSendavaInitiate object at 0xfe671c4ef810&gt;
+fresh_user_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MzM2OGIwNS02OGM5LTRlZDctYjZiMC03ZWViODU4YTg3MTQiLCJyb2xlIjoidXNlciIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3ODc5MDY0MDAsImV4cCI6MTc4Nzk0OTYwMH0.4ITdUcuimnOKTAs95BsIsrxvBERirCYmQzGWGA1p4Bk'
+
+    def test_initiate_tg_returns_payment_url(self, fresh_user_token):
+        r = requests.post(
+            f"{API}/payments/sendava/initiate",
+            headers={"Authorization": f"Bearer {fresh_user_token}"},
+            json={"phone": "22890123456", "country_code": "TG"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, f"initiate failed: {r.status_code} {r.text}"
+E       AssertionError: initiate failed: 404 {"detail":"Not Found"}
+E       assert 404 == 200
+E        +  where 404 = &lt;Response [404]&gt;.status_code
+
+tests/test_sendava_refactor.py:132: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaInitiate" name="test_initiate_cd_rejected" time="0.090"><failure message="AssertionError: expected 400 for CD, got 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 400&#10; +  where 404 = &lt;Response [404]&gt;.status_code">self = &lt;test_sendava_refactor.TestSendavaInitiate object at 0xfe671c4eff10&gt;
+fresh_user_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MzM2OGIwNS02OGM5LTRlZDctYjZiMC03ZWViODU4YTg3MTQiLCJyb2xlIjoidXNlciIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3ODc5MDY0MDAsImV4cCI6MTc4Nzk0OTYwMH0.4ITdUcuimnOKTAs95BsIsrxvBERirCYmQzGWGA1p4Bk'
+
+    def test_initiate_cd_rejected(self, fresh_user_token):
+        r = requests.post(
+            f"{API}/payments/sendava/initiate",
+            headers={"Authorization": f"Bearer {fresh_user_token}"},
+            json={"phone": "243812345678", "country_code": "CD"},
+            timeout=15,
+        )
+&gt;       assert r.status_code == 400, f"expected 400 for CD, got {r.status_code} {r.text}"
+E       AssertionError: expected 400 for CD, got 404 {"detail":"Not Found"}
+E       assert 404 == 400
+E        +  where 404 = &lt;Response [404]&gt;.status_code
+
+tests/test_sendava_refactor.py:149: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaWebhookSignature" name="test_invalid_signature_rejected" time="0.114"><failure message="AssertionError: expected 401 for bad signature, got 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 401&#10; +  where 404 = &lt;Response [404]&gt;.status_code">self = &lt;test_sendava_refactor.TestSendavaWebhookSignature object at 0xfe671c4f8810&gt;
+
+    def test_invalid_signature_rejected(self):
+        body = {"event": "payment.completed", "data": {"reference": "FAKE_REF_XYZ"}}
+        raw = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-Sendavapay-Signature": "deadbeef" * 8,
+        }
+        r = requests.post(f"{API}/sendavapay-webhook", data=raw, headers=headers, timeout=10)
+&gt;       assert r.status_code == 401, f"expected 401 for bad signature, got {r.status_code} {r.text[:200]}"
+E       AssertionError: expected 401 for bad signature, got 404 {"detail":"Not Found"}
+E       assert 404 == 401
+E        +  where 404 = &lt;Response [404]&gt;.status_code
+
+tests/test_sendava_refactor.py:169: AssertionError</failure></testcase><testcase classname="tests.test_sendava_refactor.TestSendavaWebhookSignature" name="test_valid_signature_accepted_unknown_ref" time="0.115" /><testcase classname="tests.test_soleaspay_activation" name="test_known_success_keywords_paid" time="0.000" /><testcase classname="tests.test_soleaspay_activation" name="test_known_failure_keywords_failed" time="0.000" /><testcase classname="tests.test_soleaspay_activation" name="test_unknown_status_with_success_flag_paid" time="0.000" /><testcase classname="tests.test_soleaspay_activation" name="test_unknown_status_without_success_flag_pending" time="0.000" /><testcase classname="tests.test_soleaspay_activation" name="test_unknown_status_with_failure_code_pending" time="0.000" /><testcase classname="tests.test_soleaspay_activation" name="test_user_account_activated_via_soleaspay_source" time="0.258" /><testcase classname="tests.test_special_task_money_flow" name="test_reward_is_pool_divided_by_quantity" time="0.974"><failure message="AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code">admin_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...taW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAxLCJleHAiOjE3ODc5NDk2MDF9.1kMqeot3JCa7G93ynewnZ_YILWvfPbc5KLKFO_ygzY4'}
+
+    def test_reward_is_pool_divided_by_quantity(admin_headers):
+        """price_per_action=10, quantity=500, dist=60% → reward_per_user must be 6.0."""
+        # Configure admin: price=10, dist=60%, min=1, max=1000
+        r = requests.put(f"{API}/admin/special-tasks/config", json={
+            "action_types": {
+                "like": {"enabled": True, "price_per_action": 10, "min_qty": 1, "max_qty": 2000},
+            },
+            "distribution_percentage": 60,
+        }, headers=admin_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        creator = _mk_user()
+        # 1. Create draft
+        r = requests.post(f"{API}/special-tasks", json={
+            "action_type": "like", "network": "facebook",
+            "link": "https://facebook.com/test", "description": "spec test",
+        }, headers=creator, timeout=15)
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_task_money_flow.py:67: AssertionError</failure></testcase><testcase classname="tests.test_special_task_money_flow" name="test_reward_credited_to_withdrawable_balance" time="0.001" /><testcase classname="tests.test_special_tasks_proof.TestCompletePayloadValidation" name="test_no_body_returns_422" time="0.468" /><testcase classname="tests.test_special_tasks_proof.TestCompletePayloadValidation" name="test_proof_url_too_short_422" time="0.116" /><testcase classname="tests.test_special_tasks_proof.TestCompletePayloadValidation" name="test_valid_proof_unknown_task_404" time="0.097" /><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_complete_happy_path" time="0.916"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_complete_second_time_400" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_owner_can_list_completions_with_proof" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_non_owner_cannot_list_completions_403" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_admin_completions_endpoint" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestSpecialTaskFullFlow" name="test_commission_entry_recorded" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Création de tâches spéciales momentanément désactivée par l'administrateur.&quot;}&#10;assert 503 == 200&#10; +  where 503 = &lt;Response [503]&gt;.status_code&quot;">self = &lt;test_special_tasks_proof.TestSpecialTaskFullFlow object at 0xfe671d0001d0&gt;
+admin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2ZhYTIiLCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDAyLCJleHAiOjE3ODc5NDk2MDJ9.aOQyVFMgIxz80Yljb1N8TohElCIpaIVDphp_uxxTEA8'
+cfg = {'action_types': {'video': {'enabled': True, 'max_qty': 100, 'min_qty': 1, 'price_per_action': 10.0, ...}}, 'configured': True, 'distribution_percentage': 70.0, 'platform_percentage': 30.0}
+
+    @pytest.fixture(scope="class")
+    def active_task(self, admin_token, cfg):
+        # 1. create
+        r = requests.post(
+            f"{API}/special-tasks",
+            headers=_headers(admin_token),
+            json={"action_type": "video", "network": "tiktok", "link": "https://tiktok.com/@spilo/video/123", "description": "test"},
+            timeout=30,
+        )
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Création de tâches spéciales momentanément désactivée par l'administrateur."}
+E       assert 503 == 200
+E        +  where 503 = &lt;Response [503]&gt;.status_code
+
+tests/test_special_tasks_proof.py:105: AssertionError</error></testcase><testcase classname="tests.test_special_tasks_proof.TestLandingRegression" name="test_landing_reachable_unauth" time="1.809" /><testcase classname="tests.test_special_tasks_v2" name="test_admin_can_set_price_per_action" time="0.423" /><testcase classname="tests.test_special_tasks_v2" name="test_admin_price_takes_precedence_over_legacy_reward" time="0.139" /><testcase classname="tests.test_special_tasks_v2" name="test_platform_pct_is_100_minus_distribution" time="0.945" /><testcase classname="tests.test_special_tasks_v2" name="test_unread_count_endpoint_returns_zero_by_default" time="0.542" /><testcase classname="tests.test_special_tasks_v2" name="test_mark_seen_endpoint" time="0.629" /><testcase classname="tests.test_special_tasks_v2" name="test_mark_seen_resets_badge" time="1.299" /><testcase classname="tests.test_special_tasks_v2" name="test_public_config_returns_platform_pct" time="0.719" /><testcase classname="tests.test_special_tasks_v2" name="test_feed_includes_is_new_flag" time="0.949" /><testcase classname="tests.test_spilivere_api.TestHealth" name="test_root" time="0.115" /><testcase classname="tests.test_spilivere_api.TestHealth" name="test_config" time="0.069"><failure message="AssertionError: assert 60 == 12&#10; +  where 60 = len([{'code': 'BJ', 'dial': '+229', 'flag': '#x1F1E7#x1F1EF', 'name': 'Bénin'}, {'code': 'BF', 'dial': '+226', 'flag': '#x1F1E7#x1F1EB', 'name': '...': '+224', 'flag': '#x1F1EC#x1F1F3', 'name': 'Guinée'}, {'code': 'GW', 'dial': '+245', 'flag': '#x1F1EC#x1F1FC', 'name': 'Guinée-Bissau'}, ...])">self = &lt;test_spilivere_api.TestHealth object at 0xfe671c531250&gt;
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    def test_config(self, session):
+        r = session.get(f"{API}/config")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["levels"]) == 12
+&gt;       assert len(data["countries"]) == 12
+E       AssertionError: assert 60 == 12
+E        +  where 60 = len([{'code': 'BJ', 'dial': '+229', 'flag': '#x1F1E7#x1F1EF', 'name': 'Bénin'}, {'code': 'BF', 'dial': '+226', 'flag': '#x1F1E7#x1F1EB', 'name': '...': '+224', 'flag': '#x1F1EC#x1F1F3', 'name': 'Guinée'}, {'code': 'GW', 'dial': '+245', 'flag': '#x1F1EC#x1F1FC', 'name': 'Guinée-Bissau'}, ...])
+
+tests/test_spilivere_api.py:69: AssertionError</failure></testcase><testcase classname="tests.test_spilivere_api.TestAuth" name="test_register_alice" time="0.294" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_register_duplicate_email" time="0.068" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_register_bad_sponsor" time="0.068" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_login" time="0.290" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_me" time="0.068" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_confirm_password_ok" time="0.292" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_confirm_password_wrong" time="0.289" /><testcase classname="tests.test_spilivere_api.TestAuth" name="test_change_password_and_revert" time="1.321" /><testcase classname="tests.test_spilivere_api.TestActivation" name="test_activation_requires_confirm_header" time="0.066" /><testcase classname="tests.test_spilivere_api.TestActivation" name="test_alice_request_level1" time="0.632" /><testcase classname="tests.test_spilivere_api.TestActivation" name="test_user_cannot_access_admin" time="0.067" /><testcase classname="tests.test_spilivere_api.TestActivation" name="test_admin_login_and_stats" time="0.068"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    @pytest.fixture(scope="session")
+    def admin_creds(session):
+&gt;       token, user = _login(session, ADMIN_EMAIL, ADMIN_PASSWORD)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_spilivere_api.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+email = 'bizlintl91@gmail.com', password = '@Emma9197'
+
+    def _login(session, email, password):
+        r = session.post(f"{API}/auth/login", json={"email": email, "password": password})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_spilivere_api.py:34: AssertionError</error></testcase><testcase classname="tests.test_spilivere_api.TestActivation" name="test_admin_validate_activation" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    @pytest.fixture(scope="session")
+    def admin_creds(session):
+&gt;       token, user = _login(session, ADMIN_EMAIL, ADMIN_PASSWORD)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_spilivere_api.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+email = 'bizlintl91@gmail.com', password = '@Emma9197'
+
+    def _login(session, email, password):
+        r = session.post(f"{API}/auth/login", json={"email": email, "password": password})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_spilivere_api.py:34: AssertionError</error></testcase><testcase classname="tests.test_spilivere_api.TestMatrix" name="test_register_bob_under_alice" time="0.290" /><testcase classname="tests.test_spilivere_api.TestMatrix" name="test_matrix_tree_admin_root_contains_alice" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    @pytest.fixture(scope="session")
+    def admin_creds(session):
+&gt;       token, user = _login(session, ADMIN_EMAIL, ADMIN_PASSWORD)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_spilivere_api.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+email = 'bizlintl91@gmail.com', password = '@Emma9197'
+
+    def _login(session, email, password):
+        r = session.post(f"{API}/auth/login", json={"email": email, "password": password})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_spilivere_api.py:34: AssertionError</error></testcase><testcase classname="tests.test_spilivere_api.TestWalletWithdrawal" name="test_wallet_save_and_get" time="0.145" /><testcase classname="tests.test_spilivere_api.TestWalletWithdrawal" name="test_withdrawal_requires_confirm" time="0.066" /><testcase classname="tests.test_spilivere_api.TestWalletWithdrawal" name="test_withdrawal_insufficient_balance" time="0.359" /><testcase classname="tests.test_spilivere_api.TestWalletWithdrawal" name="test_withdrawal_no_wallet_for_bob" time="0.358" /><testcase classname="tests.test_spilivere_api.TestAdminCRUD" name="test_announcements_crud" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    @pytest.fixture(scope="session")
+    def admin_creds(session):
+&gt;       token, user = _login(session, ADMIN_EMAIL, ADMIN_PASSWORD)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_spilivere_api.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+email = 'bizlintl91@gmail.com', password = '@Emma9197'
+
+    def _login(session, email, password):
+        r = session.post(f"{API}/auth/login", json={"email": email, "password": password})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_spilivere_api.py:34: AssertionError</error></testcase><testcase classname="tests.test_spilivere_api.TestAdminCRUD" name="test_channels_crud" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Identifiants invalides.&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code&quot;">session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+
+    @pytest.fixture(scope="session")
+    def admin_creds(session):
+&gt;       token, user = _login(session, ADMIN_EMAIL, ADMIN_PASSWORD)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_spilivere_api.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = &lt;requests.sessions.Session object at 0xfe67175a2e10&gt;
+email = 'bizlintl91@gmail.com', password = '@Emma9197'
+
+    def _login(session, email, password):
+        r = session.post(f"{API}/auth/login", json={"email": email, "password": password})
+&gt;       assert r.status_code == 200, r.text
+E       AssertionError: {"detail":"Identifiants invalides."}
+E       assert 401 == 200
+E        +  where 401 = &lt;Response [401]&gt;.status_code
+
+tests/test_spilivere_api.py:34: AssertionError</error></testcase><testcase classname="tests.test_spilivere_api.TestAdminCRUD" name="test_non_admin_cannot_crud_announcements" time="0.068" /><testcase classname="tests.test_spillover_sponsor_profit_only" name="test_spillover_sponsor_share_goes_100pct_to_profit" time="0.778" /><testcase classname="tests.test_spillover_sponsor_profit_only" name="test_direct_commission_still_feeds_reserve" time="0.592" /><testcase classname="tests.test_task_completion" name="test_complete_credits_reward" time="2.514" /><testcase classname="tests.test_task_completion" name="test_complete_is_idempotent_per_user" time="0.685" /><testcase classname="tests.test_task_completion" name="test_creator_cannot_complete_own_task" time="0.110" /><testcase classname="tests.test_team_indirect.TestTeamDirect" name="test_direct_shape" time="1.354" /><testcase classname="tests.test_team_indirect.TestTeamDirect" name="test_direct_no_auth" time="0.102" /><testcase classname="tests.test_team_indirect.TestTeamIndirect" name="test_indirect_no_auth" time="0.116" /><testcase classname="tests.test_team_indirect.TestTeamIndirect" name="test_indirect_shape" time="0.106" /><testcase classname="tests.test_team_indirect.TestTeamIndirect" name="test_indirect_excludes_direct_referrals" time="0.237" /><testcase classname="tests.test_team_indirect.TestTeamIndirect" name="test_indirect_member_fields" time="0.119"><failure message="AssertionError: assert 'placement_level' in {'balance_profit': 0, 'balance_upgrade': 0, 'commission_direct': 0, 'commission_spillover': 0, ...}">self = &lt;test_team_indirect.TestTeamIndirect object at 0xfe6716bd1910&gt;
+auth_headers = {'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzMxNDMyMC1iYWIzLTQ3YWItYjc1MC1jNDg3M2NjM2Z...taW4iLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg3OTA2NDIwLCJleHAiOjE3ODc5NDk2MjB9.g31SsrExQsVa4OpRxyPSDhPyv2tEirz5CS57-Zohtzg'}
+
+    def test_indirect_member_fields(self, auth_headers):
+        r = requests.get(f"{BASE_URL}/api/team/indirect", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        for m in r.json()["members"]:
+            # required fields per spec
+            assert "id" in m and "username" in m
+            assert "status" in m
+&gt;           assert "placement_level" in m
+E           AssertionError: assert 'placement_level' in {'balance_profit': 0, 'balance_upgrade': 0, 'commission_direct': 0, 'commission_spillover': 0, ...}
+
+tests/test_team_indirect.py:82: AssertionError</failure></testcase><testcase classname="tests.test_team_indirect.TestTeamIndirectWithSeed" name="test_indirect_includes_spillover" time="0.807" /><testcase classname="tests.test_upgrade_audit" name="test_audit_detects_over_credit" time="0.021" /><testcase classname="tests.test_upgrade_audit" name="test_apply_debits_atomically" time="0.016" /><testcase classname="tests.test_upgrade_audit" name="test_audit_healthy_user_not_flagged" time="0.015" /><testcase classname="tests.test_upgrade_audit" name="test_audit_log_endpoint_returns_recent_entries" time="0.004" /><testcase classname="tests.test_uploads_object_storage.TestUploadsServe" name="test_missing_file_returns_410_with_french_detail" time="0.479" /><testcase classname="tests.test_uploads_object_storage.TestUploadsServe" name="test_legacy_local_files_served_200[3624e2b9252942dcaaf285e6ffef3d25.png]" time="0.227" /><testcase classname="tests.test_uploads_object_storage.TestUploadsServe" name="test_legacy_local_files_served_200[3b557323d71f486fb2640ca260727f8f.png]" time="0.228" /><testcase classname="tests.test_uploads_object_storage.TestUploadsServe" name="test_legacy_local_files_served_200[f26abe9574e84b44999f2b2dce363580.png]" time="0.169" /><testcase classname="tests.test_uploads_object_storage.TestUploadsAuth" name="test_upload_without_token_returns_401_or_403" time="0.092" /><testcase classname="tests.test_uploads_object_storage.TestUploadsAuth" name="test_upload_with_non_admin_token_returns_403" time="0.094"><skipped type="pytest.skip" message="cannot create non-admin user for test: 422 {&quot;detail&quot;:[{&quot;type&quot;:&quot;missing&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;password_confirm&quot;],&quot;msg&quot;:&quot;Field required&quot;,&quot;input&quot;:{&quot;username&quot;:&quot;testu1787906424&quot;,&quot;email&quot;:&quot;testu1787906424@example.com&quot;,&quot;password&quot;:&quot;TestPass!123&quot;,&quot;country&quot;:&quot;T">/app/backend/tests/test_uploads_object_storage.py:74: cannot create non-admin user for test: 422 {"detail":[{"type":"missing","loc":["body","password_confirm"],"msg":"Field required","input":{"username":"testu1787906424","email":"testu1787906424@example.com","password":"TestPass!123","country":"T</skipped></testcase><testcase classname="tests.test_uploads_object_storage.TestUploadsValidation" name="test_invalid_extension_returns_415" time="0.499" /><testcase classname="tests.test_uploads_object_storage.TestUploadsValidation" name="test_valid_png_upload_returns_storage_ok" time="0.220" /><testcase classname="tests.test_uploads_object_storage.TestUploadsValidation" name="test_valid_pdf_upload" time="0.292" /><testcase classname="tests.test_uploads_object_storage.TestUploadsValidation" name="test_valid_apk_upload" time="0.231" /><testcase classname="tests.test_uploads_object_storage.TestObjectStoragePersistence" name="test_upload_then_delete_local_still_downloads" time="0.920" /><testcase classname="tests.test_uploads_object_storage.TestDiagnostic" name="test_diagnostic_requires_auth" time="0.124" /><testcase classname="tests.test_uploads_object_storage.TestDiagnostic" name="test_diagnostic_admin_ok" time="0.115" /><testcase classname="tests.test_withdrawal_settings_persistence" name="test_withdrawal_settings_persist_days_and_hours" time="0.620" /><testcase classname="tests.test_withdrawal_settings_persistence" name="test_admin_activations_include_crypto_auto_enrichment" time="0.530" /></testsuite></testsuites>

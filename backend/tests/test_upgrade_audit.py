@@ -13,8 +13,19 @@ from motor.motor_asyncio import AsyncIOMotorClient
 sys.path.insert(0, '/app/backend')
 
 
+def _loop():
+    try:
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
+
+
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return _loop().run_until_complete(coro)
 
 
 @pytest.fixture(scope="module")

@@ -12,14 +12,48 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Reverse-proxy K8s : `/api/*` → backend:8001, le reste → frontend:3000.
 - Preview : `https://jobs-badges-fix.preview.emergentagent.com`.
 
-## Règles MLM critiques
+## Règles MLM critiques (spec finale 2026-08-27)
 - Matrice binaire forcée 12 niveaux. Niveau N a 2^N positions descendantes (N1=2, N2=4, … N12=4096).
-- Activation Niveau N → commission payée **immédiatement** à l'ancêtre **exactement N hops au-dessus** via la chaîne de **parrainage** (sponsor_id).
-- Si cet ancêtre n'a pas activé le niveau N → commission **ignorée** (non rétroactive).
-- Spillover (parent matrice ≠ sponsor direct) → commission **split 50/50** entre ancêtre N-hops du sponsor et ancêtre N-hops du parent matrice.
-- Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve pour activer le niveau suivant), ratio par niveau dans `levels.py`.
+- **Level 1** : commission d'invitation payée immédiatement.
+  - **Non-spillover** (parent == sponsor) : 100 % au sponsor direct.
+  - **Spillover** (parent ≠ sponsor ET is_spillover=True) : 50 % sponsor + 50 % parent (bénéficiaire spillover).
+- **Level ≥ 2** : commission payée intégralement à l'ancêtre situé exactement `level` sauts au-dessus dans l'**arbre matrix_placements de niveau 1** (chaîne `parent_id` où `level=1`). Le flag `is_spillover` est **IGNORÉ** au L2+. Aucun split. Si l'arbre L1 est cassé/trop court → aucune commission.
+- Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
+- Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
-## Implementation Status (à jour 2026-07-30)
+## Implementation Status (à jour 2026-08-30)
+
+### 2026-08-30 — 🎯 Vérification & tests fix MLM Générations (spec finale)
+
+**Contexte** : le fork précédent avait patché `matrix.py::distribute_commission` pour appliquer la nouvelle règle stricte (Spillover uniquement au L1, L2+ = walk L1 tree, 100% à l'ancêtre à N sauts). Ce fork valide et teste cette implémentation.
+
+**Corrections apportées** :
+- `test_matrix_placement_routing.py` **entièrement réécrit** pour refléter la nouvelle spec. L'ancienne version testait l'ancien comportement "spillover à tous les niveaux" (spec 2026-08-20) que la clarification produit du 2026-08-27 a explicitement annulée.
+- Nouveaux tests (6) : L1 spillover 50/50 ✓, L1 direct 100% sponsor ✓, L2 walk 2-hop ancestor ✓, L2 ignore spillover flag ✓, L3 walk 3-hop ancestor ✓, L2 no-commission when tree too shallow ✓.
+- Fix infrastructure pytest : `asyncio.get_event_loop().run_until_complete()` cassé sur Python 3.11 → remplacé par `asyncio.new_event_loop()` dans `test_official_commission_plan.py` et `test_spillover_sponsor_profit_only.py`.
+- `scripts/audit_commissions_mismatch.py` mis à jour à la nouvelle spec : détecte désormais les splits `spillover_*` **illégaux** au L2+ (créés par l'ancienne logique) + les mis-routings dans l'arbre L1.
+
+**Résultats tests** :
+- test_matrix_placement_routing : 6/6 PASS ✅
+- test_official_commission_plan : 4/4 PASS ✅
+- test_spillover_sponsor_profit_only : 2/2 PASS ✅
+- Régression : test_activation_guard 5/5, test_manual_upgrade_debit 12/12, test_upgrade_audit 4/4, test_commission_distribution, test_reprocess_idempotency 2/2, test_soleaspay_activation 6/6, test_iter53_commission_push_fix 2/2 — total 43/43 PASS.
+
+**Audit DB preview** (read-only, décision admin) :
+- 166 commissions scannées.
+- 5 mis-routées L1 (sans record `matrix_placements`).
+- 25 splits illégaux L2+ (kind=spillover_*) — données historiques créées par l'ancienne logique.
+- 0 shares manquantes.
+- **Aucune correction rétroactive automatique** : décision admin après revue.
+
+**Fixes lint bloquants découverts en route** :
+- `marketplace.py` : route statique `/marketplace/mine` déplacée avant la route paramétrée `/marketplace/{listing_id}` (route-shadowing).
+- `admin/index.tsx` : import `Linking` ajouté (2 usages, error oxlint).
+
+
+
+
+
 ### 2026-02-XX — 🎨 Refonte typographique Dashboard user + admin
 
 **Principes** (mêmes que le refactor login/register/landing) : `fontWeight` 800/900 → 700-800, tailles hero réduites (32→28, 24→20, 22→17), `letterSpacing` négatif sur tous les gros titres (-0.1 à -0.5), sections descendues à 15/700, sub-labels muted 12px medium.

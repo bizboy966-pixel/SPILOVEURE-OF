@@ -91,52 +91,84 @@ async def _walk_up_sponsors(db, start_user_id: Optional[str], hops: int) -> Opti
     return current
 
 
-async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
-    """Credit level-N commission to the proper ancestor(s) — official SPILOVEURE
-    compensation plan.
+async def _walk_up_matrix_tree(db, user_id: Optional[str], hops: int) -> Optional[str]:
+    """Walk `hops` steps up the LEVEL-1 placement chain (`parent_id`).
+    Returns the ancestor at the target depth (i.e. the owner of that
+    generation), or None if the chain hits root or a broken link.
 
-    ⚠️ Correction bug 2026-08-20 : les arguments `sponsor_id` et `parent_id`
-    proviennent directement du record `matrix_placements` pour (user, level=N)
-    créé lors de `activate_level` → `place_in_matrix`. Ces valeurs représentent
-    déjà le vrai sponsor et parent AU NIVEAU N. Il ne faut donc PAS remonter
-    la chaîne `users.sponsor_id` via `_walk_up_sponsors` — cela produisait un
-    décalage de (level−1) hops trop haut. On paie strictement les IDs stockés
-    dans le placement du niveau concerné.
-
-    Règles :
-    ▸ Non-spillover (`is_spillover=false`, ou `parent_id == sponsor_id`) :
-        100 % du `commission_per_invite` → `sponsor_id` (kind="direct").
-    ▸ Spillover (`is_spillover=true` ET `parent_id != sponsor_id`) :
-        50 % → `sponsor_id`  (kind="spillover_sponsor")
-        50 % → `parent_id`   (kind="spillover_beneficiary")
-      Ce partage 50/50 s'applique à TOUS les niveaux où le placement est
-      un spillover (correction bug utilisateur 2026-08-20 : anciennement
-      restreint au level 1, ce qui contredisait la structure `matrix_placements`).
-
-    ▸ Reserve/profit split — inchangé (voir plus bas).
-    ▸ Guards §10 — inchangés : recipient must exist and be at level ≥ N.
+    ⚠️ Le "parent" de niveau 1 est le VRAI parent dans l'arbre binaire —
+    c'est lui qui détermine la génération à laquelle appartient le membre.
+    Les placements de niveau 2+ historiques ne servent PAS à déterminer
+    la génération (cf. spec 2026-08-27).
     """
-    if not sponsor_id:
-        return []
+    if hops <= 0 or not user_id:
+        return user_id
+    current = user_id
+    for _ in range(hops):
+        p = await db.matrix_placements.find_one(
+            {"user_id": current, "level": 1}, {"_id": 0, "parent_id": 1}
+        )
+        if not p or not p.get("parent_id"):
+            return None
+        current = p["parent_id"]
+    return current
+
+
+async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str], parent_id: Optional[str], level: int, is_spillover: bool) -> list:
+    """Credit level-N commission per SPILOVEURE compensation plan.
+
+    ⚠️ Spec finale 2026-08-27 : le Spillover N'INTERVIENT QUE sur l'événement
+    d'inscription/placement L1. Pour tous les niveaux ≥ 2, la commission va
+    intégralement à l'ancêtre de génération N — c.-à-d. la personne exactement
+    N sauts en amont dans l'arbre binaire (chaîne `parent_id` du placement L1
+    de l'activateur), quel que soit le mode d'arrivée du membre.
+
+    ▸ Level 1 (placement initial du nouveau membre) :
+        - Non-spillover : 100 % → direct sponsor (arg `sponsor_id`).
+        - Spillover (parent_id ≠ sponsor_id) : 50 % → sponsor, 50 % → parent
+          (bénéficiaire du spillover). C'est le SEUL moment où le split
+          50/50 s'applique.
+
+    ▸ Level ≥ 2 (upgrade) :
+        - 100 % → ancêtre à `level` sauts au-dessus dans l'arbre L1.
+        - Aucun split spillover. Le spillover n'est plus regardé.
+        - Si l'ancêtre n'existe pas (racine atteinte) → aucune commission.
+
+    ▸ Guards §10 (recipient existe + max_level ≥ N) — inchangés.
+    ▸ Reserve/profit split 50/50 côté crédit — inchangé.
+    """
     lv = LEVELS_BY_NUM.get(level)
     if not lv:
         return []
     commission = lv["commission_per_invite"]
 
     credits: list[dict] = []
-    # Route directement depuis les IDs du placement niveau-N.
-    is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
 
-    if is_spill:
-        # Same person on both chains → collapse to a single direct credit.
-        half = commission // 2
-        other_half = commission - half
-        recipients = [
-            (sponsor_id, half, "spillover_sponsor"),
-            (parent_id, other_half, "spillover_beneficiary"),
-        ]
+    if level == 1:
+        # Placement initial — spillover 50/50 possible ici SEULEMENT.
+        if not sponsor_id:
+            return []
+        is_spill = bool(is_spillover and parent_id and parent_id != sponsor_id)
+        if is_spill:
+            half = commission // 2
+            other_half = commission - half
+            recipients = [
+                (sponsor_id, half, "spillover_sponsor"),
+                (parent_id, other_half, "spillover_beneficiary"),
+            ]
+        else:
+            recipients = [(sponsor_id, commission, "direct")]
     else:
-        recipients = [(sponsor_id, commission, "direct")]
+        # Level ≥ 2 : ancêtre par génération dans l'arbre L1, jamais de split.
+        ancestor = await _walk_up_matrix_tree(db, new_user_id, level)
+        if not ancestor:
+            log.warning(
+                f"distribute_commission L{level}: L1 tree too shallow from "
+                f"activator={new_user_id}; commission of {commission} dropped "
+                f"(no ancestor at depth {level})."
+            )
+            return []
+        recipients = [(ancestor, commission, "direct")]
 
     for user_id, amount, kind in recipients:
         recipient = await db.users.find_one(
@@ -145,7 +177,11 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
         )
         # Guard: must be at level N (spec §10).
         if not recipient or recipient.get("max_level", 0) < level:
-            log.info(f"Recipient {user_id} not at level {level} — commission skipped (spec §10).")
+            log.warning(
+                f"distribute_commission L{level}: recipient={user_id} kind={kind} "
+                f"skipped (max_level={recipient.get('max_level', 0) if recipient else 'N/A'} "
+                f"< {level}); {amount} FCFA burned per spec §10."
+            )
             continue
 
         # ── Reserve/profit split ────────────────────────────────────────
