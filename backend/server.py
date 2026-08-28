@@ -3380,6 +3380,11 @@ app.include_router(biztranspay_webhook)  # public (HMAC-verified inside handler)
 # Admin config router is protected via require_admin.
 app.include_router(biztranspay_admin, dependencies=[Depends(require_admin)])
 
+# Live chat — user ↔ admin support (Phase 1: text + photos + polling + read receipts).
+from chat import api as chat_api, admin_router as chat_admin  # noqa: E402
+app.include_router(chat_api)
+app.include_router(chat_admin)
+
 # Recharge / Top-up module
 from recharge import public as recharge_public, admin as recharge_admin  # noqa: E402
 app.include_router(recharge_public)

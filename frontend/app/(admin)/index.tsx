@@ -33,8 +33,9 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
+import AdminSupportTab from "@/src/components/AdminSupportTab";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -464,6 +465,7 @@ export default function AdminHome() {
     { key: "features", label: "Fonctionnalités", icon: "toggle" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
+    { key: "support", label: "Support 💬", icon: "chatbubbles" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
 
@@ -2204,6 +2206,10 @@ export default function AdminHome() {
               ))
             )}
           </>
+        )}
+
+        {tab === "support" && (
+          <AdminSupportTab />
         )}
 
         {tab === "payment" && (
