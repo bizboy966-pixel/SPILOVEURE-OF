@@ -22,7 +22,10 @@ type ConvItem = {
 };
 type Msg = {
   id: string; sender_role: "user" | "admin"; sender_username?: string;
-  text: string; images: string[]; status: "sent" | "delivered" | "read";
+  text: string; images: string[]; audio?: string | null;
+  status: "sent" | "delivered" | "read";
+  reply_to?: string | null;
+  reply_preview?: { id: string; sender_role: string; sender_username: string; preview: string } | null;
   created_at: string; read_at?: string | null;
 };
 
@@ -69,6 +72,7 @@ export default function AdminSupportTab() {
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const scrollRef = useRef<any>(null);
@@ -137,8 +141,8 @@ export default function AdminSupportTab() {
     setSending(true); setErr(null);
     try {
       const msg = await api.post<Msg>(`/chat/admin/conversations/${selected.id}/messages`,
-        { text: t, images });
-      setText(""); setImages([]);
+        { text: t, images, reply_to: replyTo?.id || null });
+      setText(""); setImages([]); setReplyTo(null);
       setMsgs((prev) => [...prev, msg]);
       setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 40);
       loadConvs();
@@ -198,7 +202,17 @@ export default function AdminSupportTab() {
             </View>
             <ScrollView ref={scrollRef} style={{ flex: 1, backgroundColor: theme.colors.surfaceMuted }} contentContainerStyle={{ padding: 12, gap: 6 }}>
               {msgs.map((m) => (
-                <View key={m.id} style={[styles.msg, m.sender_role === "admin" ? styles.msgAdmin : styles.msgUser]}>
+                <TouchableOpacity key={m.id} activeOpacity={0.85} onPress={() => setReplyTo(m)} style={[styles.msg, m.sender_role === "admin" ? styles.msgAdmin : styles.msgUser]} testID={`admin-msg-${m.id}`}>
+                  {m.reply_preview ? (
+                    <View style={{ borderLeftWidth: 3, borderLeftColor: m.sender_role === "admin" ? "rgba(255,255,255,0.6)" : theme.colors.primary, paddingLeft: 8, marginBottom: 4 }}>
+                      <Text style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.9)" : theme.colors.primary, fontSize: 10, fontWeight: "800" }}>
+                        {m.reply_preview.sender_role === "admin" ? "Support" : (m.reply_preview.sender_username || "Utilisateur")}
+                      </Text>
+                      <Text numberOfLines={2} style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.85)" : theme.colors.textSecondary, fontSize: 11 }}>
+                        {m.reply_preview.preview}
+                      </Text>
+                    </View>
+                  ) : null}
                   {m.text ? (
                     <Text style={m.sender_role === "admin" ? styles.msgTextAdmin : styles.msgText}>{m.text}</Text>
                   ) : null}
@@ -206,6 +220,10 @@ export default function AdminSupportTab() {
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: m.text ? 6 : 0 }}>
                       {m.images.map((src, i) => (<Image key={i} source={{ uri: src }} style={styles.msgImg} />))}
                     </View>
+                  ) : null}
+                  {m.audio ? (
+                    /* @ts-ignore */
+                    <audio controls src={m.audio} style={{ display: "block", marginTop: 4, height: 34, width: 220 }} />
                   ) : null}
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
                     <Text style={{ color: m.sender_role === "admin" ? "rgba(255,255,255,0.8)" : theme.colors.textSecondary, fontSize: 10 }}>
@@ -217,7 +235,7 @@ export default function AdminSupportTab() {
                       </Text>
                     ) : null}
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
             {images.length > 0 ? (
@@ -233,6 +251,15 @@ export default function AdminSupportTab() {
               </View>
             ) : null}
             {err ? <Text style={{ color: theme.colors.danger, fontSize: 11, paddingHorizontal: 12 }}>❌ {err}</Text> : null}
+            {replyTo ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8, paddingHorizontal: 12, backgroundColor: theme.colors.primary + "10", borderTopWidth: 1, borderTopColor: theme.colors.primary + "40" }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: "800" }}>↩ Répondre à {replyTo.sender_role === "admin" ? "vous" : (replyTo.sender_username || "utilisateur")}</Text>
+                  <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{replyTo.text || (replyTo.audio ? "🎤 Message vocal" : "📷 Photo")}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setReplyTo(null)} testID="admin-cancel-reply"><Ionicons name="close" size={16} color={theme.colors.textSecondary} /></TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.composer}>
               <TouchableOpacity onPress={pickImages} style={styles.attach}><Ionicons name="image" size={20} color={theme.colors.primary} /></TouchableOpacity>
               <TextInput style={styles.input} value={text} onChangeText={setText} multiline placeholder="Répondre…" placeholderTextColor={theme.colors.textSecondary} testID="admin-chat-input" />
