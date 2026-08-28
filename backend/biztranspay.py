@@ -556,6 +556,22 @@ def _verify_signature(secret: str, raw_body: bytes, timestamp: str, signature: s
         return False
 
 
+@webhook.api_route("/biztranspay", methods=["GET", "HEAD", "OPTIONS"])
+async def biztranspay_webhook_ping():
+    """Endpoint de validation d'URL pour BizTransPay.
+
+    De nombreux services de webhooks (dont BizTransPay) vérifient l'URL par un
+    GET/HEAD/OPTIONS avant de commencer à envoyer les vrais événements. Notre
+    handler principal (POST) refuse ces méthodes → 405. Le reverse-proxy K8s
+    traduit parfois ce 405 en 404/403, ce qui casse la validation.
+
+    Ce handler renvoie systématiquement 200 pour toute méthode non-POST — sans
+    exposer aucune donnée interne. La sécurité reste garantie côté POST par la
+    vérification HMAC-SHA256 (voir `biztranspay_webhook`).
+    """
+    return {"ok": True, "service": "biztranspay", "protocol": "spilv-webhook-v1"}
+
+
 @webhook.post("/biztranspay")
 async def biztranspay_webhook(request: Request):
     db = request.app.state.db
