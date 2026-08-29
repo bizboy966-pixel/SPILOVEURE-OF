@@ -23,7 +23,17 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 🗑️ Chat Direct — Rétention automatique + verrouillage backend + player vocal
+### 2026-08-31 — 🎤 Chat — Vocal cross-navigateur + coches vertes de lecture
+
+**Fix bug audio** :
+- Backend `chat.py` : `AUDIO_URL_RE` accepte désormais le paramètre optionnel `;codecs=xxx` dans le mime — sinon les vocaux enregistrés avec un mimeType précis (`audio/mp4;codecs=mp4a.40.2`) étaient rejetés 400. Tests unitaires positifs pour webm/webm+opus/mp4/mp4+mp4a et négatif pour mimes non-audio.
+- Frontend `ChatBubble.tsx::startRecording` : préfère `audio/mp4;codecs=mp4a.40.2` (AAC — jouable sur Safari iOS/macOS + Chromium) avec fallback progressif sur `audio/mp4`, `audio/webm;codecs=opus`, `audio/webm`. Le Blob final est instancié avec `rec.mimeType` (pas hardcodé) pour que le `<audio>` du destinataire reçoive un data-URL décodable.
+- Frontend `VoiceMessage.tsx` : ajout d'un handler `error` sur l'élément `<audio>` qui affiche un message clair sous la barre si la lecture échoue (`⚠ Format audio non supporté par votre navigateur.` pour MediaError.code=4/3, message spécifique pour la 2). Retourne aussi une erreur sur `play()` rejeté par la politique d'autoplay.
+
+**Coches vertes** :
+- Les `✓✓` en bleu #60A5FA passent maintenant en **vert #22C55E** dans `ChatBubble.tsx::TicksIcon` et dans les bulles d'`AdminSupportTab.tsx`. Le marquage `read` était déjà réel (via `chat_user_mark_read` / `admin_mark_read` déclenchés à l'ouverture effective de la conversation), la synchro se fait via le polling 2-3 s existant.
+
+**Regression** : 38/38 backend pytest inchangés. Aucune touch aux autres modules.
 
 **Contexte** : après le round Telegram-style (iter 55), l'utilisateur a précisé la spec — durée de conservation configurable côté admin avec purge serveur, blocage effectif du chat côté API (pas juste l'UI), un vrai player vocal et une **barre de saisie fixe qui remonte avec le clavier virtuel**.
 

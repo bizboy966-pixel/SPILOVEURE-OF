@@ -325,7 +325,7 @@ export default function AdminSupportTab() {
                         </Text>
                         {mine && !isDeleted ? (
                           <Text style={{
-                            color: m.status === "read" ? "#60A5FA"
+                            color: m.status === "read" ? "#22C55E"
                               : m.status === "delivered" ? "rgba(255,255,255,0.75)"
                               : "rgba(255,255,255,0.6)",
                             fontSize: 11, fontWeight: "800",

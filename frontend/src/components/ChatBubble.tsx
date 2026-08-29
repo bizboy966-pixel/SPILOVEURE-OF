@@ -111,7 +111,7 @@ function fmtTime(iso: string): string {
 }
 
 function TicksIcon({ status }: { status: Msg["status"] }) {
-  if (status === "read") return <Text style={{ color: "#60A5FA", fontSize: 11, fontWeight: "800" }}>✓✓</Text>;
+  if (status === "read") return <Text style={{ color: "#22C55E", fontSize: 11, fontWeight: "800" }}>✓✓</Text>;
   if (status === "delivered") return <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "800" }}>✓✓</Text>;
   return <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "800" }}>✓</Text>;
 }
@@ -231,13 +231,25 @@ export default function ChatBubble() {
     if (Platform.OS !== "web") { setErr("Enregistrement vocal disponible uniquement sur le web."); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-      const rec = new MediaRecorder(stream, { mimeType: mime });
+      // Prefer AAC in MP4 (universal: plays on Safari/iOS + Chrome/Edge) —
+      // fall back to Opus in WebM (Firefox + Chromium). WebM/Opus is NOT
+      // playable in Safari, which is why we try MP4 first.
+      const preferred = [
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mp4",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      const mime = preferred.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       recordedChunks.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.current.push(e.data); };
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(recordedChunks.current, { type: "audio/webm" });
+        // Use the recorder's actual mimeType — mismatch here silently breaks
+        // playback because the <audio> element trusts the Blob's declared type.
+        const type = rec.mimeType || mime || "audio/webm";
+        const blob = new Blob(recordedChunks.current, { type });
         if (blob.size < 1500) { setErr("Enregistrement trop court."); return; }
         if (blob.size > 1.9 * 1024 * 1024) { setErr("Enregistrement trop long (max 2 Mo)."); return; }
         const dataUrl: string = await new Promise((res, rej) => {

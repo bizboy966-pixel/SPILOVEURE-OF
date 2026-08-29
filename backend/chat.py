@@ -99,7 +99,10 @@ async def _get_or_create_conversation(db, user: dict) -> dict:
 
 
 DATA_URL_RE = re.compile(r"^data:image/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$")
-AUDIO_URL_RE = re.compile(r"^data:audio/(webm|mp3|mp4|mpeg|ogg|wav|x-m4a|aac);base64,([A-Za-z0-9+/=]+)$")
+AUDIO_URL_RE = re.compile(
+    r"^data:audio/(webm|mp3|mp4|mpeg|ogg|wav|x-m4a|aac)"
+    r"(?:;codecs=[A-Za-z0-9\.\-]+)?;base64,([A-Za-z0-9+/=]+)$"
+)
 
 
 def _validate_images(images: List[str]) -> List[str]:
