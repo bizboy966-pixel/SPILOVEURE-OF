@@ -35,7 +35,7 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - ré-applique aussi sur `focus` et `visibilitychange` (retour d'un autre onglet).
 Résultat : le token support reste actif en mémoire pendant toute la session /support-desk, aucun override possible.
 
-**PWA installable** : le manifest global SPILOVEURE (`/app/frontend/public/manifest.webmanifest`) est déjà servi sur `/support-desk`, donc les navigateurs mobiles (Chrome Android, Safari iOS) proposent naturellement "Ajouter à l'écran d'accueil" quand un support agent ouvre l'URL. Un raccourci Chat Support dédié (icône et nom distincts) reste un P2 non bloquant — nécessiterait un manifest par route via un service-worker qui swap `web_app_manifest`.
+**PWA installable** : ajout d'un manifest dédié `/app/frontend/public/manifest-support.webmanifest` avec `name: "Chat Support SPILOVEURE"`, `short_name: "Chat Support"`, `start_url: /support-desk`, `theme_color: #065F46` (vert Support), icônes SVG dédiées `support-icon.svg` + `support-icon-maskable.svg` (bulle de chat blanche sur fond vert dégradé). `/support-desk` swap dynamiquement le `<link rel="manifest">`, `document.title` et `<meta name="theme-color">` au montage et restaure la valeur d'origine au démontage — ainsi l'installation "Ajouter à l'écran d'accueil" produit une PWA distincte avec sa propre icône, son propre nom et son propre écran de démarrage, sans interférer avec l'app SPILOVEURE principale.
 
 **Regression** : 38/38 pytest inchangés, aucune modification back-end.
 

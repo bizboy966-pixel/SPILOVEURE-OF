@@ -42,6 +42,38 @@ export default function SupportDesk() {
     }
   }, []);
 
+  // ── PWA identity swap ────────────────────────────────────────────
+  // Give /support-desk its own home-screen identity ("Chat Support"
+  // with a green chat-bubble icon) by pointing the manifest link and
+  // the browser tab title at the dedicated manifest while this route
+  // is mounted. Reverts back to the main SPILOVEURE manifest on
+  // unmount so the rest of the app stays branded correctly.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const link = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+    const origManifest = link?.getAttribute("href") || "/manifest.webmanifest";
+    const origTitle = document.title;
+    const origTheme =
+      document.querySelector('meta[name="theme-color"]')?.getAttribute("content") || null;
+    if (link) link.setAttribute("href", "/manifest-support.webmanifest");
+    document.title = "Chat Support · SPILOVEURE";
+    let themeMeta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!themeMeta) {
+      themeMeta = document.createElement("meta");
+      themeMeta.name = "theme-color";
+      document.head.appendChild(themeMeta);
+    }
+    themeMeta.setAttribute("content", "#065F46");
+    return () => {
+      if (link) link.setAttribute("href", origManifest);
+      document.title = origTitle;
+      if (themeMeta) {
+        if (origTheme) themeMeta.setAttribute("content", origTheme);
+        else themeMeta.remove();
+      }
+    };
+  }, []);
+
   // ── Auth guardian ────────────────────────────────────────────────
   // AuthProvider (from app/_layout.tsx) runs on every route and may hydrate
   // a DIFFERENT token from the main-app secure storage, overriding the
