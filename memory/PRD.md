@@ -23,7 +23,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 🎤 Chat — Vocal cross-navigateur + coches vertes de lecture
+### 2026-08-31 — 📱 Chat Admin — Navigation mobile (liste ⇄ conversation)
+
+**Bug** : sur mobile, le composant `AdminSupportTab` affichait la liste des conversations à gauche ET un panneau vide/tronqué à droite en permanence (visible sur la capture utilisateur : "Jean2774 / jeandagno97@g / mail.com" écrasé sur le côté droit).
+
+**Fix** (`/app/frontend/src/components/AdminSupportTab.tsx`) :
+- `useWindowDimensions()` détecte `isMobile = width < 720`.
+- Le container passe en `flexDirection: "column"` sur mobile.
+- `leftCol` rendue uniquement si `!isMobile || !selected` (liste plein écran quand aucune conversation ouverte).
+- `rightCol` rendue uniquement si `!isMobile || selected` (conversation plein écran quand une conversation est ouverte).
+- Nouveau bouton `admin-chat-back` (`chevron-back`) dans le `chatHeader` sur mobile, appelle `setSelected(null)` → retour à la liste.
+- Nouveaux styles `leftColMobile` / `rightColMobile` : `width: 100%`, `flex:1`, `borderRadius:0`, `borderWidth:0`.
+- Desktop / tablette (≥ 720 px) : layout deux colonnes inchangé.
+
+**Testing** : screenshots à 393×850 confirment : (1) liste plein écran par défaut ; (2) après clic sur une conversation, conversation plein écran avec bouton ←, aucun placeholder "Sélectionnez une conversation" ; (3) après clic ←, retour propre à la liste plein écran. 38/38 backend pytest inchangés.
+
+---
+
+
 
 **Fix bug audio** :
 - Backend `chat.py` : `AUDIO_URL_RE` accepte désormais le paramètre optionnel `;codecs=xxx` dans le mime — sinon les vocaux enregistrés avec un mimeType précis (`audio/mp4;codecs=mp4a.40.2`) étaient rejetés 400. Tests unitaires positifs pour webm/webm+opus/mp4/mp4+mp4a et négatif pour mimes non-audio.

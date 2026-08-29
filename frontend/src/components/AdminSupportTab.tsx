@@ -10,7 +10,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, TouchableOpacity, View,
+  StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
@@ -100,6 +100,10 @@ function useSelfId(): string | null {
 
 export default function AdminSupportTab() {
   const selfId = useSelfId();
+  const { width } = useWindowDimensions();
+  // Mobile mode : single-pane navigation (list ↔ conversation) below 720 px
+  // so the conversation never sits next to the list on a phone.
+  const isMobile = width < 720;
   const [convs, setConvs] = useState<ConvItem[]>([]);
   const [selected, setSelected] = useState<ConvItem | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -218,8 +222,9 @@ export default function AdminSupportTab() {
   };
 
   return (
-    <View style={{ flexDirection: "row", flex: 1, minHeight: 500, gap: 12 }} testID="admin-support-tab">
-      <View style={styles.leftCol}>
+    <View style={{ flexDirection: isMobile ? "column" : "row", flex: 1, minHeight: 500, gap: isMobile ? 0 : 12 }} testID="admin-support-tab">
+      {(!isMobile || !selected) && (
+      <View style={[styles.leftCol, isMobile && styles.leftColMobile]}>
         <Text style={styles.leftTitle}>💬 Support · {convs.length} conversation{convs.length > 1 ? "s" : ""}</Text>
         <ScrollView style={{ flex: 1 }}>
           {convs.length === 0 ? (
@@ -249,8 +254,10 @@ export default function AdminSupportTab() {
           ))}
         </ScrollView>
       </View>
+      )}
 
-      <View style={styles.rightCol}>
+      {(!isMobile || selected) && (
+      <View style={[styles.rightCol, isMobile && styles.rightColMobile]}>
         {!selected ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
             <Ionicons name="chatbubbles-outline" size={40} color={theme.colors.textSecondary} />
@@ -261,8 +268,20 @@ export default function AdminSupportTab() {
         ) : (
           <>
             <View style={styles.chatHeader}>
-              <Text style={styles.chatHeaderT}>{selected.username || selected.email}</Text>
-              <Text style={styles.chatHeaderS}>{selected.email}</Text>
+              {isMobile ? (
+                <TouchableOpacity
+                  onPress={() => setSelected(null)}
+                  style={styles.backBtn}
+                  testID="admin-chat-back"
+                  accessibilityLabel="Retour à la liste"
+                >
+                  <Ionicons name="chevron-back" size={22} color="#fff" />
+                </TouchableOpacity>
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.chatHeaderT}>{selected.username || selected.email}</Text>
+                <Text style={styles.chatHeaderS}>{selected.email}</Text>
+              </View>
             </View>
             <ScrollView ref={scrollRef} style={{ flex: 1, backgroundColor: theme.colors.surfaceMuted }} contentContainerStyle={{ padding: 12, gap: 6 }}>
               {msgs.map((m) => {
@@ -372,6 +391,7 @@ export default function AdminSupportTab() {
           </>
         )}
       </View>
+      )}
 
       {/* Context menu */}
       <Modal transparent visible={!!menuMsg} animationType="fade" onRequestClose={() => setMenuMsg(null)}>
@@ -417,6 +437,7 @@ export default function AdminSupportTab() {
 
 const styles = StyleSheet.create({
   leftCol: { width: 260, backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, padding: 8 },
+  leftColMobile: { width: "100%", flex: 1, minHeight: 500, borderRadius: 0, borderWidth: 0 },
   leftTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 13, padding: 6, marginBottom: 4 },
   convItem: { flexDirection: "row", alignItems: "center", gap: 6, padding: 8, borderRadius: 8 },
   convItemActive: { backgroundColor: theme.colors.primary + "18" },
@@ -426,7 +447,9 @@ const styles = StyleSheet.create({
   convBadge: { backgroundColor: "#EF4444", borderRadius: 10, minWidth: 18, height: 18, paddingHorizontal: 5, alignItems: "center", justifyContent: "center" },
   convBadgeT: { color: "#fff", fontSize: 10, fontWeight: "800" },
   rightCol: { flex: 1, backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" },
-  chatHeader: { padding: 10, backgroundColor: theme.colors.primaryDark },
+  rightColMobile: { width: "100%", flex: 1, minHeight: 500, borderRadius: 0, borderWidth: 0 },
+  chatHeader: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, backgroundColor: theme.colors.primaryDark },
+  backBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
   chatHeaderT: { color: "#fff", fontWeight: "800", fontSize: 14 },
   chatHeaderS: { color: "rgba(255,255,255,0.8)", fontSize: 11 },
   msg: { maxWidth: "80%", padding: 10, borderRadius: 14 },
