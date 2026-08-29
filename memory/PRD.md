@@ -25,7 +25,7 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ### 2026-08-31 — 🗑️ Chat Direct — Rétention automatique + verrouillage backend + player vocal
 
-**Contexte** : après le round Telegram-style (iter 55), l'utilisateur a précisé la spec — durée de conservation configurable côté admin avec purge serveur, blocage effectif du chat côté API (pas juste l'UI), et un vrai player vocal.
+**Contexte** : après le round Telegram-style (iter 55), l'utilisateur a précisé la spec — durée de conservation configurable côté admin avec purge serveur, blocage effectif du chat côté API (pas juste l'UI), un vrai player vocal et une **barre de saisie fixe qui remonte avec le clavier virtuel**.
 
 **Backend** (`/app/backend/chat.py`) :
 - `require_chat_enabled` (nouvelle dépendance FastAPI) : bloque `POST /me/messages` + `POST /admin/conversations/{cid}/messages` avec `423 Locked` + message français quand le master switch est OFF. Les lectures + suppressions + mark-read restent ouvertes pour laisser voir/supprimer l'historique.
@@ -38,14 +38,16 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 **Frontend** :
 - `/app/frontend/src/components/SupportAgentsCard.tsx` : nouvelle carte `chat-retention-box` (7 presets Jamais/1h/6h/12h/24h/7j/30j + input personnalisé). Feedback en direct « ✓ Actuellement : messages supprimés après X h » (avec conversion en jours seulement pour ≥ 24 h).
-- `/app/frontend/src/components/VoiceMessage.tsx` (nouveau, 155 lignes) : lecteur vocal custom pill (play/pause + barre + `mm:ss / mm:ss`), seek au clic sur la barre, workaround Chromium/webm `Infinity` duration via seek à `1e101`. Tinte adaptée selon side (own/other).
+- `/app/frontend/src/components/VoiceMessage.tsx` (nouveau, 165 lignes) : lecteur vocal custom pill (play/pause + barre + `mm:ss / mm:ss`), seek au clic sur la barre, workaround Chromium/webm `Infinity` duration via seek à `1e101`. Tinte adaptée selon side (own/other).
 - `/app/frontend/src/components/ChatBubble.tsx` + `AdminSupportTab.tsx` : `<audio controls>` natif remplacé par `<VoiceMessage>` sur les deux côtés.
+- **Barre de saisie sticky + clavier** : `useWebKeyboardInset()` hook branché sur `window.visualViewport` calcule en direct la hauteur occultée par le clavier virtuel mobile, appliquée en `paddingBottom` sur le backdrop du modal → le panel remonte au-dessus du clavier sans casser la mise en page. Un `KeyboardAvoidingView` (`behavior: 'padding'` iOS) gère la même logique côté natif. Panel passé à `flex:1` dans un `panelWrap` de 92% de hauteur : seule la zone messages scrolle, la barre reste toujours visible en bas.
 
 **Tests** :
 - `/app/backend/tests/test_iter56_chat_retention_and_lock.py` — 17/17 pass (retention persist, RBAC, 423 lock/unlock, purge worker).
 - Regression `test_iter55_chat_telegram.py` — 21/21 pass.
 - `test_official_commission_plan.py` + `test_matrix_placement_routing.py` — 10/10 pass.
 - Frontend testing_agent iter 56 : tous les flows validés sur le preview.
+- Smoke sur viewport 390×780 : bulle → panel → focus input → composer collé en bas, messages scrollables au-dessus.
 
 **Points ouverts (P2, non bloquants)** :
 - Ajouter un index Mongo sur `chat_messages.created_at` avant montée en charge (la purge scanne tous les docs).

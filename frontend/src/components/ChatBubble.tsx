@@ -11,8 +11,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, TouchableOpacity, View,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
@@ -20,6 +20,38 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
 import VoiceMessage from "@/src/components/VoiceMessage";
+
+/**
+ * useWebKeyboardInset — returns the number of pixels the virtual keyboard
+ * currently occludes at the bottom of the screen (web only). On native or
+ * when no keyboard is visible it returns 0. Uses the `visualViewport` API,
+ * available on all modern mobile browsers.
+ */
+function useWebKeyboardInset(): number {
+  const [inset, setInset] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (typeof window === "undefined") return;
+    const vv: any = (window as any).visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // difference between the layout viewport height and the visible
+      // viewport bottom edge = the height taken by the keyboard.
+      const layoutH = window.innerHeight;
+      const visibleBottom = vv.height + vv.offsetTop;
+      const diff = Math.max(0, layoutH - visibleBottom);
+      setInset(diff);
+    };
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+  return inset;
+}
 
 type Msg = {
   id: string;
@@ -98,6 +130,7 @@ export default function ChatBubble() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<BlobPart[]>([]);
   const recordTimer = useRef<any>(null);
+  const kbInset = useWebKeyboardInset();
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [menuMsg, setMenuMsg] = useState<Msg | null>(null);
@@ -308,8 +341,13 @@ export default function ChatBubble() {
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.backdrop}>
-          <View style={styles.panel}>
+        <View style={[styles.backdrop, { paddingBottom: kbInset }]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.panelWrap}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.panel}>
             <View style={styles.header}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.headerT}>💬 Support SPILOVEURE</Text>
@@ -498,7 +536,7 @@ export default function ChatBubble() {
                 </>
               )}
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -565,8 +603,12 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: "rgba(0,0,0,0.35)",
     justifyContent: "flex-end", alignItems: "center",
   },
+  panelWrap: {
+    width: "100%", maxWidth: 460, height: "92%",
+    alignItems: "center",
+  },
   panel: {
-    width: "100%", maxWidth: 460, height: "90%",
+    width: "100%", flex: 1,
     backgroundColor: theme.colors.background,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     overflow: "hidden",
