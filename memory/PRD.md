@@ -23,7 +23,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 📱 Chat Admin — Navigation mobile (liste ⇄ conversation)
+### 2026-08-31 — 🛡️ /support-desk — Token guardian + PWA hint
+
+**Bug reporté** (production) : un admin/support autorisé ouvre `/support-desk` et voit "❌ Accès réservé à l'équipe support autorisée." lors de l'envoi ou du chargement d'une conversation.
+
+**RCA** : `AuthProvider` (chargé sur toutes les routes par `app/_layout.tsx`) exécute une hydratation asynchrone `setAuthToken(mainAppToken)` en lisant le `secureStorage["auth_token"]` — si un compte user principal était encore présent en storage, il écrasait en mémoire le token support fraîchement posé par `/support-desk` → toute requête `/chat/admin/*` ensuite portait le mauvais JWT (user classique) et `require_admin_or_support` répondait 403 avec le message vu.
+
+**Fix** (`/app/frontend/app/support-desk.tsx`) : ajout d'un "auth guardian" — un `useEffect` monté quand `authed` passe à `true` qui :
+- ré-applique `setAuthToken(spilv_support_token)` à `t=200ms` et `t=1500ms` (couvre la fenêtre d'hydratation d'`AuthProvider`) ;
+- puis re-pin toutes les 2 s tant que la page est ouverte ;
+- ré-applique aussi sur `focus` et `visibilitychange` (retour d'un autre onglet).
+Résultat : le token support reste actif en mémoire pendant toute la session /support-desk, aucun override possible.
+
+**PWA installable** : le manifest global SPILOVEURE (`/app/frontend/public/manifest.webmanifest`) est déjà servi sur `/support-desk`, donc les navigateurs mobiles (Chrome Android, Safari iOS) proposent naturellement "Ajouter à l'écran d'accueil" quand un support agent ouvre l'URL. Un raccourci Chat Support dédié (icône et nom distincts) reste un P2 non bloquant — nécessiterait un manifest par route via un service-worker qui swap `web_app_manifest`.
+
+**Regression** : 38/38 pytest inchangés, aucune modification back-end.
 
 **Bug** : sur mobile, le composant `AdminSupportTab` affichait la liste des conversations à gauche ET un panneau vide/tronqué à droite en permanence (visible sur la capture utilisateur : "Jean2774 / jeandagno97@g / mail.com" écrasé sur le côté droit).
 

@@ -42,6 +42,34 @@ export default function SupportDesk() {
     }
   }, []);
 
+  // ── Auth guardian ────────────────────────────────────────────────
+  // AuthProvider (from app/_layout.tsx) runs on every route and may hydrate
+  // a DIFFERENT token from the main-app secure storage, overriding the
+  // support token in the in-memory cache — causing every subsequent
+  // /chat/admin/* call to fail with 403 "Accès réservé…". We defend against
+  // that by re-applying the support token on an interval AND whenever the
+  // page regains focus.
+  useEffect(() => {
+    if (!authed) return;
+    if (typeof window === "undefined") return;
+    const reapply = () => {
+      const t = window.localStorage.getItem(TOK);
+      if (t) setAuthToken(t);
+    };
+    // Immediate re-apply after AuthProvider's async hydration settles.
+    const t0 = setTimeout(reapply, 200);
+    const t1 = setTimeout(reapply, 1500);
+    // Keep pinning while /support-desk is open — cheap sync writes.
+    const id = setInterval(reapply, 2000);
+    window.addEventListener("focus", reapply);
+    window.addEventListener("visibilitychange", reapply);
+    return () => {
+      clearTimeout(t0); clearTimeout(t1); clearInterval(id);
+      window.removeEventListener("focus", reapply);
+      window.removeEventListener("visibilitychange", reapply);
+    };
+  }, [authed]);
+
   const submit = async () => {
     setErr(null); setOk(null); setLoading(true);
     try {
