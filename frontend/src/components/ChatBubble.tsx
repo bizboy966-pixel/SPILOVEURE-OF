@@ -536,6 +536,7 @@ export default function ChatBubble() {
                 </>
               )}
             </View>
+            </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
