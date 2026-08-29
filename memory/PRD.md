@@ -37,9 +37,10 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 **Backend** (`/app/backend/server.py`) : import `asyncio` + task de rétention créée dans `lifespan` juste après le seed des feature flags, annulée avant `client.close()`.
 
 **Frontend** :
+- `/app/frontend/src/components/SwipeToReply.tsx` (nouveau) : wrapper qui transforme un swipe horizontal sur une bulle en action "Répondre" directe façon WhatsApp. Web : `pointerdown/move/up` natifs sur le container avec `setPointerCapture` (fiable avec Pressable enfant). Native : `PanResponder` + `Animated`. Threshold à 55 px, translation clamped à 90 px, icône `arrow-undo` qui fade in derrière la bulle pendant le drag, snap-back spring au relâchement, `onReply()` déclenché si le seuil est franchi. Désactivé automatiquement sur les messages supprimés.
 - `/app/frontend/src/components/SupportAgentsCard.tsx` : nouvelle carte `chat-retention-box` (7 presets Jamais/1h/6h/12h/24h/7j/30j + input personnalisé). Feedback en direct « ✓ Actuellement : messages supprimés après X h » (avec conversion en jours seulement pour ≥ 24 h).
 - `/app/frontend/src/components/VoiceMessage.tsx` (nouveau, 165 lignes) : lecteur vocal custom pill (play/pause + barre + `mm:ss / mm:ss`), seek au clic sur la barre, workaround Chromium/webm `Infinity` duration via seek à `1e101`. Tinte adaptée selon side (own/other).
-- `/app/frontend/src/components/ChatBubble.tsx` + `AdminSupportTab.tsx` : `<audio controls>` natif remplacé par `<VoiceMessage>` sur les deux côtés.
+- `/app/frontend/src/components/ChatBubble.tsx` + `AdminSupportTab.tsx` : `<audio controls>` natif remplacé par `<VoiceMessage>` sur les deux côtés. Chaque bulle est maintenant wrappée dans `<SwipeToReply>`.
 - **Barre de saisie sticky + clavier** : `useWebKeyboardInset()` hook branché sur `window.visualViewport` calcule en direct la hauteur occultée par le clavier virtuel mobile, appliquée en `paddingBottom` sur le backdrop du modal → le panel remonte au-dessus du clavier sans casser la mise en page. Un `KeyboardAvoidingView` (`behavior: 'padding'` iOS) gère la même logique côté natif. Panel passé à `flex:1` dans un `panelWrap` de 92% de hauteur : seule la zone messages scrolle, la barre reste toujours visible en bas.
 
 **Tests** :

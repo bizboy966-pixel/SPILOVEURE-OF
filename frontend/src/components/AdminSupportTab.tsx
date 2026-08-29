@@ -17,6 +17,7 @@ import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
 import VoiceMessage from "@/src/components/VoiceMessage";
+import SwipeToReply from "@/src/components/SwipeToReply";
 
 type ConvItem = {
   id: string; user_id: string; username: string; email: string;
@@ -269,6 +270,7 @@ export default function AdminSupportTab() {
                 const isDeleted = !!m.deleted;
                 return (
                   <View key={m.id} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                    <SwipeToReply onReply={() => setReplyTo(m)} disabled={isDeleted}>
                     <Pressable
                       onLongPress={() => openMenuFor(m)}
                       // @ts-ignore web contextmenu
@@ -333,6 +335,7 @@ export default function AdminSupportTab() {
                         ) : null}
                       </View>
                     </Pressable>
+                    </SwipeToReply>
                   </View>
                 );
               })}

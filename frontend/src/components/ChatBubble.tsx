@@ -20,6 +20,7 @@ import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
 import VoiceMessage from "@/src/components/VoiceMessage";
+import SwipeToReply from "@/src/components/SwipeToReply";
 
 /**
  * useWebKeyboardInset — returns the number of pixels the virtual keyboard
@@ -384,6 +385,7 @@ export default function ChatBubble() {
                 const isDeleted = !!m.deleted;
                 return (
                   <View key={m.id} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                    <SwipeToReply onReply={() => setReplyTo(m)} disabled={isDeleted}>
                     <Pressable
                       onLongPress={() => openMenuFor(m)}
                       // @ts-ignore web-only contextmenu
@@ -445,6 +447,7 @@ export default function ChatBubble() {
                         {mine && !isDeleted ? <TicksIcon status={m.status} /> : null}
                       </View>
                     </Pressable>
+                    </SwipeToReply>
                   </View>
                 );
               })}
