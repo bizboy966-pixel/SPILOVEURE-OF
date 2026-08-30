@@ -10,6 +10,7 @@ import * as Clipboard from "expo-clipboard";
 
 import { Card } from "@/src/components/Card";
 import { SideMenu } from "@/src/components/SideMenu";
+import { BottomNav } from "@/src/components/BottomNav";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -312,6 +313,8 @@ export default function Dashboard() {
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
+      {/* Bottom navigation — home dashboard, all activated users (incl. admin). */}
+      {user && (user.role === "admin" || (user.max_level || 0) >= 1) ? <BottomNav /> : null}
     </View>
   );
 }
