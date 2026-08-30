@@ -23,7 +23,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 🛡️ /support-desk — Token guardian + PWA hint
+### 2026-08-31 — 🧭 Nouvelle barre de navigation à 5 onglets
+
+**Contexte** : le client veut préparer l'architecture Wallet/AI/Services avant de déplacer les fonctionnalités existantes. Le fonctionnement métier ne change PAS — seule la navigation bouge.
+
+**Ajouts** :
+- `/app/frontend/src/components/BottomNav.tsx` (réécrit — 130 lignes) : nouvelle nav 5 onglets `💸 Transfert | 🌐 Réseau | 🏠 Accueil | 🤖 SPVIA | 🛠️ Services`. Accueil au centre en bouton élevé bleu (60x60, `primaryDark` quand actif), les 4 autres à plat avec icône Ionicons + label. `usePathname()` détecte l'onglet actif (Accueil reste highlight sur toutes les routes non-siblings pour ne pas perdre l'indicateur sur marketplace/emploi/services/etc.).
+- `/app/frontend/app/(app)/_layout.tsx` : la `<BottomNav />` est maintenant montée au niveau layout (comme `<ChatBubble />`) → présente sur toutes les routes `(app)`, plus uniquement sur le dashboard.
+- `/app/frontend/app/(app)/dashboard.tsx` : suppression de l'import + rendu local de BottomNav (dédoublonnage).
+
+**Nouvelles routes placeholder** (aucune impact sur le métier) :
+- `/(app)/transfert.tsx` — Wallet dashboard "prêt" (solde 0 FCFA, 8 boutons Envoyer/Déposer/Convertir/Retirer/Mobile Money/Vers Banque/Lien de paiement/Scanner) + section "Activités récentes" vide. Tous les boutons déclenchent `window.alert("🚧 Bientôt disponible")`.
+- `/(app)/reseau.tsx` — page "🌐 Réseau · Bientôt disponible" + CTA retour accueil.
+- `/(app)/spvia.tsx` — page "🤖 SPVIA · Votre assistant intelligent arrive bientôt." avec badge violet et description.
+- `/(app)/services-hub.tsx` — page "🛠️ Services · Bientôt disponible" + CTA retour accueil. Nommé `services-hub` pour éviter la collision avec la page `services.tsx` existante (accessible via Accueil).
+
+**Ce qui NE CHANGE PAS** : dashboard MLM, commissions, matrices, spillover, activations, marketplace, emploi, jackpot, publicité, tâches, coupons, formations, e-books, premium apps, paiements BizTransPay, chat direct, /support-desk PWA — tout reste accessible depuis Accueil et fonctionne à l'identique.
+
+**Testing** :
+- 48/48 backend pytest verts (`test_iter55` + `test_iter56` + `test_matrix_placement_routing` + `test_official_commission_plan`).
+- Smoke frontend 390×850 : les 5 testIDs `bottom-nav-*` présents, navigation Transfert → Réseau → SPVIA → Services → Accueil OK, `transfert-balance-card` et les 3 `*-soon` visibles sur leurs pages respectives.
+
+---
+
+
 
 **Bug reporté** (production) : un admin/support autorisé ouvre `/support-desk` et voit "❌ Accès réservé à l'équipe support autorisée." lors de l'envoi ou du chargement d'une conversation.
 

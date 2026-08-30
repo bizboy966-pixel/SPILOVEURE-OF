@@ -7,6 +7,7 @@ import { CommunityPopup } from "@/src/components/CommunityPopup";
 import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
 import ChatBubble from "@/src/components/ChatBubble";
+import { BottomNav } from "@/src/components/BottomNav";
 
 // Routes accessible to non-activated users. They can browse the "Services"
 // showcase (formations, e-books, premium apps, trading) even before paying
@@ -67,6 +68,7 @@ export default function AppLayout() {
           <NotificationToaster />
           <PushBootstrap />
           <ChatBubble />
+          <BottomNav />
         </>
       )}
     </View>
