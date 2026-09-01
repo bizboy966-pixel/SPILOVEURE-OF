@@ -23,7 +23,23 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 💳 Nouvelle page d'activation simplifiée (toutes méthodes)
+### 2026-09-01 — 💳 Admin Passerelles : test connexion + matrice pays
+
+**Backend** (`server.py::_register_payment_gateway_routes`) — 2 nouveaux endpoints admin :
+- `POST /api/admin/payment-gateways/soleaspay/test` : envoie un vrai appel `verif-pay` à SoleasPay avec un `orderId` bidon. Retourne `{ok: true}` si la clé API répond (même "operation not found" = clé valide), `{ok: false, step: auth/config/network}` sinon. Aucune transaction créée.
+- `PUT /api/admin/payment-gateways/country-matrix` : persiste dans `app_settings.payment_gateway.value.country_matrix` un objet `{ soleas: { TG: true, BJ: true, CI: false, ... }, ashtec: {...} }`.
+- `GET /api/admin/payment-gateways` étendu : retourne aussi `country_matrix` + `soleas_countries` (les 8 pays TG/BJ/CI/BF/CM/COG/GAB/UGA).
+
+**Frontend** (`(admin)/index.tsx::PaymentGatewaysCard`) — 2 nouvelles sections dans la carte "Gestion des Passerelles" :
+- **🧪 Tester la connexion SoleasPay** — bouton avec feedback vert 🟢/rouge 🔴, message d'erreur exploitable, compteur pays configurés.
+- **🌍 Matrice pays × passerelle** — 8 lignes (une par pays TG/BJ/CI/BF/CM/COG/GAB/UGA) avec toggle Soleas activé/désactivé. Persistance automatique via API `PUT country-matrix` au clic.
+
+**Vérifié** :
+- curl : `ok:true, countries_supported:8, message:"operation not found"` (clé valide, réponse propre).
+- curl : `PUT country-matrix` persiste 8 pays avec CI=false, retour `ok:true`.
+- 44/44 backend pytest verts.
+
+**Reste** (Phases suivantes non entamées) : webhook signé HMAC, P-Out automatique, moteur de routage auto par pays.
 
 **Contexte** : la page `/(app)/activation.tsx` historique (1337 lignes) contenait trop de blocs et perdait les nouveaux utilisateurs avant qu'ils n'atteignent le paiement. Le client demandait un flow simple 4 étapes façon apps modernes pour **toutes** les méthodes de paiement, pas seulement SoleasPay.
 

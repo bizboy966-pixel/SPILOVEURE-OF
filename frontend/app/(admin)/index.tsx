@@ -3265,16 +3265,35 @@ function PaymentGatewaysCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [keyInput, setKeyInput] = useState("");
-  // Auto-diagnostic: hits /admin/payments/ashtec/health on mount so admin
-  // can see in one glance whether the key is valid, and where it comes
-  // from (env var vs DB fallback).
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  // SoleasPay live connection test + editable per-country matrix.
+  const [soleasTest, setSoleasTest] = useState<any>(null);
+  const [soleasTesting, setSoleasTesting] = useState(false);
+  const [matrix, setMatrix] = useState<any>({});
+
+  const runSoleasTest = async () => {
+    setSoleasTesting(true);
+    try {
+      const r = await api.post<any>("/admin/payment-gateways/soleaspay/test", {});
+      setSoleasTest(r);
+    } catch (e: any) {
+      setSoleasTest({ ok: false, detail: e?.detail || "Erreur réseau." });
+    } finally { setSoleasTesting(false); }
+  };
+  const toggleCountry = async (gw: "soleas" | "ashtec", code: string) => {
+    const cur = matrix[gw] || {};
+    const next = { ...matrix, [gw]: { ...cur, [code]: !cur[code] } };
+    setMatrix(next);
+    try { await api.put("/admin/payment-gateways/country-matrix", { country_matrix: next }); }
+    catch { /* silent */ }
+  };
 
   const load = async () => {
     try {
       const r = await api.get<any>("/admin/payment-gateways");
       setCfg(r);
+      setMatrix(r.country_matrix || {});
     } catch {}
   };
 
@@ -3477,6 +3496,64 @@ function PaymentGatewaysCard() {
 
       {renderGw("soleas")}
       {renderGw("ashtec")}
+
+      {/* SoleasPay live connection test */}
+      <View style={{ marginTop: 6, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }} testID="soleas-test-box">
+        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 4 }}>🧪 Tester la connexion SoleasPay</Text>
+        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
+          Envoie un vrai appel `verif-pay` à SoleasPay pour valider la clé API et la connectivité. Aucune transaction n'est créée.
+        </Text>
+        <TouchableOpacity
+          onPress={runSoleasTest}
+          disabled={soleasTesting}
+          style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center" }}
+          testID="soleas-test-btn"
+        >
+          <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>
+            {soleasTesting ? "⏳ Test en cours…" : "🧪 Tester la connexion"}
+          </Text>
+        </TouchableOpacity>
+        {soleasTest && (
+          <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: soleasTest.ok ? "#D1FAE5" : "#FEE2E2" }} testID="soleas-test-result">
+            <Text style={{ fontWeight: "800", fontSize: 12, color: soleasTest.ok ? "#065F46" : "#991B1B" }}>
+              {soleasTest.ok ? "🟢 Connexion réussie" : "🔴 Échec de connexion"}
+            </Text>
+            <Text style={{ fontSize: 11, color: soleasTest.ok ? "#065F46" : "#991B1B", marginTop: 2 }}>
+              {soleasTest.message || soleasTest.detail || (soleasTest.sample && soleasTest.sample.message) || "—"}
+            </Text>
+            {soleasTest.countries_supported ? (
+              <Text style={{ fontSize: 10, color: "#065F46", marginTop: 2 }}>
+                Pays configurés côté SoleasPay : {soleasTest.countries_supported}
+              </Text>
+            ) : null}
+          </View>
+        )}
+      </View>
+
+      {/* Country matrix — enable/disable each country per gateway */}
+      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }} testID="country-matrix-box">
+        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 4 }}>🌍 Matrice pays × passerelle</Text>
+        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 10 }}>
+          Activez/désactivez chaque pays par passerelle. Un pays désactivé ne pourra plus recevoir de nouveaux paiements via cette passerelle.
+        </Text>
+        {(cfg?.soleas_countries || []).map((code: string) => {
+          const enabledSoleas = matrix?.soleas?.[code] !== false;
+          return (
+            <View key={code} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.textPrimary }}>{code}</Text>
+              <TouchableOpacity
+                onPress={() => toggleCountry("soleas", code)}
+                style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: enabledSoleas ? "#D1FAE5" : "#FEE2E2" }}
+                testID={`matrix-soleas-${code}`}
+              >
+                <Text style={{ color: enabledSoleas ? "#065F46" : "#991B1B", fontWeight: "800", fontSize: 11 }}>
+                  Soleas : {enabledSoleas ? "🟢 Activé" : "🔴 Désactivé"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </View>
     </Card>
   );
 }

@@ -1163,7 +1163,51 @@ def _register_payment_gateway_routes(router):
                 "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
                 "api_key_masked": _mask_key(cfg.get("ashtec_api_key") or ""),
             },
+            "country_matrix": cfg.get("country_matrix") or {},
+            "soleas_countries": list(soleaspay.SUPPORTED.keys()),
         }
+
+    @router.post("/payment-gateways/soleaspay/test")
+    async def admin_test_soleaspay(request: Request, admin=Depends(require_admin)):
+        """Real connection test: probe verif-pay with a bogus order — a valid
+        key returns a well-formed JSON error, an invalid key returns 401/403."""
+        if not soleaspay.is_configured():
+            return {"ok": False, "step": "config", "detail": "SOLEASPAY_API_KEY manquante côté serveur."}
+        try:
+            data = await soleaspay.verify_payment("SPV-CONN-TEST", "test", service_id=1)
+        except Exception as e:
+            return {"ok": False, "step": "network", "detail": str(e)[:200]}
+        code = data.get("code")
+        if code in (401, 403):
+            return {"ok": False, "step": "auth", "http": code, "detail": "Clé API SoleasPay refusée."}
+        # 200 or 4xx-not-found = the API answered → key is valid, network OK.
+        return {"ok": True, "http": code, "message": "Connexion SoleasPay OK",
+                "countries_supported": len(soleaspay.SUPPORTED),
+                "sample": {"status": data.get("status"), "code": code, "message": data.get("message")}}
+
+    @router.put("/payment-gateways/country-matrix")
+    async def admin_update_country_matrix(request: Request, admin=Depends(require_admin)):
+        """Persist a per-gateway country toggle map:
+           { "soleas": { "TG": true, "BJ": true, "CI": false, ... },
+             "ashtec": { ... } }"""
+        body = await request.json()
+        matrix = body.get("country_matrix") or body
+        if not isinstance(matrix, dict):
+            raise HTTPException(400, "country_matrix doit être un dict.")
+        db = request.app.state.db
+        current = await _load_payment_gateway(db)
+        current["country_matrix"] = matrix
+        await db.app_settings.update_one(
+            {"key": "payment_gateway"},
+            {"$set": {
+                "key": "payment_gateway",
+                "value": current,
+                "updated_at": datetime.now(timezone.utc),
+                "updated_by": admin.get("username"),
+            }},
+            upsert=True,
+        )
+        return {"ok": True, "country_matrix": matrix}
 
     @router.put("/payment-gateways")
     async def admin_update_payment_gateways(
