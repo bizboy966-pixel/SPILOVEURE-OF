@@ -23,6 +23,37 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (quater) — 🗑️ BizTransPay retiré + Crypto via IziChangePay
+
+Suite au retour utilisateur ("IziChangePay c'est lui qui gère les activations par crypto — faut supprimer carrément toutes les traces de BizTransPay") :
+
+**Backend**
+- `/app/backend/biztranspay.py` déplacé vers `.removed` (retiré du runtime).
+- `server.py` : suppression du bind_db biztranspay, de l'import + mount des 3 routers biztranspay, du fallback P-Out biztranspay dans `request_withdrawal` (soleas OR pending), du branche crypto biztranspay dans `/payments/activate`.
+- `/payments/activate` crypto → délègue à `izichange.create_crypto_charge`, retourne `{deposit_address, amount_to_send, memo, expires_at, network:"BEP20"}`.
+- `/payments/catalog` crypto → `available` calculé à partir de `feature_flags.crypto_auto ON AND izichange.API_KEY`. Retourne aussi `keys_configured` pour transparence UI.
+- `pick_payout_gateway_for_country` retourne `"soleaspay"` ou `None` (plus de biztranspay).
+
+**Frontend**
+- `BizTransPayCard` supprimé de `/(admin)/index.tsx` (fonction + mount).
+- `/(app)/activation-biztranspay.tsx` déplacé vers `.removed`, retiré des segments autorisés dans `_layout.tsx`.
+- `activation.tsx` : bloc `btpEnabled` neutralisé (constante `false`, plus d'appel `/payments/biztranspay/public/status`).
+
+**Tests**
+- `tests/test_biztranspay_stale_intent_reuse.py` → `.removed` (obsolète).
+- 96/96 tests SoleasPay/IziChangePay verts. Aucune régression sur l'activation SoleasPay ni le webhook.
+
+**Vérifications endpoints**
+- `POST /payments/biztranspay/public/status` → **404** ✅
+- `POST /admin/payments/biztranspay/config` → **404** ✅
+- `POST /webhooks/biztranspay` → **404** ✅
+- `POST /activations/crypto-auto/create` (IziChangePay, auth requise) → **403** ✅
+- `GET /payments/catalog` : `crypto.available = true` dès que `crypto_auto` est ON en admin
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 (ter) — 🔑 Configuration dynamique SolesPay + Crypto UI fix
 
 **Bugs corrigés** (retour utilisateur) :

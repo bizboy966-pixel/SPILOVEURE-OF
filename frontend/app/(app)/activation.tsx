@@ -169,18 +169,10 @@ export default function Activation() {
   const [ashtecEnabled, setAshtecEnabled] = useState(false);
   const cryptoAutoEnabled = useFeature("crypto_auto");
   const [cryptoCfg, setCryptoCfg] = useState<{network:string;wallet_address:string;amount_usdt:number;instructions:string} | null>(null);
-  // BizTransPay availability — fetched from `/payments/biztranspay/public/status`.
-  // Hides the banner when the admin hasn't configured the API key yet, so the
-  // user never sees a button that leads nowhere.
-  const [btpEnabled, setBtpEnabled] = useState(false);
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get<any>("/payments/biztranspay/public/status");
-        setBtpEnabled(!!r?.enabled);
-      } catch { setBtpEnabled(false); }
-    })();
-  }, []);
+  // BizTransPay availability check REMOVED 2026-09-02 — the provider was
+  // dropped from the platform. Crypto activation now goes through
+  // IziChangePay (see the crypto_auto feature flag banner below).
+  const btpEnabled = false;
 
   // Active payment method (user choice)
   const [paymentMode, setPaymentMode] = useState<"soleas" | "manual" | "crypto" | null>(null);

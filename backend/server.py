@@ -824,10 +824,9 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     }
     await db.withdrawals.insert_one(wd_doc)
 
-    # ── Auto-dispatch cascade: SoleasPay P-Out → BizTransPay ─────────────
-    # Preference order per country matrix. On failure the withdrawal simply
-    # stays "pending" so admin can validate manually (coexistence with the
-    # existing manual approval flow).
+    # ── Auto-dispatch cascade: SoleasPay P-Out (no fallback — BizTransPay removed).
+    # If SolesPay P-Out is off or the country isn't allowed, the withdrawal
+    # simply stays "pending" for manual admin validation.
     auto_result = {"auto_dispatched": False}
     dispatched_gateway = None
     country_upper = (wallet.get("country") or "").upper()
@@ -846,27 +845,11 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         if auto_result.get("auto_dispatched"):
             dispatched_gateway = "soleaspay"
 
-    # Fallback (or primary if SoleasPay P-Out is disabled): BizTransPay.
-    if not auto_result.get("auto_dispatched"):
-        try:
-            from biztranspay import dispatch_auto_withdrawal
-            biz_result = await dispatch_auto_withdrawal(db, wd_doc)
-            if biz_result.get("auto_dispatched"):
-                auto_result = biz_result
-                dispatched_gateway = "biztranspay"
-        except Exception as e:
-            import logging as _lg
-            _lg.getLogger("biztranspay").exception(
-                "biztranspay auto-dispatch failed for wd_id=%s: %s", wd_id, e)
-
     resp = {"id": wd_id, "status": "dispatched" if auto_result.get("auto_dispatched") else "pending",
             "amount": data.amount, "fee": fee, "net_payout": net}
     if auto_result.get("auto_dispatched"):
         resp["auto_dispatched"] = True
         resp["gateway"] = dispatched_gateway
-    elif auto_result.get("error"):
-        # Silent: user just sees "pending" — admin will see the error tag.
-        pass
     return resp
 
 
@@ -1450,7 +1433,12 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
 
 
 async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
-    """Return the P-Out gateway to use for a given country, or None."""
+    """Return the P-Out gateway to use for a given country, or None.
+
+    Only SolesPay is supported for automatic payouts. If SolesPay P-Out is off
+    or the country isn't allowed, returns None — the caller then leaves the
+    withdrawal "pending" for manual admin validation.
+    """
     country = (country or "").upper()
     cfg = await _load_payment_gateway(db)
     if (cfg.get("soleas_enabled")
@@ -1459,7 +1447,7 @@ async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
         pout_matrix = cfg.get("soleaspay_pout_country_matrix") or {}
         if not (country in pout_matrix and pout_matrix[country] is False):
             return "soleaspay"
-    return "biztranspay"
+    return None
 
 
 @api.post("/webhooks/soleaspay")
@@ -1806,21 +1794,28 @@ async def payments_activate(
     if user.get("max_level", 0) >= 1:
         raise HTTPException(400, "Votre niveau 1 est déjà activé.")
 
-    # ── CRYPTO ── delegated to BizTransPay (only crypto provider today).
+    # ── CRYPTO ── delegated to IziChangePay (the crypto activation provider).
     if method == "crypto":
         try:
-            from biztranspay import biztranspay_crypto_initiate
-            r = await biztranspay_crypto_initiate(request, user)
-            return {"reference": r.get("reference"), "gateway": "biztranspay",
-                    "method": "crypto", "status": "processing",
-                    "deposit_address": r.get("deposit_address"),
-                    "qr_data": r.get("qr_data"),
-                    "amount": r.get("amount"), "asset_code": r.get("asset_code"),
-                    "network": r.get("network")}
+            from izichange import create_crypto_charge, CryptoCreate as _IziCryptoCreate
+            r = await create_crypto_charge(_IziCryptoCreate(level=1), request, user)
+            # Normalize the response to the pay.tsx contract.
+            return {
+                "reference": r.get("reference"),
+                "gateway": "izichange", "method": "crypto",
+                "status": "processing",
+                "deposit_address": r.get("deposit_address"),
+                "qr_data": r.get("deposit_address"),
+                "amount": r.get("amount_to_send"),
+                "asset_code": r.get("coin"),
+                "network": r.get("network"),
+                "memo": r.get("memo"),
+                "expires_at": r.get("expires_at"),
+            }
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(503, f"Aucune passerelle crypto disponible : {e}")
+            raise HTTPException(503, f"Passerelle Crypto indisponible : {e}")
 
     # ── MOBILE ── SoleasPay → Ashtec cascade.
     cc = (body.country or "").upper().strip()
@@ -1949,26 +1944,27 @@ async def payments_catalog(request: Request):
                 "operators": [_ash_op(op) for op in operators],
             })
 
-    # ── Crypto catalog: BizTransPay only, single row.
-    # `available` reflects the ADMIN TOGGLE alone. If the admin turned crypto
-    # ON but forgot to fill the BizTransPay keys, we still show crypto in the
-    # UI — the /payments/activate call will then surface the concrete error
-    # ("clés manquantes") so the admin knows exactly what to fix.
+    # ── Crypto catalog: IziChangePay only, single row.
+    # `available` = feature-flag `crypto_auto` ON  AND  IziChangePay API key set.
     crypto_available = False
     crypto_info = None
     try:
-        from biztranspay import _load_config as _bt_load_cfg  # type: ignore
-        bt_cfg = await _bt_load_cfg(db)
-        crypto_available = bool(bt_cfg.get("enabled"))
+        from feature_flags import is_enabled as _feat_enabled
+        from izichange import API_KEY as _IZI_KEY, AMOUNT_USDT as _IZI_AMOUNT
+        flag_on = await _feat_enabled(db, "crypto_auto")
+        crypto_available = bool(flag_on and _IZI_KEY)
         if crypto_available:
             crypto_info = {
-                "amount_usdt": float(bt_cfg.get("activation_amount_usdt") or 0),
-                "network": bt_cfg.get("activation_network"),
-                "keys_configured": bool(
-                    (bt_cfg.get("public_key") or "").strip()
-                    and (bt_cfg.get("secret_key") or "").strip()
-                ),
+                "amount_usdt": float(_IZI_AMOUNT or 5),
+                "network": "BEP20",
+                "keys_configured": True,
             }
+        elif flag_on and not _IZI_KEY:
+            # Flag is on but the gateway isn't configured — expose the state
+            # so pay.tsx can display a friendly warning.
+            crypto_available = True
+            crypto_info = {"amount_usdt": 5.0, "network": "BEP20",
+                           "keys_configured": False}
     except Exception:
         crypto_available = False
         crypto_info = None
@@ -4098,16 +4094,9 @@ app.include_router(ashtec_api)
 app.include_router(ashtec_webhook)
 app.include_router(ashtec_admin)
 
-# BizTransPay AUTO-ACTIVATION — v2 API (Mobile Money + Crypto + Webhooks + Auto-Withdrawals).
-from biztranspay import (  # noqa: E402
-    api as biztranspay_api,
-    admin as biztranspay_admin,
-    webhook as biztranspay_webhook,
-)
-app.include_router(biztranspay_api)
-app.include_router(biztranspay_webhook)  # public (HMAC-verified inside handler)
-# Admin config router is protected via require_admin.
-app.include_router(biztranspay_admin, dependencies=[Depends(require_admin)])
+# BizTransPay integration removed 2026-09-02 — crypto activation is now
+# handled by IziChangePay (routes in izichange.py), mobile activation by
+# SolesPay/Ashtec (routes in server.py + ashtec_activation.py).
 
 # Live chat — user ↔ admin support (Phase 1: text + photos + polling + read receipts).
 from chat import api as chat_api, admin_router as chat_admin  # noqa: E402

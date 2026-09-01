@@ -190,12 +190,13 @@ class TestRouteCheck:
     def test_master_off_falls_back(self, H):
         _set_pout(H, False)
         d = self._rc(H, "TG")
-        assert d["payout_gateway"] == "biztranspay", d
+        # BizTransPay removed → no P-Out fallback, returns None.
+        assert d["payout_gateway"] is None, d
 
     def test_country_disabled_in_matrix(self, H):
         _set_pout(H, True)
         _set_matrix(H, {"TG": False, "BJ": True})
-        assert self._rc(H, "TG")["payout_gateway"] == "biztranspay"
+        assert self._rc(H, "TG")["payout_gateway"] is None
         assert self._rc(H, "BJ")["payout_gateway"] == "soleaspay"
         _set_matrix(H, {})
         _set_pout(H, False)
@@ -203,8 +204,8 @@ class TestRouteCheck:
     def test_unsupported_and_excluded_countries(self, H):
         _set_pout(H, True)
         _set_matrix(H, {})
-        assert self._rc(H, "US")["payout_gateway"] == "biztranspay"
-        assert self._rc(H, "COD")["payout_gateway"] == "biztranspay"  # RDC excluded
+        assert self._rc(H, "US")["payout_gateway"] is None
+        assert self._rc(H, "COD")["payout_gateway"] is None  # RDC excluded
         _set_pout(H, False)
 
 

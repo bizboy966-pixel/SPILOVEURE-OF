@@ -13,7 +13,7 @@ import ChatBubble from "@/src/components/ChatBubble";
 // their activation — those pages act as the platform's storefront and must
 // not redirect them back to /activation automatically.
 const ALLOWED_FOR_PENDING = new Set([
-  "activation", "activation-crypto-auto", "activation-ashtec", "activation-biztranspay", "pay-ashtec", "pay", "profile", "settings",
+  "activation", "activation-crypto-auto", "activation-ashtec", "pay-ashtec", "pay", "profile", "settings",
   "services", "formations", "ebooks", "premium-apps", "trading",
 ]);
 

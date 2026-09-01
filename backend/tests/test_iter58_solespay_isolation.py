@@ -328,10 +328,10 @@ class TestNonRegression:
         assert "soleaspay_pout_enabled" in b and "ashtec" in b
         assert "soleas_countries" in b and isinstance(b["soleas_countries"], list)
 
-    def test_biztranspay_public_status_still_works(self, user_headers):
-        # NB: despite its name this route requires a JWT (pre-existing behaviour).
+    def test_biztranspay_removed(self, user_headers):
+        # BizTransPay was removed 2026-09-02. Endpoint should be 404.
         r = requests.get(f"{API}/payments/biztranspay/public/status", headers=user_headers, timeout=20)
-        assert r.status_code == 200, r.text
+        assert r.status_code == 404, r.text
 
 
 # ── webhook (HTTP level, invalid signature must be refused) ───────────
