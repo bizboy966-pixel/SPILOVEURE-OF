@@ -47,7 +47,7 @@ export default function AppLayout() {
     // segments looks like ["(app)", "dashboard"] or ["(app)", "services"]
     const current = segments[1] || "";
     if (!ALLOWED_FOR_PENDING.has(current)) {
-      router.replace("/(app)/activation");
+      router.replace("/(app)/pay");
     }
   }, [user, loading, router, segments]);
 

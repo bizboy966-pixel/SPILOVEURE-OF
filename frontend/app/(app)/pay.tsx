@@ -1,14 +1,13 @@
 /**
- * pay.tsx — Simple, unified activation flow.
+ * pay.tsx — Simplified activation flow (list/selector).
  *
- * A guided 4-step stepper wrapping ALL existing payment methods behind a
- * single clean UI, per the client's brief : Méthode → Pays → Opérateur →
- * Numéro → Confirmation. It calls the exact same backend endpoints the
- * legacy `activation.tsx` uses — no server-side change — so existing
- * flows (SoleasPay, BizTransPay MoMo, BizTransPay Crypto) stay intact.
+ * Guided flow: Mode → Country → Operator → Phone → Activate.
+ * The user NEVER sees the underlying gateway name. The server decides
+ * (SoleasPay / Ashtec / BizTransPay) via /api/payments/activate.
  *
- * If the user prefers the previous longer page, `/(app)/activation`
- * remains reachable as a fallback.
+ * Data source: GET /api/payments/catalog returns the unified catalog
+ * (methods → available countries → available operators), pre-filtered
+ * to what the current admin config actually supports.
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -32,257 +31,322 @@ const NAMES: Record<string, string> = {
   CD: "RD Congo", COG: "Congo", GAB: "Gabon", UGA: "Ouganda",
 };
 
-type Method = "auto" | "bt-momo" | "bt-crypto";
+type MethodRow = {
+  code: "mobile" | "crypto";
+  label: string;
+  available: boolean;
+  countries?: { code: string; operators: { code: string; label: string; currency: string }[] }[];
+  info?: { amount_usdt?: number; network?: string };
+};
 
 export default function Pay() {
   const router = useRouter();
   const { user, refresh } = useAuth();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [method, setMethod] = useState<Method | null>(null);
-  const [status, setStatus] = useState<any>(null);
-  const [btStatus, setBtStatus] = useState<any>(null);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [catalog, setCatalog] = useState<{ methods: MethodRow[] } | null>(null);
+  const [method, setMethod] = useState<"mobile" | "crypto" | "">("");
   const [country, setCountry] = useState<string>("");
   const [operator, setOperator] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
+  const [pwd, setPwd] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
-  const [cryptoAddr, setCryptoAddr] = useState<{ address: string; qr?: string; amount?: number; asset?: string } | null>(null);
   const [phase, setPhase] = useState<"idle" | "pending" | "success" | "failed">("idle");
+  const [cryptoAddr, setCryptoAddr] = useState<{ address?: string; qr?: string; amount?: number; asset?: string; network?: string } | null>(null);
 
   useEffect(() => {
     (async () => {
-      try {
-        const s = await api.get<any>("/settings/payments");
-        setStatus(s);
-      } catch {}
-      try {
-        const b = await api.get<any>("/payments/biztranspay/public-status");
-        setBtStatus(b);
-      } catch {}
+      try { setCatalog(await api.get<any>("/payments/catalog")); }
+      catch (e: any) { setErr(e?.detail || "Impossible de charger les moyens de paiement."); }
     })();
   }, []);
 
-  const methods = useMemo(() => {
-    const list: { key: Method; label: string; sub: string; icon: any; available: boolean }[] = [];
-    if (status?.auto_enabled) list.push({
-      key: "auto", label: "Mobile Money automatique",
-      sub: "SoleasPay / Ashtech · confirmation sur votre téléphone",
-      icon: "flash", available: true,
-    });
-    if (btStatus?.enabled) {
-      list.push({
-        key: "bt-momo", label: "BizTransPay Mobile Money",
-        sub: `${btStatus.activation_amount_xof ?? 2500} FCFA · invite USSD`,
-        icon: "phone-portrait", available: true,
-      });
-      list.push({
-        key: "bt-crypto", label: "Crypto USDT",
-        sub: `${btStatus.activation_amount_usdt ?? 5} USDT · ${btStatus.network ?? "BEP20"}`,
-        icon: "logo-bitcoin", available: true,
-      });
-    }
-    return list;
-  }, [status, btStatus]);
-
-  const countries: [string, any][] = useMemo(() => {
-    if (method === "auto" && status?.soleaspay_services_by_country) {
-      return Object.entries(status.soleaspay_services_by_country) as any;
-    }
-    if (method === "bt-momo" && btStatus?.countries) {
-      return (btStatus.countries as any[]).map((c) => [c.code, c]);
-    }
-    return [];
-  }, [method, status, btStatus]);
-
+  const selectedMethod = useMemo(
+    () => catalog?.methods.find((m) => m.code === method) || null,
+    [catalog, method],
+  );
+  const countries = selectedMethod?.countries || [];
   const operators = useMemo(() => {
-    if (!country) return [];
-    if (method === "auto" && status?.soleaspay_services_by_country?.[country]) {
-      return (status.soleaspay_services_by_country[country] as any[]).map((s) => ({
-        code: String(s.id), label: s.label,
-      }));
-    }
-    if (method === "bt-momo" && btStatus?.countries) {
-      const c = (btStatus.countries as any[]).find((x) => x.code === country);
-      return c ? c.operators.map((o: any) => ({ code: o.code, label: o.label })) : [];
-    }
-    return [];
-  }, [country, method, status, btStatus]);
+    if (!selectedMethod || method !== "mobile") return [];
+    const c = countries.find((x) => x.code === country);
+    return c ? c.operators : [];
+  }, [selectedMethod, method, country, countries]);
 
-  const goPay = async () => {
+  const activate = async () => {
     setErr(null); setLoading(true);
     try {
-      if (method === "auto") {
-        const svc = (status.soleaspay_services_by_country[country] as any[]).find(
-          (x) => String(x.id) === operator,
-        );
-        const r = await api.post<any>("/payments/soleaspay/initiate", {
-          level: 1, country_code: country, service_id: parseInt(operator, 10),
-          phone, currency: svc?.currency || "XOF",
-        });
-        setRef(r.reference || r.order_id);
-        setPhase("pending"); setStep(4);
-      } else if (method === "bt-momo") {
-        const r = await api.post<any>("/payments/biztranspay/mobile/initiate", {
-          country, operator_code: operator, phone,
-        });
-        setRef(r.reference);
-        setPhase("pending"); setStep(4);
-      } else if (method === "bt-crypto") {
-        const r = await api.post<any>("/payments/biztranspay/crypto/initiate", {});
-        setRef(r.reference);
-        setCryptoAddr({ address: r.deposit_address, qr: r.qr_data,
-                        amount: r.amount, asset: r.asset_code });
-        setPhase("pending"); setStep(4);
+      // 1) Exchange typed password for a short-lived pwd_confirm JWT.
+      const cx = await api.post<{ confirm_token: string }>(
+        "/auth/confirm-password", { password: pwd },
+      );
+      const confirmToken = cx.confirm_token;
+      if (!confirmToken) throw new Error("Confirmation impossible.");
+      // 2) Then call /payments/activate with the JWT.
+      const body: any = { method };
+      if (method === "mobile") {
+        body.country = country; body.operator = operator; body.phone = phone;
       }
+      const r = await api.post<any>("/payments/activate", body, {
+        headers: { "X-Password-Confirm": confirmToken },
+      });
+      setRef(r.reference);
+      if (r.method === "crypto") {
+        setCryptoAddr({
+          address: r.deposit_address, qr: r.qr_data,
+          amount: r.amount, asset: r.asset_code, network: r.network,
+        });
+      }
+      setPhase("pending"); setStep(5);
     } catch (e: any) {
-      setErr(e?.detail || e?.message || "Erreur lors du lancement du paiement.");
+      const msg = e?.detail || e?.message || "Erreur lors du lancement du paiement.";
+      setErr(msg.includes("Token de confirmation") ? "Mot de passe incorrect." : msg);
     } finally { setLoading(false); }
   };
 
   // Poll status while pending
   useEffect(() => {
     if (phase !== "pending" || !ref) return;
+    let missed = 0;
     const t = setInterval(async () => {
       try {
-        const r = await api.get<any>(`/payments/status/${ref}`);
+        const r = await api.get<any>(`/payments/${ref}/status`);
+        missed = 0;
         const s = String(r.status || "").toLowerCase();
         if (["paid", "success", "validated", "completed"].includes(s)) {
           setPhase("success"); await refresh?.();
-          setTimeout(() => router.replace("/(app)/dashboard" as any), 2000);
+          setTimeout(() => router.replace("/(app)/dashboard" as any), 2200);
         } else if (["failed", "rejected", "cancelled", "canceled", "expired"].includes(s)) {
           setPhase("failed");
         }
-      } catch {}
+      } catch {
+        missed += 1;
+        if (missed >= 6) {
+          setErr("Impossible de vérifier le paiement. Actualisez la page.");
+        }
+      }
     }, 5000);
     return () => clearInterval(t);
   }, [phase, ref, refresh, router]);
 
-  const canNextFromMethod = !!method;
-  const canNextFromCountry = !!country || method === "bt-crypto";
-  const canNextFromOperator = !!operator || method === "bt-crypto";
-  const canPay = method === "bt-crypto" || (phone.length >= 6 && !!operator);
+  const canGoStep2 = !!method && !!selectedMethod?.available;
+  const canGoStep3 = method === "crypto" || !!country;
+  const canGoStep4 = method === "crypto" || !!operator;
+  const canActivate = pwd.length >= 4 && (
+    method === "crypto" ||
+    (!!operator && phone.replace(/\s/g, "").length >= 6)
+  );
+
+  const stepCount = method === "crypto" ? 2 : 5;
+  const clampedStep = Math.min(step, stepCount);
 
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => (step > 1 ? setStep((step - 1) as any) : router.back())} style={styles.iconBtn} testID="pay-back">
+        <TouchableOpacity
+          onPress={() => (step > 1 && phase !== "success" ? setStep((step - 1) as any) : router.back())}
+          style={styles.iconBtn} testID="pay-back"
+        >
           <Ionicons name="chevron-back" size={22} color={theme.colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Activer mon compte</Text>
         <View style={{ width: 40 }} />
       </View>
       <View style={styles.progressRow}>
-        {[1, 2, 3, 4].map((n) => (
-          <View key={n} style={[styles.progressPill, step >= n && styles.progressPillActive]} />
+        {Array.from({ length: stepCount }, (_, i) => i + 1).map((n) => (
+          <View key={n} style={[styles.progressPill, clampedStep >= n && styles.progressPillActive]} />
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-        {step === 1 && (
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+        {!catalog && !err && (
+          <View style={{ padding: 40, alignItems: "center" }}>
+            <ActivityIndicator color={theme.colors.primary} />
+          </View>
+        )}
+
+        {/* ── STEP 1 — Method ─────────────────────────────────────────── */}
+        {step === 1 && catalog && (
           <View testID="pay-step-method">
-            <Text style={styles.sTitle}>1. Méthode de paiement</Text>
+            <Text style={styles.sTitle}>Sélectionner le mode de paiement</Text>
             <Text style={styles.sSub}>Choisissez comment vous voulez activer votre compte.</Text>
-            {methods.length === 0 && (
-              <Text style={styles.warn}>⚠ Aucune méthode disponible pour l'instant. Contactez le support.</Text>
-            )}
-            {methods.map((m) => (
+            {catalog.methods.map((m) => (
               <TouchableOpacity
-                key={m.key}
-                style={[styles.card, method === m.key && styles.cardActive]}
-                onPress={() => { setMethod(m.key); setCountry(""); setOperator(""); }}
-                testID={`pay-method-${m.key}`}
+                key={m.code}
+                disabled={!m.available}
+                onPress={() => { if (m.available) { setMethod(m.code); setCountry(""); setOperator(""); } }}
+                style={[styles.row, method === m.code && styles.rowActive, !m.available && styles.rowDisabled]}
+                testID={`pay-method-${m.code}`}
               >
-                <View style={styles.cardIcon}>
-                  <Ionicons name={m.icon} size={22} color={theme.colors.primary} />
+                <View style={styles.rowIcon}>
+                  <Ionicons
+                    name={m.code === "mobile" ? "phone-portrait" : "logo-bitcoin"}
+                    size={20}
+                    color={m.available ? theme.colors.primary : theme.colors.textSecondary}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardT}>{m.label}</Text>
-                  <Text style={styles.cardS}>{m.sub}</Text>
+                  <Text style={[styles.rowT, !m.available && { color: theme.colors.textSecondary }]}>
+                    {m.code === "mobile" ? "📱 Paiement Mobile" : "₿ Crypto"}
+                  </Text>
+                  {!m.available && (
+                    <Text style={styles.rowSub}>Non disponible actuellement.</Text>
+                  )}
                 </View>
-                {method === m.key ? (
+                {method === m.code && (
                   <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
                 )}
               </TouchableOpacity>
             ))}
+            {catalog.methods.every((m) => !m.available) && (
+              <Text style={styles.warn}>⚠ Aucun mode de paiement n'est actuellement disponible. Contactez le support.</Text>
+            )}
           </View>
         )}
 
-        {step === 2 && method !== "bt-crypto" && (
+        {/* ── STEP 2 — Country ────────────────────────────────────────── */}
+        {step === 2 && method === "mobile" && (
           <View testID="pay-step-country">
-            <Text style={styles.sTitle}>2. Sélectionnez votre pays</Text>
-            <Text style={styles.sSub}>Seuls les pays pris en charge par la méthode sélectionnée sont affichés.</Text>
-            {countries.map(([code]) => (
+            <Text style={styles.sTitle}>Sélectionner votre pays</Text>
+            <Text style={styles.sSub}>Seuls les pays où le paiement mobile est disponible sont affichés.</Text>
+            {countries.map((c) => (
               <TouchableOpacity
-                key={code}
-                style={[styles.card, country === code && styles.cardActive]}
-                onPress={() => { setCountry(code); setOperator(""); }}
-                testID={`pay-country-${code}`}
+                key={c.code}
+                style={[styles.row, country === c.code && styles.rowActive]}
+                onPress={() => { setCountry(c.code); setOperator(""); }}
+                testID={`pay-country-${c.code}`}
               >
-                <Text style={{ fontSize: 26 }}>{FLAGS[code] || "🌍"}</Text>
-                <Text style={[styles.cardT, { marginLeft: 10, flex: 1 }]}>{NAMES[code] || code}</Text>
-                {country === code ? (
+                <Text style={{ fontSize: 24 }}>{FLAGS[c.code] || "🌍"}</Text>
+                <Text style={[styles.rowT, { marginLeft: 12, flex: 1 }]}>
+                  {NAMES[c.code] || c.code}
+                </Text>
+                {country === c.code && (
                   <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} />
-                ) : null}
+                )}
               </TouchableOpacity>
             ))}
+            {countries.length === 0 && (
+              <Text style={styles.warn}>⚠ Aucun pays n'est disponible pour ce mode.</Text>
+            )}
           </View>
         )}
 
-        {step === 3 && method !== "bt-crypto" && (
+        {/* ── STEP 3 — Operator ───────────────────────────────────────── */}
+        {step === 3 && method === "mobile" && (
           <View testID="pay-step-operator">
-            <Text style={styles.sTitle}>3. Opérateur et numéro</Text>
-            <Text style={styles.sSub}>Sélectionnez votre opérateur Mobile Money puis saisissez votre numéro.</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-              {operators.map((op) => (
-                <TouchableOpacity
-                  key={op.code}
-                  style={[styles.opChip, operator === op.code && styles.opChipActive]}
-                  onPress={() => setOperator(op.code)}
-                  testID={`pay-operator-${op.code}`}
-                >
-                  <Text style={[styles.opChipT, operator === op.code && { color: "#fff" }]}>{op.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={[styles.label, { marginTop: 18 }]}>Numéro Mobile Money</Text>
+            <Text style={styles.sTitle}>Sélectionner votre opérateur</Text>
+            <Text style={styles.sSub}>Choisissez votre opérateur Mobile Money.</Text>
+            {operators.map((op) => (
+              <TouchableOpacity
+                key={op.code}
+                style={[styles.row, operator === op.code && styles.rowActive]}
+                onPress={() => setOperator(op.code)}
+                testID={`pay-operator-${op.code}`}
+              >
+                <View style={styles.rowIcon}>
+                  <Ionicons name="cellular" size={18} color={theme.colors.primary} />
+                </View>
+                <Text style={[styles.rowT, { flex: 1 }]}>{op.label}</Text>
+                {operator === op.code && (
+                  <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+            {operators.length === 0 && (
+              <Text style={styles.warn}>⚠ Aucun opérateur disponible pour ce pays.</Text>
+            )}
+          </View>
+        )}
+
+        {/* ── STEP 4 — Phone + Password ───────────────────────────────── */}
+        {step === 4 && method === "mobile" && (
+          <View testID="pay-step-phone">
+            <Text style={styles.sTitle}>Votre numéro Mobile Money</Text>
+            <Text style={styles.sSub}>Vous recevrez une demande de paiement à ce numéro.</Text>
+            <Text style={styles.label}>Numéro de téléphone</Text>
             <TextInput
               style={styles.input}
-              value={phone}
-              onChangeText={setPhone}
+              value={phone} onChangeText={setPhone}
               placeholder="ex : 90 00 00 00"
               keyboardType="phone-pad"
               placeholderTextColor={theme.colors.textSecondary}
               testID="pay-phone"
             />
+            <Text style={[styles.label, { marginTop: 14 }]}>Mot de passe (confirmation)</Text>
+            <TextInput
+              style={styles.input}
+              value={pwd} onChangeText={setPwd}
+              placeholder="Votre mot de passe"
+              secureTextEntry
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="pay-password"
+            />
+            <Text style={styles.hint}>
+              Résumé : {NAMES[country] || country} · {operators.find((o) => o.code === operator)?.label || operator}
+            </Text>
           </View>
         )}
 
-        {step === 4 && (
-          <View testID="pay-step-confirm" style={{ gap: 12 }}>
-            <Text style={styles.sTitle}>
-              {phase === "success" ? "✅ Compte activé" : phase === "failed" ? "❌ Paiement échoué" : "⏳ Paiement en cours"}
+        {/* Crypto: single confirmation step */}
+        {step === 2 && method === "crypto" && (
+          <View testID="pay-step-crypto-confirm">
+            <Text style={styles.sTitle}>Confirmer l'activation Crypto</Text>
+            <Text style={styles.sSub}>
+              Cliquez sur "Activer mon compte" pour obtenir l'adresse de dépôt.
             </Text>
-            {phase === "pending" && <ActivityIndicator size="large" color={theme.colors.primary} />}
-            {method !== "bt-crypto" && phase === "pending" && (
-              <Text style={styles.sSub}>Une demande de paiement a été envoyée sur votre téléphone. Confirmez-la pour activer votre compte Niveau 1.</Text>
-            )}
-            {method === "bt-crypto" && cryptoAddr && phase === "pending" && (
-              <View style={styles.cryptoBox}>
-                <Text style={styles.cardT}>Envoyer {cryptoAddr.amount} {cryptoAddr.asset || "USDT"} ({btStatus?.network || "BEP20"}) à :</Text>
-                <Text selectable style={styles.addr}>{cryptoAddr.address}</Text>
-                {cryptoAddr.qr && (
-                  <Image source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(cryptoAddr.qr)}` }} style={{ width: 200, height: 200, alignSelf: "center", marginTop: 12 }} />
+            <Text style={[styles.label, { marginTop: 14 }]}>Mot de passe (confirmation)</Text>
+            <TextInput
+              style={styles.input}
+              value={pwd} onChangeText={setPwd}
+              placeholder="Votre mot de passe"
+              secureTextEntry
+              placeholderTextColor={theme.colors.textSecondary}
+              testID="pay-password"
+            />
+          </View>
+        )}
+
+        {/* ── STEP 5 (or 3 crypto) — Result ───────────────────────────── */}
+        {step === 5 && (
+          <View testID="pay-step-result" style={{ gap: 12 }}>
+            <Text style={styles.sTitle}>
+              {phase === "success" ? "✅ Compte activé" :
+               phase === "failed" ? "❌ Paiement échoué" :
+               "⏳ Paiement en cours"}
+            </Text>
+            {phase === "pending" && (
+              <>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                {method === "mobile" && (
+                  <Text style={styles.sSub}>
+                    Une demande de paiement a été envoyée sur votre téléphone.
+                    Confirmez-la pour activer votre compte Niveau 1.
+                  </Text>
                 )}
-              </View>
+                {method === "crypto" && cryptoAddr?.address && (
+                  <View style={styles.cryptoBox}>
+                    <Text style={styles.rowT}>
+                      Envoyer {cryptoAddr.amount} {cryptoAddr.asset || "USDT"} ({cryptoAddr.network || "BEP20"}) à :
+                    </Text>
+                    <Text selectable style={styles.addr}>{cryptoAddr.address}</Text>
+                    {cryptoAddr.qr && (
+                      <Image
+                        source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(cryptoAddr.qr)}` }}
+                        style={{ width: 200, height: 200, alignSelf: "center", marginTop: 12 }}
+                      />
+                    )}
+                  </View>
+                )}
+              </>
             )}
             {phase === "success" && (
-              <Text style={styles.sSub}>🎉 Votre Niveau 1 est maintenant actif. Redirection vers votre tableau de bord…</Text>
+              <Text style={styles.sSub}>🎉 Votre Niveau 1 est activé. Redirection vers votre tableau de bord…</Text>
             )}
             {phase === "failed" && (
-              <TouchableOpacity onPress={() => { setPhase("idle"); setStep(1); setRef(null); }} style={styles.retryBtn}>
+              <TouchableOpacity
+                onPress={() => { setPhase("idle"); setStep(1); setRef(null); setPwd(""); }}
+                style={styles.retryBtn} testID="pay-retry"
+              >
                 <Text style={styles.retryT}>Réessayer</Text>
               </TouchableOpacity>
             )}
@@ -293,21 +357,42 @@ export default function Pay() {
         {err && <Text style={styles.err}>❌ {err}</Text>}
       </ScrollView>
 
-      {step < 4 && (
+      {step < 5 && (
         <View style={styles.footer}>
           <TouchableOpacity
-            style={[styles.cta, (loading || (step === 1 && !canNextFromMethod) || (step === 2 && !canNextFromCountry) || (step === 3 && !canPay)) && { opacity: 0.4 }]}
-            disabled={loading || (step === 1 && !canNextFromMethod) || (step === 2 && !canNextFromCountry) || (step === 3 && !canPay)}
+            style={[styles.cta, ((step === 1 && !canGoStep2)
+                                 || (step === 2 && method === "mobile" && !canGoStep3)
+                                 || (step === 3 && !canGoStep4)
+                                 || (step === 4 && !canActivate)
+                                 || (step === 2 && method === "crypto" && !canActivate)
+                                 || loading) && { opacity: 0.4 }]}
+            disabled={loading
+              || (step === 1 && !canGoStep2)
+              || (step === 2 && method === "mobile" && !canGoStep3)
+              || (step === 3 && !canGoStep4)
+              || (step === 4 && !canActivate)
+              || (step === 2 && method === "crypto" && !canActivate)}
             onPress={() => {
               if (step === 1) {
-                if (method === "bt-crypto") { goPay(); } else { setStep(2); }
-              } else if (step === 2) { setStep(3); }
-              else if (step === 3) { goPay(); }
+                if (method === "crypto") { /* stay on step 2 = confirm */ setStep(2); }
+                else setStep(2);
+              }
+              else if (step === 2) {
+                if (method === "crypto") activate();
+                else setStep(3);
+              }
+              else if (step === 3) setStep(4);
+              else if (step === 4) activate();
             }}
             testID="pay-next"
           >
-            {loading ? <ActivityIndicator color="#fff" /> :
-              <Text style={styles.ctaT}>{step === 3 || (step === 1 && method === "bt-crypto") ? "Activer mon compte" : "Continuer"}</Text>}
+            {loading
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.ctaT}>
+                  {(step === 4 && method === "mobile") || (step === 2 && method === "crypto")
+                    ? "ACTIVER MON COMPTE"
+                    : "Continuer"}
+                </Text>}
           </TouchableOpacity>
         </View>
       )}
@@ -324,22 +409,21 @@ const styles = StyleSheet.create({
   progressPill: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.border },
   progressPillActive: { backgroundColor: theme.colors.primary },
   sTitle: { fontSize: 20, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 6 },
-  sSub: { color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
-  warn: { color: "#F97316", fontWeight: "700", fontSize: 12, padding: 10, backgroundColor: "#FEF3C7", borderRadius: 8 },
-  card: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
-  cardActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + "12" },
-  cardIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + "18", alignItems: "center", justifyContent: "center" },
-  cardT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14 },
-  cardS: { color: theme.colors.textSecondary, fontSize: 11.5, marginTop: 2 },
-  opChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
-  opChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  opChipT: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12 },
+  sSub: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 14 },
+  warn: { color: "#B45309", fontWeight: "700", fontSize: 12, padding: 10, backgroundColor: "#FEF3C7", borderRadius: 8, marginTop: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 },
+  rowActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + "12" },
+  rowDisabled: { opacity: 0.55 },
+  rowIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.primary + "18", alignItems: "center", justifyContent: "center" },
+  rowT: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 14 },
+  rowSub: { color: theme.colors.textSecondary, fontSize: 11.5, marginTop: 2 },
   label: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 12, marginBottom: 6 },
+  hint: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 14, fontStyle: "italic" },
   input: { padding: 12, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.textPrimary, fontSize: 15 },
   footer: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 14, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
   cta: { padding: 16, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: "center" },
   ctaT: { color: "#fff", fontWeight: "900", fontSize: 15 },
-  err: { color: theme.colors.danger, fontWeight: "700", fontSize: 12, marginTop: 12 },
+  err: { color: theme.colors.danger, fontWeight: "700", fontSize: 13, marginTop: 12, padding: 12, backgroundColor: "#FEE2E2", borderRadius: 8 },
   cryptoBox: { padding: 14, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, gap: 8 },
   addr: { fontFamily: "monospace", fontSize: 12, padding: 10, backgroundColor: theme.colors.surfaceMuted, borderRadius: 8, color: theme.colors.textPrimary },
   refT: { color: theme.colors.textSecondary, fontSize: 11, textAlign: "center", marginTop: 6 },

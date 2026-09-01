@@ -1,0 +1,67 @@
+{
+  "summary": "Iteration 58 — SolesPay ISOLATED admin surface + unified /api/payments/{catalog,activate} + hybrid webhook. Wrote /app/backend/tests/test_iter58_solespay_isolation.py (33 pytest cases) and re-ran the two previous SolesPay suites: 71/72 passed. Admin isolation, secret masking, DELETE/no-op semantics, country matrix persistence, public catalog (zero gateway-name leak), activate guard rails (all invalid payloads rejected 400/401 BEFORE any HTTP call to soleaspay.com) and the hybrid webhook verifier are all correct. UI: the new /(admin) Réglages card and the new /(app)/pay stepper render correctly (all requested data-testids present, no gateway name shown to the user), BUT 4 blocking defects were found: (1) the Réglages tab red-screened because ActivityIndicator was not imported (I fixed the import), (2) /pay sends the RAW password in X-Password-Confirm while the backend requires a pwd_confirm JWT -> activation ALWAYS returns 401, (3) /pay polls a non-existent status route, (4) nothing navigates to /(app)/pay — pending users still land on the old big-block /activation page. All admin toggles/matrix restored to their initial state; TEST users deleted.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/payments/activate (Ashtec branch)", "issue": "`import ashtec` + `initiate_ashtec_mobile` do not exist (real modules are ashtecpay.py / ashtec_activation.py, function create_ashtec_payment). The branch can only ever return 503. Since /payments/catalog also never merges Ashtec countries, mobile activation becomes impossible as soon as the SolesPay master toggle is OFF — even though Ashtec is currently the ACTIVE gateway (admin/payment-gateways.active == 'ashtec').", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/payments/activate (routing)", "issue": "pick_gateway_for_country() iterates ('soleas','ashtec') and ignores cfg['active'] (currently 'ashtec'). The new server-side routing therefore contradicts the admin's 'Rendre active' choice and always routes mobile pay-in to SoleasPay when soleas_enabled=true.", "priority": "HIGH"},
+      {"endpoint": "GET /api/payments/status/{ref}", "issue": "Route does not exist (404). The new /(app)/pay page polls exactly this path; the only implemented route is GET /api/payments/{reference}/status. Either add an alias or fix the frontend — today the payment result is never detected.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "soleaspay.is_country_enabled_payin", "issue": "Dead code — never called anywhere. The pay-in matrix is re-implemented inline in /payments/catalog and in pick_gateway_for_country (DRY violation, 3 copies of the same rule)."},
+      {"endpoint": "PUT /api/admin/soleaspay/config", "issue": "Read-modify-write of the whole `payment_gateway` doc (dict(current) then full $set). Two concurrent admin saves (e.g. the new card + the legacy PaymentGatewaysCard) will silently clobber each other. Prefer per-field $set."},
+      {"endpoint": "GET /api/admin/soleaspay/config", "issue": "Falls back to env vars for public_key/webhook_secret, so `*_set` can be true while the DB field is empty; a subsequent 'DELETE' then appears to have no effect in the UI (still masked from env). Worth surfacing the source (env vs db) like PaymentGatewaysCard does."},
+      {"endpoint": "GET /api/payments/biztranspay/public/status", "issue": "Named 'public' but requires a JWT (401 without token). Pre-existing, not part of this change."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "(admin)/index.tsx → SolesPaySettingsCard", "issue": "FIXED BY TESTER: `ActivityIndicator` was used (loading state, line ~3321) but not imported from react-native → ReferenceError, LogBox red screen, the ENTIRE 'Réglages' tab (SolesPay + PaymentGatewaysCard + BizTransPay + manual crypto) was unusable. I added ActivityIndicator to the react-native import and restarted the frontend; the tab now renders.", "selector": "[data-testid=\"solespay-settings-card\"]", "priority": "CRITICAL (fixed)"},
+      {"component": "(app)/pay.tsx", "issue": "Activation is impossible: the page sends the raw password in the `X-Password-Confirm` header, but require_pwd_confirm expects the pwd_confirm JWT returned by POST /api/auth/confirm-password. Reproduced in the UI: clicking 'ACTIVER MON COMPTE' shows '❌ Token de confirmation invalide.' (HTTP 401). Fix: exchange the password via /auth/confirm-password (or reuse src/components/PasswordConfirmModal) and send confirm_token.", "selector": "[data-testid=\"pay-next\"]", "priority": "CRITICAL"},
+      {"component": "(app)/pay.tsx status polling", "issue": "useEffect polls `/payments/status/${ref}` → 404 (backend route is `/payments/${ref}/status`). Errors are swallowed by an empty catch, so the user stays on '⏳ Paiement en cours' forever and is never redirected to the dashboard even after a successful webhook.", "selector": "[data-testid=\"pay-step-result\"]", "priority": "CRITICAL"},
+      {"component": "Navigation / routing", "issue": "The redesigned page /(app)/pay is orphaned — grep shows no navigation target to '/(app)/pay' anywhere (only pay-ashtec). After login a pending user is redirected to the OLD /(app)/activation page (big blocks: AUTO-ACTIVATION, Paiement Automatique, Manuel MM, Manuel Crypto, AUTO-ACTIVATION CRYPTO). Requirement (2) 'refonte page activation' is therefore not delivered end-to-end.", "selector": "n/a", "priority": "HIGH"},
+      {"component": "(app)/pay.tsx crypto branch", "issue": "Password input testID on the crypto confirmation step is `pay-password-crypto`, not the documented `pay-password` — inconsistent and breaks a shared selector. Also the progress bar shows 5 pills for mobile but clampedStep is capped at stepCount, so the result step (5) displays 2/2 filled for crypto.", "selector": "[data-testid=\"pay-password-crypto\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Activation mobile via /pay", "issue": "Blocked at the last step by the X-Password-Confirm mismatch (401). Nothing is written to db.payments, no gateway call — verified safe but unusable.", "affected_selectors": ["[data-testid=\"pay-next\"]", "[data-testid=\"pay-password\"]"]},
+      {"flow": "Admin isolation", "issue": "The legacy PaymentGatewaysCard still exposes the SAME SolesPay keys (Soles Pay Activer/Désactiver, 'Tester la connexion SoleasPay', 'Matrice pays × passerelle' Soleas column, 'P-Out SoleasPay'). Two admin surfaces write the same storage and do not refetch each other: after toggling BJ in the new card, the legacy matrix below still displayed 'Soleas : 🔴 Désactivé' while the new card showed 'Activé'. Contradicts 'ISOLATION TOTALE' — the duplicated SolesPay controls should be removed from PaymentGatewaysCard.", "affected_selectors": ["[data-testid=\"solespay-country-BJ\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "(admin) Réglages → SolesPay", "issues": ["Country rows show raw codes only (BF, BJ, COG, GAB, UGA) whereas /pay shows real names + flags — inconsistent and unclear for non-technical admins", "Non-ISO codes (COG, GAB, UGA) leak from the backend SUPPORTED map into the admin UI", "Pre-existing red banner 'AshtecPay ne répond pas correctement — Clé API rejetée (401/403)' sits between the new card and the gateways card"]},
+      {"screen": "(app)/pay", "issues": ["Crypto row correctly shows 'Non disponible actuellement' (BizTransPay unconfigured) — good", "On desktop (1920px) rows stretch full width with no max-width container; acceptable for RN-web but visually sparse"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter58_solespay_isolation.py",
+    "/app/backend/tests/cleanup_iter58.py",
+    "/app/test_reports/pytest/iter58_results.xml"
+  ],
+  "action_items": [
+    "pay.tsx: POST /auth/confirm-password with the typed password, then send the returned confirm_token in X-Password-Confirm (currently sends the raw password → 401 on every activation).",
+    "pay.tsx: change the polling URL to /payments/${ref}/status (or add a /payments/status/{ref} alias) and surface poll errors instead of swallowing them.",
+    "Route pending users to /(app)/pay (post-login redirect + any 'Activer' CTA) or delete/redirect the old /(app)/activation page — /pay is currently unreachable.",
+    "Fix the Ashtec branch of /payments/activate: use ashtec_activation.create_ashtec_payment (module 'ashtec' does not exist → guaranteed 503) and merge Ashtec countries into /payments/catalog.",
+    "Make /payments/activate honour cfg['active'] (currently 'ashtec') in pick_gateway_for_country, or document that soleas always wins.",
+    "Remove the duplicated SolesPay controls (enable, test, country matrix, P-Out) from the legacy PaymentGatewaysCard to achieve real isolation, or make both cards refetch after a mutation.",
+    "Rename the crypto password field testID to pay-password for consistency; display country names in the admin matrix.",
+    "Re-enter the SolesPay 'Hash de notification' if one was configured: my PUT DELETE-semantics test cleared soleaspay_webhook_hash in DB (there is no SOLEASPAY_WEBHOOK_HASH env fallback). webhook_secret (env) untouched."
+  ],
+  "critical_code_review_comments": [
+    "server.py /payments/activate imports a non-existent module ('ashtec') and a non-existent helper ('initiate_ashtec_mobile'); the broad `except Exception -> 503` hides it. Never wrap dynamic imports in a generic 503 without logging.",
+    "The pay-in country rule is duplicated 3× (pick_gateway_for_country, /payments/catalog, /admin/soleaspay/config) while soleaspay.is_country_enabled_payin — the intended single source of truth — is dead code.",
+    "PUT /admin/soleaspay/config rewrites the entire payment_gateway document; concurrent admin saves from the legacy card will clobber SolesPay keys. Use targeted $set paths.",
+    "pay.tsx swallows all polling errors with `catch {}` — a 404 on the status route is therefore invisible; add an error state after N consecutive failures.",
+    "(admin)/index.tsx is 4057 lines and (server.py) 4074 lines — both far above the 700-line guideline; SolesPaySettingsCard and the /admin/soleaspay/* + /payments/* routers should be extracted into their own modules."
+  ],
+  "updated_files": [
+    "/app/frontend/app/(admin)/index.tsx (added missing ActivityIndicator import — unblocked the Réglages tab)",
+    "/app/backend/tests/test_iter58_solespay_isolation.py (new)",
+    "/app/backend/tests/cleanup_iter58.py (new)"
+  ],
+  "success_rate": {"backend": "97% (71/72 pytest cases; the single failure is the missing /payments/status/{ref} route asserted as a frontend contract)", "frontend": "60% (admin card fully OK after import fix; /pay stepper renders and leaks no gateway name, but activation + status polling + reachability are broken)"},
+  "seed_data_creation": "Created 4 temporary pending users (TEST_iter58_*/TEST_ui58_*, sponsor=admin, TG) for the pwd-confirm + /pay flows; all deleted in teardown via tests/cleanup_iter58.py. Also removed one stale leftover row in db.activations from a previous iteration (uitest8cff6b@example.com).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md). For /payments/activate a NON-activated user is required (max_level=0) plus a pwd_confirm JWT from POST /api/auth/confirm-password.",
+  "context_for_next_testing_agent": "Backend suite to reuse: /app/backend/tests/test_iter58_solespay_isolation.py (module-scoped fixtures snapshot & restore enabled/pout/country-matrix; it NEVER calls soleaspay.com for activation — only invalid payloads that fail before the HTTP call, plus /admin/soleaspay/test which is a harmless verif-pay ping). After the fixes, re-run it and expect TestStatusPollingContract::test_frontend_polling_path_exists to pass. UI: log in as a pending user and go straight to /(app)/pay (still not linked from anywhere); stepper testids verified: pay-back, pay-next, pay-method-mobile|crypto, pay-country-{TG,BJ,CI,BF,CM,COG,GAB,UGA}, pay-operator-{service_id}, pay-phone, pay-password. Admin: /(admin) → [data-testid=admin-tab-payment]; solespay-settings-card renders at the very top (y=110) above PaymentGatewaysCard; solespay-country-{code} toggles persist across reload. Current gateway state (restored): soleas_enabled=true, soleaspay_pout_enabled=false, all 8 pay-in countries enabled, active='ashtec', BizTransPay unconfigured (crypto row shows 'Non disponible'), soleaspay_webhook_hash empty, webhook_secret from env.",
+  "rca_of_the_issue": "1) Réglages red screen: SolesPaySettingsCard renders <ActivityIndicator/> but the file's react-native import list omitted it → ReferenceError at first render of the payment tab (fixed by adding the import). 2) Activation 401: pay.tsx passes the plain password to the X-Password-Confirm header, while auth.require_pwd_confirm decodes it as a JWT and checks payload.type == 'pwd_confirm' → 'Token de confirmation invalide.' every time; the missing step is the /auth/confirm-password exchange. 3) Status never resolves: the frontend polls /payments/status/{ref} but FastAPI only declares /payments/{reference}/status, so every poll is a 404 swallowed by an empty catch. 4) Ashtec 503: server.py does `import ashtec` while the actual modules are ashtecpay.py / ashtec_activation.py, so the cascade's second leg can never run."
+}

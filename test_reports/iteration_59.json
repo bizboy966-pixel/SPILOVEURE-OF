@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 59 — re-validation of the 4 blocking defects from iteration 58 + FIX #5/#6 + regression. Wrote /app/backend/tests/test_iter59_solespay_fixes.py (27 cases) and re-ran the 5 previous SolesPay/activation suites: 96/97 pytest cases pass. FIX #1 (confirm-password JWT), FIX #2 (/payments/{ref}/status polling), FIX #3 (pending user redirected to /(app)/pay), FIX #5 (no duplicated SolesPay controls in PaymentGatewaysCard) and FIX #6 (pay-password testID unified) are ALL VERIFIED FIXED end-to-end in the browser: login as a pending user → /pay stepper (method → country → operator → phone+password) → POST /auth/confirm-password 200 → POST /payments/activate 200 {status: processing, gateway: soleaspay} → GET /payments/SPV-.../status 200 polled every 5 s, '⏳ Paiement en cours' + reference displayed. FIX #4 is only PARTIALLY fixed: the Ashtec branch of /payments/activate now really reaches ashtec_activation.create_ashtec_payment (no more `import ashtec` 503) and /payments/catalog merges Ashtec countries, and pick_gateway_for_country honours cfg['active'] — BUT the cascade still ignores each gateway's OWN country coverage, so with active='soleas' an Ashtec-only country (SN/ML/GA/NE/CD) advertised by the catalog is routed to SolesPay and dies with 400 'Opérateur invalide' instead of falling through to Ashtec. IMPORTANT ENV FINDING: Metro does NOT hot-reload edited files into the served web bundle in this preview — the stale bundle still contained router.replace('/(app)/activation'), which made FIX #3 look broken; `sudo supervisorctl restart frontend` was required (twice, reproducible).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/payments/activate + GET /api/admin/payment-gateways/route-check", "issue": "pick_gateway_for_country() only checks cfg['active'], {gw}_enabled and an explicit False in country_matrix — it never checks whether the gateway actually SUPPORTS the country. With active='soleas' (current state), country=SN returns 'soleas' (route-check confirms payin_gateway='soleas'), so activate for SN/ML/GA/NE/CD fails with 400 ('Opérateur invalide' / 'Opérateur non disponible ... chez SoleasPay') even though /payments/catalog advertises those countries via Ashtec. Fix: skip a gateway when country not in soleaspay.SUPPORTED (soleas) / ashtec_activation.COUNTRIES (ashtec) before returning it.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "AshtecPay /v1/collect", "issue": "Pre-existing infra issue, not a code defect: the Ashtec API key is rejected (HTTP 401 unauthorized). With active='ashtec', /payments/activate SN returns 400 'Clé API introuvable ou révoquée. (unauthorized • HTTP 401 • Wave Money / SN)'. The routing/branch code is correct but a real Ashtec activation cannot complete until ASHTECPAY_API_KEY is valid."},
+      {"endpoint": "PUT /api/admin/soleaspay/config & PUT /api/admin/payment-gateways", "issue": "Still read-modify-write of the whole payment_gateway doc (carried over from iter58); concurrent saves from the two admin cards can clobber each other."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "(admin)/index.tsx → PaymentGatewaysCard", "issue": "MINOR (isolation nit): the 'Soles Pay' block (🟢 Activé / 🔴 Désactiver + ✓ PASSERELLE ACTIVE) is still rendered inside PaymentGatewaysCard and writes the same soleas_enabled key as the master toggle in SolesPaySettingsCard; the two cards do not refetch each other, so toggling one leaves the other stale until reload. The 3 items explicitly requested (Tester la connexion SoleasPay, soleas country matrix, P-Out SoleasPay) ARE gone — verified in the DOM.", "selector": "[data-testid=\"payment-gateways-card\"]", "priority": "LOW"},
+      {"component": "(admin)/index.tsx → PaymentGatewaysCard", "issue": "Dead code left behind after the isolation refactor: runSoleasTest, toggleCountry, togglePoutMaster/togglePoutCountry + their state (soleasTest, matrix, poutEnabled, poutMatrix) are declared and call /admin/payment-gateways/soleaspay/{test,pout-country-matrix} but are never rendered. Should be deleted.", "selector": "n/a", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "(app)/pay — step 4", "issues": ["The 'Votre numéro Mobile Money' step shows BOTH the phone input AND the 'Mot de passe (confirmation)' input, while the 5-pill progress bar suggests password is a separate step — the 5th pill only ever lights up on the result screen", "Desktop (1920px): rows stretch full width with no max-width container (carried over from iter58)"]},
+      {"screen": "(admin) Réglages → SolesPay", "issues": ["Country rows still show raw/non-ISO codes (BF, BJ, COG, GAB, UGA) instead of names+flags as on /pay (carried over from iter58)", "Red banner '❌ AshtecPay ne répond pas correctement — Clé API rejetée (401/403)' remains (real infra issue, see backend minor)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter59_solespay_fixes.py",
+    "/app/backend/tests/cleanup_iter59.py",
+    "/app/test_reports/pytest/iter59_results.xml"
+  ],
+  "action_items": [
+    "Make pick_gateway_for_country() skip a gateway whose SUPPORTED/COUNTRIES map does not contain the country (SN/ML/GA/NE/CD must cascade to Ashtec even when active='soleas'). Today the catalog offers them and activate rejects them.",
+    "Restore a valid ASHTECPAY_API_KEY (env) — Ashtec /v1/collect answers 401 so the Ashtec leg can never complete a real activation.",
+    "Delete the leftover dead SolesPay handlers/state in PaymentGatewaysCard and decide whether the 'Soles Pay' enable/active block belongs there or only in SolesPaySettingsCard (add a cross-card refetch if it stays).",
+    "REMEMBER: after editing frontend files in this preview, run `sudo supervisorctl restart frontend` — Metro serves a stale web bundle otherwise (this is what made FIX #3 look unfixed)."
+  ],
+  "critical_code_review_comments": [
+    "pick_gateway_for_country() is the single routing decision point but has no notion of gateway coverage; /payments/catalog computes coverage independently. The two must share one helper or the catalog will keep advertising countries activate cannot serve.",
+    "ashtec_activation.create_ashtec_payment is called with operator=<display label> coming straight from the catalog; validate_country_operator() will 400 on any label mismatch — worth an explicit contract test once the API key works.",
+    "(admin)/index.tsx is still ~4050 lines and server.py ~4080 lines (>700-line guideline). SolesPaySettingsCard / PaymentGatewaysCard and the /payments/* + /admin/soleaspay/* routers should be extracted.",
+    "pay.tsx polling now surfaces an error after 6 consecutive failures — good; consider also stopping the interval on a terminal status to avoid an endless 5 s poll on 'failed'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter59_solespay_fixes.py (new, 27 cases)",
+    "/app/backend/tests/cleanup_iter59.py (new)",
+    "/app/backend/tests/test_iter58_solespay_isolation.py (fixed the stale TestStatusPollingContract assertion that still expected the buggy /payments/status/{ref} URL)",
+    "/app/frontend/app/(admin)/index.tsx (added missing testID=\"payment-gateways-card\" on the gateways Card — testability only)"
+  ],
+  "success_rate": {"backend": "99% (96/97 pytest cases; the single failure is the documented SN/ML/GA routing gap)", "frontend": "95% (FIX #1/#2/#3/#5/#6 verified end-to-end; only cosmetic/dead-code nits remain)"},
+  "seed_data_creation": "Created 6 temporary pending users (TEST_iter59_*) + 1 UI user (TEST_ui59_*) with sponsor=admin/TG. One real SoleasPay pay-in intent was initiated (status=processing, never completed) per instructions. ALL users + payments deleted via /app/backend/tests/cleanup_iter59.py — verified 0 leftovers in users/payments/activations/matrix_nodes.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin kossikotokou4@gmail.com / @Emma91972006. Pending users are created on the fly by the test module (password TestPwd#2026).",
+  "context_for_next_testing_agent": "Gateway state restored to the preview baseline: active='soleas', soleas_enabled=true, ashtec_enabled=false, soleaspay_pout_enabled=false, all 8 SolesPay pay-in countries enabled, soleaspay_webhook_hash EMPTY (webhook_hash_set=false), BizTransPay unconfigured (crypto row = 'Non disponible actuellement'). Reusable suites: tests/test_iter59_solespay_fixes.py (snapshots+restores active/enabled/pout; the only failing case is TestFix4AshtecRouting::test_activate_ashtec_only_country_when_soleas_is_active which documents the remaining routing gap — it will pass once pick_gateway_for_country checks country coverage). UI testids verified live: admin-tab-payment, solespay-settings-card (y=104, first), payment-gateways-card (added by me), pay-method-mobile|crypto, pay-country-{TG,BJ,CI,BF,CM,COG,GAB,UGA}, pay-operator-{service_id}, pay-phone, pay-password, pay-next, pay-back. CRITICAL ENV NOTE: restart the frontend supervisor after any frontend edit, otherwise the served Metro bundle is stale (reproduced twice).",
+  "rca_of_the_issue": "FIX #3 initially reproduced as FAILED (login → /activation). Root cause was NOT the code: the served expo-router web bundle still contained the pre-fix modules (grep of /node_modules/expo-router/entry.bundle showed router.replace('/(app)/activation') inside app/index.tsx and app/(app)/_layout.tsx while the source files had router.replace('/(app)/pay')). `supervisorctl restart frontend` rebuilt the bundle and the redirect worked immediately. The same stale-bundle behaviour was reproduced a second time when adding a testID. Remaining real defect: pick_gateway_for_country() returns the first ENABLED gateway whose country_matrix entry is not explicitly False, without checking that the gateway supports the country at all — so SN (Ashtec-only, advertised by /payments/catalog) is routed to SolesPay and activate returns 400 instead of cascading to Ashtec."
+}

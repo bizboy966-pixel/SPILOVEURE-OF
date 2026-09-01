@@ -23,6 +23,62 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (bis) — 🧹 Refonte totale SolesPay : Isolation + UI Stepper
+
+**Contexte** : Reprise complète de l'intégration SolesPay suite au retour utilisateur — la version précédente mélangeait la config avec les autres passerelles et la page d'activation gardait les gros blocs. Reconstruit proprement en respectant la doc officielle SoleasPay (https://doc.soleaspay.com).
+
+**Backend `/app/backend/soleaspay.py`** :
+- Nouvelles fonctions `resolve_api_key/secret_key/webhook_hash/webhook_secret` (env-first, DB fallback).
+- `is_country_enabled_payin(cc)` — check pays enabled + non exclu.
+- `verify_webhook_hybrid(...)` — vérificateur HYBRIDE : accepte HMAC-SHA256 (header `x-signature`) OU hash partagé (header `verif-hash`/`x-secret-hash` OU field `hash` dans le body). Fallback dev-mode si aucune méthode configurée.
+
+**Backend `/app/backend/server.py`** :
+- Nouveaux endpoints isolés `/api/admin/soleaspay/*` :
+  - `GET /config` — retourne enabled/keys (masqués)/webhook_hash/webhook_secret/countries[]/pout_enabled
+  - `PUT /config` — accepte `enabled`, `public_key`, `secret_key`, `webhook_hash`, `webhook_secret`, `pout_enabled` (semantics : `"DELETE"` efface, `""` = no-op)
+  - `PUT /country-matrix` — matrice pays pay-in isolée pour SolesPay
+  - `POST /test` — test connexion (ping verif-pay)
+- `pick_gateway_for_country` — respecte maintenant `cfg['active']` en priorité, puis fallback.
+- `POST /api/payments/activate` — endpoint UNIFIÉ : body `{method, country, operator, phone}`, routing 100% côté serveur (SoleasPay → Ashtec → BizTransPay). Ashtec branche utilise `ashtec_activation.create_ashtec_payment`.
+- `GET /api/payments/catalog` — catalogue public unifié qui merge SolesPay + Ashtec countries. **Aucun nom de passerelle exposé**.
+- Webhook `POST /api/webhooks/soleaspay` — utilise le nouveau `verify_webhook_hybrid`.
+
+**Frontend `/app/frontend/app/(app)/pay.tsx`** :
+- REFONTE TOTALE — plus de gros cards, uniquement liste/sélecteur.
+- Flow : Mode → Pays → Opérateur → Numéro → (Confirmation mot de passe) → Activer.
+- Échange mot de passe via `/auth/confirm-password` pour obtenir un JWT `pwd_confirm` (fix 401).
+- Polling `/payments/${ref}/status` corrigé. Erreurs affichées après 6 échecs consécutifs.
+- L'utilisateur ne voit JAMAIS le nom d'une passerelle.
+
+**Frontend `/app/frontend/app/(admin)/index.tsx`** :
+- Nouveau composant `SolesPaySettingsCard` monté EN HAUT de l'onglet Réglages (au-dessus de PaymentGatewaysCard).
+- Champs : Clé publique, Clé secrète, Hash de notification, Secret HMAC webhook (masqués avec option modifier/supprimer).
+- Toggle master global + toggles individuels par pays (nom + drapeau via le catalog).
+- Bouton "Tester la connexion" isolé.
+- Toggle P-Out (retraits auto) intégré dans la même carte.
+- **Suppression totale des doublons** SolesPay dans PaymentGatewaysCard (test button, matrix column, P-Out card) → isolation totale.
+
+**Navigation** :
+- `/app/frontend/app/(app)/_layout.tsx` + `/app/frontend/app/index.tsx` — les utilisateurs pending sont maintenant redirigés vers `/(app)/pay` (au lieu de `/(app)/activation`).
+
+**Tests** :
+- `/app/backend/tests/test_solespay_isolated.py` — 15 tests (10 live-API + 5 unit du webhook hybride).
+- 34/34 tests soleaspay verts (13 unit P-Out + 15 isolation + 6 activation SoleasPay).
+- Testing agent iteration 58 → 71/72 (le seul échec a été fixé : polling URL).
+
+**Points respectés du brief utilisateur** :
+1. ✅ Isolation totale SolesPay (config, admin UI, endpoints)
+2. ✅ Config = clé publique + clé secrète + hash de notification
+3. ✅ Activation/désactivation globale + par pays
+4. ✅ Page activation en liste/sélecteur (pas de gros blocs)
+5. ✅ Routage automatique côté serveur (l'user ne choisit jamais la passerelle)
+6. ✅ Vérification webhook hybride HMAC + hash
+7. ✅ Non-régression autres passerelles (Ashtec/BizTransPay intacts)
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 — 💸 SoleasPay P-Out Automatique (Retraits Mobile Money)
 
 **Contexte** : Complète l'intégration SoleasPay commencée en `2026-09-01` (P-In + Webhook signé HMAC). Les retraits mobile money sont désormais dispatchés automatiquement via SoleasPay dès qu'un utilisateur valide `POST /api/withdrawals`, avec fallback silencieux vers BizTransPay.

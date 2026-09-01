@@ -1134,12 +1134,14 @@ _PG_DEFAULTS = {
     "ashtec_api_key": "",
     # Country matrix for pay-IN gateway selection.
     "country_matrix": {},
-    # SoleasPay webhook HMAC secret (also readable from env override).
-    "soleaspay_webhook_secret": "",
-    # SoleasPay Pay-OUT (automatic Mobile Money disbursement).
-    # Master toggle — if False, no withdrawal is ever auto-dispatched via Soleas.
+    # SoleasPay webhook — hybrid verification (HMAC OR shared hash token).
+    "soleaspay_webhook_secret": "",   # HMAC-SHA256 secret
+    "soleaspay_webhook_hash": "",     # Shared hash token (verif-hash header / body.hash)
+    # SoleasPay ISOLATED credentials (admin-managed via /admin/soleaspay/*).
+    "soleaspay_public_key": "",       # x-api-key + public_apikey for bearer
+    "soleaspay_secret_key": "",       # private_secretkey for bearer JWT
+    # SoleasPay Pay-OUT.
     "soleaspay_pout_enabled": False,
-    # Per-country toggle map: {"TG": True, "BJ": False, ...}. Missing key = enabled.
     "soleaspay_pout_country_matrix": {},
 }
 
@@ -1176,6 +1178,9 @@ class PaymentGatewayUpdate(_PGBaseModel):
     # SoleasPay P-Out
     soleaspay_pout_enabled: Optional[bool] = None
     soleaspay_webhook_secret: Optional[str] = None   # "" to keep, "DELETE" to clear
+    soleaspay_webhook_hash: Optional[str] = None
+    soleaspay_public_key: Optional[str] = None
+    soleaspay_secret_key: Optional[str] = None
 
 
 # Note: the actual @admin_router routes are registered later in the file
@@ -1280,6 +1285,24 @@ def _register_payment_gateway_routes(router):
                 new["soleaspay_webhook_secret"] = ""
             elif sec:
                 new["soleaspay_webhook_secret"] = sec
+        if body.soleaspay_webhook_hash is not None:
+            h = body.soleaspay_webhook_hash.strip()
+            if h == "DELETE":
+                new["soleaspay_webhook_hash"] = ""
+            elif h:
+                new["soleaspay_webhook_hash"] = h
+        if body.soleaspay_public_key is not None:
+            k = body.soleaspay_public_key.strip()
+            if k == "DELETE":
+                new["soleaspay_public_key"] = ""
+            elif k:
+                new["soleaspay_public_key"] = k
+        if body.soleaspay_secret_key is not None:
+            k = body.soleaspay_secret_key.strip()
+            if k == "DELETE":
+                new["soleaspay_secret_key"] = ""
+            elif k:
+                new["soleaspay_secret_key"] = k
         # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [("soleas", new.get("soleas_enabled")),
@@ -1374,43 +1397,60 @@ import json as _json
 
 
 async def _soleaspay_webhook_secret(db) -> str:
-    env = (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
-    if env:
-        return env
-    cfg = await _load_payment_gateway(db)
-    return (cfg.get("soleaspay_webhook_secret") or "").strip()
-
-
-def _verify_soleaspay_signature(secret: str, raw: bytes, sig_header: str) -> bool:
-    if not secret or not sig_header:
-        return False
-    computed = _hmac.new(secret.encode(), raw, _hashlib.sha256).hexdigest()
-    return (_hmac.compare_digest(computed, sig_header) or
-            _hmac.compare_digest(f"sha256={computed}", sig_header))
+    """Legacy alias — resolves the HMAC secret from env or DB config."""
+    return await soleaspay.resolve_webhook_secret(db)
 
 
 async def pick_gateway_for_country(db, country: str) -> Optional[str]:
-    """Cascade Soleas → Ashtec based on global enable + per-country matrix."""
+    """Cascade based on admin's `active` preference AND per-gateway coverage.
+
+    A gateway is considered viable when:
+      1) it is globally enabled (soleas_enabled / ashtec_enabled)
+      2) the country is NOT explicitly disabled in country_matrix.<gw>.<CC>
+      3) the country IS actually served by that gateway's SDK
+         (soleaspay.SUPPORTED for soleas, ashtec_activation.COUNTRIES for ashtec)
+
+    Preference order: cfg['active'] first, then the other enabled gateways.
+    Returns None when no gateway can serve the country.
+    """
+    country = (country or "").upper()
     cfg = await _load_payment_gateway(db)
     matrix = cfg.get("country_matrix") or {}
-    for gw in ("soleas", "ashtec"):
+    active = cfg.get("active") or "soleas"
+    order = [active] + [g for g in ("soleas", "ashtec") if g != active]
+
+    # Pre-load Ashtec coverage lazily.
+    _ashtec_countries = None
+    def _ashtec_supports(cc: str) -> bool:
+        nonlocal _ashtec_countries
+        if _ashtec_countries is None:
+            try:
+                from ashtec_activation import COUNTRIES as _AC  # type: ignore
+                _ashtec_countries = set(_AC.keys())
+            except Exception:
+                _ashtec_countries = set()
+        return cc in _ashtec_countries
+
+    for gw in order:
         if not bool(cfg.get(f"{gw}_enabled")):
             continue
         gw_matrix = matrix.get(gw) or {}
         if country in gw_matrix and gw_matrix[country] is False:
             continue
+        # NEW — coverage check: don't route to a gateway that has no operator
+        # mapping for this country (otherwise activate() throws 400 later).
+        if gw == "soleas":
+            if country in soleaspay.EXCLUDED_COUNTRIES or country not in soleaspay.SUPPORTED:
+                continue
+        elif gw == "ashtec":
+            if not _ashtec_supports(country):
+                continue
         return gw
     return None
 
 
 async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
-    """Return the P-Out gateway to use for a given country, or None.
-
-    Preference: soleaspay > biztranspay. SoleasPay is chosen only when the
-    global P-Out master switch is ON AND the country isn't disabled AND the
-    country is in soleaspay.SUPPORTED. Otherwise the caller falls back to
-    BizTransPay (its own dispatcher enforces its own toggles).
-    """
+    """Return the P-Out gateway to use for a given country, or None."""
     country = (country or "").upper()
     cfg = await _load_payment_gateway(db)
     if (cfg.get("soleas_enabled")
@@ -1426,17 +1466,18 @@ async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
 async def soleaspay_webhook(request: Request):
     db = request.app.state.db
     raw = await request.body()
-    hdr_name = (os.environ.get("SOLEASPAY_WEBHOOK_HEADER") or "x-signature").lower()
-    sig = (request.headers.get(hdr_name)
-           or request.headers.get("x-soleaspay-signature")
-           or request.headers.get("signature") or "")
-    secret = await _soleaspay_webhook_secret(db)
-    if not _verify_soleaspay_signature(secret, raw, sig):
-        raise HTTPException(401, "Signature invalide.")
+    hmac_secret = await soleaspay.resolve_webhook_secret(db)
+    webhook_hash = await soleaspay.resolve_webhook_hash(db)
     try:
         event = _json.loads(raw.decode("utf-8"))
     except Exception:
         raise HTTPException(400, "Payload invalide.")
+    ok, method_used = soleaspay.verify_webhook_hybrid(
+        raw_body=raw, event=event, headers=dict(request.headers),
+        hmac_secret=hmac_secret, webhook_hash=webhook_hash,
+    )
+    if not ok:
+        raise HTTPException(401, "Signature invalide.")
     data = event.get("data") if isinstance(event.get("data"), dict) else event
     event_id = event.get("id") or event.get("event_id") or data.get("event_id") or data.get("reference")
     order_id = data.get("order_id") or data.get("orderId") or data.get("reference")
@@ -1446,7 +1487,7 @@ async def soleaspay_webhook(request: Request):
         return {"received": True, "idempotent": True}
     if not order_id:
         await db.soleaspay_webhook_events.insert_one({
-            "event_id": event_id, "raw": event,
+            "event_id": event_id, "raw": event, "verify_method": method_used,
             "at": datetime.now(timezone.utc), "ignored": "no_order_id"})
         return {"received": True, "ignored": "no_order_id"}
 
@@ -1572,6 +1613,355 @@ async def admin_set_soleaspay_pout_matrix(
         upsert=True,
     )
     return {"ok": True, "matrix": clean}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SolesPay — ISOLATED admin surface (⚙️ Réglages → SolesPay)
+# All /admin/soleaspay/* routes read/write ONLY SoleasPay-scoped keys from
+# the shared `payment_gateway` doc. Other gateways (Ashtec/BizTransPay) are
+# never touched by these endpoints.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _mask(secret: str) -> str:
+    s = (secret or "").strip()
+    if not s:
+        return ""
+    if len(s) <= 6:
+        return "•" * len(s)
+    return s[:3] + "•" * max(4, len(s) - 6) + s[-3:]
+
+
+@api.get("/admin/soleaspay/config")
+async def admin_get_soleaspay_config(request: Request, admin=Depends(require_admin)):
+    """Return SoleasPay's isolated config. Secrets are masked in the response
+    (except for the country matrix)."""
+    db = request.app.state.db
+    cfg = await _load_payment_gateway(db)
+    matrix_all = cfg.get("country_matrix") or {}
+    soleas_matrix = matrix_all.get("soleas") or {}
+    # Countries default to True when missing from the matrix.
+    resolved = {cc: (soleas_matrix.get(cc, True) is not False)
+                for cc in soleaspay.SUPPORTED.keys()}
+    return {
+        "enabled": bool(cfg.get("soleas_enabled")),
+        "public_key": _mask(cfg.get("soleaspay_public_key") or os.environ.get("SOLEASPAY_API_KEY", "")),
+        "public_key_set": bool((cfg.get("soleaspay_public_key") or os.environ.get("SOLEASPAY_API_KEY", "")).strip()),
+        "secret_key": _mask(cfg.get("soleaspay_secret_key") or os.environ.get("SOLEASPAY_PRIVATE_KEY", "")),
+        "secret_key_set": bool((cfg.get("soleaspay_secret_key") or os.environ.get("SOLEASPAY_PRIVATE_KEY", "")).strip()),
+        "webhook_hash": _mask(cfg.get("soleaspay_webhook_hash") or os.environ.get("SOLEASPAY_WEBHOOK_HASH", "")),
+        "webhook_hash_set": bool((cfg.get("soleaspay_webhook_hash") or os.environ.get("SOLEASPAY_WEBHOOK_HASH", "")).strip()),
+        "webhook_secret": _mask(cfg.get("soleaspay_webhook_secret") or os.environ.get("SOLEASPAY_WEBHOOK_SECRET", "")),
+        "webhook_secret_set": bool((cfg.get("soleaspay_webhook_secret") or os.environ.get("SOLEASPAY_WEBHOOK_SECRET", "")).strip()),
+        "countries": [{"code": cc, "enabled": resolved[cc],
+                       "operators": [{"id": s["id"], "label": s["label"], "currency": s["currency"]}
+                                     for s in soleaspay.SUPPORTED[cc]]}
+                      for cc in sorted(soleaspay.SUPPORTED.keys())],
+        # P-Out cluster (kept side-by-side, same section).
+        "pout_enabled": bool(cfg.get("soleaspay_pout_enabled")),
+        "pout_country_matrix": cfg.get("soleaspay_pout_country_matrix") or {},
+    }
+
+
+class SoleaspayConfigIn(_PGBaseModel):
+    enabled: Optional[bool] = None
+    public_key: Optional[str] = None       # "" no-op, "DELETE" clears, other = set
+    secret_key: Optional[str] = None
+    webhook_hash: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    pout_enabled: Optional[bool] = None
+
+
+@api.put("/admin/soleaspay/config")
+async def admin_set_soleaspay_config(
+    body: SoleaspayConfigIn, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    current = await _load_payment_gateway(db)
+    new = dict(current)
+    if body.enabled is not None:
+        new["soleas_enabled"] = bool(body.enabled)
+    for src_field, dst_field in [
+        ("public_key", "soleaspay_public_key"),
+        ("secret_key", "soleaspay_secret_key"),
+        ("webhook_hash", "soleaspay_webhook_hash"),
+        ("webhook_secret", "soleaspay_webhook_secret"),
+    ]:
+        v = getattr(body, src_field)
+        if v is None:
+            continue
+        s = v.strip()
+        if s == "DELETE":
+            new[dst_field] = ""
+        elif s:
+            new[dst_field] = s
+    if body.pout_enabled is not None:
+        new["soleaspay_pout_enabled"] = bool(body.pout_enabled)
+    await db.app_settings.update_one(
+        {"key": "payment_gateway"},
+        {"$set": {"key": "payment_gateway", "value": new,
+                  "updated_at": datetime.now(timezone.utc),
+                  "updated_by": admin.get("username")}},
+        upsert=True,
+    )
+    return await admin_get_soleaspay_config(request, admin)
+
+
+class SoleaspayCountryMatrixIn(_PGBaseModel):
+    matrix: dict
+
+
+@api.put("/admin/soleaspay/country-matrix")
+async def admin_set_soleaspay_country_matrix(
+    body: SoleaspayCountryMatrixIn, request: Request, admin=Depends(require_admin),
+):
+    """Persist per-country PAY-IN toggle for SoleasPay only.
+
+    Payload: {"matrix": {"TG": true, "BJ": false, ...}}.
+    Missing countries default to enabled. Values coerced to bool. Codes upper.
+    """
+    db = request.app.state.db
+    if not isinstance(body.matrix, dict):
+        raise HTTPException(400, "matrix doit être un dict.")
+    clean: dict = {}
+    for k, v in body.matrix.items():
+        if not isinstance(k, str):
+            continue
+        clean[k.upper()] = bool(v)
+    current = await _load_payment_gateway(db)
+    country_matrix = dict(current.get("country_matrix") or {})
+    country_matrix["soleas"] = clean
+    current["country_matrix"] = country_matrix
+    await db.app_settings.update_one(
+        {"key": "payment_gateway"},
+        {"$set": {"key": "payment_gateway", "value": current,
+                  "updated_at": datetime.now(timezone.utc),
+                  "updated_by": admin.get("username")}},
+        upsert=True,
+    )
+    return {"ok": True, "matrix": clean}
+
+
+@api.post("/admin/soleaspay/test")
+async def admin_soleaspay_test(request: Request, admin=Depends(require_admin)):
+    """Ping SoleasPay verif-pay with a dummy order to validate credentials."""
+    db = request.app.state.db
+    key = await soleaspay.resolve_api_key(db)
+    if not key:
+        return {"ok": False, "error": "no_api_key",
+                "detail": "Clé publique SoleasPay non configurée."}
+    try:
+        # Send a benign verify with garbage IDs to check auth reachability.
+        # Any 2xx / 4xx (except 401) means credentials are OK.
+        r = await soleaspay.verify_payment(order_id="TEST-PING", pay_id="TEST-PING")
+        code = r.get("code")
+        msg = r.get("message") or ""
+        if code == 401 or "unauthorized" in msg.lower() or "invalid api key" in msg.lower():
+            return {"ok": False, "error": "auth", "detail": "Clé publique refusée par SoleasPay.",
+                    "sample": r}
+        return {"ok": True, "detail": "Clé publique acceptée. La passerelle répond.",
+                "sample": r, "countries_supported": len(soleaspay.SUPPORTED)}
+    except Exception as e:
+        return {"ok": False, "error": "network", "detail": str(e)[:200]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Unified activation endpoint — the front-end NEVER picks the gateway.
+# ═══════════════════════════════════════════════════════════════════════
+
+class ActivateIn(_PGBaseModel):
+    method: str                     # "mobile" | "crypto"
+    country: Optional[str] = None   # required for mobile
+    operator: Optional[str] = None  # required for mobile — service_id (as string)
+    phone: Optional[str] = None     # required for mobile
+
+
+@api.post("/payments/activate")
+async def payments_activate(
+    body: ActivateIn, request: Request, user=Depends(require_pwd_confirm),
+):
+    """Server-side routing: given {method, country, operator, phone} the
+    backend picks the correct gateway and calls its `initiate` handler.
+
+    Returns a normalized envelope:
+      {reference, gateway, status: "processing",
+       // crypto: deposit_address, qr_data, amount, asset_code, network}
+    """
+    db = request.app.state.db
+    method = (body.method or "").lower().strip()
+    if method not in ("mobile", "crypto"):
+        raise HTTPException(400, "Méthode invalide (mobile | crypto).")
+    if user.get("max_level", 0) >= 1:
+        raise HTTPException(400, "Votre niveau 1 est déjà activé.")
+
+    # ── CRYPTO ── delegated to BizTransPay (only crypto provider today).
+    if method == "crypto":
+        try:
+            from biztranspay import biztranspay_crypto_initiate
+            r = await biztranspay_crypto_initiate(request, user)
+            return {"reference": r.get("reference"), "gateway": "biztranspay",
+                    "method": "crypto", "status": "processing",
+                    "deposit_address": r.get("deposit_address"),
+                    "qr_data": r.get("qr_data"),
+                    "amount": r.get("amount"), "asset_code": r.get("asset_code"),
+                    "network": r.get("network")}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(503, f"Aucune passerelle crypto disponible : {e}")
+
+    # ── MOBILE ── SoleasPay → Ashtec cascade.
+    cc = (body.country or "").upper().strip()
+    op = (body.operator or "").strip()
+    phone = (body.phone or "").strip()
+    if not cc or not op or not phone:
+        raise HTTPException(400, "Pays, opérateur et numéro requis.")
+    gw = await pick_gateway_for_country(db, cc)
+    if not gw:
+        raise HTTPException(400, "Aucun opérateur de paiement disponible pour ce pays.")
+
+    if gw == "soleas":
+        # For SoleasPay `operator` is the service_id.
+        try:
+            svc_id = int(op)
+        except Exception:
+            raise HTTPException(400, "Opérateur invalide.")
+        svc = soleaspay.find_service(cc, svc_id)
+        if not svc:
+            raise HTTPException(400, "Opérateur non disponible pour ce pays chez SoleasPay.")
+        order_id = _new_order_id()
+        amount = LEVELS_BY_NUM[1]["price"]
+        currency = svc["currency"]
+        now = datetime.now(timezone.utc)
+        # Persist payment intent BEFORE calling provider to close idempotency gap.
+        await db.payments.insert_one({
+            "reference": order_id, "user_id": user["id"], "username": user["username"],
+            "email": user["email"], "level": 1, "amount": amount, "currency": currency,
+            "gateway": "soleaspay", "service_id": svc_id, "country": cc,
+            "operator_label": svc["label"], "phone": phone,
+            "status": "processing", "created_at": now, "updated_at": now,
+        })
+        try:
+            resp = await soleaspay.initiate_payment(
+                service_id=svc_id, wallet=phone, amount=amount, currency=currency,
+                order_id=order_id,
+                description=f"Activation niveau 1 - {user['username']}",
+                payer=user.get("full_name") or user["username"],
+                payer_email=user["email"],
+                success_url=f"{os.environ.get('PUBLIC_APP_URL', '')}/(app)/services?ref={order_id}",
+                failure_url=f"{os.environ.get('PUBLIC_APP_URL', '')}/(app)/services?ref={order_id}",
+            )
+        except Exception as e:
+            await db.payments.update_one({"reference": order_id},
+                                          {"$set": {"status": "failed", "error": str(e)[:300]}})
+            raise HTTPException(503, "SoleasPay indisponible pour l'instant.")
+        code = resp.get("code")
+        status_raw = str(resp.get("status") or "").upper()
+        if not resp.get("success") or code not in (200, 201) or status_raw == "FAILURE":
+            await db.payments.update_one({"reference": order_id},
+                                          {"$set": {"status": "failed",
+                                                    "error": resp.get("message") or "refused"}})
+            raise HTTPException(400, resp.get("message") or "Requête refusée par SoleasPay.")
+        return {"reference": order_id, "gateway": "soleaspay", "method": "mobile",
+                "status": "processing", "provider_reference": (resp.get("data") or {}).get("reference")}
+
+    if (gw == "ashtec"):
+        try:
+            from ashtec_activation import create_ashtec_payment  # type: ignore
+            amount = LEVELS_BY_NUM[1]["price"]
+            r = await create_ashtec_payment(
+                db=db, user=user, kind="activation",
+                amount=amount, country_code=cc,
+                operator=op, phone=phone,
+            )
+            return {"reference": r.get("reference"), "gateway": "ashtec",
+                    "method": "mobile", "status": r.get("status") or "processing"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(503, f"Passerelle Ashtec indisponible : {e}")
+    raise HTTPException(500, "Passerelle inconnue.")
+
+
+@api.get("/payments/catalog")
+async def payments_catalog(request: Request):
+    """Unified public catalog for the simplified /(app)/pay page.
+
+    Returns per method the countries + operators the CURRENT gateway config
+    can serve. The frontend renders ONLY this — no gateway names exposed.
+    """
+    db = request.app.state.db
+    cfg = await _load_payment_gateway(db)
+    matrix_all = cfg.get("country_matrix") or {}
+
+    # ── Mobile catalog: aggregate SoleasPay + Ashtec (if enabled).
+    mobile_countries: list = []
+    seen = set()
+    if cfg.get("soleas_enabled") and await soleaspay.is_configured_async(db):
+        soleas_matrix = matrix_all.get("soleas") or {}
+        for cc, ops in soleaspay.SUPPORTED.items():
+            if cc in soleaspay.EXCLUDED_COUNTRIES:
+                continue
+            if soleas_matrix.get(cc, True) is False:
+                continue
+            seen.add(cc)
+            mobile_countries.append({
+                "code": cc,
+                "operators": [{"code": str(op["id"]), "label": op["label"],
+                               "currency": op["currency"]} for op in ops],
+            })
+    # Merge Ashtec countries — only for countries not already covered.
+    if cfg.get("ashtec_enabled"):
+        try:
+            from ashtec_activation import COUNTRIES as ASHTEC_COUNTRIES  # type: ignore
+        except Exception:
+            ASHTEC_COUNTRIES = {}
+        ashtec_matrix = matrix_all.get("ashtec") or {}
+        for cc, info in ASHTEC_COUNTRIES.items():
+            if cc in seen:
+                continue
+            if ashtec_matrix.get(cc, True) is False:
+                continue
+            operators = info.get("operators") or []
+            if not operators:
+                continue
+            def _ash_op(o):
+                if isinstance(o, str):
+                    return {"code": o, "label": o, "currency": info.get("currency") or "XOF"}
+                if isinstance(o, (list, tuple)):
+                    return {"code": o[0], "label": o[1], "currency": info.get("currency") or "XOF"}
+                return {"code": o.get("code"), "label": o.get("label"),
+                        "currency": info.get("currency") or "XOF"}
+            mobile_countries.append({
+                "code": cc,
+                "operators": [_ash_op(op) for op in operators],
+            })
+
+    # ── Crypto catalog: BizTransPay only, single row.
+    crypto_available = False
+    crypto_info = None
+    try:
+        from biztranspay import _load_config as _bt_load_cfg  # type: ignore
+        bt_cfg = await _bt_load_cfg(db)
+        crypto_available = bool(
+            bt_cfg.get("enabled") and bt_cfg.get("public_key") and bt_cfg.get("secret_key")
+        )
+        if crypto_available:
+            crypto_info = {
+                "amount_usdt": float(bt_cfg.get("activation_amount_usdt") or 0),
+                "network": bt_cfg.get("activation_network"),
+            }
+    except Exception:
+        crypto_available = False
+        crypto_info = None
+
+    return {
+        "methods": [
+            {"code": "mobile", "label": "Paiement Mobile", "available": bool(mobile_countries),
+             "countries": mobile_countries},
+            {"code": "crypto", "label": "Crypto", "available": crypto_available,
+             "info": crypto_info},
+        ],
+    }
 
 
 

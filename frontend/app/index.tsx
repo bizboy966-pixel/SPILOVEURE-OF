@@ -21,7 +21,7 @@ export default function Index() {
       if (user.role === "admin") {
         router.replace("/(admin)");
       } else if (user.status === "pending" || user.max_level === 0) {
-        router.replace("/(app)/activation");
+        router.replace("/(app)/pay");
       } else {
         router.replace("/(app)/dashboard");
       }

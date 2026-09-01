@@ -1,24 +1,33 @@
 """SoleasPay v3 — pay-in (agent) + pay-out (automatic Mobile Money disbursement).
 
+Config is ISOLATED under `db.app_settings["payment_gateway"]` (existing doc, do
+not break others) but only these SoleasPay-scoped keys are ever read/written
+via the /api/admin/soleaspay/* routes:
+
+  - soleas_enabled              (global master)
+  - soleaspay_public_key        (x-api-key + public_apikey for bearer)
+  - soleaspay_secret_key        (private_secretkey for bearer)
+  - soleaspay_webhook_hash      (shared token embedded in webhook body/header)
+  - soleaspay_webhook_secret    (HMAC-SHA256 secret, hex-signed x-signature)
+  - country_matrix.soleas.<CC>  (per-country pay-in toggle)
+  - soleaspay_pout_enabled      (P-Out master)
+  - soleaspay_pout_country_matrix (per-country P-Out)
+
+The webhook accepts EITHER verification method (see verify_webhook).
+
 P-In flow:
   1) POST /api/agent/bills/v3 — sends a Mobile Money request to the user's phone
   2) GET  /api/agent/verif-pay — polled until the user confirms
-  3) Signed HMAC-SHA256 webhook confirms (see server.py::soleaspay_webhook)
+  3) Webhook confirms (see server.py::soleaspay_webhook)
 
-P-Out flow (added 2026-09-02):
+P-Out flow:
   1) POST /api/action/account/withdraw with header operation=4, service=<id>
-     — SoleasPay queues the payout ("PROCESSING", HTTP 201).
-  2) Same signed webhook receives WITHDRAW events → mark withdrawal completed/failed.
-
-Auth: same x-api-key as P-In (consistent with existing SoleasPay tenant). The
-official docs mention Bearer JWT for /api/action/* — if that becomes required
-in production, set SOLEASPAY_PAYOUT_BEARER=1 and provide the public/private
-keys via env; we then fetch a token from POST /api/action/auth.
+  2) Same webhook receives WITHDRAW events → mark withdrawal completed/failed.
 
 RDC (COD) is intentionally excluded from supported countries.
 """
 from __future__ import annotations
-import os, time, logging
+import os, time, hmac as _hmac, hashlib as _hashlib, logging
 from typing import Optional
 import httpx
 
@@ -43,7 +52,125 @@ EXCLUDED_COUNTRIES = {"COD"}  # RDC Congo - excluded per business rule
 
 
 def api_key() -> str:
+    """Deprecated env-only accessor. Use resolve_api_key(db) in async paths."""
     return os.environ.get("SOLEASPAY_API_KEY", "")
+
+
+async def resolve_api_key(db) -> str:
+    """Return the public API key (x-api-key). Env wins over DB for prod safety."""
+    env = (os.environ.get("SOLEASPAY_API_KEY") or "").strip()
+    if env:
+        return env
+    from motor.motor_asyncio import AsyncIOMotorDatabase  # noqa
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    cfg = doc.get("value") or {}
+    return (cfg.get("soleaspay_public_key") or "").strip()
+
+
+async def resolve_secret_key(db) -> str:
+    env = (os.environ.get("SOLEASPAY_PRIVATE_KEY") or "").strip()
+    if env:
+        return env
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    cfg = doc.get("value") or {}
+    return (cfg.get("soleaspay_secret_key") or "").strip()
+
+
+async def resolve_webhook_hash(db) -> str:
+    env = (os.environ.get("SOLEASPAY_WEBHOOK_HASH") or "").strip()
+    if env:
+        return env
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    cfg = doc.get("value") or {}
+    return (cfg.get("soleaspay_webhook_hash") or "").strip()
+
+
+async def resolve_webhook_secret(db) -> str:
+    env = (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
+    if env:
+        return env
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    cfg = doc.get("value") or {}
+    return (cfg.get("soleaspay_webhook_secret") or "").strip()
+
+
+async def is_configured_async(db) -> bool:
+    return bool(await resolve_api_key(db))
+
+
+async def is_country_enabled_payin(db, cc: str) -> bool:
+    """Pay-In gate: soleas_enabled=True AND country not disabled in matrix."""
+    cc = (cc or "").upper()
+    if cc in EXCLUDED_COUNTRIES or cc not in SUPPORTED:
+        return False
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    cfg = doc.get("value") or {}
+    if not cfg.get("soleas_enabled"):
+        return False
+    gw_matrix = (cfg.get("country_matrix") or {}).get("soleas") or {}
+    if cc in gw_matrix and gw_matrix[cc] is False:
+        return False
+    return True
+
+
+def verify_webhook_hybrid(
+    *, raw_body: bytes, event: dict, headers: dict,
+    hmac_secret: str, webhook_hash: str,
+) -> tuple[bool, str]:
+    """Verify a SoleasPay webhook using EITHER method.
+
+    Returns (ok, method_used). `method_used` is 'hmac', 'hash' or ''.
+
+    Method A — HMAC-SHA256:
+      If any signature header is provided AND `hmac_secret` is set → compare
+      hex(HMAC-SHA256(body, hmac_secret)) against the header value (also
+      accepts "sha256=<hex>" prefix).
+
+    Method B — shared hash token:
+      If `webhook_hash` is set AND any of these carries the same token:
+        - header `verif-hash` / `x-secret-hash` / `x-webhook-hash`
+        - `hash` / `verif_hash` / `secret_hash` field anywhere in the body
+      → accept.
+
+    Note: verification is skipped ONLY when neither an hmac_secret NOR a
+    webhook_hash is configured (dev mode). Otherwise a missing/invalid proof
+    rejects the call.
+    """
+    lower_headers = {k.lower(): v for k, v in (headers or {}).items()}
+    if not hmac_secret and not webhook_hash:
+        return True, "unverified"  # dev fallback — admin should set at least one
+
+    # A) HMAC
+    if hmac_secret:
+        sig = (lower_headers.get("x-signature")
+               or lower_headers.get("x-soleaspay-signature")
+               or lower_headers.get("signature")
+               or lower_headers.get("x-sp-signature") or "")
+        if sig:
+            computed = _hmac.new(hmac_secret.encode(), raw_body, _hashlib.sha256).hexdigest()
+            if _hmac.compare_digest(computed, sig) or _hmac.compare_digest(f"sha256={computed}", sig):
+                return True, "hmac"
+
+    # B) Shared hash token
+    if webhook_hash:
+        header_hash = (lower_headers.get("verif-hash")
+                       or lower_headers.get("x-secret-hash")
+                       or lower_headers.get("x-webhook-hash") or "")
+        if header_hash and _hmac.compare_digest(header_hash, webhook_hash):
+            return True, "hash"
+        # Look for the token in the body (top-level or under data)
+        body_candidates = []
+        for k in ("hash", "verif_hash", "secret_hash", "verifHash", "secretHash"):
+            if isinstance(event.get(k), str):
+                body_candidates.append(event[k])
+            d = event.get("data")
+            if isinstance(d, dict) and isinstance(d.get(k), str):
+                body_candidates.append(d[k])
+        for cand in body_candidates:
+            if _hmac.compare_digest(cand, webhook_hash):
+                return True, "hash"
+
+    return False, ""
 
 
 def is_configured() -> bool:
