@@ -57,41 +57,45 @@ def api_key() -> str:
 
 
 async def resolve_api_key(db) -> str:
-    """Return the public API key (x-api-key). Env wins over DB for prod safety."""
-    env = (os.environ.get("SOLEASPAY_API_KEY") or "").strip()
-    if env:
-        return env
-    from motor.motor_asyncio import AsyncIOMotorDatabase  # noqa
+    """Return the public API key (x-api-key).
+
+    Priority: ADMIN PANEL (DB) FIRST, then env as bootstrap fallback. This
+    ensures the value the admin sees & edits in `⚙️ Réglages → SolesPay` is
+    ALWAYS the one actually used by the integration.
+    """
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = doc.get("value") or {}
-    return (cfg.get("soleaspay_public_key") or "").strip()
+    db_val = (cfg.get("soleaspay_public_key") or "").strip()
+    if db_val:
+        return db_val
+    return (os.environ.get("SOLEASPAY_API_KEY") or "").strip()
 
 
 async def resolve_secret_key(db) -> str:
-    env = (os.environ.get("SOLEASPAY_PRIVATE_KEY") or "").strip()
-    if env:
-        return env
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = doc.get("value") or {}
-    return (cfg.get("soleaspay_secret_key") or "").strip()
+    db_val = (cfg.get("soleaspay_secret_key") or "").strip()
+    if db_val:
+        return db_val
+    return (os.environ.get("SOLEASPAY_PRIVATE_KEY") or "").strip()
 
 
 async def resolve_webhook_hash(db) -> str:
-    env = (os.environ.get("SOLEASPAY_WEBHOOK_HASH") or "").strip()
-    if env:
-        return env
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = doc.get("value") or {}
-    return (cfg.get("soleaspay_webhook_hash") or "").strip()
+    db_val = (cfg.get("soleaspay_webhook_hash") or "").strip()
+    if db_val:
+        return db_val
+    return (os.environ.get("SOLEASPAY_WEBHOOK_HASH") or "").strip()
 
 
 async def resolve_webhook_secret(db) -> str:
-    env = (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
-    if env:
-        return env
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = doc.get("value") or {}
-    return (cfg.get("soleaspay_webhook_secret") or "").strip()
+    db_val = (cfg.get("soleaspay_webhook_secret") or "").strip()
+    if db_val:
+        return db_val
+    return (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
 
 
 async def is_configured_async(db) -> bool:

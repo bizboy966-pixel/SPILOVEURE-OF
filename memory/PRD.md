@@ -23,6 +23,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (ter) — 🔑 Configuration dynamique SolesPay + Crypto UI fix
+
+**Bugs corrigés** (retour utilisateur) :
+1. **Anciennes clés .env écrasaient l'admin panel** — les fonctions `resolve_api_key/secret_key/webhook_hash/webhook_secret` faisaient `env FIRST, DB fallback`. Inversé : **DB (admin panel) FIRST, env fallback** de bootstrap uniquement. Testé end-to-end : PUT admin panel → source="db", DELETE → retombe proprement sur source="env".
+2. **Crypto affichait "Indisponible" malgré activation admin** — `/payments/catalog` requérait `enabled AND public_key AND secret_key`. Simplifié : `available` reflète UNIQUEMENT le toggle `enabled`. Si les clés manquent, l'erreur claire remonte au moment de l'activation (pas au affichage), et la card `pay.tsx` affiche un warning ⚠ informatif si `keys_configured=false`.
+
+**Changements** :
+- `soleaspay.py::resolve_*` — DB-first, env-fallback partout.
+- `server.py::admin_get_soleaspay_config` — expose maintenant `public_key_source`, `secret_key_source`, `webhook_hash_source`, `webhook_secret_source` ("db" | "env" | "") pour transparence admin.
+- `server.py::payments_catalog` — crypto.available = `bt_cfg.enabled`, avec `info.keys_configured` bool séparé pour info.
+- `pay.tsx` — étape crypto affiche un warning si `keys_configured=false` + précise montant/réseau.
+
+**Non-régression** : 34/34 tests SolesPay verts. BizTransPay/Ashtec intacts.
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 (bis) — 🧹 Refonte totale SolesPay : Isolation + UI Stepper
 
 **Contexte** : Reprise complète de l'intégration SolesPay suite au retour utilisateur — la version précédente mélangeait la config avec les autres passerelles et la page d'activation gardait les gros blocs. Reconstruit proprement en respectant la doc officielle SoleasPay (https://doc.soleaspay.com).

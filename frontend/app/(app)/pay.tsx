@@ -294,6 +294,23 @@ export default function Pay() {
             <Text style={styles.sSub}>
               Cliquez sur "Activer mon compte" pour obtenir l'adresse de dépôt.
             </Text>
+            {selectedMethod?.info && (selectedMethod.info as any).keys_configured === false && (
+              <Text style={styles.warn}>
+                ⚠ La cryptomonnaie est activée mais les clés API du fournisseur n'ont pas encore été renseignées côté administrateur. Contactez le support si l'activation échoue.
+              </Text>
+            )}
+            {selectedMethod?.info && (
+              <View style={{ padding: 10, backgroundColor: theme.colors.surface, borderRadius: 10, marginTop: 8 }}>
+                <Text style={styles.rowT}>
+                  Montant : {(selectedMethod.info as any).amount_usdt || 5} USDT
+                </Text>
+                {(selectedMethod.info as any).network && (
+                  <Text style={styles.rowSub}>
+                    Réseau : {(selectedMethod.info as any).network}
+                  </Text>
+                )}
+              </View>
+            )}
             <Text style={[styles.label, { marginTop: 14 }]}>Mot de passe (confirmation)</Text>
             <TextInput
               style={styles.input}

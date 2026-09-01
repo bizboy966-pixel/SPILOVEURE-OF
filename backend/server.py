@@ -1634,7 +1634,8 @@ def _mask(secret: str) -> str:
 @api.get("/admin/soleaspay/config")
 async def admin_get_soleaspay_config(request: Request, admin=Depends(require_admin)):
     """Return SoleasPay's isolated config. Secrets are masked in the response
-    (except for the country matrix)."""
+    (except for the country matrix). Priority: DB wins over env — the admin
+    panel value is the source of truth."""
     db = request.app.state.db
     cfg = await _load_payment_gateway(db)
     matrix_all = cfg.get("country_matrix") or {}
@@ -1642,16 +1643,28 @@ async def admin_get_soleaspay_config(request: Request, admin=Depends(require_adm
     # Countries default to True when missing from the matrix.
     resolved = {cc: (soleas_matrix.get(cc, True) is not False)
                 for cc in soleaspay.SUPPORTED.keys()}
+
+    # DB-first, env-fallback for the "set / display" fields.
+    def _resolve(db_key: str, env_key: str) -> tuple[str, str]:
+        db_val = (cfg.get(db_key) or "").strip()
+        if db_val:
+            return db_val, "db"
+        env_val = (os.environ.get(env_key) or "").strip()
+        if env_val:
+            return env_val, "env"
+        return "", ""
+
+    pub, pub_src = _resolve("soleaspay_public_key", "SOLEASPAY_API_KEY")
+    sec, sec_src = _resolve("soleaspay_secret_key", "SOLEASPAY_PRIVATE_KEY")
+    wh, wh_src = _resolve("soleaspay_webhook_hash", "SOLEASPAY_WEBHOOK_HASH")
+    ws, ws_src = _resolve("soleaspay_webhook_secret", "SOLEASPAY_WEBHOOK_SECRET")
+
     return {
         "enabled": bool(cfg.get("soleas_enabled")),
-        "public_key": _mask(cfg.get("soleaspay_public_key") or os.environ.get("SOLEASPAY_API_KEY", "")),
-        "public_key_set": bool((cfg.get("soleaspay_public_key") or os.environ.get("SOLEASPAY_API_KEY", "")).strip()),
-        "secret_key": _mask(cfg.get("soleaspay_secret_key") or os.environ.get("SOLEASPAY_PRIVATE_KEY", "")),
-        "secret_key_set": bool((cfg.get("soleaspay_secret_key") or os.environ.get("SOLEASPAY_PRIVATE_KEY", "")).strip()),
-        "webhook_hash": _mask(cfg.get("soleaspay_webhook_hash") or os.environ.get("SOLEASPAY_WEBHOOK_HASH", "")),
-        "webhook_hash_set": bool((cfg.get("soleaspay_webhook_hash") or os.environ.get("SOLEASPAY_WEBHOOK_HASH", "")).strip()),
-        "webhook_secret": _mask(cfg.get("soleaspay_webhook_secret") or os.environ.get("SOLEASPAY_WEBHOOK_SECRET", "")),
-        "webhook_secret_set": bool((cfg.get("soleaspay_webhook_secret") or os.environ.get("SOLEASPAY_WEBHOOK_SECRET", "")).strip()),
+        "public_key": _mask(pub), "public_key_set": bool(pub), "public_key_source": pub_src,
+        "secret_key": _mask(sec), "secret_key_set": bool(sec), "secret_key_source": sec_src,
+        "webhook_hash": _mask(wh), "webhook_hash_set": bool(wh), "webhook_hash_source": wh_src,
+        "webhook_secret": _mask(ws), "webhook_secret_set": bool(ws), "webhook_secret_source": ws_src,
         "countries": [{"code": cc, "enabled": resolved[cc],
                        "operators": [{"id": s["id"], "label": s["label"], "currency": s["currency"]}
                                      for s in soleaspay.SUPPORTED[cc]]}
@@ -1937,18 +1950,24 @@ async def payments_catalog(request: Request):
             })
 
     # ── Crypto catalog: BizTransPay only, single row.
+    # `available` reflects the ADMIN TOGGLE alone. If the admin turned crypto
+    # ON but forgot to fill the BizTransPay keys, we still show crypto in the
+    # UI — the /payments/activate call will then surface the concrete error
+    # ("clés manquantes") so the admin knows exactly what to fix.
     crypto_available = False
     crypto_info = None
     try:
         from biztranspay import _load_config as _bt_load_cfg  # type: ignore
         bt_cfg = await _bt_load_cfg(db)
-        crypto_available = bool(
-            bt_cfg.get("enabled") and bt_cfg.get("public_key") and bt_cfg.get("secret_key")
-        )
+        crypto_available = bool(bt_cfg.get("enabled"))
         if crypto_available:
             crypto_info = {
                 "amount_usdt": float(bt_cfg.get("activation_amount_usdt") or 0),
                 "network": bt_cfg.get("activation_network"),
+                "keys_configured": bool(
+                    (bt_cfg.get("public_key") or "").strip()
+                    and (bt_cfg.get("secret_key") or "").strip()
+                ),
             }
     except Exception:
         crypto_available = False
