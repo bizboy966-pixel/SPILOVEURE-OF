@@ -23,7 +23,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-08-31 — 🧭 Nouvelle barre de navigation à 5 onglets
+### 2026-08-31 — 💳 Nouvelle page d'activation simplifiée (toutes méthodes)
+
+**Contexte** : la page `/(app)/activation.tsx` historique (1337 lignes) contenait trop de blocs et perdait les nouveaux utilisateurs avant qu'ils n'atteignent le paiement. Le client demandait un flow simple 4 étapes façon apps modernes pour **toutes** les méthodes de paiement, pas seulement SoleasPay.
+
+**Livré** :
+- `/app/frontend/app/(app)/pay.tsx` (nouveau, ~280 lignes) : stepper unifié 4 étapes `Méthode → Pays → Opérateur/Numéro → Confirmation`. Barre de progression 4-segments en haut, une seule carte par étape, boutons `Continuer/Activer mon compte` toujours visibles en bas fixe.
+- 3 méthodes présentées automatiquement selon les flags backend :
+  1. **Mobile Money automatique** (SoleasPay/Ashtec dispatch selon `payment-methods-status.active_gateway`)
+  2. **BizTransPay Mobile Money** (via `/payments/biztranspay/public-status.countries`)
+  3. **Crypto USDT** (BEP20, montant selon config BizTransPay — pas de pays/opérateur, saute directement au step 4 avec adresse + QR)
+- Polling automatique toutes les 5s sur `/payments/status/{ref}` ; à la confirmation, refresh `useAuth()` puis redirection vers `/(app)/dashboard`. Feedback UX complet : ⏳ Pending, ✅ Success, ❌ Failed avec bouton Réessayer.
+- Autorisation ajoutée dans `ALLOWED_FOR_PENDING` (`_layout.tsx`) pour que les comptes non-activés puissent atteindre `/pay` sans être redirigés.
+
+**Ce qui n'a PAS été touché** (isolation stricte) :
+- Aucun endpoint backend créé/modifié — la nouvelle page réutilise strictement `/payments/soleaspay/initiate`, `/payments/biztranspay/mobile/initiate`, `/payments/biztranspay/crypto/initiate` et `/payments/status/{ref}`.
+- L'ancienne page `activation.tsx` reste accessible en fallback.
+- Modules SoleasPay / BizTransPay / IziChangePay / Ashtec inchangés (leurs endpoints et matrices pays continuent de fonctionner comme avant).
+
+**Reste à faire** (Phase 2+ mentionnées par l'utilisateur) :
+- Admin panel : matrice passerelle × pays togglable individuellement + bouton "Tester la connexion" (P0 restant demandé)
+- Webhook SoleasPay signé HMAC dédié (`/api/webhooks/soleaspay`) avec table `soleaspay_webhook_events` idempotente
+- P-Out automatique SoleasPay pour retraits Mobile Money avec toggle P-Out par pays
+- Routage automatique passerelle par pays (moteur de sélection intelligent)
+
+**Testing** : 44/44 backend pytest verts (aucune régression MLM/chat/retention), screenshot preview 390×850 confirme rendu correct de la page 4-steps avec header/progress/footer sticky. La liste des méthodes affiche automatiquement les cards actives ou "⚠ Aucune méthode disponible" en dev (les flags gateway sont OFF en preview mais ON en production).
 
 **Contexte** : le client veut préparer l'architecture Wallet/AI/Services avant de déplacer les fonctionnalités existantes. Le fonctionnement métier ne change PAS — seule la navigation bouge.
 
