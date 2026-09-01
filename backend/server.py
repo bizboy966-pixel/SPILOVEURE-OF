@@ -1315,6 +1315,133 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
     return out
 
 
+# ────────────────────────────────────────────────────────────────────────
+# SoleasPay webhook — HMAC-SHA256 signed, idempotent, activates payments.
+# ────────────────────────────────────────────────────────────────────────
+import hmac as _hmac
+import hashlib as _hashlib
+import json as _json
+
+
+async def _soleaspay_webhook_secret(db) -> str:
+    env = (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
+    if env:
+        return env
+    cfg = await _load_payment_gateway(db)
+    return (cfg.get("soleaspay_webhook_secret") or "").strip()
+
+
+def _verify_soleaspay_signature(secret: str, raw: bytes, sig_header: str) -> bool:
+    if not secret or not sig_header:
+        return False
+    computed = _hmac.new(secret.encode(), raw, _hashlib.sha256).hexdigest()
+    return (_hmac.compare_digest(computed, sig_header) or
+            _hmac.compare_digest(f"sha256={computed}", sig_header))
+
+
+async def pick_gateway_for_country(db, country: str) -> Optional[str]:
+    """Cascade Soleas → Ashtec based on global enable + per-country matrix."""
+    cfg = await _load_payment_gateway(db)
+    matrix = cfg.get("country_matrix") or {}
+    for gw in ("soleas", "ashtec"):
+        if not bool(cfg.get(f"{gw}_enabled")):
+            continue
+        gw_matrix = matrix.get(gw) or {}
+        if country in gw_matrix and gw_matrix[country] is False:
+            continue
+        return gw
+    return None
+
+
+@api.post("/webhooks/soleaspay")
+async def soleaspay_webhook(request: Request):
+    db = request.app.state.db
+    raw = await request.body()
+    hdr_name = (os.environ.get("SOLEASPAY_WEBHOOK_HEADER") or "x-signature").lower()
+    sig = (request.headers.get(hdr_name)
+           or request.headers.get("x-soleaspay-signature")
+           or request.headers.get("signature") or "")
+    secret = await _soleaspay_webhook_secret(db)
+    if not _verify_soleaspay_signature(secret, raw, sig):
+        raise HTTPException(401, "Signature invalide.")
+    try:
+        event = _json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise HTTPException(400, "Payload invalide.")
+    data = event.get("data") if isinstance(event.get("data"), dict) else event
+    event_id = event.get("id") or event.get("event_id") or data.get("event_id") or data.get("reference")
+    order_id = data.get("order_id") or data.get("orderId") or data.get("reference")
+    status_raw = str(data.get("status") or event.get("status") or "").upper()
+    if event_id and await db.soleaspay_webhook_events.find_one({"event_id": event_id}):
+        return {"received": True, "idempotent": True}
+    if not order_id:
+        await db.soleaspay_webhook_events.insert_one({
+            "event_id": event_id, "raw": event,
+            "at": datetime.now(timezone.utc), "ignored": "no_order_id"})
+        return {"received": True, "ignored": "no_order_id"}
+    pay = await db.payments.find_one({"reference": order_id})
+    if not pay:
+        await db.soleaspay_webhook_events.insert_one({
+            "event_id": event_id, "raw": event, "order_id": order_id,
+            "at": datetime.now(timezone.utc), "ignored": "unknown_order"})
+        return {"received": True, "unknown_order": True}
+    amt = data.get("amount")
+    if amt is not None:
+        try:
+            if int(float(amt)) != int(float(pay.get("amount", 0))):
+                await db.soleaspay_webhook_events.insert_one({
+                    "event_id": event_id, "raw": event, "order_id": order_id,
+                    "at": datetime.now(timezone.utc), "rejected": "amount_mismatch"})
+                return {"received": True, "rejected": "amount_mismatch"}
+        except Exception:
+            pass
+    activated = False
+    if status_raw in ("SUCCESS", "SUCCEEDED", "COMPLETED", "PAID"):
+        upd = await db.payments.update_one(
+            {"reference": order_id, "activation_done": {"$ne": True}},
+            {"$set": {"status": "paid", "updated_at": datetime.now(timezone.utc),
+                      "webhook_at": datetime.now(timezone.utc), "webhook_raw": event}},
+        )
+        if upd.modified_count > 0:
+            try:
+                await activate_level(db, pay["user_id"], int(pay["level"]), source=f"webhook:{order_id}")
+                await db.payments.update_one(
+                    {"reference": order_id},
+                    {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
+                )
+                activated = True
+            except Exception as e:
+                await db.payments.update_one(
+                    {"reference": order_id}, {"$set": {"activation_error": str(e)}})
+    else:
+        await db.payments.update_one(
+            {"reference": order_id},
+            {"$set": {"status": status_raw.lower() or "pending",
+                      "webhook_at": datetime.now(timezone.utc), "webhook_raw": event,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    await db.soleaspay_webhook_events.insert_one({
+        "event_id": event_id, "raw": event, "order_id": order_id,
+        "status": status_raw, "activated": activated,
+        "at": datetime.now(timezone.utc)})
+    return {"received": True, "activated": activated, "status": status_raw}
+
+
+@api.get("/admin/payment-gateways/webhook-events")
+async def admin_list_webhook_events(request: Request, admin=Depends(require_admin), limit: int = 50):
+    rows = await request.app.state.db.soleaspay_webhook_events.find(
+        {}, {"_id": 0}
+    ).sort("at", -1).limit(min(200, max(1, limit))).to_list(length=None)
+    return {"events": rows}
+
+
+@api.get("/admin/payment-gateways/route-check")
+async def admin_route_check(request: Request, country: str, admin=Depends(require_admin)):
+    gw = await pick_gateway_for_country(request.app.state.db, country.upper())
+    return {"country": country.upper(), "gateway": gw, "available": gw is not None}
+
+
+
 @api.get("/settings/payments")
 async def get_payment_methods_status(request: Request):
     """Returns which payment methods are currently enabled, plus extra metadata for the client.

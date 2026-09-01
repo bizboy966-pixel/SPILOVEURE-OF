@@ -23,7 +23,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-08-31)
 
-### 2026-09-01 — 💳 Admin Passerelles : test connexion + matrice pays
+### 2026-09-01 — 🔐 Webhook SoleasPay HMAC + Routage Multi-Passerelle
+
+**Webhook signé** (`POST /api/webhooks/soleaspay`) — vérification HMAC-SHA256 sur raw body avec `x-signature` (fallback `x-soleaspay-signature`, `signature`). Secret lu depuis `SOLEASPAY_WEBHOOK_SECRET` (env) ou `payment_gateway.value.soleaspay_webhook_secret` (DB). Rejet 401 si signature invalide ou secret manquant.
+
+**Idempotence stricte** — collection `soleaspay_webhook_events` keyed sur `event_id`. Un webhook rejoué renvoie `{"idempotent":true}`. Chaque event est loggé avec status, order_id, activation résultat + horodatage.
+
+**Sécurité anti-tampering** — vérification du montant avant activation. Un webhook avec `amount` différent de `payments.amount` renvoie `{"rejected":"amount_mismatch"}` et est enregistré sans activer.
+
+**Activation automatique** — quand status ∈ `SUCCESS/SUCCEEDED/COMPLETED/PAID`, marque payment paid + appelle `activate_level(...)` (même pipeline que le polling). Idempotent via `payments.activation_done`. Non-terminal statuses (PENDING, PROCESSING, FAILED) sont juste loggés sur le payment sans activation.
+
+**Moteur de routage** (`pick_gateway_for_country(db, country)`) — cascade Soleas → Ashtec en tenant compte de : (1) enable global, (2) matrice pays. Endpoint admin `GET /api/admin/payment-gateways/route-check?country=TG` pour prévisualiser quelle passerelle sera utilisée.
+
+**Inspection admin** — `GET /api/admin/payment-gateways/webhook-events?limit=50` liste les 50 derniers webhooks avec status/order/résultat pour debug.
+
+**Vérifié en curl** :
+- signature valide + unknown order → `{received:true, unknown_order:true}` (200)
+- replay même event_id → `{idempotent:true}` (aucune double-activation)
+- bad signature → 401
+- admin events list retourne les webhooks capturés
+- route-check TG → soleas ✓
+
+**Env ajoutée** : `SOLEASPAY_WEBHOOK_SECRET` dans `/app/backend/.env` — l'admin la remplacera par le vrai secret SoleasPay avant mise en prod. Non exposée à l'API frontend.
+
+**Reste (P-Out)** : les retraits Mobile Money automatiques via SoleasPay avec toggle P-Out global + par pays restent à implémenter dans un prochain round (contexte tout juste suffisant pour livrer webhook + routing proprement testés).
 
 **Backend** (`server.py::_register_payment_gateway_routes`) — 2 nouveaux endpoints admin :
 - `POST /api/admin/payment-gateways/soleaspay/test` : envoie un vrai appel `verif-pay` à SoleasPay avec un `orderId` bidon. Retourne `{ok: true}` si la clé API répond (même "operation not found" = clé valide), `{ok: false, step: auth/config/network}` sinon. Aucune transaction créée.
