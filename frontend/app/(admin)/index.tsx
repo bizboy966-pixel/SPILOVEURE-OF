@@ -3271,6 +3271,9 @@ function PaymentGatewaysCard() {
   const [soleasTest, setSoleasTest] = useState<any>(null);
   const [soleasTesting, setSoleasTesting] = useState(false);
   const [matrix, setMatrix] = useState<any>({});
+  const [poutEnabled, setPoutEnabled] = useState<boolean>(false);
+  const [poutMatrix, setPoutMatrix] = useState<Record<string, boolean>>({});
+  const [poutSaving, setPoutSaving] = useState(false);
 
   const runSoleasTest = async () => {
     setSoleasTesting(true);
@@ -3294,7 +3297,30 @@ function PaymentGatewaysCard() {
       const r = await api.get<any>("/admin/payment-gateways");
       setCfg(r);
       setMatrix(r.country_matrix || {});
+      setPoutEnabled(!!r.soleaspay_pout_enabled);
+      setPoutMatrix(r.soleaspay_pout_country_matrix || {});
     } catch {}
+  };
+
+  const togglePoutMaster = async () => {
+    setPoutSaving(true);
+    const next = !poutEnabled;
+    setPoutEnabled(next);
+    try {
+      await api.put<any>("/admin/payment-gateways", { soleaspay_pout_enabled: next });
+    } catch {
+      setPoutEnabled(!next);
+      if (typeof window !== "undefined") window.alert("❌ Impossible d'enregistrer.");
+    } finally { setPoutSaving(false); }
+  };
+
+  const togglePoutCountry = async (code: string) => {
+    const cur = poutMatrix[code];
+    const next = { ...poutMatrix, [code]: cur === false ? true : false };
+    setPoutMatrix(next);
+    try {
+      await api.put<any>("/admin/payment-gateways/soleaspay/pout-country-matrix", { matrix: next });
+    } catch { /* silent */ }
   };
 
   const runHealth = async () => {
@@ -3553,6 +3579,53 @@ function PaymentGatewaysCard() {
             </View>
           );
         })}
+      </View>
+
+      {/* SoleasPay P-Out — automated Mobile Money withdrawals */}
+      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B" }} testID="soleas-pout-box">
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "800", color: "#92400E" }}>💸 P-Out SoleasPay (Retraits auto)</Text>
+            <Text style={{ fontSize: 11, color: "#78350F", marginTop: 2 }}>
+              Envoie automatiquement les retraits Mobile Money via SoleasPay dès qu'un utilisateur valide sa demande. Sur échec, le retrait retombe en attente pour validation manuelle.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={togglePoutMaster}
+            disabled={poutSaving}
+            style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: poutEnabled ? "#10B981" : "#9CA3AF", opacity: poutSaving ? 0.6 : 1 }}
+            testID="soleas-pout-master-toggle"
+          >
+            <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 12 }}>
+              {poutEnabled ? "🟢 ACTIVÉ" : "⚫ OFF"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {poutEnabled ? (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: "#78350F", marginBottom: 6 }}>Pays autorisés pour le P-Out :</Text>
+            {(cfg?.soleas_countries || []).map((code: string) => {
+              const enabled = poutMatrix[code] !== false;
+              return (
+                <View key={`pout-${code}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 6, borderBottomWidth: 1, borderBottomColor: "#FDE68A" }}>
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: "#78350F" }}>{code}</Text>
+                  <TouchableOpacity
+                    onPress={() => togglePoutCountry(code)}
+                    style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: enabled ? "#D1FAE5" : "#FEE2E2" }}
+                    testID={`pout-country-${code}`}
+                  >
+                    <Text style={{ color: enabled ? "#065F46" : "#991B1B", fontWeight: "800", fontSize: 10 }}>
+                      {enabled ? "🟢 Activé" : "🔴 Désactivé"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            <Text style={{ fontSize: 10, color: "#78350F", marginTop: 6, fontStyle: "italic" }}>
+              💡 Un pays désactivé retombera sur BizTransPay (si activé pour ce pays) ou restera en attente manuelle.
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Card>
   );

@@ -78,6 +78,9 @@ async def lifespan(app: FastAPI):
     # FCM push tokens — one row per (user_id, device_id)
     await db.push_tokens.create_index([("user_id", 1), ("device_id", 1)], unique=True)
     await db.push_tokens.create_index("token")
+    # SoleasPay P-Out — one payout row per withdrawal id (idempotency).
+    await db.soleaspay_payouts.create_index("wd_id", unique=True)
+    await db.soleaspay_payouts.create_index("provider_reference")
     # seed admin
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": admin_email})
@@ -821,25 +824,46 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     }
     await db.withdrawals.insert_one(wd_doc)
 
-    # ── BizTransPay auto-dispatch (Phase 5) ──────────────────────────────
-    # If the admin has toggled auto-withdrawal ON for this channel and all
-    # gateway prerequisites are met, we send the payout to BizTransPay
-    # immediately. On failure the withdrawal stays "pending" so an admin
-    # can still validate manually (coexistence guaranteed).
+    # ── Auto-dispatch cascade: SoleasPay P-Out → BizTransPay ─────────────
+    # Preference order per country matrix. On failure the withdrawal simply
+    # stays "pending" so admin can validate manually (coexistence with the
+    # existing manual approval flow).
     auto_result = {"auto_dispatched": False}
-    try:
-        from biztranspay import dispatch_auto_withdrawal
-        auto_result = await dispatch_auto_withdrawal(db, wd_doc)
-    except Exception as e:
-        import logging as _lg
-        _lg.getLogger("biztranspay").exception(
-            "auto-dispatch failed for wd_id=%s: %s", wd_id, e)
+    dispatched_gateway = None
+    country_upper = (wallet.get("country") or "").upper()
+    preferred = await pick_payout_gateway_for_country(db, country_upper)
+    pg_cfg_for_pout = await _load_payment_gateway(db)
+
+    if preferred == "soleaspay" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
+        try:
+            from soleaspay import dispatch_soleaspay_withdrawal
+            auto_result = await dispatch_soleaspay_withdrawal(db, wd_doc, pg_cfg_for_pout)
+        except Exception as e:
+            import logging as _lg
+            _lg.getLogger("soleaspay").exception(
+                "SoleasPay P-Out dispatch failed for wd_id=%s: %s", wd_id, e)
+            auto_result = {"auto_dispatched": False, "reason": "exception"}
+        if auto_result.get("auto_dispatched"):
+            dispatched_gateway = "soleaspay"
+
+    # Fallback (or primary if SoleasPay P-Out is disabled): BizTransPay.
+    if not auto_result.get("auto_dispatched"):
+        try:
+            from biztranspay import dispatch_auto_withdrawal
+            biz_result = await dispatch_auto_withdrawal(db, wd_doc)
+            if biz_result.get("auto_dispatched"):
+                auto_result = biz_result
+                dispatched_gateway = "biztranspay"
+        except Exception as e:
+            import logging as _lg
+            _lg.getLogger("biztranspay").exception(
+                "biztranspay auto-dispatch failed for wd_id=%s: %s", wd_id, e)
 
     resp = {"id": wd_id, "status": "dispatched" if auto_result.get("auto_dispatched") else "pending",
             "amount": data.amount, "fee": fee, "net_payout": net}
     if auto_result.get("auto_dispatched"):
         resp["auto_dispatched"] = True
-        resp["gateway"] = "biztranspay"
+        resp["gateway"] = dispatched_gateway
     elif auto_result.get("error"):
         # Silent: user just sees "pending" — admin will see the error tag.
         pass
@@ -1108,6 +1132,15 @@ _PG_DEFAULTS = {
     "soleas_enabled": True,
     "ashtec_enabled": False,
     "ashtec_api_key": "",
+    # Country matrix for pay-IN gateway selection.
+    "country_matrix": {},
+    # SoleasPay webhook HMAC secret (also readable from env override).
+    "soleaspay_webhook_secret": "",
+    # SoleasPay Pay-OUT (automatic Mobile Money disbursement).
+    # Master toggle — if False, no withdrawal is ever auto-dispatched via Soleas.
+    "soleaspay_pout_enabled": False,
+    # Per-country toggle map: {"TG": True, "BJ": False, ...}. Missing key = enabled.
+    "soleaspay_pout_country_matrix": {},
 }
 
 
@@ -1140,6 +1173,9 @@ class PaymentGatewayUpdate(_PGBaseModel):
     soleas_enabled: Optional[bool] = None
     ashtec_enabled: Optional[bool] = None
     ashtec_api_key: Optional[str] = None      # new key, or "" to keep, "DELETE" to clear
+    # SoleasPay P-Out
+    soleaspay_pout_enabled: Optional[bool] = None
+    soleaspay_webhook_secret: Optional[str] = None   # "" to keep, "DELETE" to clear
 
 
 # Note: the actual @admin_router routes are registered later in the file
@@ -1165,6 +1201,12 @@ def _register_payment_gateway_routes(router):
             },
             "country_matrix": cfg.get("country_matrix") or {},
             "soleas_countries": list(soleaspay.SUPPORTED.keys()),
+            "soleaspay_pout_enabled": bool(cfg.get("soleaspay_pout_enabled")),
+            "soleaspay_pout_country_matrix": cfg.get("soleaspay_pout_country_matrix") or {},
+            "soleaspay_webhook_secret_set": bool(
+                (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
+                or (cfg.get("soleaspay_webhook_secret") or "").strip()
+            ),
         }
 
     @router.post("/payment-gateways/soleaspay/test")
@@ -1230,6 +1272,14 @@ def _register_payment_gateway_routes(router):
                 new["ashtec_api_key"] = ""
             elif key:
                 new["ashtec_api_key"] = key
+        if body.soleaspay_pout_enabled is not None:
+            new["soleaspay_pout_enabled"] = bool(body.soleaspay_pout_enabled)
+        if body.soleaspay_webhook_secret is not None:
+            sec = body.soleaspay_webhook_secret.strip()
+            if sec == "DELETE":
+                new["soleaspay_webhook_secret"] = ""
+            elif sec:
+                new["soleaspay_webhook_secret"] = sec
         # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [("soleas", new.get("soleas_enabled")),
@@ -1353,6 +1403,25 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
     return None
 
 
+async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
+    """Return the P-Out gateway to use for a given country, or None.
+
+    Preference: soleaspay > biztranspay. SoleasPay is chosen only when the
+    global P-Out master switch is ON AND the country isn't disabled AND the
+    country is in soleaspay.SUPPORTED. Otherwise the caller falls back to
+    BizTransPay (its own dispatcher enforces its own toggles).
+    """
+    country = (country or "").upper()
+    cfg = await _load_payment_gateway(db)
+    if (cfg.get("soleas_enabled")
+            and cfg.get("soleaspay_pout_enabled")
+            and country in soleaspay.SUPPORTED):
+        pout_matrix = cfg.get("soleaspay_pout_country_matrix") or {}
+        if not (country in pout_matrix and pout_matrix[country] is False):
+            return "soleaspay"
+    return "biztranspay"
+
+
 @api.post("/webhooks/soleaspay")
 async def soleaspay_webhook(request: Request):
     db = request.app.state.db
@@ -1372,6 +1441,7 @@ async def soleaspay_webhook(request: Request):
     event_id = event.get("id") or event.get("event_id") or data.get("event_id") or data.get("reference")
     order_id = data.get("order_id") or data.get("orderId") or data.get("reference")
     status_raw = str(data.get("status") or event.get("status") or "").upper()
+    operation = str(data.get("operation") or event.get("operation") or "").upper()
     if event_id and await db.soleaspay_webhook_events.find_one({"event_id": event_id}):
         return {"received": True, "idempotent": True}
     if not order_id:
@@ -1379,6 +1449,28 @@ async def soleaspay_webhook(request: Request):
             "event_id": event_id, "raw": event,
             "at": datetime.now(timezone.utc), "ignored": "no_order_id"})
         return {"received": True, "ignored": "no_order_id"}
+
+    # ── Pay-OUT branch ────────────────────────────────────────────────────
+    # SoleasPay withdraw responses/callbacks carry operation="WITHDRAW". Route
+    # them to the payout reconciler and return early.
+    if operation == "WITHDRAW" or await db.soleaspay_payouts.find_one(
+            {"$or": [{"wd_id": order_id}, {"provider_reference": order_id}]}):
+        payout_row = await db.soleaspay_payouts.find_one(
+            {"$or": [{"wd_id": order_id}, {"provider_reference": order_id}]})
+        outcome = None
+        if payout_row:
+            from soleaspay import apply_payout_webhook
+            outcome = await apply_payout_webhook(db, payout_row, status_raw, data)
+        await db.soleaspay_webhook_events.insert_one({
+            "event_id": event_id, "raw": event, "order_id": order_id,
+            "operation": "WITHDRAW", "status": status_raw,
+            "handled": bool(outcome and outcome.get("handled")),
+            "outcome": (outcome or {}).get("outcome"),
+            "at": datetime.now(timezone.utc)})
+        return {"received": True, "type": "payout",
+                "handled": bool(outcome and outcome.get("handled")),
+                "outcome": (outcome or {}).get("outcome"), "status": status_raw}
+
     pay = await db.payments.find_one({"reference": order_id})
     if not pay:
         await db.soleaspay_webhook_events.insert_one({
@@ -1437,8 +1529,49 @@ async def admin_list_webhook_events(request: Request, admin=Depends(require_admi
 
 @api.get("/admin/payment-gateways/route-check")
 async def admin_route_check(request: Request, country: str, admin=Depends(require_admin)):
-    gw = await pick_gateway_for_country(request.app.state.db, country.upper())
-    return {"country": country.upper(), "gateway": gw, "available": gw is not None}
+    db = request.app.state.db
+    cc = country.upper()
+    gw_in = await pick_gateway_for_country(db, cc)
+    gw_out = await pick_payout_gateway_for_country(db, cc)
+    return {
+        "country": cc,
+        "gateway": gw_in, "available": gw_in is not None,   # legacy alias
+        "payin_gateway": gw_in,
+        "payout_gateway": gw_out,
+    }
+
+
+class SoleaspayPoutMatrixIn(_PGBaseModel):
+    matrix: dict
+
+
+@api.put("/admin/payment-gateways/soleaspay/pout-country-matrix")
+async def admin_set_soleaspay_pout_matrix(
+    body: SoleaspayPoutMatrixIn, request: Request, admin=Depends(require_admin),
+):
+    """Persist the per-country P-Out toggle map for SoleasPay.
+
+    Payload: {"matrix": {"TG": true, "BJ": true, "CI": false, ...}}
+    """
+    db = request.app.state.db
+    if not isinstance(body.matrix, dict):
+        raise HTTPException(400, "matrix doit être un dict.")
+    # Coerce values to bool + uppercase country codes.
+    clean: dict = {}
+    for k, v in body.matrix.items():
+        if not isinstance(k, str):
+            continue
+        clean[k.upper()] = bool(v)
+    current = await _load_payment_gateway(db)
+    current["soleaspay_pout_country_matrix"] = clean
+    await db.app_settings.update_one(
+        {"key": "payment_gateway"},
+        {"$set": {"key": "payment_gateway", "value": current,
+                  "updated_at": datetime.now(timezone.utc),
+                  "updated_by": admin.get("username")}},
+        upsert=True,
+    )
+    return {"ok": True, "matrix": clean}
 
 
 

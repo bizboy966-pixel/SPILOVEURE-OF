@@ -1,0 +1,36 @@
+{
+  "summary": "Backend-only integration testing of SoleasPay P-Out via the public REACT_APP_BACKEND_URL. Created /app/backend/tests/test_iter57_soleaspay_pout_api.py (24 live-API tests) covering: admin auth guards on /admin/payment-gateways/*, GET new fields (soleaspay_pout_enabled, soleaspay_pout_country_matrix) + legacy fields, PUT master toggle ON/OFF persistence + non-regression of other config keys, PUT pout-country-matrix (bool coercion, uppercase codes, non-dict rejection), route-check decision matrix (master ON/OFF, matrix disable, unsupported/COD-excluded, lowercase country input, legacy gateway/available aliases), webhook signature rejection (missing/bad HMAC), WITHDRAW branch on unknown order (200, type=payout, handled=false), webhook event-id idempotency, P-In regression (unknown order + seeded payment -> status=paid, activation attempted, amount_mismatch rejection), payout reconciliation on seeded rows (SUCCESS -> withdrawal+payout completed; FAILED -> balance_profit refunded and total_withdrawn reverted; callback keyed on provider_reference resolves), /api/withdrawals auth + X-Password-Confirm guards and no-500 path, and the soleaspay_payouts.wd_id unique index (DuplicateKeyError enforced). Result: 24/24 new tests pass, plus the existing 13 unit tests in test_soleaspay_pout.py re-run green (37/37 total). SoleasPay withdraw API was never called. Preview state restored: soleaspay_pout_enabled=false and the original pout country matrix re-applied (verified via GET).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/withdrawals (dispatch_soleaspay_withdrawal)", "issue": "Once a payout row exists with status='refused'/'gateway_error', any later dispatch attempt for the same wd_id hits the unique index and returns {auto_dispatched:false, reason:'already_dispatched'} forever. A refused/errored payout can never be auto re-dispatched via SoleasPay (admin must pay manually). Consider allowing re-dispatch when existing.provider_reference is null."},
+      {"endpoint": "GET /api/admin/payment-gateways/route-check", "issue": "payout_gateway always falls back to 'biztranspay' even for countries BizTransPay may not cover (e.g. US, COD). Admin UI cannot distinguish 'fallback available' from 'no payout gateway'; a null/'none' value or a biztranspay availability check would be clearer."},
+      {"endpoint": "PUT /api/admin/payment-gateways/soleaspay/pout-country-matrix", "issue": "Semantics are deny-list only: a country absent from the matrix is treated as ENABLED when the master switch is ON. Admin sending {'TG':true} silently leaves BJ/CI/CM/etc. enabled. Not a bug but must be reflected in the admin UI copy (French)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter57_soleaspay_pout_api.py",
+    "/app/backend/tests/test_soleaspay_pout.py",
+    "/app/test_reports/pytest/iter57_soleaspay_pout.xml"
+  ],
+  "action_items": [
+    "Optional: allow SoleasPay P-Out re-dispatch when the existing soleaspay_payouts row has no provider_reference (status refused/gateway_error).",
+    "Optional: expose payout gateway availability (null instead of blind 'biztranspay') in route-check for unsupported countries.",
+    "Document the deny-list semantics of soleaspay_pout_country_matrix in the admin UI."
+  ],
+  "critical_code_review_comments": [
+    "dispatch_soleaspay_withdrawal increments users.total_withdrawn by wd.amount on dispatch and apply_payout_webhook decrements it on FAILED — consistent, verified by test_withdraw_failed_refunds_balance.",
+    "soleaspay_webhook routes to the payout branch when operation=='WITHDRAW' OR a soleaspay_payouts row matches order_id/provider_reference; P-In events (operation=PAYMENT) are unaffected — verified with a seeded payment (status becomes 'paid').",
+    "GET /admin/payment-gateways has no explicit Depends(require_admin) in the handler, but admin_router-level dependency enforces it (403 without token verified). Fine as-is.",
+    "server.py is 3737 lines — well past the 700-line guideline; the payment-gateway/webhook block (L1130-1580) is a natural extraction candidate."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter57_soleaspay_pout_api.py"],
+  "success_rate": {"backend": "100% (37/37 tests: 24 new live-API + 13 existing unit)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Temporary docs only, all deleted in test teardown: TEST_SPV_* payments, TEST_WDID_* withdrawals + soleaspay_payouts rows, TEST_ghost_* users, related soleaspay_webhook_events. Config state (soleaspay_pout_enabled=false, original pout matrix) restored.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin kossikotokou4@gmail.com / @Emma91972006 (from /app/memory/test_credentials.md) — login OK, returns access_token",
+  "context_for_next_testing_agent": "Live-API P-Out suite lives in /app/backend/tests/test_iter57_soleaspay_pout_api.py; it toggles soleaspay_pout_enabled ON during tests and restores the snapshot (master OFF) in a module-scoped autouse fixture — always run the whole module, never a single test, or the master switch may be left ON. Webhook signing uses SOLEASPAY_WEBHOOK_SECRET from /app/backend/.env (test_hmac_secret_2026) with header x-signature = hex HMAC-SHA256 of the raw body. Real payouts to soleaspay.com are never triggered; reconciliation is tested by seeding soleaspay_payouts rows directly in Mongo. Note preview DB has active gateway = 'ashtec' and the Ashtec API key is revoked (401 in logs) — pre-existing, unrelated to P-Out.",
+  "rca_of_the_issue": "No defect reproduced. The pre-existing ERROR lines in backend.err.log are Ashtec 401 (revoked key) and uvicorn 'Application shutdown failed / CancelledError' on reload — both unrelated to SoleasPay P-Out."
+}

@@ -21,6 +21,46 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+## Implementation Status (à jour 2026-09-02)
+
+### 2026-09-02 — 💸 SoleasPay P-Out Automatique (Retraits Mobile Money)
+
+**Contexte** : Complète l'intégration SoleasPay commencée en `2026-09-01` (P-In + Webhook signé HMAC). Les retraits mobile money sont désormais dispatchés automatiquement via SoleasPay dès qu'un utilisateur valide `POST /api/withdrawals`, avec fallback silencieux vers BizTransPay.
+
+**Backend `/app/backend/soleaspay.py` (+330 lignes)** :
+- `initiate_payout(...)` : `POST /api/action/account/withdraw` avec headers `operation:4`, `service:<id>`, auth `x-api-key` (par défaut) ou `Bearer` JWT (`SOLEASPAY_PAYOUT_BEARER=1`).
+- `find_service_by_operator_label(cc, label)` : matching fuzzy alphanumérique (ex. "T-Money" → service 37).
+- `normalize_payout_status(...)` : mappe SUCCESS/PROCESSING/FAILED/FAILURE → {completed, pending, failed}.
+- `dispatch_soleaspay_withdrawal(db, wd, pg_cfg)` : dispatcher central appelé depuis `server.py::request_withdrawal`. Vérifie master toggle, matrice pays, méthode=mobile, opérateur mappable. Idempotent via index unique `soleaspay_payouts.wd_id`.
+- `apply_payout_webhook(db, payout_row, status, data)` : reconcile un WITHDRAW callback → sur SUCCESS marque `withdrawal.completed` + push notif, sur FAILED refund `balance_profit` + revert `total_withdrawn`.
+
+**Backend `/app/backend/server.py`** :
+- `_PG_DEFAULTS` étendu : `soleaspay_pout_enabled` (master, default False), `soleaspay_pout_country_matrix` (deny-list par pays).
+- `PaymentGatewayUpdate` accepte les nouveaux champs.
+- Nouvelle route admin `PUT /api/admin/payment-gateways/soleaspay/pout-country-matrix` (uppercase codes, coerce bool).
+- `pick_payout_gateway_for_country(db, cc)` : preferSoleasPay si master+country supported+non-disabled, sinon BizTransPay.
+- `route-check?country=X` retourne `payin_gateway` + `payout_gateway` (backward-compat `gateway`/`available`).
+- `request_withdrawal` : cascade SoleasPay P-Out → BizTransPay fallback (jamais raise, pending si tout échoue).
+- Webhook `POST /api/webhooks/soleaspay` étendu : branche `operation==WITHDRAW` (ou `soleaspay_payouts` matching order_id/provider_reference) route vers `apply_payout_webhook`. P-In inchangé.
+- Index Mongo `soleaspay_payouts.wd_id` unique + `provider_reference`.
+
+**Frontend `/app/frontend/app/(admin)/index.tsx::PaymentGatewaysCard`** :
+- Nouvelle carte jaune "💸 P-Out SoleasPay (Retraits auto)" avec toggle master ON/OFF (data-testid `soleas-pout-master-toggle`).
+- Liste des 8 pays supportés avec toggles individuels (data-testid `pout-country-{code}`) visibles uniquement quand master ON.
+- Persistance auto sur clic via PUT dédié.
+
+**Tests** :
+- `/app/backend/tests/test_soleaspay_pout.py` — 13 tests unit (mocks httpx) : gates master/soleas/country/method/operator, opérateur matcher, dispatch happy/refused/idempotent, webhook success/failure/refund, normalize.
+- `/app/backend/tests/test_iter57_soleaspay_pout_api.py` (créé par testing_agent) — 24 tests live-API : admin auth guards, GET/PUT config, matrix persistance, route-check décisions, webhook signature/idempotence/branchement WITHDRAW, reconciliation seedée, unique index enforced, P-In regression intact.
+- **37/37 tests verts**. Aucune régression sur soleaspay P-In / biztranspay / withdrawal settings.
+
+**Notes** :
+- Semantics deny-list du country matrix : un pays absent = ACTIVÉ (par défaut) quand master ON. Copy UI reflète cette règle ("Un pays désactivé retombera sur BizTransPay").
+- Un retrait dont le premier dispatch échoue (row refused/gateway_error) ne peut plus être re-dispatché auto — l'admin doit valider manuellement (garantit coexistence avec le flow historique).
+- Preview DB : `soleaspay_pout_enabled=false` par défaut. L'admin doit l'activer explicitement + configurer la matrice pays avant que les retraits partent en production automatique.
+
+---
+
 ## Implementation Status (à jour 2026-08-31)
 
 ### 2026-09-01 — 🔐 Webhook SoleasPay HMAC + Routage Multi-Passerelle
