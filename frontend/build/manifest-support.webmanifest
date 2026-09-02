@@ -1,0 +1,19 @@
+{
+  "name": "Chat Support SPILOVEURE",
+  "short_name": "Chat Support",
+  "description": "Espace de messagerie dédié aux agents support autorisés SPILOVEURE.",
+  "start_url": "/support-desk",
+  "scope": "/support-desk",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#065F46",
+  "theme_color": "#065F46",
+  "lang": "fr",
+  "categories": ["business", "communication", "productivity"],
+  "icons": [
+    { "src": "/support-icon.svg",          "sizes": "any",       "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/support-icon-maskable.svg", "sizes": "any",       "type": "image/svg+xml", "purpose": "maskable" },
+    { "src": "/icon-192.png",              "sizes": "192x192",   "type": "image/png",     "purpose": "any" },
+    { "src": "/icon-512.png",              "sizes": "512x512",   "type": "image/png",     "purpose": "any" }
+  ]
+}

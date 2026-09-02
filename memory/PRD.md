@@ -23,6 +23,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (quinquies) — 🔧 Fix RÉEL de la config dynamique SolesPay + Copier/Hash/Vérifier
+
+**Vraie source du bug identifiée** : les fonctions internes qui font les appels HTTP à SolesPay (`initiate_payment`, `verify_payment`, `initiate_payout`, `_get_bearer_token`, `_payout_headers`) utilisaient `api_key()` (env-only) et `os.environ.get(...)` en dur — elles IGNORAIENT complètement les `resolve_*(db)` DB-first. Résultat : l'admin panel enregistrait les nouvelles clés, la GET les affichait bien avec `source="db"`, mais chaque appel API réel utilisait quand même la clé du .env.
+
+**Corrections backend** :
+- `soleaspay.initiate_payment(db, ...)` — prend `db` en 1er arg, lit `resolve_api_key(db)`, raise `RuntimeError` explicite si non configuré (plus de fallback silencieux).
+- `soleaspay.verify_payment(db, ...)` — idem.
+- `soleaspay.initiate_payout(db, ...)` — idem.
+- `soleaspay._get_bearer_token(db)` — utilise `resolve_api_key(db)` + `resolve_secret_key(db)` (plus `os.environ.get`).
+- `soleaspay._payout_headers(db, service_id)` — idem.
+- `soleaspay.invalidate_bearer_cache()` — nouvelle fonction publique.
+- `server.py::admin_set_soleaspay_config` appelle `_invalidate_soleaspay_caches()` après chaque PUT → le prochain P-Out refetch un JWT avec les nouvelles clés.
+- `server.py::admin_test_soleaspay` utilise `resolve_api_key(db)` (plus `is_configured()` env-only) → le test connexion valide RÉELLEMENT ce qui est en base.
+- Tous les 4 callers de `initiate_payment`/`verify_payment` dans server.py mis à jour pour passer `db`.
+
+**Corrections frontend `pay.tsx`** (crypto step) :
+- Bouton **📋 Copier l'adresse** sous l'adresse USDT (utilise `navigator.clipboard.writeText`).
+- Champ **🧾 ID / Hash de transaction** (testID `pay-tx-hash`).
+- Bouton **✅ Vérifier le paiement** (testID `pay-verify-tx`) — appelle `/api/activations/crypto-auto/verify` avec `{reference, tx_hash}`. Sur succès + `activated=true` → activation Niveau 1 + redirect dashboard.
+
+**Test end-to-end validé par curl** :
+- Snapshot: `source=env`
+- PUT `{public_key: "KEYA"}` → source="db", nouvelle clé prise en compte immédiatement
+- PUT `{public_key: "KEYB"}` → source="db", KEYB active (masquée à `KEY••••026`)
+- PUT `{public_key: "DELETE"}` → source retombe sur "env"
+- `invalidate_bearer_cache()` fonctionne (cache reset)
+- 34/34 tests pytest verts. Aucune régression.
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 (quater) — 🗑️ BizTransPay retiré + Crypto via IziChangePay
 
 Suite au retour utilisateur ("IziChangePay c'est lui qui gère les activations par crypto — faut supprimer carrément toutes les traces de BizTransPay") :

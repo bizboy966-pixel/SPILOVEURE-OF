@@ -89,6 +89,24 @@ class _FakeDB:
         self.soleaspay_payouts.create_index("wd_id", unique=True)
         self.withdrawals = _FakeAsyncCollection()
         self.users = _FakeAsyncCollection()
+        # DB-first key resolver needs to find the payment_gateway doc.
+        self.app_settings = _FakeAsyncCollection()
+
+    def seed_soleaspay_keys(self, public_key="test-key", secret_key="test-secret"):
+        import asyncio as _a
+        loop = _a.new_event_loop()
+        try:
+            loop.run_until_complete(self.app_settings.insert_one({
+                "key": "payment_gateway",
+                "value": {
+                    "soleaspay_public_key": public_key,
+                    "soleaspay_secret_key": secret_key,
+                    "soleas_enabled": True,
+                    "soleaspay_pout_enabled": True,
+                },
+            }))
+        finally:
+            loop.close()
 
 
 def _run(coro):
@@ -140,13 +158,15 @@ def test_pout_gate_soleas_disabled():
 
 def test_pout_gate_country_off():
     pg = _pg(soleaspay_pout_country_matrix={"TG": False})
-    r = _run(soleaspay.dispatch_soleaspay_withdrawal(_FakeDB(), _wd(), pg))
+    db = _FakeDB(); db.seed_soleaspay_keys()
+    r = _run(soleaspay.dispatch_soleaspay_withdrawal(db, _wd(), pg))
     assert r == {"auto_dispatched": False, "reason": "pout_country_off"}
 
 
 def test_pout_gate_country_unsupported():
+    db = _FakeDB(); db.seed_soleaspay_keys()
     r = _run(soleaspay.dispatch_soleaspay_withdrawal(
-        _FakeDB(), _wd(country="US"), _pg()))
+        db, _wd(country="US"), _pg()))
     assert r["auto_dispatched"] is False
     assert r["reason"] == "country_unsupported"
 
@@ -158,8 +178,9 @@ def test_pout_gate_method_not_mobile():
 
 
 def test_pout_gate_operator_unmapped():
+    db = _FakeDB(); db.seed_soleaspay_keys()
     r = _run(soleaspay.dispatch_soleaspay_withdrawal(
-        _FakeDB(), _wd(operator="Random Bank"), _pg()))
+        db, _wd(operator="Random Bank"), _pg()))
     assert r["reason"] == "operator_unmapped"
 
 
@@ -177,9 +198,10 @@ def test_find_service_by_operator_label_matches_variants():
 
 def test_pout_dispatch_success_updates_state():
     db = _FakeDB()
+    db.seed_soleaspay_keys()
     wd = _wd()
 
-    async def fake_initiate_payout(**kwargs):
+    async def fake_initiate_payout(*args, **kwargs):
         return {
             "success": True, "code": 201, "status": "PROCESSING",
             "data": {"reference": "MLS-PROC-1", "transaction_reference": kwargs["order_id"]},
@@ -206,18 +228,19 @@ def test_pout_dispatch_success_updates_state():
 def test_pout_dispatch_idempotent_on_retry():
     """Calling dispatch twice with same wd must not fire two HTTP calls."""
     db = _FakeDB()
+    db.seed_soleaspay_keys()
     wd = _wd()
     _run(db.withdrawals.insert_one(wd))
 
-    async def fake_ok(**kwargs):
+    async def fake_ok(*args, **kwargs):
         return {"success": True, "code": 201, "status": "PROCESSING",
                 "data": {"reference": "MLS-1"}, "message": "ok"}
 
     call_count = {"n": 0}
 
-    async def counted(**kwargs):
+    async def counted(*args, **kwargs):
         call_count["n"] += 1
-        return await fake_ok(**kwargs)
+        return await fake_ok(*args, **kwargs)
 
     with patch.object(soleaspay, "initiate_payout", side_effect=counted):
         _run(soleaspay.dispatch_soleaspay_withdrawal(db, wd, _pg()))
@@ -225,15 +248,16 @@ def test_pout_dispatch_idempotent_on_retry():
 
     assert call_count["n"] == 1
     assert r2["reason"] == "already_dispatched"
-    assert r2["auto_dispatched"] is True  # existing dispatched row
+    assert r2["auto_dispatched"] is True
 
 
 def test_pout_dispatch_refused_by_gateway():
     db = _FakeDB()
+    db.seed_soleaspay_keys()
     wd = _wd()
     _run(db.withdrawals.insert_one(wd))
 
-    async def fake_refused(**kwargs):
+    async def fake_refused(*args, **kwargs):
         return {"success": False, "code": 400, "status": "FAILED",
                 "message": "Invalid wallet"}
 

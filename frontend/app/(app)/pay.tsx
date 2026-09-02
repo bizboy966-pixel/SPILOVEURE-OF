@@ -54,6 +54,10 @@ export default function Pay() {
   const [ref, setRef] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "pending" | "success" | "failed">("idle");
   const [cryptoAddr, setCryptoAddr] = useState<{ address?: string; qr?: string; amount?: number; asset?: string; network?: string } | null>(null);
+  const [txHash, setTxHash] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifyErr, setVerifyErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -323,7 +327,7 @@ export default function Pay() {
           </View>
         )}
 
-        {/* ── STEP 5 (or 3 crypto) — Result ───────────────────────────── */}
+        {/* ── STEP 5 (or 3 crypto) — Result / Verify ────────────────── */}
         {step === 5 && (
           <View testID="pay-step-result" style={{ gap: 12 }}>
             <Text style={styles.sTitle}>
@@ -346,12 +350,74 @@ export default function Pay() {
                       Envoyer {cryptoAddr.amount} {cryptoAddr.asset || "USDT"} ({cryptoAddr.network || "BEP20"}) à :
                     </Text>
                     <Text selectable style={styles.addr}>{cryptoAddr.address}</Text>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
+                            await (navigator as any).clipboard.writeText(cryptoAddr.address!);
+                            if (typeof window !== "undefined") window.alert("✅ Adresse copiée dans le presse-papiers");
+                          }
+                        } catch { if (typeof window !== "undefined") window.alert("Sélectionnez l'adresse et copiez manuellement."); }
+                      }}
+                      style={{ marginTop: 10, padding: 12, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8 }}
+                      testID="pay-copy-address"
+                    >
+                      <Ionicons name="copy-outline" size={16} color="#fff" />
+                      <Text style={{ color: "#fff", fontWeight: "800" }}>📋 Copier l'adresse</Text>
+                    </TouchableOpacity>
                     {cryptoAddr.qr && (
                       <Image
                         source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(cryptoAddr.qr)}` }}
                         style={{ width: 200, height: 200, alignSelf: "center", marginTop: 12 }}
                       />
                     )}
+                    <View style={{ marginTop: 16, padding: 12, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.border }}>
+                      <Text style={[styles.label, { marginBottom: 6 }]}>🧾 ID / Hash de transaction</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={txHash}
+                        onChangeText={setTxHash}
+                        placeholder="Collez ici l'ID ou le hash de votre transaction"
+                        placeholderTextColor={theme.colors.textSecondary}
+                        autoCapitalize="none"
+                        testID="pay-tx-hash"
+                      />
+                      {verifyMsg && (
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 6 }}>ℹ {verifyMsg}</Text>
+                      )}
+                      {verifyErr && (
+                        <Text style={{ color: theme.colors.danger, fontSize: 12, marginTop: 6, fontWeight: "700" }}>❌ {verifyErr}</Text>
+                      )}
+                      <TouchableOpacity
+                        onPress={async () => {
+                          const t = txHash.trim();
+                          if (t.length < 10) { setVerifyErr("Veuillez coller un hash valide."); return; }
+                          setVerifying(true); setVerifyErr(null); setVerifyMsg(null);
+                          try {
+                            const r = await api.post<{ ok: boolean; activated?: boolean; message?: string }>(
+                              "/activations/crypto-auto/verify",
+                              { reference: ref, tx_hash: t },
+                            );
+                            if (r.ok && r.activated) {
+                              setPhase("success"); setVerifyMsg(r.message || "Compte activé.");
+                              await refresh?.();
+                              setTimeout(() => router.replace("/(app)/dashboard" as any), 1500);
+                            } else {
+                              setVerifyMsg(r.message || "Vérification en cours…");
+                            }
+                          } catch (e: any) {
+                            setVerifyErr(e?.detail || "Impossible de vérifier. Réessayez.");
+                          } finally { setVerifying(false); }
+                        }}
+                        disabled={verifying || txHash.trim().length < 10}
+                        style={{ marginTop: 10, padding: 14, borderRadius: 12, backgroundColor: (verifying || txHash.trim().length < 10) ? "#9CA3AF" : "#10B981", alignItems: "center" }}
+                        testID="pay-verify-tx"
+                      >
+                        <Text style={{ color: "#fff", fontWeight: "900", fontSize: 14 }}>
+                          {verifying ? "⏳ Vérification…" : "✅ Vérifier le paiement"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
               </>

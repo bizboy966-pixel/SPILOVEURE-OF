@@ -196,16 +196,22 @@ def find_service(country_code: str, service_id: int) -> Optional[dict]:
 
 
 async def initiate_payment(
-    *, service_id: int, wallet: str, amount: float, currency: str,
+    db, *, service_id: int, wallet: str, amount: float, currency: str,
     order_id: str, description: str, payer: str, payer_email: str,
     success_url: str, failure_url: str,
 ) -> dict:
     """Send a pay-in request. SoleasPay pushes a USSD prompt to `wallet`.
 
+    Reads its API key DIRECTLY from the admin panel (via resolve_api_key(db))
+    every call — no env fallback in strict mode when nothing is configured.
+
     Returns: {success, code, status, data:{reference, external_reference, ...}, message}
     """
+    key = await resolve_api_key(db)
+    if not key:
+        raise RuntimeError("SoleasPay non configuré (clé publique manquante côté Admin).")
     headers = {
-        "x-api-key": api_key(),
+        "x-api-key": key,
         "operation": str(OPERATION_PAYIN),
         "service": str(service_id),
         "Content-Type": "application/json",
@@ -232,13 +238,13 @@ async def initiate_payment(
         return data
 
 
-async def verify_payment(order_id: str, pay_id: str, service_id: int = 1) -> dict:
-    """Poll SoleasPay for transaction status.
-
-    Returns: {success, code, status:'SUCCESS'|'PROCESSING'|'FAILED'|..., data:{...}, message}
-    """
+async def verify_payment(db, order_id: str, pay_id: str, service_id: int = 1) -> dict:
+    """Poll SoleasPay for transaction status. Uses the DB-first API key."""
+    key = await resolve_api_key(db)
+    if not key:
+        raise RuntimeError("SoleasPay non configuré (clé publique manquante côté Admin).")
     headers = {
-        "x-api-key": api_key(),
+        "x-api-key": key,
         "operation": str(OPERATION_PAYIN),
         "service": str(service_id),
         "Content-Type": "application/json",
@@ -294,16 +300,20 @@ def find_service_by_operator_label(country_code: str, label: str) -> Optional[di
 _bearer_cache: dict = {"token": None, "exp": 0.0}
 
 
-async def _get_bearer_token() -> Optional[str]:
+async def _get_bearer_token(db) -> Optional[str]:
     """Fetch a JWT from POST /api/action/auth. Cached ~55 min.
 
-    Returns None if SOLEASPAY_PUBLIC_KEY / SOLEASPAY_PRIVATE_KEY not set.
+    Reads public/private keys DB-FIRST (admin panel wins). Env is only a
+    bootstrap fallback via resolve_api_key/resolve_secret_key.
+
+    ⚠️ Cache is invalidated whenever the admin PUTs new keys — see
+    invalidate_bearer_cache() called from server.py::admin_set_soleaspay_config.
     """
     now = time.time()
     if _bearer_cache["token"] and _bearer_cache["exp"] > now + 30:
         return _bearer_cache["token"]
-    pub = os.environ.get("SOLEASPAY_PUBLIC_KEY", "")
-    priv = os.environ.get("SOLEASPAY_PRIVATE_KEY", "")
+    pub = await resolve_api_key(db)
+    priv = await resolve_secret_key(db)
     if not (pub and priv):
         return None
     try:
@@ -323,38 +333,37 @@ async def _get_bearer_token() -> Optional[str]:
         return None
 
 
-async def _payout_headers(service_id: int) -> dict:
-    """Build auth headers for the withdraw endpoint.
+def invalidate_bearer_cache():
+    """Force the next payout call to refetch a JWT with the latest keys."""
+    _bearer_cache["token"] = None
+    _bearer_cache["exp"] = 0.0
 
-    Default: reuse x-api-key (consistent with P-In). If SOLEASPAY_PAYOUT_BEARER=1
-    is set OR x-api-key is empty, fetch a bearer token.
-    """
+
+async def _payout_headers(db, service_id: int) -> dict:
+    """Build auth headers for the withdraw endpoint — DB-first keys."""
     use_bearer = os.environ.get("SOLEASPAY_PAYOUT_BEARER", "0") == "1"
     headers = {
         "operation": str(OPERATION_PAYOUT),
         "service": str(service_id),
         "Content-Type": "application/json",
     }
-    if use_bearer or not api_key():
-        tok = await _get_bearer_token()
+    pub = await resolve_api_key(db)
+    if use_bearer or not pub:
+        tok = await _get_bearer_token(db)
         if not tok:
             raise RuntimeError("SoleasPay P-Out: bearer token unavailable")
         headers["Authorization"] = f"Bearer {tok}"
     else:
-        headers["x-api-key"] = api_key()
+        headers["x-api-key"] = pub
     return headers
 
 
 async def initiate_payout(
-    *, service_id: int, wallet: str, amount: float, currency: str,
+    db, *, service_id: int, wallet: str, amount: float, currency: str,
     order_id: str,
 ) -> dict:
-    """POST /api/action/account/withdraw — queues a payout.
-
-    Returns raw JSON: {success, code:201, status:"PROCESSING",
-                       data:{reference, transaction_reference, ...}, message}
-    """
-    headers = await _payout_headers(service_id)
+    """POST /api/action/account/withdraw — queues a payout. DB-first keys."""
+    headers = await _payout_headers(db, service_id)
     payload = {
         "wallet": str(wallet).strip(),
         "amount": float(amount),
@@ -371,7 +380,6 @@ async def initiate_payout(
             log.error("SoleasPay payout non-JSON: %s %s", r.status_code, r.text[:300])
             return {"success": False, "code": r.status_code,
                     "message": "Réponse invalide de SoleasPay"}
-        # Attach HTTP code if provider didn't return `code`.
         if "code" not in data:
             data["code"] = r.status_code
         log.info("SoleasPay payout (%s) order=%s: %s", r.status_code, order_id, data)
@@ -414,8 +422,7 @@ async def dispatch_soleaspay_withdrawal(db, wd: dict, pg_cfg: dict) -> dict:
         return {"auto_dispatched": False, "reason": "soleas_disabled"}
     if not pg_cfg.get("soleaspay_pout_enabled"):
         return {"auto_dispatched": False, "reason": "pout_globally_off"}
-    if not (api_key() or (os.environ.get("SOLEASPAY_PUBLIC_KEY") and
-                          os.environ.get("SOLEASPAY_PRIVATE_KEY"))):
+    if not await resolve_api_key(db):
         return {"auto_dispatched": False, "reason": "no_credentials"}
 
     cc = (wd.get("country") or "").upper()
@@ -473,6 +480,7 @@ async def dispatch_soleaspay_withdrawal(db, wd: dict, pg_cfg: dict) -> dict:
     # Call SoleasPay.
     try:
         resp = await initiate_payout(
+            db,
             service_id=int(svc["id"]),
             wallet=wallet,
             amount=amount,

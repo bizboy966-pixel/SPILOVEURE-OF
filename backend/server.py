@@ -1201,10 +1201,13 @@ def _register_payment_gateway_routes(router):
     async def admin_test_soleaspay(request: Request, admin=Depends(require_admin)):
         """Real connection test: probe verif-pay with a bogus order — a valid
         key returns a well-formed JSON error, an invalid key returns 401/403."""
-        if not soleaspay.is_configured():
-            return {"ok": False, "step": "config", "detail": "SOLEASPAY_API_KEY manquante côté serveur."}
+        db = request.app.state.db
+        # DB-first: use whatever the admin has saved (env only if DB empty).
+        if not await soleaspay.resolve_api_key(db):
+            return {"ok": False, "step": "config",
+                    "detail": "Clé publique SoleasPay non configurée dans l'Admin Panel."}
         try:
-            data = await soleaspay.verify_payment("SPV-CONN-TEST", "test", service_id=1)
+            data = await soleaspay.verify_payment(db, "SPV-CONN-TEST", "test", service_id=1)
         except Exception as e:
             return {"ok": False, "step": "network", "detail": str(e)[:200]}
         code = data.get("code")
@@ -1704,7 +1707,16 @@ async def admin_set_soleaspay_config(
                   "updated_by": admin.get("username")}},
         upsert=True,
     )
+    await _invalidate_soleaspay_caches()
     return await admin_get_soleaspay_config(request, admin)
+
+
+async def _invalidate_soleaspay_caches():
+    """Called after any admin config PUT so subsequent calls pick up new keys."""
+    try:
+        soleaspay.invalidate_bearer_cache()
+    except Exception:
+        pass
 
 
 class SoleaspayCountryMatrixIn(_PGBaseModel):
@@ -1753,7 +1765,7 @@ async def admin_soleaspay_test(request: Request, admin=Depends(require_admin)):
     try:
         # Send a benign verify with garbage IDs to check auth reachability.
         # Any 2xx / 4xx (except 401) means credentials are OK.
-        r = await soleaspay.verify_payment(order_id="TEST-PING", pay_id="TEST-PING")
+        r = await soleaspay.verify_payment(db, order_id="TEST-PING", pay_id="TEST-PING")
         code = r.get("code")
         msg = r.get("message") or ""
         if code == 401 or "unauthorized" in msg.lower() or "invalid api key" in msg.lower():
@@ -1850,6 +1862,7 @@ async def payments_activate(
         })
         try:
             resp = await soleaspay.initiate_payment(
+                db,
                 service_id=svc_id, wallet=phone, amount=amount, currency=currency,
                 order_id=order_id,
                 description=f"Activation niveau 1 - {user['username']}",
@@ -3748,6 +3761,7 @@ async def _initiate_via_soleas(
     })
 
     resp = await soleaspay.initiate_payment(
+        db,
         service_id=svc["id"],
         wallet=str(data.phone).strip().replace("+", ""),
         amount=float(lv["price"]),
@@ -3902,7 +3916,7 @@ async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> di
     if not pay_id:
         return {"status": "pending", "message": "En attente du téléphone…"}
 
-    resp = await soleaspay.verify_payment(order_id, pay_id, service_id=p.get("service_id", 1))
+    resp = await soleaspay.verify_payment(db, order_id, pay_id, service_id=p.get("service_id", 1))
     sp_status = resp.get("status") or ""
     new_status = soleaspay.normalize_status(sp_status, resp.get("success"), resp.get("code"))
     log.info("soleaspay status poll ref=%s sp_status=%r success=%r code=%r → %s",
