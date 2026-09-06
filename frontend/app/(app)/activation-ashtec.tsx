@@ -131,7 +131,13 @@ export default function ActivationAshtec() {
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
           try { await refresh(); } catch {}
-          setTimeout(() => router.replace("/(app)/dashboard" as any), 1200);
+          setTimeout(() => {
+            if (typeof window !== "undefined") {
+              window.location.href = "/(app)/dashboard";
+            } else {
+              router.replace("/(app)/dashboard" as any);
+            }
+          }, 1200);
           return;
         }
         if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {

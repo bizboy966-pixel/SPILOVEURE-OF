@@ -142,7 +142,13 @@ export default function PayAshtec() {
         if (stopped) return;
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
-          setTimeout(() => router.replace(returnTo as any), 1200);
+          setTimeout(() => {
+            if (typeof window !== "undefined") {
+              window.location.href = String(returnTo || "/(app)/dashboard");
+            } else {
+              router.replace(returnTo as any);
+            }
+          }, 1200);
           return;
         }
         if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {

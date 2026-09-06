@@ -117,9 +117,18 @@ export default function Pay() {
         const r = await api.get<any>(`/payments/${ref}/status`);
         missed = 0;
         const s = String(r.status || "").toLowerCase();
-        if (["paid", "success", "validated", "completed"].includes(s)) {
-          setPhase("success"); await refresh?.();
-          setTimeout(() => router.replace("/(app)/dashboard" as any), 2200);
+        if (["paid", "success", "validated", "completed"].includes(s) || r.activation_done === true) {
+          setPhase("success"); try { await refresh?.(); } catch {}
+          // Hard reload to /dashboard so the auth guard sees max_level=1 fresh
+          // (avoids the race where router.replace fires before state updates
+          // and _layout.tsx bounces back to /pay).
+          setTimeout(() => {
+            if (typeof window !== "undefined") {
+              window.location.href = "/(app)/dashboard";
+            } else {
+              router.replace("/(app)/dashboard" as any);
+            }
+          }, 1500);
         } else if (["failed", "rejected", "cancelled", "canceled", "expired"].includes(s)) {
           setPhase("failed");
         }
