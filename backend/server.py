@@ -2143,9 +2143,9 @@ async def get_payment_methods_status(request: Request):
         if gw.get("soleas_enabled"):
             active = "soleas"
     soleas_ready = bool(gw.get("soleas_enabled")) and soleaspay.is_configured()
-    # Ashtech key can come from either env var (preferred) or DB fallback.
-    ashtec_api_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip() \
-                     or (gw.get("ashtec_api_key") or "").strip()
+    # DB-first for Ashtech key (admin panel wins), env is bootstrap fallback.
+    ashtec_api_key = (gw.get("ashtec_api_key") or "").strip() \
+                     or (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
     ashtec_ready = bool(gw.get("ashtec_enabled")) and bool(ashtec_api_key)
     if active == "soleas":
         auto_enabled = soleas_ready
@@ -3934,7 +3934,9 @@ async def _initiate_via_ashtec(
     with provider='ashtecpay' so the polling endpoint can dispatch on read.
     """
     db = request.app.state.db
-    api_key = (gw.get("ashtec_api_key") or "").strip()
+    # DB-first: use the same resolver as the rest of the Ashtech flow.
+    from ashtec_activation import _get_api_key as _ash_get_key  # type: ignore
+    api_key = await _ash_get_key(db)
     if not api_key:
         raise HTTPException(503, "AshtecPay non configuré (clé API manquante côté admin)")
     country = (data.country_code or "").upper()
@@ -4100,8 +4102,8 @@ async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> di
 
 async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> dict:
     db = request.app.state.db
-    gw = await _load_payment_gateway(db)
-    api_key = (gw.get("ashtec_api_key") or "").strip()
+    from ashtec_activation import _get_api_key as _ash_get_key  # type: ignore
+    api_key = await _ash_get_key(db)
     if not api_key:
         return {"status": "pending", "message": "Clé AshtecPay non configurée — contactez l'admin."}
     txid = p.get("transaction_id")

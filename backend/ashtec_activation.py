@@ -130,31 +130,28 @@ async def _load_gateway_cfg(db) -> dict:
     val = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
     if val:
         return val
-    return await db.app_settings.find_one({"_id": "payment_gateway"}) or {}
+    # The payment gateway document is stored with `{"key": "payment_gateway"}`
+    # by server.py — NOT `{"_id": ...}`. The old query silently returned {}
+    # which forced every AshtecPay call to fall back to the env var, causing
+    # "Clé API introuvable" whenever the admin thought they'd configured the
+    # key via the admin panel. Fixed 2026-09-02.
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    return (doc.get("value") if isinstance(doc.get("value"), dict) else doc) or {}
 
 
 async def _get_api_key(db) -> str:
-    """Resolve the Ashtech API key.
+    """Resolve the Ashtech API key — ADMIN PANEL (DB) is the source of truth.
 
-    Priority (highest first):
-      1. `ASHTECPAY_API_KEY` environment variable — preferred source so
-         operations teams can rotate the key without touching the DB and
-         so keys are never persisted in Mongo dumps.
-      2. Admin-panel document (`app_settings.{key:"payment_gateway"}.value.ashtec_api_key`)
-         — RESCUE FALLBACK. The admin can paste the key directly in the
-         admin panel when the env var is missing (e.g. right after a
-         redeploy that wiped environment variables). See
-         PaymentGatewaysCard in `(admin)/index.tsx` for the UI entry point.
-
-    Both sources are kept intentionally so a production outage can be
-    resolved by the admin from within the app, without waiting for infra
-    to re-inject the env variable.
+    Priority: DB (admin panel) FIRST, then env var as a boostrap fallback
+    ONLY when the admin hasn't set anything. This matches the SolesPay flow
+    and ensures the value the admin sees in the admin panel is ALWAYS the
+    one that's used for API calls.
     """
-    env_key = (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
-    if env_key:
-        return env_key
     cfg = await _load_gateway_cfg(db)
-    return (cfg.get("ashtec_api_key") or "").strip()
+    db_key = (cfg.get("ashtec_api_key") or "").strip()
+    if db_key:
+        return db_key
+    return (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
 
 
 async def _ashtec_enabled(db) -> bool:
