@@ -23,6 +23,29 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (septies) — 🎯 Corrections #1 + #2 + #3 : activation auto centralisée
+
+**#1 SolesPay** — Fix mismatch reference (webhook cherche par order_id OU provider_reference), normalisation du wallet par pays (dial-code auto-préfixé), et boucle de réconciliation 60s pour rattraper les webhooks perdus.
+
+**#2 AshtechPay** — Root cause : `_load_gateway_cfg` cherchait `{_id: "payment_gateway"}` au lieu de `{key: "payment_gateway"}` → `_get_api_key` retombait TOUJOURS sur env. Corrigé + inversion priorité DB-first (admin panel gagne, env = fallback) + harmonisation des 3 endroits qui lisaient la clé en direct.
+
+**#3 Centralisation activations** :
+- Statuts unifiés dans `db.payments.status` : `processing/pending` → `validated` (à l'activation) ou `expired`/`rejected` (à l'échec/timeout).
+- **Expiration automatique à 30 min** dans la boucle de réconciliation : les paiements `processing`/`pending` créés il y a > 30 min passent à `expired` en un `update_many` atomique. Race-safe : un webhook qui paye juste avant le seuil flip d'abord à `paid` puis `validated`, et le filtre `status: {$in: [processing, pending]}` empêche d'expirer un paiement déjà validé.
+- **Nouvel endpoint admin** `GET /api/admin/activations/unified?bucket=pending|validated|rejected` — agrège SolesPay + Ashtec sous la même API. Endpoint manuel `POST /api/admin/activations/reconcile` pour trigger express.
+- **Boucle inclut Ashtec** : reconciliation vérifie maintenant `gateway: {$in: [soleaspay, ashtecpay]}` — même safety net pour les deux passerelles.
+
+**Validation live** :
+- GET /admin/activations/unified?bucket=pending → count 0 ✅
+- GET .../unified?bucket=validated → count 0 ✅
+- GET .../unified?bucket=rejected → count 2 (paiements déjà failed) ✅
+- POST /admin/activations/reconcile → `{ok:true, checked:0, activated:0, expired:0}` ✅
+- 67/67 tests pytest verts, aucune régression.
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 (sexies) — 🚑 Correction #1 : activation SolesPay bloquée "en attente"
 
 **Root causes trouvées et fixées** :

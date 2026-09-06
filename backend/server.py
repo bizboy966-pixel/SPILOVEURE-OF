@@ -1817,35 +1817,51 @@ def _normalize_wallet_for_soleaspay(country: str, phone: str) -> str:
 
 async def _soleaspay_reconcile_once(db) -> dict:
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-    cutoff = _dt.now(_tz.utc) - _td(seconds=90)
-    stale_cutoff = _dt.now(_tz.utc) - _td(hours=24)  # older than 24h → give up
+    now = _dt.now(_tz.utc)
+    cutoff = now - _td(seconds=90)
+    expiration_cutoff = now - _td(minutes=30)
+    stale_cutoff = now - _td(hours=24)  # older than 24h → give up
+
+    # ── Step 1: verify all still-processing payments against the gateway.
     cur = db.payments.find({
-        "gateway": "soleaspay",
+        "gateway": {"$in": ["soleaspay", "ashtecpay"]},
         "status": {"$in": ["processing", "pending"]},
         "activation_done": {"$ne": True},
         "created_at": {"$lt": cutoff, "$gt": stale_cutoff},
     }).limit(50)
-    checked = activated = 0
+    checked = activated = expired = 0
     async for p in cur:
         checked += 1
+        gw = p.get("gateway")
         pay_id = p.get("transaction_id") or p.get("provider_reference") or p["reference"]
+        internal = None
         try:
-            resp = await soleaspay.verify_payment(
-                db, p["reference"], pay_id, service_id=p.get("service_id", 1)
-            )
+            if gw == "soleaspay":
+                resp = await soleaspay.verify_payment(
+                    db, p["reference"], pay_id, service_id=p.get("service_id", 1)
+                )
+                internal = soleaspay.normalize_status(
+                    resp.get("status") or "", resp.get("success"), resp.get("code")
+                )
+            elif gw == "ashtecpay":
+                from ashtec_activation import _get_api_key as _ash_key  # type: ignore
+                ak = await _ash_key(db)
+                if ak and p.get("transaction_id"):
+                    import ashtecpay as _ash  # type: ignore
+                    resp = await _ash.verify_payment(api_key=ak, transaction_id=p["transaction_id"])
+                    internal = _ash.normalize_status(resp.get("status") or "")
+                else:
+                    resp = {}
         except Exception as e:
-            log.warning("reconcile: verify_payment failed ref=%s err=%s", p["reference"], e)
+            log.warning("reconcile: verify failed gw=%s ref=%s err=%s",
+                        gw, p["reference"], e)
             continue
-        internal = soleaspay.normalize_status(
-            resp.get("status") or "", resp.get("success"), resp.get("code")
-        )
+
         if internal == "paid":
             upd = await db.payments.update_one(
                 {"reference": p["reference"], "activation_done": {"$ne": True}},
-                {"$set": {"status": "paid",
-                          "updated_at": _dt.now(_tz.utc),
-                          "reconcile_at": _dt.now(_tz.utc),
-                          "reconcile_response": resp}},
+                {"$set": {"status": "paid", "updated_at": now,
+                          "reconcile_at": now, "reconcile_response": resp}},
             )
             if upd.modified_count > 0:
                 try:
@@ -1853,12 +1869,12 @@ async def _soleaspay_reconcile_once(db) -> dict:
                                          source=f"reconcile:{p['reference']}")
                     await db.payments.update_one(
                         {"reference": p["reference"]},
-                        {"$set": {"activation_done": True},
+                        {"$set": {"activation_done": True, "status": "validated"},
                          "$unset": {"activation_error": ""}},
                     )
                     activated += 1
-                    log.info("reconcile: activated user=%s ref=%s",
-                             p["user_id"], p["reference"])
+                    log.info("reconcile: activated user=%s ref=%s gw=%s",
+                             p["user_id"], p["reference"], gw)
                 except Exception as e:
                     await db.payments.update_one(
                         {"reference": p["reference"]},
@@ -1867,11 +1883,69 @@ async def _soleaspay_reconcile_once(db) -> dict:
         elif internal == "failed":
             await db.payments.update_one(
                 {"reference": p["reference"]},
-                {"$set": {"status": "failed",
-                          "updated_at": _dt.now(_tz.utc),
-                          "reconcile_at": _dt.now(_tz.utc)}},
+                {"$set": {"status": "rejected", "updated_at": now,
+                          "rejected_reason": "gateway_failed",
+                          "reconcile_at": now}},
             )
-    return {"checked": checked, "activated": activated}
+
+    # ── Step 2: expire pending payments older than 30 minutes. Race-safe:
+    # we only expire if status IS STILL pending/processing (a concurrent
+    # webhook/reconcile that just paid will have flipped to paid first).
+    exp_res = await db.payments.update_many(
+        {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
+         "status": {"$in": ["processing", "pending"]},
+         "activation_done": {"$ne": True},
+         "created_at": {"$lt": expiration_cutoff}},
+        {"$set": {"status": "expired", "updated_at": now,
+                  "rejected_reason": "timeout_30min",
+                  "expired_at": now}},
+    )
+    expired = exp_res.modified_count
+    if expired > 0:
+        log.info("reconcile: expired %d stale activations after 30 min", expired)
+    return {"checked": checked, "activated": activated, "expired": expired}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Unified admin activation tracker — same status buckets for ALL gateways.
+# ═══════════════════════════════════════════════════════════════════════
+
+@api.get("/admin/activations/unified")
+async def admin_list_activations_unified(
+    request: Request, admin=Depends(require_admin),
+    bucket: str = "pending", limit: int = 100,
+):
+    """Return activations grouped by unified status bucket:
+       - `pending`   → paiement lancé, non confirmé, non expiré (< 30 min)
+       - `validated` → paiement confirmé + compte activé
+       - `rejected`  → refusé, échoué, ou expiré à 30 min
+
+    Aggregates SolesPay + AshtecPay (any auto gateway). Sorted newest first.
+    """
+    db = request.app.state.db
+    q_map = {
+        "pending":   {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
+                      "status": {"$in": ["processing", "pending"]},
+                      "activation_done": {"$ne": True}},
+        "validated": {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
+                      "activation_done": True},
+        "rejected":  {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
+                      "status": {"$in": ["failed", "rejected", "expired"]}},
+    }
+    q = q_map.get(bucket, q_map["pending"])
+    rows = await db.payments.find(q, {"_id": 0}).sort("created_at", -1).limit(min(500, max(1, limit))).to_list(length=None)
+    return {"bucket": bucket, "count": len(rows), "items": rows}
+
+
+@api.post("/admin/activations/reconcile")
+async def admin_activations_reconcile(request: Request, admin=Depends(require_admin)):
+    """Manual sweep — verify pending, activate paid, expire >30min."""
+    db = request.app.state.db
+    r = await _soleaspay_reconcile_once(db)
+    return {"ok": True, **r}
+
+
+
 
 
 async def _soleaspay_reconciliation_loop(db):
