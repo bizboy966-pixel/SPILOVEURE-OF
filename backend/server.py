@@ -1341,12 +1341,13 @@ async def _record_payment_event(db, *, ref: str, new_status: str, payload: dict,
 
 @api.get("/payments/{reference}/status")
 async def user_payment_status(reference: str, request: Request, user=Depends(get_current_user)):
-    """User-facing status check + auto-activation on return from gateway.
+    """User-facing status check + auto-activation.
 
-    Called by the frontend `/services?ref=…` redirect handler. If the
-    payment is `paid` but activation hasn't run yet (e.g. webhook delay or
-    initial bug), this endpoint forces the activation now so the user
-    doesn't have to wait or contact support.
+    On each poll, if the payment is still `processing`/`pending`, we ACTIVELY
+    re-verify against the gateway (SolesPay `verif-pay`) before returning.
+    This eliminates the "stuck en attente" scenario caused by lost/rejected
+    webhooks: even if no webhook ever arrives, the polling itself confirms
+    the payment and triggers activation instantly.
     """
     db = request.app.state.db
     p = await db.payments.find_one({"reference": reference}, {"_id": 0})
@@ -1354,6 +1355,38 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
         raise HTTPException(404, "Paiement introuvable")
     if p.get("user_id") != user.get("id"):
         raise HTTPException(403, "Ce paiement n'appartient pas à votre compte")
+
+    # ── Live re-verify for still-pending SolesPay payments ────────────────
+    gw = p.get("gateway") or p.get("provider")
+    current_status = str(p.get("status") or "").lower()
+    if gw == "soleaspay" and current_status in ("processing", "pending"):
+        pay_id = p.get("transaction_id") or p.get("provider_reference") or reference
+        try:
+            resp = await soleaspay.verify_payment(
+                db, reference, pay_id, service_id=p.get("service_id", 1)
+            )
+            internal = soleaspay.normalize_status(
+                resp.get("status") or "", resp.get("success"), resp.get("code")
+            )
+            if internal == "paid":
+                await db.payments.update_one(
+                    {"reference": reference, "activation_done": {"$ne": True}},
+                    {"$set": {"status": "paid",
+                              "updated_at": datetime.now(timezone.utc),
+                              "poll_verified_at": datetime.now(timezone.utc)}},
+                )
+                # Reload freshly-updated doc
+                p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+            elif internal == "failed":
+                await db.payments.update_one(
+                    {"reference": reference},
+                    {"$set": {"status": "rejected", "rejected_reason": "gateway_failed",
+                              "updated_at": datetime.now(timezone.utc)}},
+                )
+                p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+        except Exception as exc:
+            log.warning("poll verify_payment failed ref=%s: %s", reference, exc)
+
     out = {
         "reference": reference,
         "status": p.get("status"),
@@ -1362,16 +1395,29 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
         "amount": p.get("amount"),
         "currency": p.get("currency"),
     }
-    if p.get("status") == "paid" and not p.get("activation_done"):
+    # ── Auto-activate any paid/validated payment that hasn't been activated
+    #    yet (webhook lost, first-time hit, etc.).
+    if (p.get("status") in ("paid", "validated")) and not p.get("activation_done"):
         try:
-            await activate_level(db, p["user_id"], int(p["level"]), source="gateway_return")
+            # Ensure the user's account is flippable (Ashtec + SolesPay parity).
+            await db.users.update_one(
+                {"id": p["user_id"], "status": {"$ne": "active"}},
+                {"$set": {"status": "active"}},
+            )
+            await activate_level(db, p["user_id"], int(p["level"]), source="poll_return")
             await db.payments.update_one(
                 {"reference": reference},
-                {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
+                {"$set": {"activation_done": True, "status": "validated",
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
             )
+            out["status"] = "validated"
             out["activation_done"] = True
             out["activated_now"] = True
+            log.info("ACTIVATION_COMPLETED source=poll user=%s ref=%s level=%s",
+                     p["user_id"], reference, p.get("level"))
         except Exception as exc:
+            log.exception("ACTIVATION_FAILED source=poll ref=%s: %s", reference, exc)
             out["activation_error"] = str(exc)
     return out
 
