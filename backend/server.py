@@ -1823,8 +1823,13 @@ async def _soleaspay_reconcile_once(db) -> dict:
     stale_cutoff = now - _td(hours=24)  # older than 24h → give up
 
     # ── Step 1: verify all still-processing payments against the gateway.
+    # Ashtec stores its ID in `provider` while SolesPay uses `gateway` — cover
+    # BOTH field names or Ashtec payments never get reconciled.
     cur = db.payments.find({
-        "gateway": {"$in": ["soleaspay", "ashtecpay"]},
+        "$or": [
+            {"gateway": {"$in": ["soleaspay", "ashtecpay"]}},
+            {"provider": {"$in": ["soleaspay", "ashtecpay"]}},
+        ],
         "status": {"$in": ["processing", "pending"]},
         "activation_done": {"$ne": True},
         "created_at": {"$lt": cutoff, "$gt": stale_cutoff},
@@ -1832,7 +1837,7 @@ async def _soleaspay_reconcile_once(db) -> dict:
     checked = activated = expired = 0
     async for p in cur:
         checked += 1
-        gw = p.get("gateway")
+        gw = p.get("gateway") or p.get("provider")
         pay_id = p.get("transaction_id") or p.get("provider_reference") or p["reference"]
         internal = None
         try:
@@ -1867,6 +1872,11 @@ async def _soleaspay_reconcile_once(db) -> dict:
                 try:
                     await activate_level(db, p["user_id"], int(p["level"]),
                                          source=f"reconcile:{p['reference']}")
+                    # Also flip user.status to active for Ashtec's account guard.
+                    await db.users.update_one(
+                        {"id": p["user_id"], "status": {"$ne": "active"}},
+                        {"$set": {"status": "active"}},
+                    )
                     await db.payments.update_one(
                         {"reference": p["reference"]},
                         {"$set": {"activation_done": True, "status": "validated"},
@@ -1888,11 +1898,12 @@ async def _soleaspay_reconcile_once(db) -> dict:
                           "reconcile_at": now}},
             )
 
-    # ── Step 2: expire pending payments older than 30 minutes. Race-safe:
-    # we only expire if status IS STILL pending/processing (a concurrent
-    # webhook/reconcile that just paid will have flipped to paid first).
+    # ── Step 2: expire pending payments older than 30 minutes (Ashtec + Soleas).
     exp_res = await db.payments.update_many(
-        {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
+        {"$or": [
+            {"gateway": {"$in": ["soleaspay", "ashtecpay"]}},
+            {"provider": {"$in": ["soleaspay", "ashtecpay"]}},
+         ],
          "status": {"$in": ["processing", "pending"]},
          "activation_done": {"$ne": True},
          "created_at": {"$lt": expiration_cutoff}},
@@ -1923,14 +1934,16 @@ async def admin_list_activations_unified(
     Aggregates SolesPay + AshtecPay (any auto gateway). Sorted newest first.
     """
     db = request.app.state.db
+    # Ashtec uses `provider`, SolesPay uses `gateway` — cover BOTH.
+    gw_filter = {"$or": [
+        {"gateway": {"$in": ["soleaspay", "ashtecpay"]}},
+        {"provider": {"$in": ["soleaspay", "ashtecpay"]}},
+    ]}
     q_map = {
-        "pending":   {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
-                      "status": {"$in": ["processing", "pending"]},
+        "pending":   {**gw_filter, "status": {"$in": ["processing", "pending"]},
                       "activation_done": {"$ne": True}},
-        "validated": {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
-                      "activation_done": True},
-        "rejected":  {"gateway": {"$in": ["soleaspay", "ashtecpay"]},
-                      "status": {"$in": ["failed", "rejected", "expired"]}},
+        "validated": {**gw_filter, "activation_done": True},
+        "rejected":  {**gw_filter, "status": {"$in": ["failed", "rejected", "expired"]}},
     }
     q = q_map.get(bucket, q_map["pending"])
     rows = await db.payments.find(q, {"_id": 0}).sort("created_at", -1).limit(min(500, max(1, limit))).to_list(length=None)
