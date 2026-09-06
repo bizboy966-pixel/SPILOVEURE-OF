@@ -128,13 +128,13 @@ export default function ActivationAshtec() {
           `/payments/ashtec/status/${encodeURIComponent(session.reference)}`,
         );
         if (stopped) return;
-        if (r.status === "paid" && r.activation_done) {
+        if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
           try { await refresh(); } catch {}
-          setTimeout(() => router.replace("/(app)/dashboard" as any), 2500);
+          setTimeout(() => router.replace("/(app)/dashboard" as any), 1200);
           return;
         }
-        if (r.status === "failed") {
+        if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {
           setErrMsg(r.error || "Paiement refusé");
           setStep("failed");
           return;
