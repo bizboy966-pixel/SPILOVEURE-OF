@@ -23,6 +23,29 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 
 ## Implementation Status (à jour 2026-09-02)
 
+### 2026-09-02 (sexies) — 🚑 Correction #1 : activation SolesPay bloquée "en attente"
+
+**Root causes trouvées et fixées** :
+
+1. **Mismatch de référence webhook** : on stockait `payment.reference = order_id` (SPV-xxx) mais SolesPay peut renvoyer sa propre `data.reference` (MLS-xxx) dans le webhook → find_one retournait None → activation jamais déclenchée. **Fix** : la recherche webhook regarde maintenant `{$or: [{reference: order_id}, {provider_reference: order_id}]}` et on stocke `provider_reference` (MLS-xxx) sur le doc payment dès la réponse d'initiation.
+
+2. **Format du numéro par pays** : certains opérateurs SolesPay refusent silencieusement les numéros sans indicatif pays (ex : "90123456" au lieu de "22890123456") → paiement jamais démarré. **Fix** : `_normalize_wallet_for_soleaspay(country, phone)` prépose le dial-code correct pour TG/BJ/CI/BF/CM/COG/GAB/UGA/SN/ML/NE avant envoi.
+
+3. **Webhook perdu / rejeté = compte jamais activé** : si SolesPay ne renvoie pas le webhook (réseau, signature bad, downtime) → paiement reste "processing" à vie. **Fix** : **boucle de réconciliation** en tâche de fond qui, toutes les 60s, re-vérifie via `verify-pay` tous les paiements "processing" âgés de 90s à 24h. Sur SUCCESS → activation automatique. Sur FAILED → passage en failed. **Nouveau endpoint admin** `POST /api/admin/soleaspay/reconcile` pour trigger manuel.
+
+4. **Statuts additionnels** : ajout de "VALIDATED" à la liste des statuts SUCCESS reconnus par le webhook (certains flux SolesPay l'utilisent).
+
+**Résultat** : un paiement SolesPay réellement reçu et confirmé ne peut plus rester en "vérification en attente" indéfiniment. Il y a désormais 3 chemins d'activation :
+- Webhook → activation immédiate (chemin principal)
+- Réconciliation périodique → activation dans les 60s max si webhook perdu
+- Reconcile manuel admin → intervention express
+
+**Non-régression** : 34/34 tests SolesPay verts.
+
+---
+
+## Implementation Status (à jour 2026-09-02)
+
 ### 2026-09-02 (quinquies) — 🔧 Fix RÉEL de la config dynamique SolesPay + Copier/Hash/Vérifier
 
 **Vraie source du bug identifiée** : les fonctions internes qui font les appels HTTP à SolesPay (`initiate_payment`, `verify_payment`, `initiate_payout`, `_get_bearer_token`, `_payout_headers`) utilisaient `api_key()` (env-only) et `os.environ.get(...)` en dur — elles IGNORAIENT complètement les `resolve_*(db)` DB-first. Résultat : l'admin panel enregistrait les nouvelles clés, la GET les affichait bien avec `source="db"`, mais chaque appel API réel utilisait quand même la clé du .env.

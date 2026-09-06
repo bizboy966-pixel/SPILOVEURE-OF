@@ -151,6 +151,8 @@ async def lifespan(app: FastAPI):
     try:
         from chat import start_retention_worker as _start_retention  # noqa: WPS433
         retention_task = asyncio.create_task(_start_retention(db))
+        # SolesPay reconciliation — safety net for lost webhooks
+        asyncio.create_task(_soleaspay_reconciliation_loop(db))
         log.info("Chat retention worker scheduled")
     except Exception as _e:
         log.warning(f"Chat retention worker failed to start: {_e}")
@@ -1503,12 +1505,19 @@ async def soleaspay_webhook(request: Request):
                 "handled": bool(outcome and outcome.get("handled")),
                 "outcome": (outcome or {}).get("outcome"), "status": status_raw}
 
-    pay = await db.payments.find_one({"reference": order_id})
+    # Look up the payment intent — first by our internal reference (order_id),
+    # then by SolesPay's OWN reference stored as `provider_reference` when we
+    # initiated the payment. This closes the "webhook came back with MLS-xxx
+    # instead of our SPV-xxx" gap that was silently blocking activation.
+    pay = await db.payments.find_one(
+        {"$or": [{"reference": order_id}, {"provider_reference": order_id}]}
+    )
     if not pay:
         await db.soleaspay_webhook_events.insert_one({
             "event_id": event_id, "raw": event, "order_id": order_id,
             "at": datetime.now(timezone.utc), "ignored": "unknown_order"})
         return {"received": True, "unknown_order": True}
+    lookup_ref = pay["reference"]  # our internal ref (source of truth)
     amt = data.get("amount")
     if amt is not None:
         try:
@@ -1520,32 +1529,34 @@ async def soleaspay_webhook(request: Request):
         except Exception:
             pass
     activated = False
-    if status_raw in ("SUCCESS", "SUCCEEDED", "COMPLETED", "PAID"):
+    if status_raw in ("SUCCESS", "SUCCEEDED", "COMPLETED", "PAID", "VALIDATED"):
         upd = await db.payments.update_one(
-            {"reference": order_id, "activation_done": {"$ne": True}},
+            {"reference": lookup_ref, "activation_done": {"$ne": True}},
             {"$set": {"status": "paid", "updated_at": datetime.now(timezone.utc),
-                      "webhook_at": datetime.now(timezone.utc), "webhook_raw": event}},
+                      "webhook_at": datetime.now(timezone.utc), "webhook_raw": event,
+                      "provider_reference": data.get("reference") or pay.get("provider_reference")}},
         )
         if upd.modified_count > 0:
             try:
-                await activate_level(db, pay["user_id"], int(pay["level"]), source=f"webhook:{order_id}")
+                await activate_level(db, pay["user_id"], int(pay["level"]), source=f"webhook:{lookup_ref}")
                 await db.payments.update_one(
-                    {"reference": order_id},
+                    {"reference": lookup_ref},
                     {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
                 )
                 activated = True
             except Exception as e:
                 await db.payments.update_one(
-                    {"reference": order_id}, {"$set": {"activation_error": str(e)}})
+                    {"reference": lookup_ref}, {"$set": {"activation_error": str(e)}})
     else:
         await db.payments.update_one(
-            {"reference": order_id},
+            {"reference": lookup_ref},
             {"$set": {"status": status_raw.lower() or "pending",
                       "webhook_at": datetime.now(timezone.utc), "webhook_raw": event,
                       "updated_at": datetime.now(timezone.utc)}},
         )
     await db.soleaspay_webhook_events.insert_one({
         "event_id": event_id, "raw": event, "order_id": order_id,
+        "resolved_reference": lookup_ref,
         "status": status_raw, "activated": activated,
         "at": datetime.now(timezone.utc)})
     return {"received": True, "activated": activated, "status": status_raw}
@@ -1776,10 +1787,112 @@ async def admin_soleaspay_test(request: Request, admin=Depends(require_admin)):
     except Exception as e:
         return {"ok": False, "error": "network", "detail": str(e)[:200]}
 
+def _normalize_wallet_for_soleaspay(country: str, phone: str) -> str:
+    """Normalize a wallet number to the format SolesPay expects per country.
+
+    Rules discovered from operator flows:
+      - Strip spaces, dashes, parentheses, leading zeros, leading '+'.
+      - If the number does NOT already start with the country's dial code,
+        prepend it. This fixes activations that were silently rejected because
+        we sent e.g. '90123456' where SolesPay wanted '22890123456'.
+      - Keep only digits.
+    """
+    DIAL = {"TG": "228", "BJ": "229", "CI": "225", "BF": "226",
+            "CM": "237", "COG": "242", "GAB": "241", "UGA": "256",
+            "SN": "221", "ML": "223", "NE": "227"}
+    p = "".join(ch for ch in (phone or "") if ch.isdigit())
+    p = p.lstrip("0")
+    dc = DIAL.get((country or "").upper(), "")
+    if dc and not p.startswith(dc):
+        p = dc + p
+    return p
+
 
 # ═══════════════════════════════════════════════════════════════════════
-# Unified activation endpoint — the front-end NEVER picks the gateway.
+# SolesPay reconciliation background task — safety net for lost webhooks.
+# Every 60s, re-verify every "processing" payment older than 90s via the
+# verif-pay endpoint. When SolesPay confirms SUCCESS, we activate the user
+# even if the webhook never arrived (or was rejected due to bad signature).
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _soleaspay_reconcile_once(db) -> dict:
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    cutoff = _dt.now(_tz.utc) - _td(seconds=90)
+    stale_cutoff = _dt.now(_tz.utc) - _td(hours=24)  # older than 24h → give up
+    cur = db.payments.find({
+        "gateway": "soleaspay",
+        "status": {"$in": ["processing", "pending"]},
+        "activation_done": {"$ne": True},
+        "created_at": {"$lt": cutoff, "$gt": stale_cutoff},
+    }).limit(50)
+    checked = activated = 0
+    async for p in cur:
+        checked += 1
+        pay_id = p.get("transaction_id") or p.get("provider_reference") or p["reference"]
+        try:
+            resp = await soleaspay.verify_payment(
+                db, p["reference"], pay_id, service_id=p.get("service_id", 1)
+            )
+        except Exception as e:
+            log.warning("reconcile: verify_payment failed ref=%s err=%s", p["reference"], e)
+            continue
+        internal = soleaspay.normalize_status(
+            resp.get("status") or "", resp.get("success"), resp.get("code")
+        )
+        if internal == "paid":
+            upd = await db.payments.update_one(
+                {"reference": p["reference"], "activation_done": {"$ne": True}},
+                {"$set": {"status": "paid",
+                          "updated_at": _dt.now(_tz.utc),
+                          "reconcile_at": _dt.now(_tz.utc),
+                          "reconcile_response": resp}},
+            )
+            if upd.modified_count > 0:
+                try:
+                    await activate_level(db, p["user_id"], int(p["level"]),
+                                         source=f"reconcile:{p['reference']}")
+                    await db.payments.update_one(
+                        {"reference": p["reference"]},
+                        {"$set": {"activation_done": True},
+                         "$unset": {"activation_error": ""}},
+                    )
+                    activated += 1
+                    log.info("reconcile: activated user=%s ref=%s",
+                             p["user_id"], p["reference"])
+                except Exception as e:
+                    await db.payments.update_one(
+                        {"reference": p["reference"]},
+                        {"$set": {"activation_error": str(e)[:300]}},
+                    )
+        elif internal == "failed":
+            await db.payments.update_one(
+                {"reference": p["reference"]},
+                {"$set": {"status": "failed",
+                          "updated_at": _dt.now(_tz.utc),
+                          "reconcile_at": _dt.now(_tz.utc)}},
+            )
+    return {"checked": checked, "activated": activated}
+
+
+async def _soleaspay_reconciliation_loop(db):
+    import asyncio as _a
+    while True:
+        try:
+            r = await _soleaspay_reconcile_once(db)
+            if r["activated"] > 0:
+                log.info("SolesPay reconciliation: %s", r)
+        except Exception as e:
+            log.exception("SolesPay reconciliation loop error: %s", e)
+        await _a.sleep(60)
+
+
+@api.post("/admin/soleaspay/reconcile")
+async def admin_soleaspay_reconcile(request: Request, admin=Depends(require_admin)):
+    """Manual trigger: sweep all processing SolesPay payments now."""
+    db = request.app.state.db
+    r = await _soleaspay_reconcile_once(db)
+    return {"ok": True, **r}
+
 
 class ActivateIn(_PGBaseModel):
     method: str                     # "mobile" | "crypto"
@@ -1863,7 +1976,8 @@ async def payments_activate(
         try:
             resp = await soleaspay.initiate_payment(
                 db,
-                service_id=svc_id, wallet=phone, amount=amount, currency=currency,
+                service_id=svc_id, wallet=_normalize_wallet_for_soleaspay(cc, phone),
+                amount=amount, currency=currency,
                 order_id=order_id,
                 description=f"Activation niveau 1 - {user['username']}",
                 payer=user.get("full_name") or user["username"],
@@ -1882,8 +1996,19 @@ async def payments_activate(
                                           {"$set": {"status": "failed",
                                                     "error": resp.get("message") or "refused"}})
             raise HTTPException(400, resp.get("message") or "Requête refusée par SoleasPay.")
+        # Store SolesPay's own reference (MLS-xxx) so the webhook can find the
+        # payment even if it echoes their ref instead of our order_id.
+        prov_ref = (resp.get("data") or {}).get("reference")
+        prov_tx = (resp.get("data") or {}).get("transaction_reference")
+        if prov_ref or prov_tx:
+            await db.payments.update_one(
+                {"reference": order_id},
+                {"$set": {"provider_reference": prov_ref,
+                          "transaction_id": prov_tx or prov_ref,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
         return {"reference": order_id, "gateway": "soleaspay", "method": "mobile",
-                "status": "processing", "provider_reference": (resp.get("data") or {}).get("reference")}
+                "status": "processing", "provider_reference": prov_ref}
 
     if (gw == "ashtec"):
         try:
