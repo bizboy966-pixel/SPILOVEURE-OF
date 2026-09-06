@@ -778,27 +778,32 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                   "updated_at": datetime.now(timezone.utc)}},
     )
     try:
-        await activate_level(db, p["user_id"], int(p["level"]), source=source)
+        # Flip user.status to "active" FIRST — matrix.activate_level's guards
+        # may require an active account; this also mirrors the reconcile loop.
         await db.users.update_one(
             {"id": p["user_id"], "status": {"$ne": "active"}},
             {"$set": {"status": "active"}},
         )
+        await activate_level(db, p["user_id"], int(p["level"]), source=source)
         await db.payments.update_one(
             {"reference": ref},
-            {"$set": {"activation_done": True,
+            {"$set": {"activation_done": True, "status": "validated",
                       "updated_at": datetime.now(timezone.utc)},
              "$unset": {"activation_error": ""}},
         )
+        log.info("ACTIVATION_COMPLETED user=%s ref=%s level=%s source=%s",
+                 p["user_id"], ref, p.get("level"), source)
         await _notify(
             "🚀 Votre compte est activé !",
             f"Bienvenue au Niveau {p.get('level')} — vous êtes désormais placé dans la matrice.",
             {"level": p.get("level"), "reference": ref},
         )
     except Exception as exc:
-        log.exception("ashtec _apply_payment_success failed for ref=%s: %s", ref, exc)
+        log.exception("ACTIVATION_FAILED ref=%s user=%s: %s",
+                      ref, p.get("user_id"), exc)
         await db.payments.update_one(
             {"reference": ref},
-            {"$set": {"activation_error": str(exc),
+            {"$set": {"activation_error": str(exc)[:400],
                       "updated_at": datetime.now(timezone.utc)}},
         )
 
@@ -874,7 +879,20 @@ async def ashtec_webhook(request: Request):
                "failed" if event == "payment.failed" else "pending"
 
     if norm == "paid" and not p.get("activation_done"):
-        await _apply_activation(db, p, live_status or event, source="ashtecpay")
+        log.info("ashtec webhook ACCOUNT_ACTIVATION_STARTED ref=%s user=%s level=%s",
+                 p.get("reference"), p.get("user_id"), p.get("level"))
+        try:
+            await _apply_payment_success(db, p, live_status or event, source="ashtecpay")
+            log.info("ashtec webhook ACCOUNT_ACTIVATED ref=%s user=%s",
+                     p.get("reference"), p.get("user_id"))
+        except Exception as e:
+            log.exception("ashtec webhook ACTIVATION_FAILED ref=%s: %s",
+                          p.get("reference"), e)
+            await db.payments.update_one(
+                {"reference": p["reference"]},
+                {"$set": {"activation_error": str(e)[:400],
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
     elif norm == "failed":
         await db.payments.update_one(
             {"reference": p["reference"]},
