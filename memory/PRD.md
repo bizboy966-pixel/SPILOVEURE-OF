@@ -22,6 +22,44 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-03 — 🔐 AshtechPay conformité API Direct v1.2
+
+**Contexte** : l'utilisateur a fourni la doc officielle `AshtechPay_API_Direct_v1-2.pdf`. Alignement strict de l'intégration.
+
+**Backend** :
+- `ashtec_activation.py::COUNTRIES["ML"]` → opérateur `Orange Money` (au lieu de `Orange Money (OTP)` — v1.2 précise que Mali n'utilise PAS d'OTP).
+- `CATALOG_VERSION` bumpé à `2026-09-03-v4-official-v1.2`.
+- Nouvelle fonction `_verify_ashtec_signature(secret, timestamp, raw_body, sig)` — HMAC-SHA256 sur `timestamp + "." + raw_body` avec `hmac.compare_digest`, accepte `sha256=<hex>` OU hex nu.
+- `_get_webhook_secret(db)` — DB-first (`ashtec_webhook_secret` dans admin panel), env fallback (`ASHTECPAY_WEBHOOK_SECRET`).
+- `POST /api/webhooks/ashtec` réécrit : lit `X-Ashtech-Signature`, `X-Ashtech-Timestamp`, `X-Ashtech-Event-Id`. **Rejet 401** si secret configuré et signature invalide/absente. Idempotence via `event_id` (v1.2) avec fallback `transaction_id`. Fallback dev-mode quand aucun secret n'est configuré (unsigned webhooks encore acceptés).
+- `server.py::_PG_DEFAULTS` : ajout de `ashtec_webhook_secret: ""`.
+- `PaymentGatewayUpdate` accepte `ashtec_webhook_secret` (sémantique `""` no-op / `"DELETE"` clear / valeur = set).
+- `GET /admin/payment-gateways` expose `ashtec.webhook_secret_set` (bool) + `webhook_secret_masked` — jamais la valeur en clair.
+
+**Frontend** :
+- `(admin)/index.tsx::PaymentGatewaysCard` : nouveau champ **"Secret webhook (HMAC-SHA256)"** dans la carte Ashtec avec input `secureTextEntry`, boutons Enregistrer / Supprimer, message d'aide expliquant que sans secret les webhooks ne sont pas authentifiés. testIDs : `ashtec-webhook-secret-input`, `ashtec-webhook-secret-save`, `ashtec-webhook-secret-clear`.
+- `(app)/activation-ashtec.tsx` : sur flow `otp_required`, affichage explicite d'une **boîte USSD orange** avec le code à composer (`session.ussd_code` ou fallback par pays : CI=`#144*82#`, SN=`#144*391#`, BF=`#144*4*6*<montant>#`) + hint "L'OTP apparaîtra dans le menu opérateur (pas par SMS)". testID `ashtec-ussd-code`.
+
+**Tests** :
+- Nouveau fichier `tests/test_ashtec_v12.py` — 14 tests : catalog v1.2 (10 pays, Mali Orange Money), HMAC valide (sha256=hex, bare hex), HMAC rejeté (mauvaise sig, timestamp manquant, body altéré, secret absent).
+- Mise à jour `test_ashtec_catalog_v3.py` (ML→Orange Money, version bumpée).
+- Mise à jour `test_ashtec_activation.py` + `test_ashtec_toggle_visibility.py` : `len(codes) == 10` (v3 avait 10 pays, les tests attendaient encore 14 — regression pré-existante corrigée).
+- **67/67 tests verts** sur `test_ashtec_v12` + `test_ashtec_catalog_v3` + `test_ashtec_toggle_visibility` + `test_ashtec_activation_stats` + `test_ashtec_toggle_ads_tasks` + `test_soleaspay_pout` + `test_solespay_isolated`.
+
+**Validation live curl** :
+- `GET /payments/ashtec/catalog` → `version=2026-09-03-v4-official-v1.2`, `countries=10`, `ML ops=["Moov Money","Orange Money"]` ✅
+- Webhook unsigned + secret configuré → `HTTP 401 Invalid webhook signature` ✅
+- Webhook signé correctement (HMAC-SHA256) + secret configuré → `HTTP 200 unknown_payment` ✅
+- Webhook signature bidon + secret configuré → `HTTP 401 Invalid webhook signature` ✅
+- Webhook unsigned + AUCUN secret configuré → `HTTP 200 unknown_payment` (fallback dev) ✅
+
+**Non couvert (P1 backlog)** :
+- Endpoint `/v1/fees` non exploité (affichage des frais avant paiement).
+- Endpoints `/v1/crypto/*` non intégrés (le crypto passe toujours par IziChangePay — conforme à la décision produit).
+
+---
+
+
 
 ### 2026-09-02 (septies) — 🎯 Corrections #1 + #2 + #3 : activation auto centralisée
 

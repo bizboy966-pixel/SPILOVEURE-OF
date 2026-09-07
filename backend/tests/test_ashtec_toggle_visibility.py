@@ -93,7 +93,7 @@ def test_catalog_reveals_when_enabled(toggle_ashtec):
     assert r.status_code == 200
     d = r.json()
     assert d.get("enabled") is True
-    assert len(d["countries"]) == 14
+    assert len(d["countries"]) == 10
 
 
 def test_initiate_blocked_when_disabled(toggle_ashtec, new_user):

@@ -31,7 +31,7 @@ EXPECTED_OPS = {
     "CM": ["MTN Money", "Orange Money"],
     "CI": ["Moov Money", "MTN Money", "Orange (OTP)", "Wave Money"],
     "GA": ["Airtel Money", "Moov Money"],
-    "ML": ["Moov Money", "Orange Money (OTP)"],
+    "ML": ["Moov Money", "Orange Money"],
     "NE": ["Airtel Money"],
     "CD": ["Afri Money", "Airtel", "Mpesa Money", "Orange", "Vodacom"],
     "SN": ["E-money", "Free Money", "Orange Money (OTP)", "Wave Money"],
@@ -135,7 +135,7 @@ def test_catalog_no_api_key_leak(catalog):
 
 
 def test_catalog_version_bumped(catalog):
-    assert catalog.get("version") == "2026-08-06-v3-official10-cdf", (
+    assert catalog.get("version") == "2026-09-03-v4-official-v1.2", (
         f"Unexpected catalog version: {catalog.get('version')}")
 
 

@@ -1117,6 +1117,9 @@ _PG_DEFAULTS = {
     "soleas_enabled": True,
     "ashtec_enabled": False,
     "ashtec_api_key": "",
+    # Ashtech Pay Direct v1.2 webhook — HMAC-SHA256 shared secret set on the
+    # Ashtech merchant dashboard. Required to authenticate incoming webhooks.
+    "ashtec_webhook_secret": "",
     # Country matrix for pay-IN gateway selection.
     "country_matrix": {},
     # SoleasPay webhook — hybrid verification (HMAC OR shared hash token).
@@ -1160,6 +1163,7 @@ class PaymentGatewayUpdate(_PGBaseModel):
     soleas_enabled: Optional[bool] = None
     ashtec_enabled: Optional[bool] = None
     ashtec_api_key: Optional[str] = None      # new key, or "" to keep, "DELETE" to clear
+    ashtec_webhook_secret: Optional[str] = None  # "" to keep, "DELETE" to clear
     # SoleasPay P-Out
     soleaspay_pout_enabled: Optional[bool] = None
     soleaspay_webhook_secret: Optional[str] = None   # "" to keep, "DELETE" to clear
@@ -1188,6 +1192,11 @@ def _register_payment_gateway_routes(router):
                 "enabled": bool(cfg["ashtec_enabled"]),
                 "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
                 "api_key_masked": _mask_key(cfg.get("ashtec_api_key") or ""),
+                "webhook_secret_set": bool(
+                    (os.environ.get("ASHTECPAY_WEBHOOK_SECRET") or "").strip()
+                    or (cfg.get("ashtec_webhook_secret") or "").strip()
+                ),
+                "webhook_secret_masked": _mask_key(cfg.get("ashtec_webhook_secret") or ""),
             },
             "country_matrix": cfg.get("country_matrix") or {},
             "soleas_countries": list(soleaspay.SUPPORTED.keys()),
@@ -1265,6 +1274,12 @@ def _register_payment_gateway_routes(router):
                 new["ashtec_api_key"] = ""
             elif key:
                 new["ashtec_api_key"] = key
+        if body.ashtec_webhook_secret is not None:
+            sec = body.ashtec_webhook_secret.strip()
+            if sec == "DELETE":
+                new["ashtec_webhook_secret"] = ""
+            elif sec:
+                new["ashtec_webhook_secret"] = sec
         if body.soleaspay_pout_enabled is not None:
             new["soleaspay_pout_enabled"] = bool(body.soleaspay_pout_enabled)
         if body.soleaspay_webhook_secret is not None:

@@ -84,14 +84,14 @@ def test_catalog_public_xof_xaf_only():
     assert d["level"] == 1
     assert d["countdown_minutes"] == 10
     codes = {c["code"] for c in d["countries"]}
-    # 14 XOF/XAF countries expected
-    assert len(codes) == 14
-    for c in ("TG", "BJ", "CI", "SN", "CM", "GA"):
+    # 10 official countries per Ashtech Pay Direct v1.2 (XOF/XAF/CDF)
+    assert len(codes) == 10
+    for c in ("TG", "BJ", "CI", "SN", "CM", "GA", "CD"):
         assert c in codes
-    for excluded in ("GN", "CD"):  # GNF, CDF excluded
+    for excluded in ("GN",):  # GNF excluded, CD is now supported (CDF)
         assert excluded not in codes
     for c in d["countries"]:
-        assert c["currency"] in ("XOF", "XAF")
+        assert c["currency"] in ("XOF", "XAF", "CDF")
         assert len(c["operators"]) >= 1
 
 

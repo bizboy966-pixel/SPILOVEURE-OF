@@ -7,6 +7,8 @@ the amount is locked at 2500, and expiration is enforced on read and via
 webhook.
 """
 from __future__ import annotations
+import hashlib
+import hmac
 import logging
 import os
 import uuid
@@ -88,7 +90,7 @@ COUNTRIES: dict[str, dict] = {
     "GA": {"name": "Gabon",         "currency": "XAF",
            "operators": ["Airtel Money", "Moov Money"]},
     "ML": {"name": "Mali",          "currency": "XOF",
-           "operators": ["Moov Money", "Orange Money (OTP)"]},
+           "operators": ["Moov Money", "Orange Money"]},
     "NE": {"name": "Niger",         "currency": "XOF",
            "operators": ["Airtel Money"]},
     "CD": {"name": "RD Congo",      "currency": "CDF",
@@ -160,10 +162,46 @@ async def _ashtec_enabled(db) -> bool:
     return bool(cfg.get("ashtec_enabled"))
 
 
+async def _get_webhook_secret(db) -> str:
+    """Resolve the HMAC-SHA256 webhook secret — DB (admin panel) FIRST,
+    env var as bootstrap fallback. Set on the Ashtech merchant dashboard,
+    used to authenticate incoming `POST /api/webhooks/ashtec` calls per
+    Ashtech Pay Direct v1.2 spec.
+    """
+    cfg = await _load_gateway_cfg(db)
+    db_sec = (cfg.get("ashtec_webhook_secret") or "").strip()
+    if db_sec:
+        return db_sec
+    return (os.environ.get("ASHTECPAY_WEBHOOK_SECRET") or "").strip()
+
+
+def _verify_ashtec_signature(secret: str, timestamp: str, raw_body: bytes,
+                             received_sig: str) -> bool:
+    """Verify Ashtech Pay Direct v1.2 webhook signature.
+
+    Per doc §8 : HMAC-SHA256 over `timestamp + "." + raw_body` using the
+    merchant webhook secret. Header format : `X-Ashtech-Signature: sha256=<hex>`.
+    Uses `hmac.compare_digest` to avoid timing side-channels.
+    """
+    if not secret or not timestamp or not received_sig:
+        return False
+    try:
+        payload = f"{timestamp}.".encode("utf-8") + raw_body
+        digest = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+        expected = f"sha256={digest}"
+        # Accept both "sha256=hex" and bare "hex" for lenient providers.
+        candidate = received_sig.strip()
+        if candidate.startswith("sha256="):
+            return hmac.compare_digest(candidate, expected)
+        return hmac.compare_digest(candidate, digest)
+    except Exception:
+        return False
+
+
 # Version marker — bumped when the fix for Flooz (Moov) / E.164 / operator
 # translation is deployed. If /api/payments/ashtec/catalog does NOT return
 # this version string, the production is still running old code.
-CATALOG_VERSION: str = "2026-08-06-v3-official10-cdf"
+CATALOG_VERSION: str = "2026-09-03-v4-official-v1.2"
 
 
 @api.get("/payments/ashtec/catalog")
@@ -814,29 +852,67 @@ _apply_activation = _apply_payment_success
 
 @webhook.post("/ashtec")
 async def ashtec_webhook(request: Request):
-    """Public webhook — Ashtech Pay Direct v1 events.
+    """Public webhook — Ashtech Pay Direct v1.2 events.
 
-    The doc does NOT specify an HMAC signature scheme, so we authenticate
-    by matching the transaction (reference OR transaction_id) against our
-    own DB and by re-fetching the live status through the API before
-    activating. Idempotent via `db.webhook_events` keyed on transaction_id.
+    Per spec §8, each delivery carries 3 headers:
+      • X-Ashtech-Signature   : "sha256=<hex>" — HMAC-SHA256 of
+                                `timestamp + "." + raw_body`
+      • X-Ashtech-Timestamp   : ISO-8601 or unix seconds
+      • X-Ashtech-Event-Id    : unique id used for deduplication
+
+    We reject with 401 when a webhook secret IS configured and the
+    signature is missing/invalid. When no secret is configured (bootstrap
+    / dev), we fall back to matching the transaction against our DB and
+    re-verifying via the live /v1/transaction endpoint. Idempotent via
+    `db.webhook_events` keyed on event_id (or transaction_id).
     """
     db = request.app.state.db
     raw = await request.body()
+    # Ashtech-signed headers (v1.2)
+    sig_header = request.headers.get("X-Ashtech-Signature") \
+        or request.headers.get("x-ashtech-signature") or ""
+    ts_header = request.headers.get("X-Ashtech-Timestamp") \
+        or request.headers.get("x-ashtech-timestamp") or ""
+    event_id_header = request.headers.get("X-Ashtech-Event-Id") \
+        or request.headers.get("x-ashtech-event-id") or ""
+
+    secret = await _get_webhook_secret(db)
+    signed_ok: Optional[bool] = None
+    if secret:
+        signed_ok = _verify_ashtec_signature(secret, ts_header, raw, sig_header)
+        if not signed_ok:
+            log.warning(
+                "ashtec webhook: bad signature (ts=%s sig=%s event_id=%s len=%s)",
+                ts_header, sig_header[:16] + "…" if sig_header else "-",
+                event_id_header, len(raw),
+            )
+            raise HTTPException(401, "Invalid webhook signature")
+
     try:
         body = await request.json()
     except Exception:
         body = {}
-    log.info("ashtec webhook received: %s bytes, event=%s ref=%s",
-             len(raw), body.get("event"), body.get("reference"))
+    log.info("ashtec webhook received: %s bytes, event=%s ref=%s event_id=%s signed=%s",
+             len(raw), body.get("event"), body.get("reference"),
+             event_id_header, signed_ok)
 
-    # Store raw payload for audit
+    # Store raw payload for audit (with signature status for forensics)
     await db.webhook_logs.insert_one({
         "gateway": "ashtec",
         "event_type": body.get("event") or "unknown",
+        "event_id": event_id_header or None,
+        "signed_ok": signed_ok,
         "payload": body,
         "received_at": datetime.now(timezone.utc),
     })
+
+    # Idempotency via X-Ashtech-Event-Id (v1.2 preferred over transaction_id)
+    if event_id_header:
+        existing = await db.webhook_events.find_one(
+            {"gateway": "ashtec", "event_id": event_id_header, "processed": True}
+        )
+        if existing:
+            return {"ok": True, "duplicate": True, "event_id": event_id_header}
 
     event = (body.get("event") or "").lower()
     ref = body.get("reference")
@@ -902,10 +978,12 @@ async def ashtec_webhook(request: Request):
                       "updated_at": datetime.now(timezone.utc)}},
         )
 
-    # Mark idempotency
-    if txid:
+    # Mark idempotency — prefer X-Ashtech-Event-Id when provided (v1.2),
+    # fallback to transaction_id for older/unsigned deliveries.
+    if event_id_header or txid:
         await db.webhook_events.insert_one({
             "gateway": "ashtec",
+            "event_id": event_id_header or None,
             "transaction_id": txid,
             "reference": ref,
             "event": event,

@@ -49,6 +49,16 @@ const FLAG: Record<string, string> = {
   GA: "🇬🇦", ML: "🇲🇱", NE: "🇳🇪", SN: "🇸🇳", TG: "🇹🇬",
 };
 
+// Ashtech Pay Direct v1.2 — per-country USSD codes for the "OTP USSD" flow.
+// The customer must dial these codes on their phone; the OTP appears in the
+// mobile-network menu (not via SMS). Used only when Ashtech returns
+// `otp_required` with an empty `ussd_code` (fallback hint per spec §7).
+const OTP_USSD_HINTS: Record<string, string> = {
+  CI: "#144*82#",
+  SN: "#144*391#",
+  BF: "#144*4*6*<montant>#",
+};
+
 const fmtMoney = (v: number, ccy: string) =>
   `${Math.round(v || 0).toLocaleString("fr-FR")} ${ccy}`;
 
@@ -379,7 +389,22 @@ export default function ActivationAshtec() {
 
               {session.status === "otp_required" && (
                 <View style={{ width: "100%", marginTop: 16 }}>
-                  <Text style={styles.section}>Saisissez le code OTP reçu</Text>
+                  {/* Per Ashtech Pay Direct v1.2 §7 — the OTP-USSD flow
+                      (Orange CI/SN/BF) requires the customer to DIAL a
+                      USSD code first, read the OTP from the operator's
+                      pop-up menu, then enter it here. */}
+                  {(session.ussd_code || OTP_USSD_HINTS[session.country_code]) && (
+                    <View style={styles.ussdBox}>
+                      <Text style={styles.ussdLabel}>📱 Étape 1 — Composez ce code USSD sur votre téléphone :</Text>
+                      <Text style={styles.ussdCode} selectable testID="ashtec-ussd-code">
+                        {session.ussd_code || OTP_USSD_HINTS[session.country_code]}
+                      </Text>
+                      <Text style={styles.ussdHint}>
+                        L'OTP apparaîtra dans le menu de votre opérateur (pas par SMS).
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.section}>🔐 Étape 2 — Saisissez le code OTP reçu</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Ex : 123456"
@@ -525,6 +550,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12, borderRadius: 28,
   },
   waveBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
+
+  ussdBox: {
+    marginTop: 4, marginBottom: 14, padding: 12, borderRadius: 12,
+    backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B",
+  },
+  ussdLabel: { color: "#92400E", fontSize: 12, fontWeight: "700" },
+  ussdCode: {
+    color: "#0F172A", fontSize: 22, fontWeight: "900",
+    fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+    letterSpacing: 1, marginTop: 6, textAlign: "center",
+  },
+  ussdHint: { color: "#78350F", fontSize: 11, marginTop: 4, fontStyle: "italic" },
 
   cancelBtn: {
     marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24,

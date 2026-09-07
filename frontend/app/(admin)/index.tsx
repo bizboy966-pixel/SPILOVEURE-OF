@@ -3499,6 +3499,7 @@ function PaymentGatewaysCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [keyInput, setKeyInput] = useState("");
+  const [secretInput, setSecretInput] = useState("");
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   // SoleasPay live connection test + editable per-country matrix.
@@ -3653,6 +3654,50 @@ function PaymentGatewaysCard() {
                 <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>💾 Enregistrer la clé</Text>
               </TouchableOpacity>
             ) : null}
+
+            {/* Ashtech Pay Direct v1.2 — HMAC-SHA256 webhook secret */}
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 4 }}>
+                Secret webhook (HMAC-SHA256) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>
+                  {meta.webhook_secret_set ? (meta.webhook_secret_masked || "•••• configuré ••••") : "— non configuré —"}
+                </Text>
+              </Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 8, color: theme.colors.textPrimary, fontSize: 12 }}
+                placeholder="whsec_… — laisser vide pour conserver"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={secretInput}
+                onChangeText={setSecretInput}
+                autoCapitalize="none"
+                secureTextEntry
+                testID="ashtec-webhook-secret-input"
+              />
+              <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
+                {secretInput ? (
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center" }}
+                    onPress={() => { save({ ashtec_webhook_secret: secretInput }); setSecretInput(""); }}
+                    disabled={saving}
+                    testID="ashtec-webhook-secret-save"
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>💾 Enregistrer le secret</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {meta.webhook_secret_set ? (
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: theme.colors.danger, alignItems: "center" }}
+                    onPress={() => save({ ashtec_webhook_secret: "DELETE" })}
+                    disabled={saving}
+                    testID="ashtec-webhook-secret-clear"
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>🗑️ Supprimer</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 4, fontStyle: "italic" }}>
+                Copiez le secret exact fourni par Ashtech Pay dans votre dashboard marchand. Sans ce secret, les webhooks ne seront pas authentifiés.
+              </Text>
+            </View>
           </View>
         ) : null}
 
