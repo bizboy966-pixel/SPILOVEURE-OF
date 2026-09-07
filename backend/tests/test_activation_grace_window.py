@@ -66,8 +66,12 @@ def test_dashboard_polls_during_grace_window():
     assert '500' in src, "Dashboard must poll every 500 ms during grace."
 
 
-def test_layout_never_redirects_to_activation_legacy_route():
+def test_layout_uses_AND_based_pending_check():
     src = (ROOT / "_layout.tsx").read_text(encoding="utf-8")
-    assert 'router.replace("/(app)/activation")' not in src, (
-        "Legacy /(app)/activation redirect is forbidden — use /(app)/pay."
+    # After the v5 fix the pending check must use AND, so a user with
+    # ANY activation marker (status=active OR max_level>=1) is treated
+    # as active. Formerly this was an OR, which could bounce
+    # partially-activated users.
+    assert 'user.status === "pending" && (user.max_level || 0) === 0' in src, (
+        "Layout must use AND-based pending check (status=pending AND max_level=0)."
     )

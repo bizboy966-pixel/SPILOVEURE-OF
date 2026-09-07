@@ -75,7 +75,20 @@ export default function AppLayout() {
       router.replace("/(auth)/login");
       return;
     }
-    const isPending = user.status === "pending" || (user.max_level || 0) === 0;
+    // ─── Pending detection — ONLY if BOTH conditions fail ─────────────
+    // Previously we treated a user as pending if EITHER `status !== active`
+    // OR `max_level === 0`. That bounced any user who had already gone
+    // through activation but ended up in an intermediate state (e.g.
+    // the historical "status=active + max_level=0" ghost) — which is
+    // exactly the "compte s'active puis se désactive" bug reported on
+    // 2026-09-07 (v5). The correct rule is:
+    //
+    //   A user has completed activation iff at least ONE of the two
+    //   activation markers is set (status=active OR max_level ≥ 1).
+    //
+    // If BOTH are still at their initial values (status=pending AND
+    // max_level=0), we redirect them through the payment flow.
+    const isPending = user.status === "pending" && (user.max_level || 0) === 0;
     const flag = readJustActivated();
 
     // ─── User is fully active — clear any lingering activation flag ─
@@ -124,7 +137,11 @@ export default function AppLayout() {
     }
   }, []);
 
-  const isPending = !user || user.status === "pending" || (user.max_level || 0) === 0;
+  // Mirror the AND-based rule from the guard useEffect above — a user
+  // is considered pending ONLY if both markers are at their initial
+  // values. This keeps the floating widgets (NotificationToaster, etc.)
+  // visible for anyone who has completed activation (even a ghost).
+  const isPending = !user || (user.status === "pending" && (user.max_level || 0) === 0);
 
   return (
     <View style={{ flex: 1 }}>

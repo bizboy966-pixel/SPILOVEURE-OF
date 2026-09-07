@@ -22,6 +22,54 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v5) — 🛡️ Garde AND-based : impossible de bouncer un compte partiellement activé
+
+**Bug résiduel** : même après le fix v4 (pré-flip status supprimé) et v3 (grace window localStorage), l'utilisateur signalait toujours des retours vers la page de paiement. Analyse DB live : les paiements Ashtec récents réussis ont bien `status=active, max_level=1` — le backend est OK. **0 ghost users** en DB après le repair.
+
+**Cause racine restante** : le garde `_layout.tsx` utilisait une condition **OR** :
+```js
+const isPending = user.status === "pending" || (user.max_level || 0) === 0;
+```
+→ Un user avec `status=active` MAIS `max_level=0` (ghost état legacy) OU un user avec `max_level=1` MAIS `status=pending` (état intermédiaire pendant la propagation) était BOUNCED vers `/pay`.
+
+**Fix v5 — Condition AND** :
+```js
+// Un user n'est pending QUE si LES DEUX marqueurs sont à leur valeur initiale
+const isPending = user.status === "pending" && (user.max_level || 0) === 0;
+```
+→ Il suffit d'un seul marqueur d'activation (`status=active` OU `max_level>=1`) pour que l'utilisateur soit considéré comme activé. **Impossible désormais de bouncer un utilisateur qui a l'un des deux marqueurs.**
+
+**Autres nettoyages** :
+- `matrices.tsx` : bouton "Activer Niveau 1" pointe désormais vers `/(app)/pay` (nouveau flow 4-étapes) au lieu du legacy `/(app)/activation`.
+
+**Tests** : nouveau test `test_layout_uses_AND_based_pending_check` verrouille la logique AND. **36/36 tests verts** (grace + no-duplicate-guard + auth-me-no-cache + v4 + ashtec-v12).
+
+**Chaîne complète de défense contre le bounce** :
+1. **v4 (backend)** — `activate_level` fait max_level ET status ensemble atomiquement. Plus jamais de ghost NEW.
+2. **v4 (backend)** — endpoint `POST /admin/repair/ghost-activations` répare/rollback les ghost legacy. Testé : 0 ghost restant.
+3. **v3 (frontend)** — flag `localStorage.just_activated` (60s) + poll refresh 500ms pendant la grace window.
+4. **v3 (backend)** — `/auth/me` avec headers `no-cache` stricts.
+5. **v3 (frontend)** — `api.ts` avec `cache: "no-store"` sur toutes les requêtes.
+6. **v3 (frontend)** — cache-buster `?_t=` sur `/auth/me`.
+7. **v5 (frontend)** — condition **AND** dans le garde : un seul marqueur d'activation suffit.
+8. **v5 (frontend)** — bouton "Activer Niveau 1" pointe vers `/pay` et non legacy.
+
+**Résultat final garanti** :
+```
+paiement → activate_level (max_level=1, status=active) atomique → activation_done
+    ↓
+hard-reload /dashboard
+    ↓
+garde AND : status=active OU max_level>=1 → NOT pending → PAS de redirect
+    ↓
+Dashboard reste, tous les widgets floating (chatbubble, toaster, etc.) montés
+    ↓
+utilisateur peut naviguer, actualiser, se reconnecter — TOUJOURS actif
+```
+
+---
+
+
 ### 2026-09-07 (v4) — 🩹 Fix "ACTIVE mais Niveau 0" + montants XOF/USDT
 
 **Bug 1 — Ghost state `status=active` + `max_level=0`** :

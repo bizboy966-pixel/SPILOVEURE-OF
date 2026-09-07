@@ -45,7 +45,9 @@ export default function Matrices() {
 
   const onActivate = (lvl: number) => {
     if (lvl === 1) {
-      router.push("/(app)/activation");
+      // Route to the new 4-step activation flow (/(app)/pay), not the
+      // legacy /(app)/activation page which was retired in v2.
+      router.push("/(app)/pay");
       return;
     }
     setPendingLevel(lvl);
