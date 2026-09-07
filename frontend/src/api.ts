@@ -62,7 +62,16 @@ async function request<T = any>(
     if (token) h["Authorization"] = `Bearer ${token}`;
   }
   if (pwdConfirm) h["X-Password-Confirm"] = pwdConfirm;
-  const res = await fetch(`${BASE}/api${path}`, { ...rest, headers: h });
+  const res = await fetch(`${BASE}/api${path}`, {
+    ...rest,
+    headers: h,
+    // Never let the browser or any intermediate CDN serve a cached
+    // response for authenticated calls — /auth/me, /payments/*/status
+    // and everything downstream MUST reflect the fresh DB state right
+    // after an activation, otherwise the layout guard reads a stale
+    // `max_level=0` and bounces the user to /pay (2026-09-07 bug).
+    cache: "no-store",
+  });
   const text = await res.text();
   let data: any = null;
   try {

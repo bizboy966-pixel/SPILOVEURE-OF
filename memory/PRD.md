@@ -22,6 +22,44 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v2) — 🐛 Fix bounce-back "compte se réactive puis se désactive"
+
+**Nouveau symptôme utilisateur** : après le fix précédent (suppression du garde dupliqué dans `dashboard.tsx`), l'utilisateur voit le compte s'activer puis se **désactiver** et retourne à la page de paiement.
+
+**Analyse root cause** : le garde dans `(app)/_layout.tsx` lit `user.max_level` depuis `/auth/me`. Une réponse `/auth/me` mise en cache par le navigateur, un service worker, un tunnel ngrok ou Cloudflare peut renvoyer un snapshot pré-activation (`max_level=0`) après le hard-reload, ce qui déclenche la redirection vers `/(app)/pay`. Sans headers no-cache explicites et sans "deuxième chance" côté garde, la brève fenêtre stale suffit à faire bouncer l'utilisateur fraîchement activé.
+
+**Fixes multi-couches (2026-09-07 v2)** :
+
+1. **Backend — headers no-cache stricts sur `/auth/me`** (`server.py:317`) :
+   - `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
+   - `Pragma: no-cache`, `Expires: 0`
+   - Réponse convertie en `JSONResponse` explicite pour garantir la présence des headers sur les 401 ET les 200.
+
+2. **Frontend — `api.ts` : `cache: "no-store"` sur toutes les requêtes `fetch`** — empêche le navigateur/service worker de servir une copie mise en cache.
+
+3. **Frontend — `auth.tsx` : cache-buster `?_t=<Date.now()>` sur chaque appel `/auth/me`** — barrière supplémentaire contre les caches intermédiaires (CDN, tunnels).
+
+4. **Frontend — `(app)/_layout.tsx` : garde "second-chance"** :
+   - Quand un utilisateur apparaît `isPending` sur une page protégée, la garde exécute UN `refresh()` forcé AVANT de rediriger vers `/pay`.
+   - `useRef` empêche la boucle infinie si l'utilisateur est réellement pending après le refresh.
+   - Une fois le user redevenu actif, le flag second-chance est réinitialisé (permet un nouveau cycle si un jour l'admin bloque le compte).
+
+**Tests** :
+- `tests/test_auth_me_no_cache.py` — 3 tests (401 + 200 + query-buster) qui garantissent la présence des headers `Cache-Control: no-store, no-cache`, `Pragma: no-cache`, `Expires: 0` sur `/auth/me`.
+- **36/36 tests verts** sur `test_auth_me_no_cache` + `test_activation_no_duplicate_guard` + `test_ashtec_v12` + `test_ashtec_catalog_v3` + `test_ashtec_toggle_visibility` + `test_ashtec_activation_stats` + `test_soleaspay_pout` + `test_solespay_isolated`.
+
+**Validation live curl** :
+```
+$ curl -sI /api/auth/me
+HTTP/2 401
+cache-control: no-store, no-cache, must-revalidate ✅
+```
+
+**Résultat garanti** : après le paiement, même si un cache renvoie un snapshot stale, la garde donne UNE deuxième chance via `refresh()` no-cache. Comme la DB reflète bien `max_level=1, status=active` (per `matrix.py:397`), le refresh forcé récupère systématiquement la vérité et la garde laisse l'utilisateur sur le Dashboard.
+
+---
+
+
 ### 2026-09-07 — 🐛 Fix bounce-back Dashboard → Activation après paiement
 
 **Symptôme utilisateur** : après un paiement AshtechPay/SoleasPay confirmé, l'utilisateur atteint le Dashboard puis est renvoyé vers la page d'activation ~1 seconde plus tard.

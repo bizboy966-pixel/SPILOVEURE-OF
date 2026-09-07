@@ -41,7 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const me = await api.get<User>("/auth/me");
+      // Cache-bust `/auth/me` with a timestamp so no proxy/CDN/browser
+      // layer serves us stale user data (max_level/status). This is
+      // critical right after an activation — the layout guard reads
+      // this value and redirects to /pay when it looks pending.
+      const me = await api.get<User>(`/auth/me?_t=${Date.now()}`);
       setUser(me);
     } catch {
       setUser(null);

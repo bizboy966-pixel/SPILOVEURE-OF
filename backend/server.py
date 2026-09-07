@@ -316,7 +316,23 @@ async def login(data: LoginIn, request: Request):
 
 @api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
-    return user
+    """Return the current authenticated user, fresh from the DB.
+
+    Strong no-cache headers so no browser / service worker / CDN edge
+    can serve a stale snapshot right after an activation write — the
+    layout guard reads `max_level` from this response and any staleness
+    bounces the user back to /pay (bug fix 2026-09-07).
+    """
+    from fastapi.responses import JSONResponse
+    from fastapi.encoders import jsonable_encoder as _jenc
+    return JSONResponse(
+        content=_jenc(user),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @api.post("/auth/change-password")
