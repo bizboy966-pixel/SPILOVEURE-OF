@@ -22,6 +22,19 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v6) — 🧹 Suppression du panneau "Paiements en échec d'activation"
+
+**Demande utilisateur** : "Tu peut m'enlever cette bordel ?" (screenshot du panneau rouge avec 18 lignes `Relancer` sur le Dashboard admin).
+
+**Fixes** :
+1. **`(admin)/index.tsx`** — suppression complète du bloc JSX `admin-stuck-card` (lignes 681-731) + de l'état `stuck` + de l'appel API `/admin/payments/stuck` dans `load()`. Le Dashboard admin est nettement plus clean.
+2. **Purge DB** — 3 anciens paiements bloqués (`status=paid, activation_done!=true` dont plusieurs avec `activation_error='level'`) marqués comme `failed` + flag `activation_error_dismissed=true` pour ne plus jamais réapparaître.
+
+**Endpoint conservé** : `/admin/payments/stuck` reste disponible pour l'écran dédié `(admin)/payments.tsx` si l'admin veut y accéder manuellement.
+
+---
+
+
 ### 2026-09-07 (v5) — 🛡️ Garde AND-based : impossible de bouncer un compte partiellement activé
 
 **Bug résiduel** : même après le fix v4 (pré-flip status supprimé) et v3 (grace window localStorage), l'utilisateur signalait toujours des retours vers la page de paiement. Analyse DB live : les paiements Ashtec récents réussis ont bien `status=active, max_level=1` — le backend est OK. **0 ghost users** en DB après le repair.

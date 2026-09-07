@@ -285,18 +285,10 @@ export default function AdminHome() {
   const [cpSeconds, setCpSeconds] = useState("5");
   const [cpSaving, setCpSaving] = useState(false);
 
-  // Stuck payments (paid but failed to activate)
-  const [stuck, setStuck] = useState<any[]>([]);
-  const [stuckReprocessing, setStuckReprocessing] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") {
         setStats(await api.get("/admin/stats"));
-        try {
-          const sp = await api.get<{ items: any[] }>("/admin/payments/stuck");
-          setStuck(sp?.items || []);
-        } catch {}
       }
       if (tab === "users") setUsers(await api.get(`/admin/users${usersQ ? `?q=${encodeURIComponent(usersQ)}` : ""}`));
       if (tab === "activations") setActivations(await api.get(`/admin/activations?status=${actFilter}`));
@@ -677,58 +669,6 @@ export default function AdminHome() {
               </View>
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </TouchableOpacity>
-
-            {stuck.length > 0 && (
-              <Card style={{ marginTop: 14, borderWidth: 2, borderColor: theme.colors.danger }} testID="admin-stuck-card">
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.danger + "22" }}>
-                    <Ionicons name="warning" size={20} color={theme.colors.danger} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.colors.textPrimary, fontWeight: "800", fontSize: 15 }}>
-                      ⚠️ Paiements en échec d'activation ({stuck.length})
-                    </Text>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>
-                      Paiements confirmés (paid) mais dont l'activation a échoué. Cliquez sur "Relancer" pour réessayer.
-                    </Text>
-                  </View>
-                </View>
-                {stuck.map((p) => (
-                  <View key={p.reference} style={styles.stuckRow} testID={`stuck-${p.reference}`}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.stuckRef}>{p.reference}</Text>
-                      <Text style={styles.stuckMeta}>
-                        {p.username || p.user_id} • Niveau {p.level} • {formatFCFA(p.amount)} {p.currency} • {(p.provider || "").toUpperCase()}
-                      </Text>
-                      {p.activation_error ? (
-                        <Text style={styles.stuckErr} numberOfLines={2}>❌ {p.activation_error}</Text>
-                      ) : null}
-                    </View>
-                    <TouchableOpacity
-                      style={[styles.stuckBtn, stuckReprocessing === p.reference && { opacity: 0.55 }]}
-                      disabled={stuckReprocessing === p.reference}
-                      onPress={async () => {
-                        setStuckReprocessing(p.reference);
-                        try {
-                          const r = await api.post<any>(`/admin/payments/${encodeURIComponent(p.reference)}/reprocess`);
-                          if (typeof window !== "undefined") window.alert(`✅ Activation réussie — niveau ${r.level}`);
-                          setStuck((cur) => cur.filter((x) => x.reference !== p.reference));
-                        } catch (e: any) {
-                          if (typeof window !== "undefined") window.alert(`❌ ${e?.detail || "Échec"}`);
-                          load();
-                        } finally {
-                          setStuckReprocessing(null);
-                        }
-                      }}
-                      testID={`stuck-reprocess-${p.reference}`}
-                    >
-                      <Ionicons name="refresh" size={14} color="#fff" />
-                      <Text style={styles.stuckBtnTxt}>{stuckReprocessing === p.reference ? "..." : "Relancer"}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </Card>
-            )}
 
             <Card style={{ marginTop: 14 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
