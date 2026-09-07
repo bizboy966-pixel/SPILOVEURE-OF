@@ -1435,7 +1435,7 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
                 {"id": p["user_id"], "status": {"$ne": "active"}},
                 {"$set": {"status": "active"}},
             )
-            await activate_level(db, p["user_id"], int(p["level"]), source="poll_return")
+            await activate_level(db, p["user_id"], int(p.get("level") or 1), source="poll_return")
             await db.payments.update_one(
                 {"reference": reference},
                 {"$set": {"activation_done": True, "status": "validated",
@@ -1615,7 +1615,7 @@ async def soleaspay_webhook(request: Request):
         )
         if upd.modified_count > 0:
             try:
-                await activate_level(db, pay["user_id"], int(pay["level"]), source=f"webhook:{lookup_ref}")
+                await activate_level(db, pay["user_id"], int(pay.get("level") or 1), source=f"webhook:{lookup_ref}")
                 await db.payments.update_one(
                     {"reference": lookup_ref},
                     {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
@@ -1947,7 +1947,7 @@ async def _soleaspay_reconcile_once(db) -> dict:
             )
             if upd.modified_count > 0:
                 try:
-                    await activate_level(db, p["user_id"], int(p["level"]),
+                    await activate_level(db, p["user_id"], int(p.get("level") or 1),
                                          source=f"reconcile:{p['reference']}")
                     # NOTE: do NOT pre-flip `user.status` to "active" here —
                     # activate_level does both max_level AND status in a
@@ -2182,6 +2182,7 @@ async def payments_activate(
                 db=db, user=user, kind="activation",
                 amount=amount, country_code=cc,
                 operator=op, phone=phone,
+                extra_row={"level": 1},
             )
             return {"reference": r.get("reference"), "gateway": "ashtec",
                     "method": "mobile", "status": r.get("status") or "processing"}
@@ -3246,11 +3247,12 @@ async def admin_validate_activation(activation_id: str, request: Request, admin=
     p = await db.payments.find_one({"reference": activation_id})
     if not p:
         raise HTTPException(404, "Activation introuvable.")
+    level = int(p.get("level") or 1)
     if p.get("activation_done"):
-        return {"ok": True, "already_activated": True, "level": p.get("level")}
+        return {"ok": True, "already_activated": True, "level": level}
     # If user is already at-or-above this level, just reconcile the flag
     u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1}) or {}
-    if int(u_now.get("max_level") or 0) >= int(p["level"]):
+    if int(u_now.get("max_level") or 0) >= level:
         await db.payments.update_one(
             {"reference": activation_id},
             {"$set": {"status": "paid", "activation_done": True,
@@ -3258,9 +3260,9 @@ async def admin_validate_activation(activation_id: str, request: Request, admin=
                       "updated_at": datetime.now(timezone.utc)},
              "$unset": {"activation_error": ""}},
         )
-        return {"ok": True, "already_activated": True, "level": p["level"]}
+        return {"ok": True, "already_activated": True, "level": level}
     try:
-        await activate_level(db, p["user_id"], int(p["level"]), source="admin_validate")
+        await activate_level(db, p["user_id"], level, source="admin_validate")
     except ValueError as e:
         raise HTTPException(400, str(e))
     await db.payments.update_one(
@@ -3274,7 +3276,7 @@ async def admin_validate_activation(activation_id: str, request: Request, admin=
         "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_payment",
         "target": activation_id, "at": datetime.now(timezone.utc),
     })
-    return {"ok": True, "level": p["level"]}
+    return {"ok": True, "level": level}
 
 
 @admin_router.post("/activations/{activation_id}/reject")
@@ -3937,27 +3939,28 @@ async def admin_reprocess_payment(reference: str, request: Request, admin=Depend
         raise HTTPException(404, "Paiement introuvable")
     if p.get("status") != "paid":
         raise HTTPException(400, f"Le paiement n'est pas en statut paid (actuel: {p.get('status')})")
+    level = int(p.get("level") or 1)
     if p.get("activation_done"):
-        return {"ok": True, "already_activated": True, "level": p.get("level")}
+        return {"ok": True, "already_activated": True, "level": level}
     # If the underlying user is already at-or-above this level, just mark the
     # payment as activated without calling activate_level again (which would
     # raise "Vous devez activer les niveaux dans l'ordre"). This handles the
     # case where a previous activation succeeded but the activation_done flag
     # was not set due to a downstream error.
     u = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1}) or {}
-    if int(u.get("max_level") or 0) >= int(p["level"]):
+    if int(u.get("max_level") or 0) >= level:
         await db.payments.update_one(
             {"reference": reference},
             {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
         )
-        return {"ok": True, "already_activated": True, "level": p["level"], "reconciled": True}
+        return {"ok": True, "already_activated": True, "level": level, "reconciled": True}
     try:
-        await activate_level(db, p["user_id"], int(p["level"]), source="manual_reprocess")
+        await activate_level(db, p["user_id"], level, source="manual_reprocess")
         await db.payments.update_one(
             {"reference": reference},
             {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
         )
-        return {"ok": True, "level": p["level"], "user_id": p["user_id"]}
+        return {"ok": True, "level": level, "user_id": p["user_id"]}
     except Exception as exc:
         await db.payments.update_one(
             {"reference": reference},
@@ -4302,8 +4305,9 @@ async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> di
              order_id, sp_status, resp.get("success"), resp.get("code"), new_status)
 
     if new_status == "paid" and not p.get("activation_done"):
+        level = int(p.get("level") or 1)
         u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
-        if int(u_now.get("max_level") or 0) >= int(p["level"]):
+        if int(u_now.get("max_level") or 0) >= level:
             if u_now.get("status") != "active":
                 await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
             await db.payments.update_one(
@@ -4313,9 +4317,9 @@ async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> di
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
-            return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
+            return {"status": "paid", "activation_done": True, "level": level, "reconciled": True}
         try:
-            await activate_level(db, p["user_id"], int(p["level"]), source="soleaspay")
+            await activate_level(db, p["user_id"], level, source="soleaspay")
             await db.users.update_one(
                 {"id": p["user_id"], "status": {"$ne": "active"}},
                 {"$set": {"status": "active"}},
@@ -4327,7 +4331,7 @@ async def _verify_soleas_payment(p: dict, order_id: str, request: Request) -> di
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
-            return {"status": "paid", "activation_done": True, "level": p["level"]}
+            return {"status": "paid", "activation_done": True, "level": level}
         except Exception as exc:
             log.exception("soleaspay activate_level failed for ref=%s: %s", order_id, exc)
             await db.payments.update_one(
@@ -4368,8 +4372,9 @@ async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> di
              order_id, sp_status, resp.get("success"), new_status)
 
     if new_status == "paid" and not p.get("activation_done"):
+        level = int(p.get("level") or 1)
         u_now = await db.users.find_one({"id": p["user_id"]}, {"_id": 0, "max_level": 1, "status": 1}) or {}
-        if int(u_now.get("max_level") or 0) >= int(p["level"]):
+        if int(u_now.get("max_level") or 0) >= level:
             if u_now.get("status") != "active":
                 await db.users.update_one({"id": p["user_id"]}, {"$set": {"status": "active"}})
             await db.payments.update_one(
@@ -4379,9 +4384,9 @@ async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> di
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
-            return {"status": "paid", "activation_done": True, "level": p["level"], "reconciled": True}
+            return {"status": "paid", "activation_done": True, "level": level, "reconciled": True}
         try:
-            await activate_level(db, p["user_id"], int(p["level"]), source="ashtecpay")
+            await activate_level(db, p["user_id"], level, source="ashtecpay")
             await db.users.update_one(
                 {"id": p["user_id"], "status": {"$ne": "active"}},
                 {"$set": {"status": "active"}},
@@ -4393,7 +4398,7 @@ async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> di
                           "updated_at": datetime.now(timezone.utc)},
                  "$unset": {"activation_error": ""}},
             )
-            return {"status": "paid", "activation_done": True, "level": p["level"]}
+            return {"status": "paid", "activation_done": True, "level": level}
         except Exception as exc:
             log.exception("ashtecpay activate_level failed for ref=%s: %s", order_id, exc)
             await db.payments.update_one(

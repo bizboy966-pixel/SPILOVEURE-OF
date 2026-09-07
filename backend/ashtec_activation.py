@@ -821,7 +821,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
         # matrix.py:397-399. Pre-flipping status independently caused the
         # "ACTIVE but max_level=0" ghost state whenever `activate_level`
         # raised afterwards (bug 2026-09-07 v4 — user Alain_lompo).
-        await activate_level(db, p["user_id"], int(p["level"]), source=source)
+        await activate_level(db, p["user_id"], int(p.get("level") or 1), source=source)
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"activation_done": True, "status": "validated",
