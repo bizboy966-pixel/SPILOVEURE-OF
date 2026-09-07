@@ -128,7 +128,9 @@ export default function ActivationAshtec() {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [session?.expires_at]);  // Polling — every 6s while in waiting state
+  }, [session?.expires_at]);  // Polling — every 3s while in waiting state
+  // (was 6s — user requested faster feedback so the "En attente" screen
+  // reacts within seconds of the operator confirming the payment).
   useEffect(() => {
     if (step !== "waiting" || !session?.reference) return;
     let stopped = false;
@@ -140,10 +142,19 @@ export default function ActivationAshtec() {
         if (stopped) return;
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
+          // Refresh the in-memory user so the layout guard reads the fresh
+          // `max_level: 1 / status: active` state on the destination page.
           try { await refresh(); } catch {}
+          // Hard reload is intentional: on the "waiting" screen React's
+          // in-memory `user` may still hold the pre-activation snapshot
+          // even after the awaited `refresh()` — a browser reload
+          // rebuilds the whole tree with a fresh /auth/me on mount.
+          // We route to `/dashboard` (short URL, no group prefix) so the
+          // browser doesn't have to negotiate the `(app)` group segment
+          // twice.
           setTimeout(() => {
             if (typeof window !== "undefined") {
-              window.location.href = "/(app)/dashboard";
+              window.location.href = "/dashboard";
             } else {
               router.replace("/(app)/dashboard" as any);
             }
@@ -161,7 +172,7 @@ export default function ActivationAshtec() {
       } catch {}
     };
     poll();
-    const id = setInterval(poll, 6000);
+    const id = setInterval(poll, 3000);
     return () => { stopped = true; clearInterval(id); };
   }, [step, session?.reference]);
 

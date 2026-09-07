@@ -124,7 +124,7 @@ export default function Pay() {
           // and _layout.tsx bounces back to /pay).
           setTimeout(() => {
             if (typeof window !== "undefined") {
-              window.location.href = "/(app)/dashboard";
+              window.location.href = "/dashboard";
             } else {
               router.replace("/(app)/dashboard" as any);
             }
@@ -138,7 +138,7 @@ export default function Pay() {
           setErr("Impossible de vérifier le paiement. Actualisez la page.");
         }
       }
-    }, 5000);
+    }, 3000);
     return () => clearInterval(t);
   }, [phase, ref, refresh, router]);
 
@@ -410,7 +410,16 @@ export default function Pay() {
                             if (r.ok && r.activated) {
                               setPhase("success"); setVerifyMsg(r.message || "Compte activé.");
                               await refresh?.();
-                              setTimeout(() => router.replace("/(app)/dashboard" as any), 1500);
+                              // Hard reload to /dashboard to guarantee the
+                              // layout guard reads the fresh max_level=1
+                              // (see activation-ashtec.tsx for context).
+                              setTimeout(() => {
+                                if (typeof window !== "undefined") {
+                                  window.location.href = "/dashboard";
+                                } else {
+                                  router.replace("/(app)/dashboard" as any);
+                                }
+                              }, 1500);
                             } else {
                               setVerifyMsg(r.message || "Vérification en cours…");
                             }

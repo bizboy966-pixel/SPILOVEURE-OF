@@ -22,6 +22,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 — 🐛 Fix bounce-back Dashboard → Activation après paiement
+
+**Symptôme utilisateur** : après un paiement AshtechPay/SoleasPay confirmé, l'utilisateur atteint le Dashboard puis est renvoyé vers la page d'activation ~1 seconde plus tard.
+
+**Cause racine** : `frontend/app/(app)/dashboard.tsx` contenait un `useEffect` de garde EN DOUBLON du garde centralisé dans `(app)/_layout.tsx`. Ce garde local :
+- Redirigeait vers l'ancienne route `/(app)/activation` (page legacy) au lieu de `/(app)/pay` (nouveau flow 4-étapes),
+- Pouvait s'exécuter sur un snapshot bref/périmé de `user` immédiatement après un hard-reload.
+
+**Fixes** :
+1. **Suppression du garde dupliqué dans `dashboard.tsx`** — trust `_layout.tsx` uniquement (SoT).
+2. **`refresh()` forcé au montage du Dashboard** pour garantir des données `max_level`/`status` fraîches.
+3. **Polling 6s → 3s** (demande explicite utilisateur) dans `activation-ashtec.tsx`, `pay-ashtec.tsx`, `activation-crypto-auto.tsx`, `pay.tsx`.
+4. **URL de redirection après succès** : `window.location.href = "/dashboard"` (au lieu de `/(app)/dashboard`) — le groupe `(app)` est strippé par Expo Router Web, la version courte évite une renégociation de segment au hard-reload.
+5. **Nouveau test regression** `tests/test_activation_no_duplicate_guard.py` — 5 tests statiques qui garantissent que :
+   - Dashboard ne contient PAS de `router.replace(".../activation")`.
+   - Dashboard n'a PAS de garde `max_level < 1 → redirect`.
+   - `_layout.tsx` détient l'unique garde vers `/(app)/pay`.
+   - Toutes les pages de paiement pollent à 3000 ms.
+   - Toutes les pages redirigent vers `/dashboard` (URL courte).
+
+**Non modifié** (garde-fous) :
+- Logique de création du paiement (initiate) — user demande explicitement de NE PAS toucher.
+- Logique de vérification côté backend (`/payments/ashtec/status/{ref}`) — les vérifications live et l'application de l'activation restent identiques.
+- Webhooks Ashtech (HMAC v1.2 conservé du fix précédent).
+
+**Résultat** : 
+- `payment success → refresh → hard-reload /dashboard → layout guard voit user.max_level=1, status=active → PAS de redirection → Dashboard stable`
+- 28/28 tests pytest verts (5 regression + 14 v1.2 HMAC + 14 catalog v3).
+
+---
+
+
 ### 2026-09-03 — 🔐 AshtechPay conformité API Direct v1.2
 
 **Contexte** : l'utilisateur a fourni la doc officielle `AshtechPay_API_Direct_v1-2.pdf`. Alignement strict de l'intégration.

@@ -25,12 +25,19 @@ export default function Dashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Block access if the user has not activated their account yet (admins exempt).
+  // NOTE: activation guard is centralised in `(app)/_layout.tsx` which
+  // routes pending users to `/(app)/pay`. We MUST NOT duplicate a guard
+  // here — a duplicate can fire on a briefly-stale `user` right after a
+  // successful activation + hard reload, bouncing the freshly-activated
+  // user back to the old `/(app)/activation` page (bug reported
+  // 2026-09-07). Trust the layout.
+
+  // Force a fresh `/auth/me` on every Dashboard mount so the account
+  // status/max_level shown to the user is always current (esp. after
+  // an activation redirect via `window.location.href`).
   useEffect(() => {
-    if (user && user.role !== "admin" && (user.max_level || 0) < 1) {
-      router.replace("/(app)/activation");
-    }
-  }, [user?.max_level, user?.role]);
+    refresh().catch(() => {});
+  }, []);
 
   const load = async () => {
     try {

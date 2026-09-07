@@ -142,9 +142,13 @@ export default function PayAshtec() {
         if (stopped) return;
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
+          try { await refresh(); } catch {}
           setTimeout(() => {
             if (typeof window !== "undefined") {
-              window.location.href = String(returnTo || "/(app)/dashboard");
+              // Route without group segment — /dashboard resolves through
+              // Expo Router's group-stripping and avoids re-negotiating
+              // `(app)` on a hard reload.
+              window.location.href = String(returnTo || "/dashboard");
             } else {
               router.replace(returnTo as any);
             }
@@ -160,7 +164,8 @@ export default function PayAshtec() {
       } catch {}
     };
     poll();
-    const id = setInterval(poll, 6000);
+    // Poll every 3s (was 6s — user requested faster feedback)
+    const id = setInterval(poll, 3000);
     return () => { stopped = true; clearInterval(id); };
   }, [step, session?.reference]);
 

@@ -77,10 +77,14 @@ function CryptoAutoInner() {
           clearInterval(id);
           setChecking(false);
           if (typeof window !== "undefined") window.alert("✅ Paiement confirmé. Votre compte est activé au Niveau 1 !");
-          router.replace("/(app)/dashboard" as any);
+          if (typeof window !== "undefined") {
+            window.location.href = "/dashboard";
+          } else {
+            router.replace("/(app)/dashboard" as any);
+          }
         }
       } catch {}
-    }, 6000);
+    }, 3000);
     return () => { clearInterval(id); setChecking(false); };
   }, [charge, router]);
 
