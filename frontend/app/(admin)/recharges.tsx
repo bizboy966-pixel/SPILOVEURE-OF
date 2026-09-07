@@ -5,7 +5,22 @@ import { theme } from "@/src/theme";
 import { api } from "@/src/api";
 import { Card } from "@/src/components/Card";
 
-const fmt = (v: any) => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} FCFA`;
+/**
+ * Format an amount with its OWN currency — never hard-code FCFA.
+ * A crypto (IziChange) recharge of 5 USDT was being rendered as "5 FCFA"
+ * because the previous helper ignored the currency field and slapped
+ * "FCFA" on every amount, regardless of `r.currency`. Bug 2026-09-07 v4.
+ */
+const fmt = (v: any, currency?: string) => {
+  const n = Number(v) || 0;
+  const cur = String(currency || "FCFA").toUpperCase();
+  // Crypto amounts (USDT / BTC / ETH…) need decimals; fiat rounds to integer.
+  if (cur === "USDT" || cur === "USD" || cur === "EUR") {
+    // strip trailing zeros for a clean 5 USDT / 12.5 USDT display
+    return `${n.toString().replace(/\.?0+$/, "") || "0"} ${cur}`;
+  }
+  return `${Math.round(n).toLocaleString("fr-FR")} ${cur === "XOF" ? "FCFA" : cur}`;
+};
 
 export default function AdminRecharges() {
   const [items, setItems] = useState<any[]>([]);
@@ -20,7 +35,7 @@ export default function AdminRecharges() {
   useEffect(() => { load(); }, [load]);
 
   const validate = async (r: any) => {
-    if (typeof window !== "undefined" && !window.confirm(`Valider la recharge de ${fmt(r.amount)} pour ${r.username} ?\nRéférence : ${r.transaction_ref}`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`Valider la recharge de ${fmt(r.amount, r.currency)} pour ${r.username} ?\nRéférence : ${r.transaction_ref}`)) return;
     try {
       await api.post(`/admin/recharges/${r.id}/validate`, {});
       await load();
@@ -57,7 +72,7 @@ export default function AdminRecharges() {
         <Card key={r.id} style={{ marginTop: 10 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={styles.user}>{r.username}</Text>
-            <Text style={styles.amt}>{fmt(r.amount)}</Text>
+            <Text style={styles.amt}>{fmt(r.amount, r.currency)}</Text>
           </View>
           <Text style={styles.kv}>📱 {r.operator} — {r.phone}</Text>
           <Text style={styles.kv}>🔖 Réf : <Text style={{ fontFamily: "monospace" }}>{r.transaction_ref}</Text></Text>

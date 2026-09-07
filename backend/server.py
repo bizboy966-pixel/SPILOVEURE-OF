@@ -1949,11 +1949,11 @@ async def _soleaspay_reconcile_once(db) -> dict:
                 try:
                     await activate_level(db, p["user_id"], int(p["level"]),
                                          source=f"reconcile:{p['reference']}")
-                    # Also flip user.status to active for Ashtec's account guard.
-                    await db.users.update_one(
-                        {"id": p["user_id"], "status": {"$ne": "active"}},
-                        {"$set": {"status": "active"}},
-                    )
+                    # NOTE: do NOT pre-flip `user.status` to "active" here —
+                    # activate_level does both max_level AND status in a
+                    # single atomic $set. Splitting them caused the
+                    # "ACTIVE but max_level=0" ghost state when activate_level
+                    # raised afterwards (bug 2026-09-07 v4).
                     await db.payments.update_one(
                         {"reference": p["reference"]},
                         {"$set": {"activation_done": True, "status": "validated"},
@@ -3964,6 +3964,94 @@ async def admin_reprocess_payment(reference: str, request: Request, admin=Depend
             {"$set": {"activation_error": str(exc)}},
         )
         raise HTTPException(500, f"Activation échouée: {exc}")
+
+
+# ─── Ghost-activation repair ────────────────────────────────────────────
+# Bug 2026-09-07 v4 : some users ended up with `status="active"` while their
+# `max_level` remained at 0. Root cause: an earlier version of
+# `_apply_payment_success` pre-flipped the user's status BEFORE calling
+# `activate_level`; when `activate_level` then raised, the status stayed
+# stuck as "active" but no matrix placement / max_level bump happened.
+# This endpoint scans for such ghost states and either:
+#   • re-runs `activate_level` when a paid payment for L1 exists (idempotent
+#     safe path via source="admin_validate"), or
+#   • rolls the user back to `status="pending"` so the guard forces them
+#     through the payment flow again.
+@admin_router.get("/repair/ghost-activations")
+async def admin_scan_ghost_activations(request: Request, _admin=Depends(require_admin)):
+    """List users stuck with status=active + max_level=0 for admin review."""
+    db = request.app.state.db
+    items = []
+    async for u in db.users.find(
+        {"status": "active", "max_level": {"$lte": 0}, "role": "user"},
+        {"_id": 0, "id": 1, "username": 1, "email": 1, "phone": 1, "country": 1,
+         "sponsor_id": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(500):
+        # attach the latest payment for context
+        p = await db.payments.find_one(
+            {"user_id": u["id"], "level": 1},
+            {"_id": 0, "reference": 1, "status": 1, "amount": 1, "currency": 1,
+             "activation_error": 1, "activation_done": 1, "gateway": 1,
+             "provider": 1, "created_at": 1},
+            sort=[("created_at", -1)],
+        )
+        if isinstance(u.get("created_at"), datetime):
+            u["created_at"] = u["created_at"].isoformat()
+        if p and isinstance(p.get("created_at"), datetime):
+            p["created_at"] = p["created_at"].isoformat()
+        u["latest_payment"] = p
+        items.append(u)
+    return {"count": len(items), "items": items}
+
+
+@admin_router.post("/repair/ghost-activations")
+async def admin_repair_ghost_activations(request: Request, _admin=Depends(require_admin)):
+    """Repair every user with the ACTIVE-but-lvl-0 ghost state.
+
+    Strategy per user:
+      1. If a paid or validated L1 payment exists → re-run activate_level
+         via source='admin_validate' (idempotent, sets max_level=1).
+      2. Otherwise → roll status back to 'pending' so the layout guard
+         forces the user through the payment flow again.
+    """
+    db = request.app.state.db
+    repaired: list[dict] = []
+    rolled_back: list[dict] = []
+    failed: list[dict] = []
+    async for u in db.users.find(
+        {"status": "active", "max_level": {"$lte": 0}, "role": "user"},
+        {"_id": 0, "id": 1, "username": 1, "email": 1},
+    ):
+        uid = u["id"]
+        p = await db.payments.find_one(
+            {"user_id": uid, "level": 1,
+             "status": {"$in": ["paid", "validated"]}},
+            {"_id": 0, "reference": 1},
+            sort=[("created_at", -1)],
+        )
+        if p:
+            try:
+                await activate_level(db, uid, 1, source="admin_validate")
+                await db.payments.update_one(
+                    {"reference": p["reference"]},
+                    {"$set": {"activation_done": True, "status": "validated"},
+                     "$unset": {"activation_error": ""}},
+                )
+                repaired.append({"user_id": uid, "username": u.get("username"),
+                                 "reference": p["reference"]})
+            except Exception as exc:
+                failed.append({"user_id": uid, "username": u.get("username"),
+                               "error": str(exc)[:200]})
+        else:
+            await db.users.update_one(
+                {"id": uid},
+                {"$set": {"status": "pending", "ghost_rolled_back_at":
+                          datetime.now(timezone.utc)}},
+            )
+            rolled_back.append({"user_id": uid, "username": u.get("username")})
+    return {"repaired": repaired, "rolled_back": rolled_back, "failed": failed,
+            "totals": {"repaired": len(repaired), "rolled_back": len(rolled_back),
+                       "failed": len(failed)}}
 
 
 # ============ SOLEASPAY (Mobile Money, polling-based) ============

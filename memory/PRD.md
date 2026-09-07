@@ -22,6 +22,48 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v4) — 🩹 Fix "ACTIVE mais Niveau 0" + montants XOF/USDT
+
+**Bug 1 — Ghost state `status=active` + `max_level=0`** :
+- Reproduit sur le user `Alain_lompo` (screenshot fourni).
+- **Cause racine** : `_apply_payment_success` (ashtec_activation.py) et la boucle de reconcile (server.py) faisaient un pré-flip `status=active` AVANT d'appeler `matrix.activate_level`. Si `activate_level` levait une exception ensuite (ex : `place_in_matrix` échoue, contrainte niveau incorrect, guard payment), le user restait bloqué avec `status=active, max_level=0`.
+- **Fix** : suppression complète du pré-flip. `matrix.activate_level` fait déjà l'update atomique `{max_level, status: "active"}` en un seul `$set` à `matrix.py:397-399`. Soit tout passe, soit rien ne bouge.
+- **Endpoint de réparation** :
+  - `GET /api/admin/repair/ghost-activations` — liste tous les users bloqués (status=active + max_level=0) avec leur dernier paiement en contexte.
+  - `POST /api/admin/repair/ghost-activations` — répare : si un paiement L1 `paid/validated` existe → replay `activate_level(source="admin_validate")`, sinon → rollback `status="pending"`.
+
+**Bug 2 — "5 USDT affiché comme 5 FCFA"** :
+- **Cause racine** : `(admin)/recharges.tsx` avait un helper `fmt(v) = "${v} FCFA"` qui ignorait complètement le champ `currency` du document. Un paiement crypto de 5 USDT (via IziChangePay) s'affichait donc comme "5 FCFA" dans le back-office admin.
+- **Fix** : nouveau `fmt(v, currency)` :
+  - `USDT / USD / EUR` → décimales conservées, "5 USDT"
+  - `XOF / FCFA` → arrondi + séparateur milliers français, "2 500 FCFA"
+- Appels mis à jour pour passer `r.currency`.
+- Note : `(admin)/payments.tsx` était déjà currency-aware (`fmtAmount(p.amount, p.currency)`) — non touché.
+
+**Tests** : nouveau `tests/test_v4_activation_and_currency.py` — 6 tests statiques verrouillent : (a) pas de pré-flip status dans `_apply_payment_success`, (b) pas de pré-flip dans la boucle reconcile, (c) `matrix.activate_level` fait l'update atomique, (d) endpoints repair présents, (e) `fmt` de recharges prend `currency`, (f) `payments.tsx` reste currency-aware. **36/36 tests verts** globalement.
+
+**Validation live** :
+- `GET /api/admin/repair/ghost-activations` → liste des users concernés en DB preview.
+- `POST /api/admin/repair/ghost-activations` → répare/rollback en un clic.
+
+**Règle absolue désormais respectée** :
+```
+paiement confirmé → matrix.activate_level → {max_level=1, status=active} atomique
+                                          → activation_done=true, status=validated
+                                          → notification "Compte activé"
+                                          → utilisateur RESTE actif au Niveau 1
+```
+Impossible désormais d'avoir `status=active, max_level=0` (les deux champs sont toujours écrits ensemble).
+
+**Non touché** (per demande utilisateur) :
+- Logique de création/lancement du paiement — inchangée.
+- Vérification live du statut — inchangée.
+- Webhooks HMAC v1.2 — inchangés.
+- Backends SoleasPay / IziChange / Ashtech — inchangés.
+
+---
+
+
 ### 2026-09-07 (v3) — 🛡️ Bulletproof activation grace window
 
 **Contexte** : malgré les 4 couches de défense précédentes (no-cache headers, `cache: "no-store"`, cache-buster `?_t=`, second-chance refresh), l'utilisateur signalait toujours le bug "compte s'active puis se désactive". Il fallait une **stratégie déterministe** qui converge dans TOUS les cas, y compris avec :
