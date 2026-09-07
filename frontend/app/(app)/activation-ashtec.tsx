@@ -142,23 +142,32 @@ export default function ActivationAshtec() {
         if (stopped) return;
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
-          // Refresh the in-memory user so the layout guard reads the fresh
-          // `max_level: 1 / status: active` state on the destination page.
+          // ⚡ BULLETPROOF ACTIVATION FLAG
+          // Persist the fact that we just successfully activated. The
+          // `(app)/_layout.tsx` guard reads this flag and:
+          //   1. refuses to redirect to /pay during the next 60 seconds,
+          //   2. actively re-polls /auth/me every 500 ms until it sees
+          //      max_level ≥ 1 (converges even on Mongo replication lag).
+          // Without this flag, a briefly-stale /auth/me can bounce the
+          // freshly-activated user back to /pay ("le compte s'active puis
+          // se désactive" bug 2026-09-07 v3).
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem("just_activated", JSON.stringify({
+                ts: Date.now(),
+                reference: session.reference,
+                level: r.level || 1,
+              }));
+            } catch {}
+          }
           try { await refresh(); } catch {}
-          // Hard reload is intentional: on the "waiting" screen React's
-          // in-memory `user` may still hold the pre-activation snapshot
-          // even after the awaited `refresh()` — a browser reload
-          // rebuilds the whole tree with a fresh /auth/me on mount.
-          // We route to `/dashboard` (short URL, no group prefix) so the
-          // browser doesn't have to negotiate the `(app)` group segment
-          // twice.
           setTimeout(() => {
             if (typeof window !== "undefined") {
               window.location.href = "/dashboard";
             } else {
               router.replace("/(app)/dashboard" as any);
             }
-          }, 1200);
+          }, 800);
           return;
         }
         if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {

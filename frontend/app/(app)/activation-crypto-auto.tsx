@@ -76,8 +76,13 @@ function CryptoAutoInner() {
         if (me?.max_level >= 1 && me?.status === "active") {
           clearInterval(id);
           setChecking(false);
-          if (typeof window !== "undefined") window.alert("✅ Paiement confirmé. Votre compte est activé au Niveau 1 !");
           if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem("just_activated", JSON.stringify({
+                ts: Date.now(), reference: charge?.reference, level: 1,
+              }));
+            } catch {}
+            window.alert("✅ Paiement confirmé. Votre compte est activé au Niveau 1 !");
             window.location.href = "/dashboard";
           } else {
             router.replace("/(app)/dashboard" as any);

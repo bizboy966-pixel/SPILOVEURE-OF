@@ -142,17 +142,21 @@ export default function PayAshtec() {
         if (stopped) return;
         if (r.activation_done === true || r.status === "paid" || r.status === "validated") {
           setStep("done");
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem("just_activated", JSON.stringify({
+                ts: Date.now(), reference: session.reference, level: r.level || 1,
+              }));
+            } catch {}
+          }
           try { await refresh(); } catch {}
           setTimeout(() => {
             if (typeof window !== "undefined") {
-              // Route without group segment — /dashboard resolves through
-              // Expo Router's group-stripping and avoids re-negotiating
-              // `(app)` on a hard reload.
               window.location.href = String(returnTo || "/dashboard");
             } else {
               router.replace(returnTo as any);
             }
-          }, 1200);
+          }, 800);
           return;
         }
         if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {

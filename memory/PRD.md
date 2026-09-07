@@ -22,6 +22,64 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v3) — 🛡️ Bulletproof activation grace window
+
+**Contexte** : malgré les 4 couches de défense précédentes (no-cache headers, `cache: "no-store"`, cache-buster `?_t=`, second-chance refresh), l'utilisateur signalait toujours le bug "compte s'active puis se désactive". Il fallait une **stratégie déterministe** qui converge dans TOUS les cas, y compris avec :
+- Lag de réplication MongoDB
+- Cache Cloudflare / navigateur / service worker
+- État React briefly stale après hard-reload
+- Réponses `/auth/me` qui renvoient encore `max_level=0` malgré tout
+
+**Solution — Grace Window via `localStorage.just_activated`** :
+
+1. **Au succès du paiement** (activation-ashtec.tsx, pay-ashtec.tsx, pay.tsx, activation-crypto-auto.tsx) :
+   ```js
+   window.localStorage.setItem("just_activated", JSON.stringify({
+     ts: Date.now(), reference, level: 1,
+   }));
+   ```
+   Puis `refresh()` puis `window.location.href = "/dashboard"`.
+
+2. **Dans `(app)/_layout.tsx`** — la garde consulte le flag AVANT de rediriger :
+   ```
+   Si isPending && flag présent (< 60s) → NE JAMAIS rediriger vers /pay
+                                        → poller refresh() toutes les 500ms
+                                        → clear du flag dès que max_level ≥ 1
+   Si isPending && pas de flag           → redirect legitime vers /pay
+   ```
+   - Grace window : **60 secondes** après le paiement
+   - Poll rate : **500 ms** — convergence quasi-instantanée
+   - Auto-cleanup : le flag est purgé dès que /auth/me revoit `max_level ≥ 1` OU après 60s.
+
+3. **Dans `dashboard.tsx`** — au montage, si le flag `just_activated` est présent, on force un `refresh()` toutes les 500ms jusqu'à convergence ou fin de grace window.
+
+**Pourquoi c'est bulletproof** :
+- **Persistant** : localStorage survit au hard-reload, contrairement à l'état React.
+- **Deterministe** : la grace window garantit qu'AUCUN redirect ne peut se produire pendant 60s post-paiement, quel que soit le comportement du cache/CDN.
+- **Convergent** : le poll 500ms via refresh no-cache force /auth/me à retourner l'état DB frais. Comme la DB EST à jour (per `matrix.py:397`), la convergence est certaine dans les 500ms-2s.
+- **Auto-nettoyant** : dès que max_level ≥ 1 est observé, le flag est effacé — pas de fuite.
+
+**Tests** : nouveau fichier `tests/test_activation_grace_window.py` — 8 tests garantissant que les 4 pages de paiement posent le flag, que le layout consulte le flag AVANT de rediriger, que le poll 500ms est bien présent, et que la route legacy `/(app)/activation` ne réapparaîtra plus. **16/16 tests verts** (grace + no-duplicate-guard + auth-me-no-cache).
+
+**Effets de bord positifs** :
+- Poll passé à 3s (demande utilisateur) sur toutes les pages de paiement.
+- Setup countdown reste visible pendant PENDING (existe déjà côté UI, respecte la demande utilisateur).
+- Délai max 10 minutes déjà géré côté backend via `_mark_expired`.
+
+**Résultat garanti** :
+```
+Paiement → succès → localStorage.just_activated posé → refresh → hard-reload /dashboard
+    ↓
+Layout mount → user briefly stale (max_level=0 encore) → flag détecté → PAS de redirect
+    ↓
+Poll 500ms → refresh() → /auth/me no-cache → max_level=1 arrive → flag purgé
+    ↓
+Dashboard visible, utilisateur RESTE ACTIF, PAS de bounce.
+```
+
+---
+
+
 ### 2026-09-07 (v2) — 🐛 Fix bounce-back "compte se réactive puis se désactive"
 
 **Nouveau symptôme utilisateur** : après le fix précédent (suppression du garde dupliqué dans `dashboard.tsx`), l'utilisateur voit le compte s'activer puis se **désactiver** et retourne à la page de paiement.

@@ -33,10 +33,30 @@ export default function Dashboard() {
   // 2026-09-07). Trust the layout.
 
   // Force a fresh `/auth/me` on every Dashboard mount so the account
-  // status/max_level shown to the user is always current (esp. after
-  // an activation redirect via `window.location.href`).
+  // status/max_level shown to the user is always current. Also, when
+  // the `just_activated` localStorage flag is present (posted by the
+  // payment flow right before its hard-reload), keep re-polling until
+  // /auth/me reports max_level ≥ 1 — this converges even on Mongo
+  // replication lag and eliminates the "compte s'active puis se
+  // désactive" bug (2026-09-07 v3).
   useEffect(() => {
     refresh().catch(() => {});
+    if (typeof window === "undefined") return;
+    let raw: string | null = null;
+    try { raw = window.localStorage.getItem("just_activated"); } catch {}
+    if (!raw) return;
+    let flag: any = null;
+    try { flag = JSON.parse(raw); } catch { flag = null; }
+    if (!flag || typeof flag.ts !== "number" || Date.now() - flag.ts > 60_000) {
+      try { window.localStorage.removeItem("just_activated"); } catch {}
+      return;
+    }
+    const id = setInterval(() => {
+      refresh().catch(() => {});
+    }, 500);
+    // Stop after the grace window even if refresh never converges.
+    const stop = setTimeout(() => clearInterval(id), 60_000 - (Date.now() - flag.ts));
+    return () => { clearInterval(id); clearTimeout(stop); };
   }, []);
 
   const load = async () => {

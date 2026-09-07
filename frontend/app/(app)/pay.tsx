@@ -409,10 +409,14 @@ export default function Pay() {
                             );
                             if (r.ok && r.activated) {
                               setPhase("success"); setVerifyMsg(r.message || "Compte activé.");
+                              if (typeof window !== "undefined") {
+                                try {
+                                  window.localStorage.setItem("just_activated", JSON.stringify({
+                                    ts: Date.now(), reference: ref, level: 1,
+                                  }));
+                                } catch {}
+                              }
                               await refresh?.();
-                              // Hard reload to /dashboard to guarantee the
-                              // layout guard reads the fresh max_level=1
-                              // (see activation-ashtec.tsx for context).
                               setTimeout(() => {
                                 if (typeof window !== "undefined") {
                                   window.location.href = "/dashboard";
