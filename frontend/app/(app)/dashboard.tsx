@@ -220,26 +220,26 @@ export default function Dashboard() {
         {/* ─── Bloc unifié split : Solde Disponible | Retrait Total ─── */}
         <View style={styles.splitCard} testID="dashboard-balance-split">
           <TouchableOpacity
-            style={[styles.splitSide, styles.splitSideLeft, { backgroundColor: "#10B981" }]}
+            style={[styles.splitSide, { backgroundColor: "#10B981" }]}
             onPress={() => router.push("/(app)/withdrawal")}
             activeOpacity={0.85}
             testID="dashboard-balance-card"
           >
-            <View style={styles.splitIconBox}>
-              <Ionicons name="wallet" size={16} color="#fff" />
+            <View style={styles.splitHeaderRow}>
+              <Ionicons name="wallet" size={13} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.splitLabel}>Solde Disponible</Text>
             </View>
-            <Text style={styles.splitLabel}>Solde Disponible</Text>
             <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-balance-profit">
               {formatFCFA(stats?.balance_profit)}
             </Text>
             <Text style={styles.splitHint}>disponible au retrait</Text>
           </TouchableOpacity>
           <View style={styles.splitDivider} />
-          <View style={[styles.splitSide, styles.splitSideRight, { backgroundColor: "#1B5BFF" }]}>
-            <View style={styles.splitIconBox}>
-              <Ionicons name="arrow-up-circle" size={16} color="#fff" />
+          <View style={[styles.splitSide, { backgroundColor: "#1B5BFF" }]}>
+            <View style={styles.splitHeaderRow}>
+              <Ionicons name="arrow-up-circle" size={13} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.splitLabel}>Retrait Total</Text>
             </View>
-            <Text style={styles.splitLabel}>Retrait Total</Text>
             <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-withdrawn">
               {formatFCFA(stats?.total_withdrawn)}
             </Text>
@@ -250,10 +250,10 @@ export default function Dashboard() {
         {/* ─── Bloc unifié split : Commission Spillover | Parrainage direct ─── */}
         <View style={styles.splitCard} testID="dashboard-commissions-split">
           <View style={[styles.splitSide, { backgroundColor: theme.colors.secondary }]}>
-            <View style={styles.splitIconBox}>
-              <Ionicons name="git-network" size={16} color="#fff" />
+            <View style={styles.splitHeaderRow}>
+              <Ionicons name="git-network" size={13} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.splitLabel}>Commission Spillover</Text>
             </View>
-            <Text style={styles.splitLabel}>Commission Spillover</Text>
             <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
               {formatFCFA(stats?.commission_spillover)}
             </Text>
@@ -261,10 +261,10 @@ export default function Dashboard() {
           </View>
           <View style={styles.splitDivider} />
           <View style={[styles.splitSide, { backgroundColor: theme.colors.success }]}>
-            <View style={styles.splitIconBox}>
-              <Ionicons name="people" size={16} color="#fff" />
+            <View style={styles.splitHeaderRow}>
+              <Ionicons name="people" size={13} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.splitLabel}>Parrainage direct</Text>
             </View>
-            <Text style={styles.splitLabel}>Parrainage direct</Text>
             <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
               {formatFCFA(stats?.commission_direct)}
             </Text>
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
   walletIcon: { width: 64, height: 64, borderRadius: theme.radius.lg, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
   // Unified split card (Solde | Retrait, Commissions) — collé avec divider vertical.
-  // Same visual shape / width as the hero card (v10 spec).
+  // Same visual shape / height / width as the hero card (v11 spec).
   splitCard: {
     flexDirection: "row", marginTop: 12, borderRadius: 20,
     overflow: "hidden", minHeight: 92, ...theme.shadow.card,
@@ -438,21 +438,15 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 14, paddingHorizontal: 14,
     justifyContent: "center",
   },
-  splitSideLeft: {},
-  splitSideRight: {},
+  splitHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   splitDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.35)" },
-  splitIconBox: {
-    width: 32, height: 32, borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    alignItems: "center", justifyContent: "center", marginBottom: 8,
-  },
   splitLabel: {
-    color: "rgba(255,255,255,0.9)", fontSize: 10.5, fontWeight: "600",
+    color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600",
     letterSpacing: 0.4, textTransform: "uppercase",
   },
   splitValue: {
-    color: "#fff", fontSize: 17, fontWeight: "800",
-    marginTop: 3, letterSpacing: -0.3,
+    color: "#fff", fontSize: 20, fontWeight: "800",
+    marginTop: 2, letterSpacing: -0.4,
   },
   splitHint: { color: "rgba(255,255,255,0.78)", fontSize: 10, marginTop: 3 },
 
