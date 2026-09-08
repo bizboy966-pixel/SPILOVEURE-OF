@@ -166,20 +166,28 @@ export default function Dashboard() {
         contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* ─── Grande carte : PROFIT TOTAL (gauche) + ACTIVATION (droite) ─── */}
-        <LinearGradient colors={theme.colors.primaryGradient} style={styles.balanceCard} testID="dashboard-hero-card">
+        {/* ─── Hero split : Profit Total | Activation ─── */}
+        <LinearGradient colors={theme.colors.primaryGradient} style={styles.heroCard} testID="dashboard-hero-card">
           <View style={styles.heroSide}>
-            <Text style={styles.balanceLabel}>💎 PROFIT TOTAL</Text>
-            <Text style={styles.balanceValue} testID="dashboard-total-profit">
+            <View style={styles.heroHeaderRow}>
+              <Ionicons name="diamond" size={13} color="#C7D9FF" />
+              <Text style={styles.heroLabel}>Profit Total</Text>
+            </View>
+            <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-profit">
               {formatFCFA(stats?.total_profit)}
             </Text>
-            <Text style={styles.balanceHint}>cumul historique</Text>
+            <Text style={styles.heroHint}>cumul historique</Text>
           </View>
           <View style={styles.heroDivider} />
           <View style={styles.heroSide}>
-            <Text style={styles.balanceLabel}>🔐 ACTIVATION</Text>
-            <Text style={styles.balanceValue} testID="dashboard-activation-amount">2 500 FCFA</Text>
-            <Text style={styles.balanceHint}>Niveau 1 activé</Text>
+            <View style={styles.heroHeaderRow}>
+              <Ionicons name="shield-checkmark" size={13} color="#C7D9FF" />
+              <Text style={styles.heroLabel}>Activation</Text>
+            </View>
+            <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-activation-amount">
+              2 500 FCFA
+            </Text>
+            <Text style={styles.heroHint}>Niveau 1 activé</Text>
           </View>
         </LinearGradient>
 
@@ -209,32 +217,33 @@ export default function Dashboard() {
           />
         ) : null}
 
-        {/* ─── Solde Disponible (à la place de l'ancien Profit Total) + Retrait Total ─── */}
-        <View style={styles.statsRow}>
+        {/* ─── Bloc unifié split : Solde Disponible | Retrait Total ─── */}
+        <View style={styles.splitCard} testID="dashboard-balance-split">
           <TouchableOpacity
-            style={[styles.statCard, { backgroundColor: "#10B981" }]}
+            style={[styles.splitSide, styles.splitSideLeft, { backgroundColor: "#10B981" }]}
             onPress={() => router.push("/(app)/withdrawal")}
             activeOpacity={0.85}
             testID="dashboard-balance-card"
           >
-            <View style={styles.statIconBox}>
-              <Ionicons name="wallet" size={20} color="#fff" />
+            <View style={styles.splitIconBox}>
+              <Ionicons name="wallet" size={16} color="#fff" />
             </View>
-            <Text style={styles.statLabel}>💰 Solde Disponible</Text>
-            <Text style={styles.statValue} testID="dashboard-balance-profit">
+            <Text style={styles.splitLabel}>Solde Disponible</Text>
+            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-balance-profit">
               {formatFCFA(stats?.balance_profit)}
             </Text>
-            <Text style={styles.statHint}>disponible au retrait</Text>
+            <Text style={styles.splitHint}>disponible au retrait</Text>
           </TouchableOpacity>
-          <View style={[styles.statCard, { backgroundColor: "#1B5BFF" }]}>
-            <View style={styles.statIconBox}>
-              <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+          <View style={styles.splitDivider} />
+          <View style={[styles.splitSide, styles.splitSideRight, { backgroundColor: "#1B5BFF" }]}>
+            <View style={styles.splitIconBox}>
+              <Ionicons name="arrow-up-circle" size={16} color="#fff" />
             </View>
-            <Text style={styles.statLabel}>Retrait Total</Text>
-            <Text style={styles.statValue} testID="dashboard-total-withdrawn">
+            <Text style={styles.splitLabel}>Retrait Total</Text>
+            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-withdrawn">
               {formatFCFA(stats?.total_withdrawn)}
             </Text>
-            <Text style={styles.statHint}>retraits validés</Text>
+            <Text style={styles.splitHint}>retraits validés</Text>
           </View>
         </View>
 
@@ -261,11 +270,17 @@ export default function Dashboard() {
           <Text style={styles.sectionTitle}>Détail du solde</Text>
           <View style={styles.detailRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.detailLabel}>💎 Profit retirable</Text>
+              <View style={styles.detailLabelRow}>
+                <Ionicons name="diamond-outline" size={13} color={theme.colors.textSecondary} />
+                <Text style={styles.detailLabel}>Profit retirable</Text>
+              </View>
               <Text style={[styles.detailValue, { color: theme.colors.success }]}>{formatFCFA(stats?.balance_profit)}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.detailLabel}>🔒 Réserve mise à niveau</Text>
+              <View style={styles.detailLabelRow}>
+                <Ionicons name="lock-closed-outline" size={13} color={theme.colors.textSecondary} />
+                <Text style={styles.detailLabel}>Réserve mise à niveau</Text>
+              </View>
               <Text style={[styles.detailValue, { color: theme.colors.warning }]}>{formatFCFA(stats?.balance_upgrade)}</Text>
             </View>
           </View>
@@ -377,7 +392,22 @@ const styles = StyleSheet.create({
   balanceCard: { borderRadius: theme.radius.xl, padding: theme.spacing.lg, flexDirection: "row", alignItems: "center", ...theme.shadow.lifted },
   balanceLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "600", letterSpacing: 0.3, textTransform: "uppercase" },
   balanceValue: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 6, letterSpacing: -0.5 },
-  heroSide: { flex: 1, alignItems: "flex-start" },
+  // Compact hero card (Profit Total | Activation) — v9 spec.
+  heroCard: {
+    borderRadius: 20, paddingVertical: 14, paddingHorizontal: 14,
+    flexDirection: "row", alignItems: "stretch", ...theme.shadow.lifted,
+  },
+  heroSide: { flex: 1, justifyContent: "center" },
+  heroHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  heroLabel: {
+    color: "#C7D9FF", fontSize: 11, fontWeight: "600",
+    letterSpacing: 0.4, textTransform: "uppercase",
+  },
+  heroValue: {
+    color: "#fff", fontSize: 20, fontWeight: "800",
+    marginTop: 2, letterSpacing: -0.4,
+  },
+  heroHint: { color: "#C7D9FF", fontSize: 10, marginTop: 3 },
   heroDivider: { width: 1, alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 12 },
   balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
   reserveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
@@ -390,6 +420,30 @@ const styles = StyleSheet.create({
   statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
   walletIcon: { width: 64, height: 64, borderRadius: theme.radius.lg, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
+  // Unified split card (Solde | Retrait) — collé avec divider vertical.
+  splitCard: {
+    flexDirection: "row", marginTop: 12, borderRadius: 20,
+    overflow: "hidden", ...theme.shadow.card,
+  },
+  splitSide: { flex: 1, paddingVertical: 14, paddingHorizontal: 12 },
+  splitSideLeft: {},
+  splitSideRight: {},
+  splitDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.35)" },
+  splitIconBox: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center", justifyContent: "center", marginBottom: 8,
+  },
+  splitLabel: {
+    color: "rgba(255,255,255,0.9)", fontSize: 10.5, fontWeight: "600",
+    letterSpacing: 0.4, textTransform: "uppercase",
+  },
+  splitValue: {
+    color: "#fff", fontSize: 17, fontWeight: "800",
+    marginTop: 3, letterSpacing: -0.3,
+  },
+  splitHint: { color: "rgba(255,255,255,0.78)", fontSize: 10, marginTop: 3 },
+
   row: { flexDirection: "row", gap: 12, marginTop: 14 },
   commCard: { flex: 1, borderRadius: theme.radius.lg, padding: theme.spacing.md, flexDirection: "row", alignItems: "center", gap: 10 },
   commIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
@@ -398,6 +452,7 @@ const styles = StyleSheet.create({
 
   sectionTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 16, letterSpacing: -0.3 },
   detailRow: { flexDirection: "row", marginTop: 10, gap: 12 },
+  detailLabelRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   detailLabel: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },
   detailValue: { fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
 

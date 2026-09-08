@@ -22,6 +22,34 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-08 (v9) — 🎨 Dashboard compact + icônes pro (sans emojis d'interface)
+
+**Demande utilisateur** : cartes trop grandes, emojis à retirer de l'interface, `Solde Disponible + Retrait Total` doivent former un bloc unifié comme la carte `Profit Total + Activation`. Typographie : ne rien toucher, attendre les références.
+
+**Changements** :
+
+1. **Hero card (Profit Total | Activation)** — plus compacte :
+   - Padding 14 (au lieu de 24), value 20 px (au lieu de 22),
+   - `numberOfLines={1} adjustsFontSizeToFit` → plus de coupures sur mobile 390px,
+   - Emojis `💎` `🔐` remplacés par icônes Ionicons `diamond` + `shield-checkmark` (13px, inline avec le label).
+
+2. **Bloc unifié `Solde Disponible | Retrait Total`** :
+   - Nouvelle carte `splitCard` (flexDirection row, borderRadius 20, overflow hidden) → les DEUX moitiés (vert émeraude + bleu) sont **collées** dans une seule carte avec divider vertical net.
+   - Emojis retirés, icônes Ionicons `wallet` + `arrow-up-circle`.
+
+3. **Détail du solde** — emojis retirés :
+   - `💎 Profit retirable` → `diamond-outline` + texte.
+   - `🔒 Réserve mise à niveau` → `lock-closed-outline` + texte.
+
+4. **Cartes inchangées** (per demande) : Commission Spillover + Parrainage direct utilisaient déjà des Ionicons (`cash`, `people`), pas d'emojis à retirer.
+
+5. **Typographie** : NON TOUCHÉE (utilisateur fournira les références de police plus tard).
+
+testIDs : `dashboard-hero-card`, `dashboard-balance-split`, `dashboard-balance-card`, `dashboard-balance-profit`, `dashboard-total-profit`, `dashboard-activation-amount`, `dashboard-total-withdrawn`.
+
+---
+
+
 ### 2026-09-07 (v8) — 🎨 Refonte Dashboard : PROFIT TOTAL + ACTIVATION en tête
 
 **Demande utilisateur** : réorganisation des cartes du Dashboard.
