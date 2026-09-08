@@ -22,6 +22,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-08 (v10) — 🎯 Uniformisation des 3 cartes du Dashboard
+
+**Demande utilisateur** : `Commission Spillover + Parrainage direct` doivent être collés dans UNE carte comme les deux autres. Les 3 cartes doivent avoir la même largeur ET la même forme que la première.
+
+**Changements** :
+
+1. **Bloc unifié `Commission Spillover | Parrainage direct`** :
+   - Ancienne row de 2 `commCard` séparés (icône à gauche, texte à droite) → nouveau `splitCard` identique aux deux autres blocs.
+   - Icônes `git-network` (Spillover, violet) + `people` (Parrainage direct, vert).
+   - Sous-textes ajoutés : "équipe indirecte" / "filleuls actifs".
+   - Divider vertical entre les deux moitiés.
+
+2. **Uniformisation stricte** :
+   - Toutes les 3 cartes : `borderRadius: 20`, `minHeight: 92`, `paddingVertical: 14`, `paddingHorizontal: 14`.
+   - Même style de label/valeur/hint sur les 3 cartes.
+   - Même divider vertical `rgba(255,255,255,0.35)` largeur 1px.
+   - Même largeur (100% de la ScrollView).
+
+testIDs : `dashboard-commissions-split`.
+
+Résultat visuel : 3 blocs empilés parfaitement identiques en forme et taille, seule la palette de couleurs varie (gradient bleu / vert-bleu / violet-vert).
+
+---
+
+
 ### 2026-09-08 (v9) — 🎨 Dashboard compact + icônes pro (sans emojis d'interface)
 
 **Demande utilisateur** : cartes trop grandes, emojis à retirer de l'interface, `Solde Disponible + Retrait Total` doivent former un bloc unifié comme la carte `Profit Total + Activation`. Typographie : ne rien toucher, attendre les références.

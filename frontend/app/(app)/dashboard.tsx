@@ -247,21 +247,28 @@ export default function Dashboard() {
           </View>
         </View>
 
-        {/* Commissions */}
-        <View style={styles.row}>
-          <View style={[styles.commCard, { backgroundColor: theme.colors.secondary }]}>
-            <View style={styles.commIcon}><Ionicons name="cash" size={20} color="#fff" /></View>
-            <View>
-              <Text style={styles.commLabel}>Commission Spillover</Text>
-              <Text style={styles.commValue}>{formatFCFA(stats?.commission_spillover)}</Text>
+        {/* ─── Bloc unifié split : Commission Spillover | Parrainage direct ─── */}
+        <View style={styles.splitCard} testID="dashboard-commissions-split">
+          <View style={[styles.splitSide, { backgroundColor: theme.colors.secondary }]}>
+            <View style={styles.splitIconBox}>
+              <Ionicons name="git-network" size={16} color="#fff" />
             </View>
+            <Text style={styles.splitLabel}>Commission Spillover</Text>
+            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
+              {formatFCFA(stats?.commission_spillover)}
+            </Text>
+            <Text style={styles.splitHint}>équipe indirecte</Text>
           </View>
-          <View style={[styles.commCard, { backgroundColor: theme.colors.success }]}>
-            <View style={styles.commIcon}><Ionicons name="people" size={20} color="#fff" /></View>
-            <View>
-              <Text style={styles.commLabel}>Parrainage direct</Text>
-              <Text style={styles.commValue}>{formatFCFA(stats?.commission_direct)}</Text>
+          <View style={styles.splitDivider} />
+          <View style={[styles.splitSide, { backgroundColor: theme.colors.success }]}>
+            <View style={styles.splitIconBox}>
+              <Ionicons name="people" size={16} color="#fff" />
             </View>
+            <Text style={styles.splitLabel}>Parrainage direct</Text>
+            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
+              {formatFCFA(stats?.commission_direct)}
+            </Text>
+            <Text style={styles.splitHint}>filleuls actifs</Text>
           </View>
         </View>
 
@@ -396,6 +403,7 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20, paddingVertical: 14, paddingHorizontal: 14,
     flexDirection: "row", alignItems: "stretch", ...theme.shadow.lifted,
+    minHeight: 92,
   },
   heroSide: { flex: 1, justifyContent: "center" },
   heroHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
@@ -420,12 +428,16 @@ const styles = StyleSheet.create({
   statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
   walletIcon: { width: 64, height: 64, borderRadius: theme.radius.lg, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
-  // Unified split card (Solde | Retrait) — collé avec divider vertical.
+  // Unified split card (Solde | Retrait, Commissions) — collé avec divider vertical.
+  // Same visual shape / width as the hero card (v10 spec).
   splitCard: {
     flexDirection: "row", marginTop: 12, borderRadius: 20,
-    overflow: "hidden", ...theme.shadow.card,
+    overflow: "hidden", minHeight: 92, ...theme.shadow.card,
   },
-  splitSide: { flex: 1, paddingVertical: 14, paddingHorizontal: 12 },
+  splitSide: {
+    flex: 1, paddingVertical: 14, paddingHorizontal: 14,
+    justifyContent: "center",
+  },
   splitSideLeft: {},
   splitSideRight: {},
   splitDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.35)" },
