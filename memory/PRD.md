@@ -22,6 +22,66 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v7) — 🎯 CAUSE RACINE VÉRITABLE : source d'activation hors whitelist
+
+**Vraie cause racine découverte en reproduisant le bug end-to-end** :
+
+`matrix.activate_level` (matrix.py:323-331) impose une **whitelist stricte** de sources autorisées :
+```
+ALLOWED_SOURCES = {"soleaspay", "ashtecpay", "sendavapay", "izichange",
+                   "biztranspay", "gateway_return", "admin_validate",
+                   "manual_reprocess", "auto_upgrade", "manual", "admin_manual"}
+if source not in ALLOWED_SOURCES:
+    raise ValueError(f"Source d'activation invalide : {source!r}")
+```
+
+**MAIS** 3 call-sites dans `server.py` passaient des sources **hors whitelist** :
+1. `server.py:1438` → `source="poll_return"` (endpoint `/payments/{ref}/status`)
+2. `server.py:1618` → `source=f"webhook:{ref}"` (endpoint `/webhooks/sendavapay`)
+3. `server.py:1951` → `source=f"reconcile:{ref}"` (boucle de réconciliation)
+
+**Chaque appel levait `ValueError`**, attrapé silencieusement par le try/except du call-site, qui écrivait uniquement `activation_error` sur le paiement. Résultat : **paiement `paid` mais `max_level=0`, `status=pending`** (ou `active + max_level=0` avec l'ancien pré-flip, corrigé en v4).
+
+**Fix** : normalisation dynamique de la source vers un nom whitelisted :
+```python
+gw_raw = str(p.get("gateway") or p.get("provider") or "").lower()
+_WL = {"soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay"}
+src = gw_raw if gw_raw in _WL else "gateway_return"
+await activate_level(db, p["user_id"], int(p["level"]), source=src)
+```
+Appliqué aux 3 sites (poll status, webhook Sendava, reconcile loop).
+
+**Vérification end-to-end** (script exécuté en preview) :
+```
+✅ activate_level(source='ashtecpay')      → user.status=active, max_level=1
+✅ activate_level(source='soleaspay')      → user.status=active, max_level=1
+✅ activate_level(source='gateway_return') → user.status=active, max_level=1
+```
+
+**Repair** : script en preview a nettoyé les paiements bloqués (paid mais activation_done=False) — tous les users ayant un paiement L1 réussi sont maintenant `active + max_level=1`.
+
+**Tests** : nouveau `tests/test_v7_activate_source_whitelist.py` — 6 tests statiques :
+- Aucun `source="poll_return"` dans le code
+- Aucun `source=f"webhook:..."` 
+- Aucun `source=f"reconcile:..."`
+- **Test générique** : scanne récursivement `.py` et échoue si UN SEUL `source="X"` littéral n'est pas dans `matrix.ALLOWED_SOURCES` — impossible qu'une nouvelle régression passe.
+- `matrix.activate_level` fait bien l'update atomique max_level + status.
+
+**20/20 tests pytest verts** (v4 + v7 + grace_window).
+
+**⚠️ ACTION REQUISE POUR L'UTILISATEUR** :
+Le code preview est corrigé et testé. Pour que le fix atteigne **spiloveure.com** (production), il faut **redéployer** l'application depuis Emergent. Le bug ne se reproduira PLUS sur les nouveaux comptes après ce redéploiement.
+
+Pour réparer les comptes DÉJÀ bloqués en production (Alain_lompo et autres) après le redeploy, appelez :
+```
+POST https://spiloveure.com/api/admin/repair/ghost-activations
+Authorization: Bearer <admin_token>
+```
+Cet endpoint scanne les users `status=active + max_level=0`, replay `activate_level` sur ceux qui ont un paiement paid, ou rollback à `pending` sinon.
+
+---
+
+
 ### 2026-09-07 (v6) — 🧹 Suppression du panneau "Paiements en échec d'activation"
 
 **Demande utilisateur** : "Tu peut m'enlever cette bordel ?" (screenshot du panneau rouge avec 18 lignes `Relancer` sur le Dashboard admin).

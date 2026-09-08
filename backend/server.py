@@ -1430,12 +1430,14 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
     #    yet (webhook lost, first-time hit, etc.).
     if (p.get("status") in ("paid", "validated")) and not p.get("activation_done"):
         try:
-            # Ensure the user's account is flippable (Ashtec + SolesPay parity).
-            await db.users.update_one(
-                {"id": p["user_id"], "status": {"$ne": "active"}},
-                {"$set": {"status": "active"}},
-            )
-            await activate_level(db, p["user_id"], int(p.get("level") or 1), source="poll_return")
+            # Resolve a WHITELISTED activation source for matrix.activate_level
+            # (bug 2026-09-07 v7 — free-form strings like "poll_return" were
+            # rejected by the security whitelist and silently blocked the
+            # activation, leaving users in the ACTIVE-but-lvl-0 ghost state).
+            gw_raw = str(p.get("gateway") or p.get("provider") or "").lower()
+            _WL = {"soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay"}
+            src = gw_raw if gw_raw in _WL else "gateway_return"
+            await activate_level(db, p["user_id"], int(p.get("level") or 1), source=src)
             await db.payments.update_one(
                 {"reference": reference},
                 {"$set": {"activation_done": True, "status": "validated",
@@ -1615,7 +1617,12 @@ async def soleaspay_webhook(request: Request):
         )
         if upd.modified_count > 0:
             try:
-                await activate_level(db, pay["user_id"], int(pay.get("level") or 1), source=f"webhook:{lookup_ref}")
+                # Resolve WHITELISTED source (bug v7 — matrix.activate_level
+                # rejects free-form strings like f"webhook:{ref}").
+                gw_raw = str(pay.get("gateway") or pay.get("provider") or "").lower()
+                _WL = {"soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay"}
+                src = gw_raw if gw_raw in _WL else "gateway_return"
+                await activate_level(db, pay["user_id"], int(pay.get("level") or 1), source=src)
                 await db.payments.update_one(
                     {"reference": lookup_ref},
                     {"$set": {"activation_done": True}, "$unset": {"activation_error": ""}},
@@ -1947,8 +1954,13 @@ async def _soleaspay_reconcile_once(db) -> dict:
             )
             if upd.modified_count > 0:
                 try:
+                    # Resolve WHITELISTED source (bug v7 — matrix.activate_level
+                    # rejects free-form strings like f"reconcile:{ref}").
+                    gw_raw = str(p.get("gateway") or p.get("provider") or "").lower()
+                    _WL = {"soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay"}
+                    src = gw_raw if gw_raw in _WL else "gateway_return"
                     await activate_level(db, p["user_id"], int(p.get("level") or 1),
-                                         source=f"reconcile:{p['reference']}")
+                                         source=src)
                     # NOTE: do NOT pre-flip `user.status` to "active" here —
                     # activate_level does both max_level AND status in a
                     # single atomic $set. Splitting them caused the
