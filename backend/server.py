@@ -14,6 +14,7 @@ from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, status,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -344,6 +345,60 @@ async def change_password(data: ChangePasswordIn, request: Request, user=Depends
     if not verify_password(data.current_password, full["password_hash"]):
         raise HTTPException(400, "Mot de passe actuel incorrect.")
     await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(data.new_password)}})
+    return {"ok": True}
+
+
+# ─── Photo de profil (v12) ──────────────────────────────────────────────
+# Stockage base64 dans le document utilisateur — simple, atomique, aucune
+# dépendance externe. Limite stricte de 300 KB par photo (redimensionnement
+# côté client à 512x512 JPEG q=0.85 → typiquement ~40-80 KB).
+
+class ProfilePhotoIn(BaseModel):
+    data: str  # data:image/{jpeg,png,webp};base64,<...>
+
+
+@api.post("/me/profile-photo")
+async def upload_profile_photo(payload: ProfilePhotoIn, request: Request,
+                               user=Depends(get_current_user)):
+    """Upload / remplace la photo de profil de l'utilisateur.
+
+    Accepte un data-URI base64 (`data:image/jpeg;base64,...`). Valide le
+    mime-type, la taille (max 300 KB décodés) et écrase l'ancienne photo.
+    """
+    raw = (payload.data or "").strip()
+    if not raw.startswith("data:image/"):
+        raise HTTPException(400, "Format d'image invalide (data-URI attendu).")
+    try:
+        header, b64 = raw.split(",", 1)
+    except ValueError:
+        raise HTTPException(400, "Data-URI mal formé.")
+    mime = header.split(";")[0].removeprefix("data:")
+    if mime not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(400, f"Type d'image non supporté : {mime}. Utilisez JPEG/PNG/WEBP.")
+    import base64 as _b64
+    try:
+        decoded_size = len(_b64.b64decode(b64, validate=True))
+    except Exception:
+        raise HTTPException(400, "Base64 invalide.")
+    if decoded_size > 300 * 1024:
+        raise HTTPException(400, f"Photo trop lourde ({decoded_size // 1024} KB). Max 300 KB — réduisez la résolution.")
+    db = request.app.state.db
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"profile_photo": raw,
+                  "profile_photo_updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True, "profile_photo": raw}
+
+
+@api.delete("/me/profile-photo")
+async def delete_profile_photo(request: Request, user=Depends(get_current_user)):
+    """Supprime la photo de profil — revient à l'avatar générique."""
+    db = request.app.state.db
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$unset": {"profile_photo": "", "profile_photo_updated_at": ""}},
+    )
     return {"ok": True}
 
 

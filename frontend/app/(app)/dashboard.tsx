@@ -11,6 +11,7 @@ import * as Clipboard from "expo-clipboard";
 import { Card } from "@/src/components/Card";
 import { SideMenu } from "@/src/components/SideMenu";
 import { BottomNav } from "@/src/components/BottomNav";
+import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [challenge, setChallenge] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [photoModal, setPhotoModal] = useState(false);
 
   // NOTE: activation guard is centralised in `(app)/_layout.tsx` which
   // routes pending users to `/(app)/pay`. We MUST NOT duplicate a guard
@@ -142,9 +144,22 @@ export default function Dashboard() {
           </View>
 
           <View style={styles.profileCard}>
-            <View style={styles.avatar}>
-              <Ionicons name="person" size={22} color="#fff" />
-            </View>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={() => setPhotoModal(true)}
+              activeOpacity={0.85}
+              testID="dashboard-avatar-btn"
+            >
+              {user?.profile_photo ? (
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                <Image source={{ uri: user.profile_photo }} style={styles.avatarImg} resizeMode="cover" />
+              ) : (
+                <Ionicons name="person" size={22} color="#fff" />
+              )}
+              <View style={styles.avatarEditBadge}>
+                <Ionicons name="camera" size={11} color="#fff" />
+              </View>
+            </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Text style={styles.username}>{user?.username}</Text>
@@ -364,6 +379,7 @@ export default function Dashboard() {
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
+      <ProfilePhotoManager visible={photoModal} onClose={() => setPhotoModal(false)} />
       {/* Bottom navigation — home dashboard, all activated users (incl. admin). */}
       {user && (user.role === "admin" || (user.max_level || 0) >= 1) ? <BottomNav /> : null}
     </View>
@@ -386,7 +402,13 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10,
     backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
   },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" },
+  avatarImg: { width: 44, height: 44, borderRadius: 22 },
+  avatarEditBadge: {
+    position: "absolute", right: -2, bottom: -2, width: 18, height: 18, borderRadius: 9,
+    backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: "#fff",
+  },
   username: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
   lvlPill: {
     flexDirection: "row", alignItems: "center", gap: 4,

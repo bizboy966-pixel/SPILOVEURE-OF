@@ -9,6 +9,7 @@ import { I18nProvider } from "@/src/i18n";
 import { FeaturesProvider } from "@/src/features";
 import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 import { WelcomeSplash } from "@/src/components/WelcomeSplash";
+import { GlobalFonts } from "@/src/components/GlobalFonts";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -25,17 +26,16 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {/* Applique Nunito à l'ensemble de la plateforme SPILOVEURE (v11
+          typographie globale — s'occupe des Text/TextInput RN et injecte les
+          règles CSS Google Fonts côté web). Zéro impact sur les couleurs,
+          layouts et icônes. */}
+      <GlobalFonts />
       <I18nProvider>
         <AuthProvider>
           <FeaturesProvider>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
-            {/* Premium intro overlay — auto-dismisses after ~2.2 s, then
-                remembers the visit via sessionStorage so navigations inside
-                the same tab don't replay it. */}
             <AnimatedSplash />
-            {/* One-shot "Bienvenue @username" mini banner after sign-in /
-                sign-up. Read the pending flag from sessionStorage on user
-                change, then clears it — never replays inside a session. */}
             <WelcomeSplash />
           </FeaturesProvider>
         </AuthProvider>

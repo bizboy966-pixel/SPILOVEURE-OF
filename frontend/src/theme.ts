@@ -47,6 +47,13 @@ export const theme = {
   // Arrondis plus généreux pour un rendu premium (radiuses de "action.diokoma.sn").
   radius: { sm: 10, md: 14, lg: 20, xl: 28, xxl: 36, round: 9999 },
   font: {
+    // ─── Familles typographiques (v11 — global Nunito) ────────────
+    // Utilisée par les composants qui veulent explicitement injecter la
+    // police (ex : chiffres tabulaires, boutons custom). Pour tout le
+    // reste de la plateforme, `GlobalFonts` s'occupe de la définir via
+    // defaultProps + une règle CSS globale — aucune StyleSheet à modifier.
+    family: "'Nunito', 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    familyMono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
     // Hiérarchie typographique claire (mobile-first, avec bump desktop géré par chaque écran).
     h1: 30, h2: 22, h3: 19, h4: 17,
     bodyLg: 16, body: 14, bodySm: 12, caption: 11,

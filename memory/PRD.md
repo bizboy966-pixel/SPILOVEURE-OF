@@ -22,6 +22,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-08 (v12) — 📷 Photo de profil utilisateur
+
+**Demande utilisateur** : chaque utilisateur doit pouvoir importer, modifier et supprimer sa photo de profil, avec persistance en DB.
+
+**Backend** (`server.py`) :
+- Nouveau modèle `ProfilePhotoIn { data: str }` (data-URI base64).
+- `POST /api/me/profile-photo` — valide le mime-type (`image/jpeg|png|webp`), décode et vérifie la taille (max 300 KB), stocke dans `users.profile_photo` + horodatage `profile_photo_updated_at`.
+- `DELETE /api/me/profile-photo` — `$unset` de la photo → l'utilisateur revient à l'avatar générique.
+- `/auth/me` renvoie automatiquement `profile_photo` (data-URI) parce que la sérialisation par défaut inclut tous les champs sauf `password_hash`.
+
+**Frontend** (`ProfilePhotoManager.tsx` + `dashboard.tsx`) :
+- Nouveau composant `<ProfilePhotoManager>` — modale bottom-sheet avec 3 actions : **Importer**, **Modifier** (si photo présente), **Supprimer** (si photo présente).
+- `<input type="file">` invisible côté web (accepts `image/jpeg,png,webp`).
+- **Redimensionnement client-side** via canvas 512×512 crop-center + JPEG q=0.85 → typiquement 40-80 KB (largement sous les 300 KB backend).
+- `refresh()` du contexte auth après chaque upload/delete → Dashboard mis à jour instantanément.
+- Dashboard : avatar rond cliquable, affiche `Image` si `user.profile_photo` sinon icône générique. Petit badge caméra en overlay pour indiquer que c'est éditable. testID `dashboard-avatar-btn`.
+
+**Persistance** : la photo est stockée dans le document Mongo `users.profile_photo` (data-URI base64). Elle survit aux actualisations, déconnexions/reconnexions, changements d'appareil.
+
+**Validation live** (curl end-to-end) :
+- `POST` avec 1x1 JPEG → `HTTP 200 {ok: true}`
+- `GET /auth/me` → `has_photo=True`
+- `DELETE` → `HTTP 200 {ok: true}`
+- `GET /auth/me` après delete → `has_photo=False`
+
+**testIDs** : `dashboard-avatar-btn`, `profile-photo-pick`, `profile-photo-delete`, `profile-photo-input`.
+
+---
+
+
 ### 2026-09-08 (v10) — 🎯 Uniformisation des 3 cartes du Dashboard
 
 **Demande utilisateur** : `Commission Spillover + Parrainage direct` doivent être collés dans UNE carte comme les deux autres. Les 3 cartes doivent avoir la même largeur ET la même forme que la première.
