@@ -166,25 +166,22 @@ export default function Dashboard() {
         contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Balance */}
-        <TouchableOpacity onPress={() => router.push("/(app)/withdrawal")} activeOpacity={0.9} testID="dashboard-balance-card">
-          <LinearGradient colors={theme.colors.primaryGradient} style={styles.balanceCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.balanceLabel}>💎 Profit retirable</Text>
-              <Text style={styles.balanceValue} testID="dashboard-balance-profit">{formatFCFA(stats?.balance_profit)}</Text>
-              <View style={styles.reserveRow}>
-                <Ionicons name="lock-closed" size={12} color="#FDE68A" />
-                <Text style={styles.reserveText} testID="dashboard-balance-upgrade">
-                  Réserve mise à niveau : {formatFCFA(stats?.balance_upgrade)}
-                </Text>
-              </View>
-              <Text style={styles.balanceHint}>Cliquez pour gérer votre retrait.</Text>
-            </View>
-            <View style={styles.walletIcon}>
-              <Ionicons name="wallet" size={32} color="#fff" />
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+        {/* ─── Grande carte : PROFIT TOTAL (gauche) + ACTIVATION (droite) ─── */}
+        <LinearGradient colors={theme.colors.primaryGradient} style={styles.balanceCard} testID="dashboard-hero-card">
+          <View style={styles.heroSide}>
+            <Text style={styles.balanceLabel}>💎 PROFIT TOTAL</Text>
+            <Text style={styles.balanceValue} testID="dashboard-total-profit">
+              {formatFCFA(stats?.total_profit)}
+            </Text>
+            <Text style={styles.balanceHint}>cumul historique</Text>
+          </View>
+          <View style={styles.heroDivider} />
+          <View style={styles.heroSide}>
+            <Text style={styles.balanceLabel}>🔐 ACTIVATION</Text>
+            <Text style={styles.balanceValue} testID="dashboard-activation-amount">2 500 FCFA</Text>
+            <Text style={styles.balanceHint}>Niveau 1 activé</Text>
+          </View>
+        </LinearGradient>
 
         {/* 🏆 Active Challenge — 100 direct invites campaign */}
         {challenge?.challenge ? (
@@ -212,18 +209,23 @@ export default function Dashboard() {
           />
         ) : null}
 
-        {/* Profit Total + Retrait Total — lifetime stats */}
+        {/* ─── Solde Disponible (à la place de l'ancien Profit Total) + Retrait Total ─── */}
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: "#7C3AED" }]}>
+          <TouchableOpacity
+            style={[styles.statCard, { backgroundColor: "#10B981" }]}
+            onPress={() => router.push("/(app)/withdrawal")}
+            activeOpacity={0.85}
+            testID="dashboard-balance-card"
+          >
             <View style={styles.statIconBox}>
-              <Ionicons name="diamond" size={20} color="#fff" />
+              <Ionicons name="wallet" size={20} color="#fff" />
             </View>
-            <Text style={styles.statLabel}>Profit Total</Text>
-            <Text style={styles.statValue} testID="dashboard-total-profit">
-              {formatFCFA(stats?.total_profit)}
+            <Text style={styles.statLabel}>💰 Solde Disponible</Text>
+            <Text style={styles.statValue} testID="dashboard-balance-profit">
+              {formatFCFA(stats?.balance_profit)}
             </Text>
-            <Text style={styles.statHint}>cumul historique</Text>
-          </View>
+            <Text style={styles.statHint}>disponible au retrait</Text>
+          </TouchableOpacity>
           <View style={[styles.statCard, { backgroundColor: "#1B5BFF" }]}>
             <View style={styles.statIconBox}>
               <Ionicons name="arrow-up-circle" size={20} color="#fff" />
@@ -374,7 +376,9 @@ const styles = StyleSheet.create({
 
   balanceCard: { borderRadius: theme.radius.xl, padding: theme.spacing.lg, flexDirection: "row", alignItems: "center", ...theme.shadow.lifted },
   balanceLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "600", letterSpacing: 0.3, textTransform: "uppercase" },
-  balanceValue: { color: "#fff", fontSize: 30, fontWeight: "800", marginTop: 6, letterSpacing: -0.8 },
+  balanceValue: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 6, letterSpacing: -0.5 },
+  heroSide: { flex: 1, alignItems: "flex-start" },
+  heroDivider: { width: 1, alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 12 },
   balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
   reserveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
   reserveText: { color: "#FDE68A", fontSize: 12, fontWeight: "700" },

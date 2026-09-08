@@ -22,6 +22,31 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
 ## Implementation Status (à jour 2026-09-02)
+### 2026-09-07 (v8) — 🎨 Refonte Dashboard : PROFIT TOTAL + ACTIVATION en tête
+
+**Demande utilisateur** : réorganisation des cartes du Dashboard.
+
+**Changements** :
+
+1. **Grande carte hero (split gauche/droite)** :
+   - Gauche : `💎 PROFIT TOTAL` (`stats.total_profit` — cumul historique).
+   - Droite : `🔐 ACTIVATION` = `2 500 FCFA` (montant fixe, hint "Niveau 1 activé").
+   - Divider vertical entre les deux, gradient primary conservé.
+
+2. **Carte SOLDE DISPONIBLE** (remplace l'ancien "Profit Total" dans la row de stats) :
+   - `💰 Solde Disponible` (`stats.balance_profit` — disponible au retrait).
+   - Couleur **vert émeraude** (`#10B981`) distincte de "Retrait Total" (bleu `#1B5BFF`) pour identification visuelle immédiate.
+   - Clickable → route vers `/(app)/withdrawal`.
+
+3. **Cartes inchangées** (per demande utilisateur) :
+   - `Retrait Total` (bleu, `stats.total_withdrawn`).
+   - `Commission Spillover` + `Parrainage direct`.
+
+**testIDs** : `dashboard-hero-card`, `dashboard-total-profit`, `dashboard-activation-amount`, `dashboard-balance-card`, `dashboard-balance-profit`, `dashboard-total-withdrawn`.
+
+---
+
+
 ### 2026-09-07 (v7) — 🎯 CAUSE RACINE VÉRITABLE : source d'activation hors whitelist
 
 **Vraie cause racine découverte en reproduisant le bug end-to-end** :
