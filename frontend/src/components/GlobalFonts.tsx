@@ -99,9 +99,6 @@ function injectWebFonts() {
   `;
   document.head.appendChild(style);
 }
-  `;
-  document.head.appendChild(style);
-}
 
 export function GlobalFonts() {
   useEffect(() => {
