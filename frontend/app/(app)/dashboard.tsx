@@ -31,19 +31,23 @@ const QUICK_ACTIONS: Array<{
 ];
 
 /* -------------------------------------------------------------
- * Nos services — 8 shortcuts (empty section per user spec).
+ * Nos services — 8 cartes strictes (2 lignes × 4). Chaque carte
+ * pointe vers la fonctionnalité existante correspondante. Voir
+ * `/(app)/services-all.tsx` pour le catalogue complet.
  * ----------------------------------------------------------- */
 const SERVICE_CARDS: Array<{
   key: string; label: string; icon: any; color: string; bg: string; route: string;
 }> = [
-  { key: "matrices",    label: "Matrices",    icon: "grid",       color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/matrices" },
-  { key: "team",        label: "Mon équipe",  icon: "people",     color: "#10B981", bg: "#D1FAE5", route: "/(app)/equipe" },
-  { key: "marketplace", label: "Marketplace", icon: "cart",       color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/marketplace" },
-  { key: "emploi",      label: "Emploi",      icon: "briefcase",  color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
-  { key: "ads",         label: "Publicité",   icon: "megaphone",  color: "#EC4899", bg: "#FCE7F3", route: "/(app)/ads" },
-  { key: "formations",  label: "Formations",  icon: "school",     color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/formations" },
-  { key: "ebooks",      label: "E-books",     icon: "book",       color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
-  { key: "lottery",     label: "Jackpot",     icon: "gift",       color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
+  // Ligne 1
+  { key: "marketplace", label: "Marketplace", icon: "cart",      color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/marketplace" },
+  { key: "ads",         label: "Publicité",   icon: "megaphone", color: "#EC4899", bg: "#FCE7F3", route: "/(app)/ads" },
+  { key: "formations",  label: "Formation",   icon: "school",    color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/formations" },
+  { key: "ebooks",      label: "E-book",      icon: "book",      color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
+  // Ligne 2
+  { key: "emploi",      label: "Emploi",      icon: "briefcase", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
+  { key: "coupons",     label: "Coupon",      icon: "ticket",    color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/coupons" },
+  { key: "lottery",     label: "Jackpot",     icon: "gift",      color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
+  { key: "advertising", label: "Espace publicitaire", icon: "tv", color: "#10B981", bg: "#D1FAE5", route: "/(app)/advertising" },
 ];
 
 export default function Dashboard() {
@@ -180,10 +184,10 @@ export default function Dashboard() {
           ))}
         </View>
 
-        {/* ─── Nos services ─── */}
+        {/* ─── Nos services (8 raccourcis stricts) ─── */}
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Nos services</Text>
-          <TouchableOpacity onPress={() => router.push("/(app)/services" as any)}>
+          <TouchableOpacity onPress={() => router.push("/(app)/services-all" as any)} testID="dashboard-services-see-all">
             <Text style={styles.sectionLink}>Voir tout</Text>
           </TouchableOpacity>
         </View>
@@ -199,62 +203,9 @@ export default function Dashboard() {
               <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
                 <Ionicons name={s.icon} size={22} color={s.color} />
               </View>
-              <Text style={styles.serviceLabel} numberOfLines={1}>{s.label}</Text>
+              <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
             </TouchableOpacity>
           ))}
-        </View>
-
-        {/* ─── Invite link ─── */}
-        <Card style={{ marginTop: 16 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Ionicons name="link" size={18} color={theme.colors.secondary} />
-            <Text style={styles.sectionTitle}>Lien d'inscription</Text>
-          </View>
-          <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>{inviteLink}</Text>
-          </View>
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-            <TouchableOpacity style={[styles.copyBtn, { flex: 1 }]} onPress={copy} testID="copy-invite-link">
-              <Ionicons name="copy" size={16} color="#fff" />
-              <Text style={styles.copyBtnText}>Copier</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]} onPress={share} testID="share-invite-link">
-              <Ionicons name="share-social" size={16} color="#fff" />
-              <Text style={styles.copyBtnText}>Partager</Text>
-            </TouchableOpacity>
-          </View>
-        </Card>
-
-        {/* ─── Teams (compact) ─── */}
-        <View style={styles.teamRow}>
-          <View style={styles.teamCard}>
-            <View style={styles.teamHead}>
-              <Ionicons name="people-circle" size={20} color={theme.colors.primary} />
-              <Text style={styles.teamTitle}>Équipe directe</Text>
-            </View>
-            <View style={styles.teamStatRow}>
-              <Text style={[styles.teamLabel, { color: theme.colors.success }]}>Actifs</Text>
-              <Text style={[styles.teamValue, { color: theme.colors.success }]}>{stats?.direct_active ?? 0}</Text>
-            </View>
-            <View style={styles.teamStatRow}>
-              <Text style={[styles.teamLabel, { color: theme.colors.danger }]}>Inactifs</Text>
-              <Text style={[styles.teamValue, { color: theme.colors.danger }]}>{stats?.direct_inactive ?? 0}</Text>
-            </View>
-          </View>
-          <View style={styles.teamCard}>
-            <View style={styles.teamHead}>
-              <Ionicons name="git-network" size={20} color={theme.colors.secondary} />
-              <Text style={styles.teamTitle}>Équipe Spillover</Text>
-            </View>
-            <View style={styles.teamStatRow}>
-              <Text style={[styles.teamLabel, { color: theme.colors.success }]}>Actifs</Text>
-              <Text style={[styles.teamValue, { color: theme.colors.success }]}>{stats?.spillover_active ?? 0}</Text>
-            </View>
-            <View style={styles.teamStatRow}>
-              <Text style={[styles.teamLabel, { color: theme.colors.danger }]}>Inactifs</Text>
-              <Text style={[styles.teamValue, { color: theme.colors.danger }]}>{stats?.spillover_inactive ?? 0}</Text>
-            </View>
-          </View>
         </View>
       </ScrollView>
 
@@ -328,11 +279,12 @@ const styles = StyleSheet.create({
   servicesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    justifyContent: "space-between",
   },
   serviceCard: {
     width: "23%",
-    aspectRatio: 0.95,
+    aspectRatio: 0.9,
+    marginBottom: 10,
     backgroundColor: theme.colors.surface,
     borderRadius: 16,
     borderWidth: 1,

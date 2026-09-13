@@ -12,6 +12,7 @@ import { theme } from "@/src/theme";
 import { formatFCFA, formatDate } from "@/src/utils/format";
 import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/firebase";
 import { api } from "@/src/api";
+import { BottomNav } from "@/src/components/BottomNav";
 
 export default function Profile() {
   const router = useRouter();
@@ -54,21 +55,58 @@ export default function Profile() {
     Alert.alert("Copié ✅", "Lien d'invitation copié.");
   };
 
+  const share = async () => {
+    try {
+      await Share.share({ message: `Rejoignez Spiloveure : ${link}` });
+    } catch {}
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={42} color="#fff" />
-        </View>
-        <Text style={styles.username}>{user?.username}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
+        <SafeAreaView edges={["top"]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.back} testID="profile-back">
+            <Ionicons name="chevron-back" size={22} color="#fff" />
+          </TouchableOpacity>
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={42} color="#fff" />
+          </View>
+          <Text style={styles.username}>{user?.username}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+        </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Card>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+        {/* ─── PRIORITÉ 1 : Lien d'inscription ─────────────────── */}
+        <Card testID="profile-invite-card">
+          <View style={styles.inviteHead}>
+            <Ionicons name="link" size={18} color={theme.colors.secondary} />
+            <Text style={styles.section}>Lien d'inscription</Text>
+          </View>
+          <Text style={styles.inviteHint}>
+            Partagez ce lien pour inviter de nouveaux membres et développer votre réseau.
+          </Text>
+          <View style={styles.linkBox}>
+            <Text style={styles.linkText} numberOfLines={2}>{link}</Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+            <TouchableOpacity style={[styles.copyBtn, { flex: 1 }]} onPress={copy} testID="profile-copy">
+              <Ionicons name="copy" size={16} color="#fff" />
+              <Text style={styles.copyBtnT}>Copier</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]}
+              onPress={share}
+              testID="profile-share"
+            >
+              <Ionicons name="share-social" size={16} color="#fff" />
+              <Text style={styles.copyBtnT}>Partager</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+
+        {/* ─── Informations personnelles ──────────────────────── */}
+        <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Informations</Text>
           <Item icon="person" label="Nom d'utilisateur" value={user?.username || "—"} />
           <Item icon="mail" label="E-mail" value={user?.email || "—"} />
@@ -78,6 +116,7 @@ export default function Profile() {
           <Item icon="calendar" label="Date d'inscription" value={formatDate(user?.created_at)} />
         </Card>
 
+        {/* ─── Statistiques financières ───────────────────────── */}
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Statistiques</Text>
           <Item icon="cash" label="Solde profit" value={formatFCFA(user?.balance_profit)} />
@@ -86,6 +125,7 @@ export default function Profile() {
           <Item icon="arrow-down-circle" label="Total retiré" value={formatFCFA(user?.total_withdrawn)} />
         </Card>
 
+        {/* ─── Notifications push ─────────────────────────────── */}
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Notifications Push</Text>
           <View style={{ paddingVertical: 6 }}>
@@ -114,27 +154,10 @@ export default function Profile() {
             )}
           </View>
         </Card>
-
-        <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Lien d'invitation</Text>
-          <View style={styles.linkBox}><Text style={styles.linkText} numberOfLines={2}>{link}</Text></View>
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-            <TouchableOpacity style={[styles.copyBtn, { flex: 1 }]} onPress={copy} testID="profile-copy">
-              <Ionicons name="copy" size={16} color="#fff" />
-              <Text style={styles.copyBtnT}>Copier</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]}
-              onPress={() => Share.share({ message: `Rejoignez Spiloveure : ${link}` })}
-              testID="profile-share"
-            >
-              <Ionicons name="share-social" size={16} color="#fff" />
-              <Text style={styles.copyBtnT}>Partager</Text>
-            </TouchableOpacity>
-          </View>
-        </Card>
       </ScrollView>
-    </SafeAreaView>
+
+      <BottomNav />
+    </View>
   );
 }
 
@@ -149,19 +172,20 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: 16, paddingTop: 24, alignItems: "center" },
-  back: { position: "absolute", top: 24, left: 16, width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", marginTop: 12 },
-  username: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 12 },
-  email: { color: "#C7D9FF" },
-  section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 8 },
+  back: { position: "absolute", top: 24, left: 16, width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", zIndex: 2 },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", marginTop: 12, alignSelf: "center" },
+  username: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 12, textAlign: "center" },
+  email: { color: "#C7D9FF", textAlign: "center" },
+  section: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 15, letterSpacing: -0.2 },
+  inviteHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  inviteHint: { color: theme.colors.textSecondary, fontSize: 12, marginBottom: 10 },
   itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, gap: 10 },
   itemIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
   itemLbl: { flex: 1, color: theme.colors.textSecondary, fontSize: 13 },
   itemVal: { color: theme.colors.textPrimary, fontWeight: "700" },
-  linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 14 },
-  linkText: { color: theme.colors.textPrimary, fontSize: 12 },
-  copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.secondary },
-  copyBtnT: { color: "#fff", fontWeight: "700" },
+  linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
+  linkText: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "500" },
+  copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.secondary },
+  copyBtnT: { color: "#fff", fontWeight: "800" },
 });

@@ -21,6 +21,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v15) — 🧭 Réorganisation "Nos services" (dashboard + Voir tout)
+
+**Demande utilisateur** : "Nos services" doit afficher exactement 8 cartes en 2 × 4 sur l'accueil, un bouton "Voir tout" ouvre le catalogue complet. Bouton flottant → Telegram direct. Profil → lien d'inscription visible en premier.
+
+**Frontend** :
+- `dashboard.tsx` — les 8 cartes strictes (Marketplace, Publicité, Formation, E-book / Emploi, Coupon, Jackpot, Espace publicitaire). Bloc "Lien d'inscription" retiré de l'accueil + blocs "Équipe directe/Spillover" retirés (déplacés dans "Voir tout" → Mon équipe et dans Profil).
+- Nouvelle page **`/(app)/services-all.tsx`** — catalogue complet : 8 services principaux + section "Plus de services" (Publier un article, Application Premium, Matrice, Mon équipe, Communauté).
+- Nouvelle page placeholder **`/(app)/coupons.tsx`** (page Coupons "bientôt disponible") pour connecter la carte Coupon sans casser le lien.
+- Nouveau composant **`TelegramFab.tsx`** — remplace `ChatBubble` dans `(app)/_layout.tsx` côté user : bouton flottant bleu Telegram (56×56, bottom:100) qui ouvre directement `settings.support.telegram_url`.
+- `profile.tsx` refactorisé — **Lien d'inscription en carte prioritaire tout en haut** (Copier + Partager), puis Informations, Statistiques, Notifications Push. Ajout de la BottomNav flottante.
+- Grille dashboard mise à `23.2%` × `gap: 6` pour garantir 4 colonnes strictes sur mobile 390px.
+
+**Aucune fonctionnalité métier modifiée** — les cartes pointent toutes vers les routes existantes :
+- Marketplace → `/(app)/marketplace`
+- Publicité → `/(app)/ads`
+- Formation → `/(app)/formations`
+- E-book → `/(app)/ebooks`
+- Emploi → `/(app)/emploi`
+- Coupon → `/(app)/coupons` (placeholder)
+- Jackpot → `/(app)/lottery`
+- Espace publicitaire → `/(app)/advertising`
+- Publier un article → `/(app)/marketplace-create`
+- Application Premium → `/(app)/premium-apps`
+- Matrice → `/(app)/matrices`
+- Mon équipe → `/(app)/equipe`
+- Communauté → `/(app)/community`
+
+**testIDs** : `dashboard-services-see-all`, `services-all-{key}`, `services-all-main`, `services-all-extra`, `telegram-fab`, `profile-invite-card`, `profile-copy`, `profile-share`, `coupons-soon`.
+
+**Validation** : screenshots mobile 390×844 — dashboard 8 cartes 2×4 ✅, Voir tout complet ✅, Profil lien-first ✅, FAB Telegram visible ✅.
+
+---
+
 ### 2026-02-14 (v14) — 🎨 Refonte Dashboard Fintech (mockup pixel-perfect)
 
 **Demande utilisateur** : dashboard modernisé Bleu/Or style Fintech, illustration 3D du portefeuille, mini-graphiques + trend % quotidien sur les 3 stats, Quick Actions, section "Nos services", bottom nav flottante 5 items.

@@ -6,7 +6,7 @@ import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
 import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
-import ChatBubble from "@/src/components/ChatBubble";
+import TelegramFab from "@/src/components/TelegramFab";
 
 // Routes accessible to non-activated users. They can browse the "Services"
 // showcase (formations, e-books, premium apps, trading) even before paying
@@ -151,7 +151,7 @@ export default function AppLayout() {
           <CommunityPopup userId={user.id} />
           <NotificationToaster />
           <PushBootstrap />
-          <ChatBubble />
+          <TelegramFab />
         </>
       )}
     </View>

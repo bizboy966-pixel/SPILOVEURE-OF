@@ -230,7 +230,7 @@ export const DashboardHero: React.FC<Props> = ({
       {/* Wallet row: 3D SVG + inline balance + eye + XOF chip */}
       <View style={styles.walletBlock}>
         <View style={styles.walletIllustration}>
-          <Wallet3D size={92} />
+          <Wallet3D size={64} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.walletLabel}>PORTEFEUILLE</Text>
@@ -311,81 +311,81 @@ export const DashboardHero: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   premiumCard: {
-    borderRadius: 26,
-    padding: 16,
+    borderRadius: 22,
+    padding: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
     shadowColor: "#0B2D6F",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.28,
-    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.24,
+    shadowRadius: 24,
     elevation: 8,
     overflow: "hidden",
   },
   premiumTopRow: { flexDirection: "row", alignItems: "flex-start" },
   avatar: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 42, height: 42, borderRadius: 21,
     backgroundColor: "rgba(255,255,255,0.15)",
     alignItems: "center", justifyContent: "center",
     overflow: "hidden", position: "relative",
     borderWidth: 1.5, borderColor: "rgba(255,255,255,0.25)",
   },
-  avatarImg: { width: 46, height: 46, borderRadius: 23 },
+  avatarImg: { width: 42, height: 42, borderRadius: 21 },
   avatarEditBadge: {
-    position: "absolute", right: -2, bottom: -2, width: 18, height: 18, borderRadius: 9,
+    position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: 8,
     backgroundColor: "#F59E0B",
     alignItems: "center", justifyContent: "center",
     borderWidth: 1.5, borderColor: "#0B2D6F",
   },
-  username: { color: "#fff", fontSize: 15, fontWeight: "800", letterSpacing: -0.1 },
+  username: { color: "#fff", fontSize: 14, fontWeight: "800", letterSpacing: -0.1 },
   lvlPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(245,158,11,0.25)",
     borderWidth: 1, borderColor: "rgba(245,158,11,0.5)",
-    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-    alignSelf: "flex-start", marginTop: 3,
+    paddingHorizontal: 7, paddingVertical: 1, borderRadius: 9,
+    alignSelf: "flex-start", marginTop: 2,
   },
-  lvlText: { color: "#FDE68A", fontWeight: "800", fontSize: 11 },
-  memberSince: { color: "#C7D9FF", fontSize: 10 },
+  lvlText: { color: "#FDE68A", fontWeight: "800", fontSize: 10 },
+  memberSince: { color: "#C7D9FF", fontSize: 9 },
 
   walletBlock: {
-    marginTop: 14, flexDirection: "row", alignItems: "center", gap: 10,
+    marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 20, padding: 12,
+    borderRadius: 16, padding: 8,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.14)",
   },
   walletIllustration: {
-    width: 96, height: 84, alignItems: "center", justifyContent: "center",
+    width: 68, height: 60, alignItems: "center", justifyContent: "center",
   },
   walletLabel: {
-    color: "#A5C2FF", fontSize: 10, fontWeight: "800", letterSpacing: 1.2,
+    color: "#A5C2FF", fontSize: 9, fontWeight: "800", letterSpacing: 1.1,
   },
   walletInline: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4,
+    flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2,
     flexWrap: "wrap",
   },
   walletValue: {
-    color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: -0.5,
+    color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: -0.5,
   },
   eyeBtn: {
-    width: 26, height: 26, borderRadius: 13,
+    width: 22, height: 22, borderRadius: 11,
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center", justifyContent: "center",
   },
   currencyPill: {
     flexDirection: "row", alignItems: "center", gap: 3,
     backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
-  currencyPillTxt: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  walletHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4, fontWeight: "500" },
+  currencyPillTxt: { color: "#fff", fontWeight: "800", fontSize: 10 },
+  walletHint: { color: "#C7D9FF", fontSize: 10, marginTop: 2, fontWeight: "500" },
 
-  statsGrid: { flexDirection: "row", gap: 8, marginTop: 14 },
+  statsGrid: { flexDirection: "row", gap: 6, marginTop: 10 },
   miniStat: {
-    flex: 1, borderRadius: 16, padding: 10, borderWidth: 1,
+    flex: 1, borderRadius: 14, padding: 8, borderWidth: 1,
     alignItems: "flex-start",
-    minHeight: 130,
+    minHeight: 100,
   },
   miniStatHead: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
@@ -393,13 +393,13 @@ const styles = StyleSheet.create({
   },
   trendBadge: {
     flexDirection: "row", alignItems: "center", gap: 2,
-    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 8,
+    paddingHorizontal: 4, paddingVertical: 1, borderRadius: 7,
   },
-  trendBadgeTxt: { fontSize: 9, fontWeight: "800" },
-  miniStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "700", marginTop: 6, letterSpacing: 0.2 },
-  miniStatValue: { color: "#fff", fontSize: 13, fontWeight: "900", marginTop: 3, letterSpacing: -0.4 },
-  sparkRow: { marginTop: 6, height: 26, alignSelf: "stretch" },
-  miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 9, marginTop: 2 },
+  trendBadgeTxt: { fontSize: 8, fontWeight: "800" },
+  miniStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 9, fontWeight: "700", marginTop: 4, letterSpacing: 0.2 },
+  miniStatValue: { color: "#fff", fontSize: 12, fontWeight: "900", marginTop: 2, letterSpacing: -0.4 },
+  sparkRow: { marginTop: 4, height: 22, alignSelf: "stretch" },
+  miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 8, marginTop: 2 },
 });
 
 export default DashboardHero;
