@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  ScrollView, StyleSheet, Text, View, TouchableOpacity, Image, RefreshControl, Alert, Platform, Share,
+  ScrollView, StyleSheet, Text, View, TouchableOpacity, Image, RefreshControl, Alert, Share,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -12,36 +12,50 @@ import { Card } from "@/src/components/Card";
 import { SideMenu } from "@/src/components/SideMenu";
 import { BottomNav } from "@/src/components/BottomNav";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
+import { DashboardHero } from "@/src/components/DashboardHero";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
-import { formatFCFA, formatDate } from "@/src/utils/format";
+import { formatFCFA } from "@/src/utils/format";
+
+/* -------------------------------------------------------------
+ * Quick action pills — Depot / Retrait / Envoyer / Echanger.
+ * ----------------------------------------------------------- */
+const QUICK_ACTIONS: Array<{
+  key: string; label: string; icon: any; color: string; bg: string; route?: string;
+}> = [
+  { key: "deposit",  label: "Dépôt",    icon: "arrow-down-circle", color: "#10B981", bg: "#D1FAE5", route: "/(app)/recharger" },
+  { key: "withdraw", label: "Retrait",  icon: "arrow-up-circle",   color: "#EF4444", bg: "#FEE2E2" },
+  { key: "send",     label: "Envoyer",  icon: "paper-plane",       color: "#1B5BFF", bg: "#DBEAFE" },
+  { key: "exchange", label: "Échanger", icon: "swap-horizontal",   color: "#F59E0B", bg: "#FEF3C7" },
+];
+
+/* -------------------------------------------------------------
+ * Nos services — 8 shortcuts (empty section per user spec).
+ * ----------------------------------------------------------- */
+const SERVICE_CARDS: Array<{
+  key: string; label: string; icon: any; color: string; bg: string; route: string;
+}> = [
+  { key: "matrices",    label: "Matrices",    icon: "grid",       color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/matrices" },
+  { key: "team",        label: "Mon équipe",  icon: "people",     color: "#10B981", bg: "#D1FAE5", route: "/(app)/equipe" },
+  { key: "marketplace", label: "Marketplace", icon: "cart",       color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/marketplace" },
+  { key: "emploi",      label: "Emploi",      icon: "briefcase",  color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
+  { key: "ads",         label: "Publicité",   icon: "megaphone",  color: "#EC4899", bg: "#FCE7F3", route: "/(app)/ads" },
+  { key: "formations",  label: "Formations",  icon: "school",     color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/formations" },
+  { key: "ebooks",      label: "E-books",     icon: "book",       color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
+  { key: "lottery",     label: "Jackpot",     icon: "gift",       color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
+];
 
 export default function Dashboard() {
   const { user, refresh } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
-  const [missionWallets, setMissionWallets] = useState<any>({ wallets: [], total: 0 });
-  const [challenge, setChallenge] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
 
-  // NOTE: activation guard is centralised in `(app)/_layout.tsx` which
-  // routes pending users to `/(app)/pay`. We MUST NOT duplicate a guard
-  // here — a duplicate can fire on a briefly-stale `user` right after a
-  // successful activation + hard reload, bouncing the freshly-activated
-  // user back to the old `/(app)/activation` page (bug reported
-  // 2026-09-07). Trust the layout.
-
-  // Force a fresh `/auth/me` on every Dashboard mount so the account
-  // status/max_level shown to the user is always current. Also, when
-  // the `just_activated` localStorage flag is present (posted by the
-  // payment flow right before its hard-reload), keep re-polling until
-  // /auth/me reports max_level ≥ 1 — this converges even on Mongo
-  // replication lag and eliminates the "compte s'active puis se
-  // désactive" bug (2026-09-07 v3).
+  // NOTE: activation guard is centralised in `(app)/_layout.tsx`.
   useEffect(() => {
     refresh().catch(() => {});
     if (typeof window === "undefined") return;
@@ -54,10 +68,7 @@ export default function Dashboard() {
       try { window.localStorage.removeItem("just_activated"); } catch {}
       return;
     }
-    const id = setInterval(() => {
-      refresh().catch(() => {});
-    }, 500);
-    // Stop after the grace window even if refresh never converges.
+    const id = setInterval(() => { refresh().catch(() => {}); }, 500);
     const stop = setTimeout(() => clearInterval(id), 60_000 - (Date.now() - flag.ts));
     return () => { clearInterval(id); clearTimeout(stop); };
   }, []);
@@ -66,14 +77,6 @@ export default function Dashboard() {
     try {
       const d = await api.get("/dashboard");
       setStats(d);
-      try {
-        const mw = await api.get<any>("/me/mission-wallets");
-        setMissionWallets(mw);
-      } catch {}
-      try {
-        const ch = await api.get<any>("/challenges/current");
-        setChallenge(ch);
-      } catch {}
     } catch (e: any) {
       console.log("dashboard error", e);
     }
@@ -94,9 +97,7 @@ export default function Dashboard() {
     try {
       await Clipboard.setStringAsync(inviteLink);
       Alert.alert("Copié ✅", "Le lien d'invitation a été copié.");
-    } catch {
-      Alert.alert("Erreur", "Impossible de copier le lien.");
-    }
+    } catch { Alert.alert("Erreur", "Impossible de copier le lien."); }
   };
 
   const share = async () => {
@@ -105,8 +106,13 @@ export default function Dashboard() {
     } catch {}
   };
 
+  const soon = () => {
+    if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
+  };
+
   return (
     <View style={styles.container}>
+      {/* Header — gradient + brand + action buttons */}
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
         <SafeAreaView edges={["top"]}>
           <View style={styles.headerRow}>
@@ -120,163 +126,86 @@ export default function Dashboard() {
                 <Text style={styles.brandSub}>Affiliate System</Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              onPress={() => router.push("/(app)/notifications" as any)}
-              testID="dashboard-notifications-btn"
-            >
-              <Ionicons name="notifications" size={20} color="#fff" />
-              {stats?.unread_notifications ? (
-                <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeTxt}>{Math.min(stats.unread_notifications, 99)}</Text>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
-              <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row" }}>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                onPress={() => router.push("/(app)/notifications" as any)}
+                testID="dashboard-notifications-btn"
+              >
+                <Ionicons name="notifications" size={18} color="#fff" />
+                {stats?.unread_notifications ? (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeTxt}>{Math.min(stats.unread_notifications, 99)}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
+                <Ionicons name="ellipsis-vertical" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: 14, paddingBottom: 140 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
       >
-        {/* ─── Grande carte utilisateur + portefeuille (v13) ─── */}
-        <LinearGradient
-          colors={["#0F2A6F", "#1B5BFF", "#0F2A6F"] as any}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={styles.premiumCard}
-          testID="dashboard-premium-card"
-        >
-          {/* Row : avatar + user info + eye toggle */}
-          <View style={styles.premiumTopRow}>
+        {/* ─── HERO CARD (v14) ─── */}
+        <DashboardHero
+          user={user}
+          stats={stats}
+          balanceHidden={balanceHidden}
+          onToggleHidden={() => setBalanceHidden((v) => !v)}
+          onAvatarPress={() => setPhotoModal(true)}
+          onBalancePress={() => router.push("/(app)/withdrawal" as any)}
+        />
+
+        {/* ─── Quick Actions ─── */}
+        <View style={styles.quickActionsRow} testID="dashboard-quick-actions">
+          {QUICK_ACTIONS.map((a) => (
             <TouchableOpacity
-              style={styles.avatar}
-              onPress={() => setPhotoModal(true)}
+              key={a.key}
+              style={styles.quickAction}
+              onPress={() => (a.route ? router.push(a.route as any) : soon())}
               activeOpacity={0.85}
-              testID="dashboard-avatar-btn"
+              testID={`quick-action-${a.key}`}
             >
-              {user?.profile_photo ? (
-                <Image source={{ uri: user.profile_photo }} style={styles.avatarImg} resizeMode="cover" />
-              ) : (
-                <Ionicons name="person" size={22} color="#fff" />
-              )}
-              <View style={styles.avatarEditBadge}>
-                <Ionicons name="pencil" size={10} color="#fff" />
+              <View style={[styles.quickActionIcon, { backgroundColor: a.bg }]}>
+                <Ionicons name={a.icon} size={22} color={a.color} />
               </View>
+              <Text style={styles.quickActionLabel}>{a.label}</Text>
             </TouchableOpacity>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={styles.username} numberOfLines={1}>{user?.username}</Text>
-                <Ionicons name="checkmark-circle" size={15} color="#22D3EE" />
-              </View>
-              <View style={styles.lvlPill}>
-                <Ionicons name="ribbon" size={11} color="#F59E0B" />
-                <Text style={styles.lvlText}>Niveau {user?.max_level ?? 0}</Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-                <Ionicons name="calendar-outline" size={11} color="#C7D9FF" />
-                <Text style={styles.memberSince}>Membre depuis : {formatDate(user?.created_at)}</Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.eyeBtn}
-              onPress={() => setBalanceHidden((v) => !v)}
-              testID="dashboard-eye-btn"
-            >
-              <Ionicons name={balanceHidden ? "eye-off" : "eye"} size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
+          ))}
+        </View>
 
-          {/* Portefeuille */}
-          <View style={styles.walletBlock}>
-            <View style={styles.walletIconSquare}>
-              <Ionicons name="wallet" size={22} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.walletLabel}>Portefeuille</Text>
-              <Text style={styles.walletValue} numberOfLines={1} adjustsFontSizeToFit>
-                {balanceHidden ? "•••••• FCFA" : formatFCFA(stats?.balance_profit)}
-              </Text>
-              <View style={styles.walletChipsRow}>
-                <View style={styles.currencyPill}>
-                  <Text style={styles.currencyPillTxt}>XOF</Text>
-                  <Ionicons name="chevron-down" size={11} color="#fff" />
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* 3 stats : Activation | Profit total | Solde disponible */}
-          <View style={styles.statsGrid}>
-            <View style={[styles.miniStat, { backgroundColor: "rgba(16,185,129,0.22)", borderColor: "rgba(16,185,129,0.55)" }]}>
-              <Ionicons name="shield-checkmark" size={16} color="#34D399" />
-              <Text style={styles.miniStatLabel}>Activation</Text>
-              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-activation-amount">
-                {balanceHidden ? "•••" : "2 500 FCFA"}
-              </Text>
-              <Text style={styles.miniStatHint}>Niveau {(user?.max_level ?? 0) >= 1 ? "1 activé" : "0"}</Text>
-            </View>
-            <View style={[styles.miniStat, { backgroundColor: "rgba(139,92,246,0.22)", borderColor: "rgba(139,92,246,0.55)" }]}>
-              <Ionicons name="stats-chart" size={16} color="#A78BFA" />
-              <Text style={styles.miniStatLabel}>Profit total</Text>
-              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-profit">
-                {balanceHidden ? "•••" : formatFCFA(stats?.total_profit)}
-              </Text>
-              <Text style={styles.miniStatHint}>cumul historique</Text>
-            </View>
+        {/* ─── Nos services ─── */}
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionTitle}>Nos services</Text>
+          <TouchableOpacity onPress={() => router.push("/(app)/services" as any)}>
+            <Text style={styles.sectionLink}>Voir tout</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.servicesGrid} testID="dashboard-services-grid">
+          {SERVICE_CARDS.map((s) => (
             <TouchableOpacity
-              onPress={() => router.push("/(app)/withdrawal")}
+              key={s.key}
+              style={styles.serviceCard}
+              onPress={() => router.push(s.route as any)}
               activeOpacity={0.85}
-              style={[styles.miniStat, { backgroundColor: "rgba(245,158,11,0.22)", borderColor: "rgba(245,158,11,0.6)" }]}
-              testID="dashboard-balance-card"
+              testID={`service-${s.key}`}
             >
-              <Ionicons name="wallet" size={16} color="#FBBF24" />
-              <Text style={styles.miniStatLabel}>Solde dispo.</Text>
-              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-balance-profit">
-                {balanceHidden ? "•••" : formatFCFA(stats?.balance_profit)}
-              </Text>
-              <Text style={styles.miniStatHint}>au retrait</Text>
+              <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
+                <Ionicons name={s.icon} size={22} color={s.color} />
+              </View>
+              <Text style={styles.serviceLabel} numberOfLines={1}>{s.label}</Text>
             </TouchableOpacity>
-          </View>
-        </LinearGradient>
+          ))}
+        </View>
 
-        {/* 🏆 Active Challenge — 100 direct invites campaign */}
-        {challenge?.challenge ? (
-          <ChallengeCard
-            data={challenge}
-            onContactSupport={async () => {
-              try {
-                const sup = await api.get<any>("/settings/support", { auth: false } as any);
-                const url = sup?.whatsapp_url || sup?.telegram_url;
-                if (url && typeof window !== "undefined") {
-                  window.open(url, "_blank");
-                } else {
-                  Alert.alert(
-                    "Contactez le service client",
-                    "Utilisez le bouton flottant 💬 en bas à droite pour joindre notre équipe."
-                  );
-                }
-              } catch {
-                Alert.alert(
-                  "Contactez le service client",
-                  "Utilisez le bouton flottant 💬 en bas à droite pour joindre notre équipe."
-                );
-              }
-            }}
-          />
-        ) : null}
-
-        {/* Blocs Solde/Retrait, Commissions, Détail du solde — SUPPRIMÉS
-            (v13). Remplacés par la nouvelle grande carte utilisateur +
-            portefeuille + 3 stats du haut. Toutes les infos financières
-            (activation, profit total, solde disponible) sont maintenant
-            centralisées dans `dashboard-premium-card`. */}
-
-        {/* Invite link */}
-        <Card style={{ marginTop: 12 }}>
+        {/* ─── Invite link ─── */}
+        <Card style={{ marginTop: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <Ionicons name="link" size={18} color={theme.colors.secondary} />
             <Text style={styles.sectionTitle}>Lien d'inscription</Text>
@@ -296,58 +225,41 @@ export default function Dashboard() {
           </View>
         </Card>
 
-        {/* Teams */}
-        <View style={styles.row}>
-          <Card style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {/* ─── Teams (compact) ─── */}
+        <View style={styles.teamRow}>
+          <View style={styles.teamCard}>
+            <View style={styles.teamHead}>
               <Ionicons name="people-circle" size={20} color={theme.colors.primary} />
               <Text style={styles.teamTitle}>Équipe directe</Text>
             </View>
-            <View style={styles.teamRow}>
+            <View style={styles.teamStatRow}>
               <Text style={[styles.teamLabel, { color: theme.colors.success }]}>Actifs</Text>
               <Text style={[styles.teamValue, { color: theme.colors.success }]}>{stats?.direct_active ?? 0}</Text>
             </View>
-            <View style={styles.teamRow}>
+            <View style={styles.teamStatRow}>
               <Text style={[styles.teamLabel, { color: theme.colors.danger }]}>Inactifs</Text>
               <Text style={[styles.teamValue, { color: theme.colors.danger }]}>{stats?.direct_inactive ?? 0}</Text>
             </View>
-          </Card>
-          <Card style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          </View>
+          <View style={styles.teamCard}>
+            <View style={styles.teamHead}>
               <Ionicons name="git-network" size={20} color={theme.colors.secondary} />
               <Text style={styles.teamTitle}>Équipe Spillover</Text>
             </View>
-            <View style={styles.teamRow}>
+            <View style={styles.teamStatRow}>
               <Text style={[styles.teamLabel, { color: theme.colors.success }]}>Actifs</Text>
               <Text style={[styles.teamValue, { color: theme.colors.success }]}>{stats?.spillover_active ?? 0}</Text>
             </View>
-            <View style={styles.teamRow}>
+            <View style={styles.teamStatRow}>
               <Text style={[styles.teamLabel, { color: theme.colors.danger }]}>Inactifs</Text>
               <Text style={[styles.teamValue, { color: theme.colors.danger }]}>{stats?.spillover_inactive ?? 0}</Text>
             </View>
-          </Card>
-        </View>
-
-        {/* Quick actions */}
-        <View style={[styles.row, { marginTop: 4 }]}>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => router.push("/(app)/matrices")} testID="quick-matrices">
-            <Ionicons name="grid" size={22} color={theme.colors.secondary} />
-            <Text style={styles.quickLabel}>Matrices</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => router.push("/(app)/team-direct")} testID="quick-team">
-            <Ionicons name="people" size={22} color={theme.colors.success} />
-            <Text style={styles.quickLabel}>Mon équipe</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => router.push("/(app)/community")} testID="quick-community">
-            <Ionicons name="megaphone" size={22} color={theme.colors.warning} />
-            <Text style={styles.quickLabel}>Communauté</Text>
-          </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
       <ProfilePhotoManager visible={photoModal} onClose={() => setPhotoModal(false)} />
-      {/* Bottom navigation — home dashboard, all activated users (incl. admin). */}
       {user && (user.role === "admin" || (user.max_level || 0) >= 1) ? <BottomNav /> : null}
     </View>
   );
@@ -358,45 +270,11 @@ const styles = StyleSheet.create({
   header: { paddingBottom: 12, paddingHorizontal: 16 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  brand: { color: "#fff", fontSize: 17, fontWeight: "700", letterSpacing: 1.5 },
+  brand: { color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: 1.5 },
   brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 1.5 },
-  menuBtn: {
-    width: 36, height: 36, borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center", justifyContent: "center",
-  },
-  profileCard: {
-    flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10,
-    backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
-  },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" },
-  avatarImg: { width: 44, height: 44, borderRadius: 22 },
-  avatarEditBadge: {
-    position: "absolute", right: -2, bottom: -2, width: 18, height: 18, borderRadius: 9,
-    backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center",
-    borderWidth: 1.5, borderColor: "#fff",
-  },
-  username: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
-  lvlPill: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 9, alignSelf: "flex-start", marginTop: 2,
-  },
-  lvlText: { color: "#fff", fontWeight: "700", fontSize: 11 },
-  memberSince: { color: "#C7D9FF", fontSize: 10, marginTop: 2 },
-
-  balanceCard: { borderRadius: theme.radius.xl, padding: theme.spacing.lg, flexDirection: "row", alignItems: "center", ...theme.shadow.lifted },
-  balanceLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "600", letterSpacing: 0.3, textTransform: "uppercase" },
-  balanceValue: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 6, letterSpacing: -0.5 },
-  // Compact hero card (Profit Total | Activation) — v9 spec.
-  heroCard: {
-    borderRadius: 20, paddingVertical: 14, paddingHorizontal: 14,
-    flexDirection: "row", alignItems: "stretch", ...theme.shadow.lifted,
-    minHeight: 92,
-  },
   brandLogo: { width: 40, height: 40, borderRadius: 20 },
   headerIconBtn: {
-    width: 40, height: 40, borderRadius: 20, marginLeft: 8,
+    width: 38, height: 38, borderRadius: 19, marginLeft: 8,
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center", justifyContent: "center",
     position: "relative",
@@ -408,101 +286,74 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: theme.colors.primary,
   },
   notifBadgeTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  // Premium hero card (avatar + wallet + 3 stats) — v13 spec.
-  premiumCard: {
-    borderRadius: 24, padding: 16, ...theme.shadow.lifted,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
-  },
-  premiumTopRow: { flexDirection: "row", alignItems: "flex-start" },
-  eyeBtn: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    alignItems: "center", justifyContent: "center",
-  },
-  walletBlock: {
-    marginTop: 14, flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 16, padding: 12,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
-  },
-  walletIconSquare: {
-    width: 42, height: 42, borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center", justifyContent: "center",
-  },
-  walletLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "600" },
-  walletValue: { color: "#fff", fontSize: 24, fontWeight: "800", letterSpacing: -0.6, marginTop: 2 },
-  walletChipsRow: { flexDirection: "row", marginTop: 6, gap: 6 },
-  currencyPill: {
-    flexDirection: "row", alignItems: "center", gap: 3,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
-  },
-  currencyPillTxt: { color: "#fff", fontWeight: "700", fontSize: 11 },
-  statsGrid: { flexDirection: "row", gap: 8, marginTop: 12 },
-  miniStat: {
-    flex: 1, borderRadius: 14, padding: 10, borderWidth: 1,
-    alignItems: "flex-start",
-  },
-  miniStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "700", marginTop: 5, letterSpacing: 0.2 },
-  miniStatValue: { color: "#fff", fontSize: 14, fontWeight: "800", marginTop: 3, letterSpacing: -0.3 },
-  miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 9, marginTop: 2 },
-  heroSide: { flex: 1, justifyContent: "center" },
-  heroHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-  heroLabel: {
-    color: "#C7D9FF", fontSize: 11, fontWeight: "600",
-    letterSpacing: 0.4, textTransform: "uppercase",
-  },
-  heroValue: {
-    color: "#fff", fontSize: 20, fontWeight: "800",
-    marginTop: 2, letterSpacing: -0.4,
-  },
-  heroHint: { color: "#C7D9FF", fontSize: 10, marginTop: 3 },
-  heroDivider: { width: 1, alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 12 },
-  balanceHint: { color: "#C7D9FF", fontSize: 11, marginTop: 4 },
-  reserveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
-  reserveText: { color: "#FDE68A", fontSize: 12, fontWeight: "700" },
-  statsRow: { flexDirection: "row", gap: 12, marginTop: 14 },
-  statCard: { flex: 1, padding: theme.spacing.md, borderRadius: theme.radius.lg, alignItems: "flex-start", ...theme.shadow.card },
-  statIconBox: { width: 38, height: 38, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  statLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", fontWeight: "600" },
-  statValue: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 4, letterSpacing: -0.3 },
-  statHint: { color: "rgba(255,255,255,0.7)", fontSize: 10, marginTop: 4 },
-  walletIcon: { width: 64, height: 64, borderRadius: theme.radius.lg, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
 
-  // Unified split card (Solde | Retrait, Commissions) — collé avec divider vertical.
-  // Same visual shape / height / width as the hero card (v11 spec).
-  splitCard: {
-    flexDirection: "row", marginTop: 12, borderRadius: 20,
-    overflow: "hidden", minHeight: 92, ...theme.shadow.card,
+  quickActionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 14,
+    gap: 8,
   },
-  splitSide: {
-    flex: 1, paddingVertical: 14, paddingHorizontal: 14,
+  quickAction: {
+    flex: 1,
+    alignItems: "center",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadow.card,
+  },
+  quickActionIcon: {
+    width: 42, height: 42, borderRadius: 21,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 6,
+  },
+  quickActionLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+  },
+
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  sectionTitle: { fontWeight: "900", color: theme.colors.textPrimary, fontSize: 16, letterSpacing: -0.3 },
+  sectionLink: { color: theme.colors.primary, fontWeight: "800", fontSize: 12 },
+
+  servicesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  serviceCard: {
+    width: "23%",
+    aspectRatio: 0.95,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    ...theme.shadow.card,
   },
-  splitHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-  splitDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.35)" },
-  splitLabel: {
-    color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600",
-    letterSpacing: 0.4, textTransform: "uppercase",
+  serviceIcon: {
+    width: 42, height: 42, borderRadius: 21,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 6,
   },
-  splitValue: {
-    color: "#fff", fontSize: 20, fontWeight: "800",
-    marginTop: 2, letterSpacing: -0.4,
+  serviceLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+    textAlign: "center",
   },
-  splitHint: { color: "rgba(255,255,255,0.78)", fontSize: 10, marginTop: 3 },
-
-  row: { flexDirection: "row", gap: 12, marginTop: 14 },
-  commCard: { flex: 1, borderRadius: theme.radius.lg, padding: theme.spacing.md, flexDirection: "row", alignItems: "center", gap: 10 },
-  commIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  commLabel: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "500" },
-  commValue: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: 2, letterSpacing: -0.3 },
-
-  sectionTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 16, letterSpacing: -0.3 },
-  detailRow: { flexDirection: "row", marginTop: 10, gap: 12 },
-  detailLabelRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  detailLabel: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },
-  detailValue: { fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
 
   linkBox: { backgroundColor: theme.colors.surfaceMuted, padding: 14, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border },
   linkText: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "500" },
@@ -510,134 +361,21 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     backgroundColor: theme.colors.secondary, paddingVertical: 12, borderRadius: theme.radius.md,
   },
-  copyBtnText: { color: "#fff", fontWeight: "700", letterSpacing: 0.2 },
+  copyBtnText: { color: "#fff", fontWeight: "800", letterSpacing: 0.2 },
 
-  teamTitle: { fontWeight: "800", color: theme.colors.textPrimary, letterSpacing: -0.2 },
-  teamRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 10 },
-  teamLabel: { fontWeight: "500", color: theme.colors.textSecondary, fontSize: 13 },
-  teamValue: { fontWeight: "800", letterSpacing: -0.2 },
-
-  quickBtn: {
-    flex: 1, backgroundColor: "#fff", borderRadius: theme.radius.lg, paddingVertical: 18,
-    alignItems: "center", gap: 8, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.card,
+  teamRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  teamCard: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadow.card,
   },
-  quickLabel: { fontWeight: "700", color: theme.colors.textPrimary, fontSize: 12, letterSpacing: -0.1 },
-
-  chCard: {
-    marginTop: 14, borderRadius: theme.radius.lg, padding: theme.spacing.lg, overflow: "hidden",
-    backgroundColor: "#F59E0B", ...theme.shadow.card,
-  },
-  chHeadRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
-  chIconBox: {
-    width: 40, height: 40, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.25)",
-    alignItems: "center", justifyContent: "center",
-  },
-  chTitle: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: -0.1 },
-  chSubtitle: { color: "rgba(255,255,255,0.9)", fontSize: 11, marginTop: 2 },
-  chStatsRow: { flexDirection: "row", gap: 8, marginTop: 6 },
-  chStatBox: {
-    flex: 1, backgroundColor: "rgba(255,255,255,0.15)", padding: 8, borderRadius: 12,
-  },
-  chStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "600" },
-  chStatValue: { color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2, letterSpacing: -0.2 },
-  chProgressTrack: {
-    height: 10, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 5,
-    marginTop: 10, overflow: "hidden",
-  },
-  chProgressFill: { height: 10, backgroundColor: "#fff", borderRadius: 5 },
-  chProgressText: { color: "#fff", fontWeight: "700", fontSize: 12, marginTop: 6, textAlign: "right" },
-  chBadgeWin: {
-    marginTop: 10, backgroundColor: "#065F46", padding: 10, borderRadius: 12,
-    flexDirection: "row", alignItems: "center", gap: 8,
-  },
-  chBadgeWinText: { color: "#D1FAE5", fontSize: 12, fontWeight: "700", flex: 1 },
-  chBadgeWinBtn: {
-    backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
-  },
-  chBadgeWinBtnText: { color: "#065F46", fontWeight: "700", fontSize: 12 },
+  teamHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  teamTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 12, letterSpacing: -0.2 },
+  teamStatRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+  teamLabel: { fontWeight: "600", fontSize: 12 },
+  teamValue: { fontWeight: "900", fontSize: 14 },
 });
-
-// ============================================================
-// Challenge card (100 direct invites campaign) — dashboard.
-// ============================================================
-function ChallengeCard({
-  data,
-  onContactSupport,
-}: {
-  data: { challenge: any; progress: number; completed: boolean };
-  onContactSupport: () => void;
-}) {
-  const { challenge, progress, completed } = data;
-  const target: number = challenge.target || 100;
-  const percent = Math.max(0, Math.min(100, (progress / target) * 100));
-  const [now, setNow] = useState<number>(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const endMs = new Date(challenge.end_at).getTime();
-  const remaining = Math.max(0, endMs - now);
-  const remainingLabel = formatCountdown(remaining);
-
-  return (
-    <View style={styles.chCard} testID="dashboard-challenge-card">
-      <View style={styles.chHeadRow}>
-        <View style={styles.chIconBox}>
-          <Ionicons name="trophy" size={22} color="#fff" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.chTitle}>🏆 {challenge.name}</Text>
-          <Text style={styles.chSubtitle}>
-            Objectif : {target} invitations directes actives
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.chStatsRow}>
-        <View style={styles.chStatBox}>
-          <Text style={styles.chStatLabel}>🎁 Récompense</Text>
-          <Text style={styles.chStatValue}>
-            {formatFCFA(challenge.reward_amount)}
-          </Text>
-        </View>
-        <View style={styles.chStatBox}>
-          <Text style={styles.chStatLabel}>⏳ Temps restant</Text>
-          <Text style={styles.chStatValue} testID="dashboard-challenge-countdown">
-            {remainingLabel}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.chProgressTrack}>
-        <View style={[styles.chProgressFill, { width: `${percent}%` }]} />
-      </View>
-      <Text style={styles.chProgressText} testID="dashboard-challenge-progress">
-        {progress} / {target}
-      </Text>
-
-      {completed ? (
-        <View style={styles.chBadgeWin} testID="dashboard-challenge-completed">
-          <Ionicons name="checkmark-circle" size={20} color="#D1FAE5" />
-          <Text style={styles.chBadgeWinText}>
-            🎉 Objectif atteint ! Contactez le service client pour récupérer votre récompense.
-          </Text>
-          <TouchableOpacity onPress={onContactSupport} style={styles.chBadgeWinBtn} testID="dashboard-challenge-contact">
-            <Text style={styles.chBadgeWinBtnText}>Contacter</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return "Terminé";
-  const totalSec = Math.floor(ms / 1000);
-  const d = Math.floor(totalSec / 86400);
-  const h = Math.floor((totalSec % 86400) / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (d > 0) return `${d}j ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  return `${m}m ${s}s`;
-}

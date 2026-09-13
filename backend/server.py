@@ -794,6 +794,79 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     cur = user.get("max_level", 0)
     level_info = LEVELS_BY_NUM.get(cur) if cur else None
     total_profit = float(user.get("commission_direct", 0) or 0) + float(user.get("commission_spillover", 0) or 0)
+
+    # ─── Daily activity trend (v14 dashboard hero) ──────────────
+    # Compute the daily variation (%) between today and yesterday for
+    # each of the 3 top stats + a 7-day sparkline used by the mini
+    # graph inside each stat card. Any DB error is silently swallowed
+    # so the dashboard endpoint always returns a stable payload.
+    trend = {
+        "profit_pct": 0.0, "balance_pct": 0.0, "activation_pct": 0.0,
+        "profit_series": [0.0] * 7,
+        "balance_series": [0.0] * 7,
+        "activation_series": [0.0] * 7,
+    }
+    try:
+        now = datetime.now(timezone.utc)
+        today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        yesterday_start = today_start - timedelta(days=1)
+        window_start = today_start - timedelta(days=6)
+
+        async def _daily_totals(collection, date_field: str = "created_at"):
+            """Return a dict {YYYY-MM-DD: sum(amount)} for the last 7 days."""
+            pipeline = [
+                {"$match": {"user_id": user["id"], date_field: {"$gte": window_start}}},
+                {"$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": f"${date_field}"}},
+                    "total": {"$sum": "$amount"},
+                }},
+            ]
+            out: dict[str, float] = {}
+            async for row in collection.aggregate(pipeline):
+                out[str(row["_id"])] = float(row.get("total", 0) or 0)
+            return out
+
+        comm_by_day = await _daily_totals(db.commissions)
+        wd_by_day = await _daily_totals(db.withdrawals)
+
+        # Build 7-day arrays ending today (index 6 = today).
+        keys = [(window_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        profit_series = [comm_by_day.get(k, 0.0) for k in keys]
+        balance_series = [
+            comm_by_day.get(k, 0.0) - wd_by_day.get(k, 0.0) for k in keys
+        ]
+
+        # Activation series: 2500 XOF on the day the user was created /
+        # activated (level 1 flat fee). Non-zero only on that specific day.
+        activation_series = [0.0] * 7
+        created_at = user.get("created_at")
+        if created_at and (user.get("max_level") or 0) >= 1:
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                except Exception:
+                    created_at = None
+            if isinstance(created_at, datetime):
+                day_key = created_at.strftime("%Y-%m-%d")
+                if day_key in keys:
+                    activation_series[keys.index(day_key)] = 2500.0
+
+        def _pct(today_v: float, yest_v: float) -> float:
+            if yest_v == 0:
+                return 100.0 if today_v > 0 else 0.0
+            return round(((today_v - yest_v) / abs(yest_v)) * 100.0, 1)
+
+        trend = {
+            "profit_pct": _pct(profit_series[6], profit_series[5]),
+            "balance_pct": _pct(balance_series[6], balance_series[5]),
+            "activation_pct": _pct(activation_series[6], activation_series[5]),
+            "profit_series": profit_series,
+            "balance_series": balance_series,
+            "activation_series": activation_series,
+        }
+    except Exception:
+        pass
+
     return {
         "user": user,
         "balance_total": user.get("balance_profit", 0) + user.get("balance_upgrade", 0),
@@ -810,6 +883,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "spillover_active": spillover_active,
         "spillover_inactive": spillover_count - spillover_active,
         "current_level": level_info,
+        "trend": trend,
     }
 
 

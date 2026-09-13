@@ -21,6 +21,41 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v14) — 🎨 Refonte Dashboard Fintech (mockup pixel-perfect)
+
+**Demande utilisateur** : dashboard modernisé Bleu/Or style Fintech, illustration 3D du portefeuille, mini-graphiques + trend % quotidien sur les 3 stats, Quick Actions, section "Nos services", bottom nav flottante 5 items.
+
+**Backend** (`server.py::/api/dashboard`) :
+- Ajout d'un bloc `trend` calculé à chaque requête :
+  - `profit_pct`, `balance_pct`, `activation_pct` — variation quotidienne (%) entre aujourd'hui et hier
+  - `profit_series`, `balance_series`, `activation_series` — 7 valeurs quotidiennes pour alimenter les mini-graphs
+- Agrégation par `$dateToString` sur `commissions` (profit) et `withdrawals` (solde) avec fenêtre 7 jours.
+- Test regression `tests/test_dashboard_trend_v14.py` (1 test — verrouille la structure du bloc `trend`).
+
+**Frontend** :
+- Nouveau composant `/app/frontend/src/components/DashboardHero.tsx` :
+  - Illustration **wallet 3D SVG** (portefeuille doré + billets bleus qui dépassent, boucle dorée, ombre au sol) — 100% vectoriel, aucun PNG requis.
+  - Mini-sparklines SVG (gradient + polyline) sur chacune des 3 stats.
+  - Trend badge (`+X.X%` vert / rouge avec icône `trending-up|down`) en haut à droite de chaque stat.
+  - Row inline : `••••••  👁  XOF ▾` conforme au mockup.
+- `dashboard.tsx` refondu :
+  - Utilise `<DashboardHero>` pour la carte utilisateur/portefeuille/stats.
+  - Nouvelle rangée **Quick Actions** : Dépôt / Retrait / Envoyer / Échanger (pills colorés).
+  - Nouvelle section **Nos services** (grille 4-col) : Matrices, Mon équipe, Marketplace, Emploi, Publicité, Formations, E-books, Jackpot.
+- `BottomNav.tsx` réécrit — nav **flottante** en pill 5-items :
+  - Accueil | IA SPV | **Tâches (centré, élevé)** | Trading | Profil
+  - Long-press sur Tâches ouvre le bottom-sheet "Nos services" avec les 10 raccourcis secondaires.
+  - Ombre `#0B2D6F/0.16`, `borderRadius: 26`.
+- Nouvelle page placeholder `/app/frontend/app/(app)/spvia.tsx` pour l'item "IA SPV".
+
+**Dépendance ajoutée** : `react-native-svg@15.12.1` (Expo compatible).
+
+**testIDs** : `dashboard-hero-card`, `dashboard-wallet-amount`, `dashboard-eye-btn`, `dashboard-total-profit`, `dashboard-balance-profit`, `dashboard-activation-amount`, `dashboard-quick-actions`, `quick-action-{deposit|withdraw|send|exchange}`, `dashboard-services-grid`, `service-{key}`, `bottom-nav`, `bottom-nav-{home|spvia|tasks|trading|profile}`.
+
+**Validation** : screenshots 390×844 (mobile) + 1920×800 (desktop) confirment le rendu conforme au mockup. Backend pytest v14 pass. Zéro overflow horizontal.
+
+---
+
 ## Implementation Status (à jour 2026-09-02)
 ### 2026-09-08 (v12) — 📷 Photo de profil utilisateur
 
