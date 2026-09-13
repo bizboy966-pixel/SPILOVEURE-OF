@@ -17,6 +17,7 @@ import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
+import { useServiceBadges } from "@/src/hooks/useServiceBadges";
 
 /* -------------------------------------------------------------
  * Quick action pills — Depot / Retrait / Envoyer / Echanger.
@@ -45,7 +46,7 @@ const SERVICE_CARDS: Array<{
   { key: "ebooks",      label: "E-book",      icon: "book",      color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
   // Ligne 2
   { key: "emploi",      label: "Emploi",      icon: "briefcase", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
-  { key: "coupons",     label: "Coupon",      icon: "ticket",    color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/coupons" },
+  { key: "premium",     label: "Application Premium", icon: "diamond", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/premium-apps" },
   { key: "lottery",     label: "Jackpot",     icon: "gift",      color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
   { key: "advertising", label: "Espace publicitaire", icon: "tv", color: "#10B981", bg: "#D1FAE5", route: "/(app)/advertising" },
 ];
@@ -58,6 +59,7 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
+  const badges = useServiceBadges();
 
   // NOTE: activation guard is centralised in `(app)/_layout.tsx`.
   useEffect(() => {
@@ -192,20 +194,34 @@ export default function Dashboard() {
           </TouchableOpacity>
         </View>
         <View style={styles.servicesGrid} testID="dashboard-services-grid">
-          {SERVICE_CARDS.map((s) => (
-            <TouchableOpacity
-              key={s.key}
-              style={styles.serviceCard}
-              onPress={() => router.push(s.route as any)}
-              activeOpacity={0.85}
-              testID={`service-${s.key}`}
-            >
-              <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
-                <Ionicons name={s.icon} size={22} color={s.color} />
-              </View>
-              <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {SERVICE_CARDS.map((s) => {
+            const unread =
+              s.key === "marketplace" ? badges.marketplace :
+              s.key === "ads"         ? badges.ads :
+              s.key === "emploi"      ? badges.jobs :
+              0;
+            return (
+              <TouchableOpacity
+                key={s.key}
+                style={styles.serviceCard}
+                onPress={() => router.push(s.route as any)}
+                activeOpacity={0.85}
+                testID={`service-${s.key}`}
+              >
+                <View style={styles.serviceIconWrap}>
+                  <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
+                    <Ionicons name={s.icon} size={22} color={s.color} />
+                  </View>
+                  {unread > 0 ? (
+                    <View style={styles.serviceBadge} testID={`service-${s.key}-badge`}>
+                      <Text style={styles.serviceBadgeTxt}>{unread > 9 ? "9+" : unread}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -295,11 +311,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     ...theme.shadow.card,
   },
+  serviceIconWrap: {
+    position: "relative",
+    marginBottom: 6,
+  },
   serviceIcon: {
     width: 42, height: 42, borderRadius: 21,
     alignItems: "center", justifyContent: "center",
-    marginBottom: 6,
   },
+  serviceBadge: {
+    position: "absolute", top: -4, right: -6,
+    minWidth: 18, height: 18, borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: theme.colors.surface,
+    paddingHorizontal: 4,
+  },
+  serviceBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9 },
   serviceLabel: {
     fontSize: 10,
     fontWeight: "800",

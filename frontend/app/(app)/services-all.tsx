@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
+import { useServiceBadges } from "@/src/hooks/useServiceBadges";
 
 /**
  * "Voir tout" — full catalog of every service available on the platform.
@@ -30,14 +31,14 @@ const MAIN: Service[] = [
   { key: "formations",  label: "Formation",    icon: "school",    color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/formations" },
   { key: "ebooks",      label: "E-book",       icon: "book",      color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
   { key: "emploi",      label: "Emploi",       icon: "briefcase", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
-  { key: "coupons",     label: "Coupon",       icon: "ticket",    color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/coupons" },
+  { key: "premium",     label: "Application Premium", icon: "diamond", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/premium-apps" },
   { key: "lottery",     label: "Jackpot",      icon: "gift",      color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
   { key: "advertising", label: "Espace publicitaire", icon: "tv", color: "#10B981", bg: "#D1FAE5", route: "/(app)/advertising" },
 ];
 
 const EXTRA: Service[] = [
   { key: "publish",     label: "Publier un article", icon: "create",   color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/marketplace-create" },
-  { key: "premium",     label: "Application Premium", icon: "diamond", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/premium-apps" },
+  { key: "coupons",     label: "Coupon",        icon: "ticket",       color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/coupons" },
   { key: "matrices",    label: "Matrice",       icon: "grid",         color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/matrices" },
   { key: "team",        label: "Mon équipe",    icon: "people",       color: "#10B981", bg: "#D1FAE5", route: "/(app)/equipe" },
   { key: "community",   label: "Communauté",    icon: "chatbubbles",  color: "#EC4899", bg: "#FCE7F3", route: "/(app)/community" },
@@ -45,21 +46,36 @@ const EXTRA: Service[] = [
 
 export default function ServicesAllScreen() {
   const router = useRouter();
+  const badges = useServiceBadges();
 
-  const renderCard = (s: Service) => (
-    <TouchableOpacity
-      key={s.key}
-      style={styles.card}
-      onPress={() => router.push(s.route as any)}
-      activeOpacity={0.85}
-      testID={`services-all-${s.key}`}
-    >
-      <View style={[styles.icon, { backgroundColor: s.bg }]}>
-        <Ionicons name={s.icon} size={24} color={s.color} />
-      </View>
-      <Text style={styles.cardLabel} numberOfLines={2}>{s.label}</Text>
-    </TouchableOpacity>
-  );
+  const renderCard = (s: Service) => {
+    const unread =
+      s.key === "marketplace" ? badges.marketplace :
+      s.key === "ads"         ? badges.ads :
+      s.key === "emploi"      ? badges.jobs :
+      0;
+    return (
+      <TouchableOpacity
+        key={s.key}
+        style={styles.card}
+        onPress={() => router.push(s.route as any)}
+        activeOpacity={0.85}
+        testID={`services-all-${s.key}`}
+      >
+        <View style={styles.iconWrap}>
+          <View style={[styles.icon, { backgroundColor: s.bg }]}>
+            <Ionicons name={s.icon} size={24} color={s.color} />
+          </View>
+          {unread > 0 ? (
+            <View style={styles.badge} testID={`services-all-${s.key}-badge`}>
+              <Text style={styles.badgeTxt}>{unread > 9 ? "9+" : unread}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.cardLabel} numberOfLines={2}>{s.label}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -130,11 +146,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     ...theme.shadow.card,
   },
+  iconWrap: {
+    position: "relative",
+    marginBottom: 8,
+  },
   icon: {
     width: 46, height: 46, borderRadius: 23,
     alignItems: "center", justifyContent: "center",
-    marginBottom: 8,
   },
+  badge: {
+    position: "absolute", top: -4, right: -6,
+    minWidth: 18, height: 18, borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: theme.colors.surface,
+    paddingHorizontal: 4,
+  },
+  badgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9 },
   cardLabel: {
     fontSize: 10,
     fontWeight: "800",
