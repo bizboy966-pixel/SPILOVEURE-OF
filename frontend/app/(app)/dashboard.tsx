@@ -269,81 +269,11 @@ export default function Dashboard() {
           />
         ) : null}
 
-        {/* ─── Bloc unifié split : Solde Disponible | Retrait Total ─── */}
-        <View style={styles.splitCard} testID="dashboard-balance-split">
-          <TouchableOpacity
-            style={[styles.splitSide, { backgroundColor: "#10B981" }]}
-            onPress={() => router.push("/(app)/withdrawal")}
-            activeOpacity={0.85}
-            testID="dashboard-balance-card"
-          >
-            <View style={styles.splitHeaderRow}>
-              <Ionicons name="wallet" size={13} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.splitLabel}>Solde Disponible</Text>
-            </View>
-            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-balance-profit">
-              {formatFCFA(stats?.balance_profit)}
-            </Text>
-            <Text style={styles.splitHint}>disponible au retrait</Text>
-          </TouchableOpacity>
-          <View style={styles.splitDivider} />
-          <View style={[styles.splitSide, { backgroundColor: "#1B5BFF" }]}>
-            <View style={styles.splitHeaderRow}>
-              <Ionicons name="arrow-up-circle" size={13} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.splitLabel}>Retrait Total</Text>
-            </View>
-            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-withdrawn">
-              {formatFCFA(stats?.total_withdrawn)}
-            </Text>
-            <Text style={styles.splitHint}>retraits validés</Text>
-          </View>
-        </View>
-
-        {/* ─── Bloc unifié split : Commission Spillover | Parrainage direct ─── */}
-        <View style={styles.splitCard} testID="dashboard-commissions-split">
-          <View style={[styles.splitSide, { backgroundColor: theme.colors.secondary }]}>
-            <View style={styles.splitHeaderRow}>
-              <Ionicons name="git-network" size={13} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.splitLabel}>Commission Spillover</Text>
-            </View>
-            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
-              {formatFCFA(stats?.commission_spillover)}
-            </Text>
-            <Text style={styles.splitHint}>équipe indirecte</Text>
-          </View>
-          <View style={styles.splitDivider} />
-          <View style={[styles.splitSide, { backgroundColor: theme.colors.success }]}>
-            <View style={styles.splitHeaderRow}>
-              <Ionicons name="people" size={13} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.splitLabel}>Parrainage direct</Text>
-            </View>
-            <Text style={styles.splitValue} numberOfLines={1} adjustsFontSizeToFit>
-              {formatFCFA(stats?.commission_direct)}
-            </Text>
-            <Text style={styles.splitHint}>filleuls actifs</Text>
-          </View>
-        </View>
-
-        {/* Profit / reserve detail */}
-        <Card style={{ marginTop: 12 }}>
-          <Text style={styles.sectionTitle}>Détail du solde</Text>
-          <View style={styles.detailRow}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.detailLabelRow}>
-                <Ionicons name="diamond-outline" size={13} color={theme.colors.textSecondary} />
-                <Text style={styles.detailLabel}>Profit retirable</Text>
-              </View>
-              <Text style={[styles.detailValue, { color: theme.colors.success }]}>{formatFCFA(stats?.balance_profit)}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.detailLabelRow}>
-                <Ionicons name="lock-closed-outline" size={13} color={theme.colors.textSecondary} />
-                <Text style={styles.detailLabel}>Réserve mise à niveau</Text>
-              </View>
-              <Text style={[styles.detailValue, { color: theme.colors.warning }]}>{formatFCFA(stats?.balance_upgrade)}</Text>
-            </View>
-          </View>
-        </Card>
+        {/* Blocs Solde/Retrait, Commissions, Détail du solde — SUPPRIMÉS
+            (v13). Remplacés par la nouvelle grande carte utilisateur +
+            portefeuille + 3 stats du haut. Toutes les infos financières
+            (activation, profit total, solde disponible) sont maintenant
+            centralisées dans `dashboard-premium-card`. */}
 
         {/* Invite link */}
         <Card style={{ marginTop: 12 }}>
