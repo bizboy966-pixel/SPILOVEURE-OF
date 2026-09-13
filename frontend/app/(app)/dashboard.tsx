@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [photoModal, setPhotoModal] = useState(false);
+  const [balanceHidden, setBalanceHidden] = useState(false);
 
   // NOTE: activation guard is centralised in `(app)/_layout.tsx` which
   // routes pending users to `/(app)/pay`. We MUST NOT duplicate a guard
@@ -112,67 +113,28 @@ export default function Dashboard() {
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/spiloveure-logo.png")}
-                style={{ width: 34, height: 34 }} resizeMode="contain"
+                style={styles.brandLogo} resizeMode="contain"
               />
               <View>
                 <Text style={styles.brand}>SPILOVEURE</Text>
-                <Text style={styles.brandSub}>affiliate system</Text>
+                <Text style={styles.brandSub}>Affiliate System</Text>
               </View>
             </View>
             <TouchableOpacity
-              style={[styles.menuBtn, { marginRight: 8 }]}
-              onPress={() => router.push("/(app)/services")}
-              testID="dashboard-services-btn"
+              style={styles.headerIconBtn}
+              onPress={() => router.push("/(app)/notifications" as any)}
+              testID="dashboard-notifications-btn"
             >
-              <Ionicons name="apps" size={20} color="#fff" />
+              <Ionicons name="notifications" size={20} color="#fff" />
+              {stats?.unread_notifications ? (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeTxt}>{Math.min(stats.unread_notifications, 99)}</Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.menuBtn, { marginRight: 8 }]}
-              onPress={onRefresh}
-              disabled={refreshing}
-              testID="dashboard-refresh-btn"
-            >
-              <Ionicons
-                name={refreshing ? "sync" : "refresh"}
-                size={20}
-                color="#fff"
-              />
+            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
+              <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
-              <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileCard}>
-            <TouchableOpacity
-              style={styles.avatar}
-              onPress={() => setPhotoModal(true)}
-              activeOpacity={0.85}
-              testID="dashboard-avatar-btn"
-            >
-              {user?.profile_photo ? (
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                <Image source={{ uri: user.profile_photo }} style={styles.avatarImg} resizeMode="cover" />
-              ) : (
-                <Ionicons name="person" size={22} color="#fff" />
-              )}
-              <View style={styles.avatarEditBadge}>
-                <Ionicons name="camera" size={11} color="#fff" />
-              </View>
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={styles.username}>{user?.username}</Text>
-                <Ionicons name="checkmark-circle" size={15} color="#22D3EE" />
-              </View>
-              <View style={styles.lvlPill}>
-                <Ionicons name="ribbon" size={11} color="#F59E0B" />
-                <Text style={styles.lvlText}>Niveau {user?.max_level ?? 0}</Text>
-              </View>
-              <Text style={styles.memberSince}>
-                <Ionicons name="calendar-outline" size={11} color="#C7D9FF" /> Membre depuis : {formatDate(user?.created_at)}
-              </Text>
-            </View>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -181,28 +143,103 @@ export default function Dashboard() {
         contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* ─── Hero split : Profit Total | Activation ─── */}
-        <LinearGradient colors={theme.colors.primaryGradient} style={styles.heroCard} testID="dashboard-hero-card">
-          <View style={styles.heroSide}>
-            <View style={styles.heroHeaderRow}>
-              <Ionicons name="diamond" size={13} color="#C7D9FF" />
-              <Text style={styles.heroLabel}>Profit Total</Text>
+        {/* ─── Grande carte utilisateur + portefeuille (v13) ─── */}
+        <LinearGradient
+          colors={["#0F2A6F", "#1B5BFF", "#0F2A6F"] as any}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={styles.premiumCard}
+          testID="dashboard-premium-card"
+        >
+          {/* Row : avatar + user info + eye toggle */}
+          <View style={styles.premiumTopRow}>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={() => setPhotoModal(true)}
+              activeOpacity={0.85}
+              testID="dashboard-avatar-btn"
+            >
+              {user?.profile_photo ? (
+                <Image source={{ uri: user.profile_photo }} style={styles.avatarImg} resizeMode="cover" />
+              ) : (
+                <Ionicons name="person" size={22} color="#fff" />
+              )}
+              <View style={styles.avatarEditBadge}>
+                <Ionicons name="pencil" size={10} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={styles.username} numberOfLines={1}>{user?.username}</Text>
+                <Ionicons name="checkmark-circle" size={15} color="#22D3EE" />
+              </View>
+              <View style={styles.lvlPill}>
+                <Ionicons name="ribbon" size={11} color="#F59E0B" />
+                <Text style={styles.lvlText}>Niveau {user?.max_level ?? 0}</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                <Ionicons name="calendar-outline" size={11} color="#C7D9FF" />
+                <Text style={styles.memberSince}>Membre depuis : {formatDate(user?.created_at)}</Text>
+              </View>
             </View>
-            <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-profit">
-              {formatFCFA(stats?.total_profit)}
-            </Text>
-            <Text style={styles.heroHint}>cumul historique</Text>
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setBalanceHidden((v) => !v)}
+              testID="dashboard-eye-btn"
+            >
+              <Ionicons name={balanceHidden ? "eye-off" : "eye"} size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
-          <View style={styles.heroDivider} />
-          <View style={styles.heroSide}>
-            <View style={styles.heroHeaderRow}>
-              <Ionicons name="shield-checkmark" size={13} color="#C7D9FF" />
-              <Text style={styles.heroLabel}>Activation</Text>
+
+          {/* Portefeuille */}
+          <View style={styles.walletBlock}>
+            <View style={styles.walletIconSquare}>
+              <Ionicons name="wallet" size={22} color="#fff" />
             </View>
-            <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-activation-amount">
-              2 500 FCFA
-            </Text>
-            <Text style={styles.heroHint}>Niveau 1 activé</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletLabel}>Portefeuille</Text>
+              <Text style={styles.walletValue} numberOfLines={1} adjustsFontSizeToFit>
+                {balanceHidden ? "•••••• FCFA" : formatFCFA(stats?.balance_profit)}
+              </Text>
+              <View style={styles.walletChipsRow}>
+                <View style={styles.currencyPill}>
+                  <Text style={styles.currencyPillTxt}>XOF</Text>
+                  <Ionicons name="chevron-down" size={11} color="#fff" />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* 3 stats : Activation | Profit total | Solde disponible */}
+          <View style={styles.statsGrid}>
+            <View style={[styles.miniStat, { backgroundColor: "rgba(16,185,129,0.22)", borderColor: "rgba(16,185,129,0.55)" }]}>
+              <Ionicons name="shield-checkmark" size={16} color="#34D399" />
+              <Text style={styles.miniStatLabel}>Activation</Text>
+              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-activation-amount">
+                {balanceHidden ? "•••" : "2 500 FCFA"}
+              </Text>
+              <Text style={styles.miniStatHint}>Niveau {(user?.max_level ?? 0) >= 1 ? "1 activé" : "0"}</Text>
+            </View>
+            <View style={[styles.miniStat, { backgroundColor: "rgba(139,92,246,0.22)", borderColor: "rgba(139,92,246,0.55)" }]}>
+              <Ionicons name="stats-chart" size={16} color="#A78BFA" />
+              <Text style={styles.miniStatLabel}>Profit total</Text>
+              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-total-profit">
+                {balanceHidden ? "•••" : formatFCFA(stats?.total_profit)}
+              </Text>
+              <Text style={styles.miniStatHint}>cumul historique</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => router.push("/(app)/withdrawal")}
+              activeOpacity={0.85}
+              style={[styles.miniStat, { backgroundColor: "rgba(245,158,11,0.22)", borderColor: "rgba(245,158,11,0.6)" }]}
+              testID="dashboard-balance-card"
+            >
+              <Ionicons name="wallet" size={16} color="#FBBF24" />
+              <Text style={styles.miniStatLabel}>Solde dispo.</Text>
+              <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit testID="dashboard-balance-profit">
+                {balanceHidden ? "•••" : formatFCFA(stats?.balance_profit)}
+              </Text>
+              <Text style={styles.miniStatHint}>au retrait</Text>
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -427,6 +464,59 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "stretch", ...theme.shadow.lifted,
     minHeight: 92,
   },
+  brandLogo: { width: 40, height: 40, borderRadius: 20 },
+  headerIconBtn: {
+    width: 40, height: 40, borderRadius: 20, marginLeft: 8,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center", justifyContent: "center",
+    position: "relative",
+  },
+  notifBadge: {
+    position: "absolute", top: -2, right: -2, minWidth: 18, height: 18,
+    borderRadius: 9, backgroundColor: "#EF4444", paddingHorizontal: 4,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: theme.colors.primary,
+  },
+  notifBadgeTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  // Premium hero card (avatar + wallet + 3 stats) — v13 spec.
+  premiumCard: {
+    borderRadius: 24, padding: 16, ...theme.shadow.lifted,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+  },
+  premiumTopRow: { flexDirection: "row", alignItems: "flex-start" },
+  eyeBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center", justifyContent: "center",
+  },
+  walletBlock: {
+    marginTop: 14, flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 16, padding: 12,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  },
+  walletIconSquare: {
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center", justifyContent: "center",
+  },
+  walletLabel: { color: "#C7D9FF", fontSize: 12, fontWeight: "600" },
+  walletValue: { color: "#fff", fontSize: 24, fontWeight: "800", letterSpacing: -0.6, marginTop: 2 },
+  walletChipsRow: { flexDirection: "row", marginTop: 6, gap: 6 },
+  currencyPill: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
+  },
+  currencyPillTxt: { color: "#fff", fontWeight: "700", fontSize: 11 },
+  statsGrid: { flexDirection: "row", gap: 8, marginTop: 12 },
+  miniStat: {
+    flex: 1, borderRadius: 14, padding: 10, borderWidth: 1,
+    alignItems: "flex-start",
+  },
+  miniStatLabel: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "700", marginTop: 5, letterSpacing: 0.2 },
+  miniStatValue: { color: "#fff", fontSize: 14, fontWeight: "800", marginTop: 3, letterSpacing: -0.3 },
+  miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 9, marginTop: 2 },
   heroSide: { flex: 1, justifyContent: "center" },
   heroHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   heroLabel: {
