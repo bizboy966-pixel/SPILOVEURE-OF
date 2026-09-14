@@ -21,6 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v17) — 📋 Réorganisation espace Tâches
+
+**Demande utilisateur** : simplifier l'accueil Tâches. Ne montrer que 2 grandes cartes prioritaires ("Missions rémunérées" + "Publicités rémunérées") et regrouper le reste (Tâches spéciales, Challenges, liste des tâches actives) derrière un bouton "Voir plus".
+
+**Frontend** :
+- `app/(app)/tasks.tsx` **entièrement réécrit** — nouvelle landing 2-cartes :
+  - Carte 1 : **Missions rémunérées** → `/(app)/missions` (page existante, icône `briefcase` vert)
+  - Carte 2 : **Publicités rémunérées** → `/(app)/reactor-rewards` (page existante, icône `megaphone` rose)
+  - Bouton **Voir plus** → `/(app)/tasks-more`
+- Nouvelle page `app/(app)/tasks-more.tsx` — catalogue étendu :
+  - Section "Tâches actives (n)" : liste des special-tasks actives (endpoint `/special-tasks`) avec preuve d'exécution modal — code d'origine intégralement préservé
+  - Section "Catégories" : cartes Tâches spéciales → `/(app)/special-task-create` et Challenges actifs → `/(app)/dashboard`
+
+**Aucune fonctionnalité modifiée** — les cartes réutilisent strictement les routes/endpoints existants. Le `special-tasks-mark-seen` reste appelé au montage pour purger le badge.
+
+**testIDs** : `tasks-card-missions`, `tasks-card-ads-rewards`, `tasks-see-more`, `tasks-more-back`, `tasks-more-{special|challenges}`, `st-card-{id}`, `st-do-{id}`, `proof-modal`, `proof-pick-btn`, `proof-submit-btn`.
+
+---
+
 ### 2026-02-14 (v16) — 🔐 Nouveau flow d'activation "consultation libre, action bloquée"
 
 **Demande utilisateur** : un utilisateur inactif doit pouvoir naviguer partout dans SPILOVEURE — dashboard, pages, sections. Le blocage n'intervient QUE lorsqu'il tente une action protégée (retrait, publier, etc.). Exceptions : Dépôt / Envoyer / Échange / Tâches restent accessibles sans activation.

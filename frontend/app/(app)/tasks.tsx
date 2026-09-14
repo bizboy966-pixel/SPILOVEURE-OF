@@ -1,403 +1,147 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator, Image, Modal, Platform, SafeAreaView, ScrollView,
-  StyleSheet, Text, TouchableOpacity, View,
-} from "react-native";
+import React from "react";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { theme } from "../../src/theme";
-import { api, resolveMediaUrl } from "../../src/api";
-import { useFeatures } from "../../src/features";
+import { theme } from "@/src/theme";
+import { BottomNav } from "@/src/components/BottomNav";
 
-// Simple "Tâches" hub — aggregates all revenue-generating activities.
+/**
+ * TÂCHES — new v17 landing (2026-02-14).
+ *
+ * Per the product spec, the tasks hub is now streamlined to only two
+ * priority entry points: Missions rémunérées and Publicités rémunérées.
+ * Every other tasks-related feature (Tâches spéciales, Challenges actifs
+ * and the active user-submitted tasks list) has been moved behind the
+ * `Voir plus` button that opens `/(app)/tasks-more`.
+ *
+ * No business logic is changed — cards are just new access points to the
+ * existing routes.
+ */
+const MAIN_CARDS = [
+  {
+    key: "missions",
+    title: "Missions rémunérées",
+    subtitle: "Complétez des missions quotidiennes et recevez des gains par catégorie.",
+    icon: "briefcase",
+    color: "#10B981",
+    bg: "#D1FAE5",
+    route: "/(app)/missions",
+  },
+  {
+    key: "ads-rewards",
+    title: "Publicités rémunérées",
+    subtitle: "Regardez, aimez et commentez des publicités pour gagner des FCFA.",
+    icon: "megaphone",
+    color: "#EC4899",
+    bg: "#FCE7F3",
+    route: "/(app)/reactor-rewards",
+  },
+];
+
 export default function TasksScreen() {
   const router = useRouter();
-  const { features } = useFeatures();
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
-
-  // Screenshot-proof modal state
-  const [proofTask, setProofTask] = useState<any | null>(null);
-  const [proofUrl, setProofUrl] = useState<string>("");
-  const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [proofErr, setProofErr] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const r = await api.get<{ items: any[] }>("/special-tasks");
-      setTasks(r.items || []);
-    } catch {}
-    try {
-      const u = await api.get<{ unread: number }>("/special-tasks/unread-count");
-      setUnreadCount(u.unread || 0);
-    } catch {}
-  }, []);
-  useEffect(() => {
-    load();
-    // Reset the unread badge after the user opens the tasks screen.
-    (async () => {
-      try {
-        await api.post("/special-tasks/mark-seen", {});
-        setUnreadCount(0);
-      } catch {}
-    })();
-  }, [load]);
-
-  const openTaskLink = (t: any) => {
-    if (typeof window !== "undefined") window.open(t.link, "_blank");
-    setProofTask(t);
-    setProofUrl("");
-    setProofErr(null);
-  };
-
-  const closeProof = () => {
-    if (submitting || uploading) return;
-    setProofTask(null);
-    setProofUrl("");
-    setProofErr(null);
-  };
-
-  const pickScreenshot = () => {
-    if (Platform.OS !== "web") return;
-    fileInputRef.current?.click();
-  };
-
-  const handleFile = async (file: File | null | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setProofErr("Le fichier doit être une image (capture d'écran).");
-      return;
-    }
-    setProofErr(null);
-    setUploading(true);
-    try {
-      const r = await api.upload<{ url: string }>("/user/uploads", file);
-      setProofUrl(r.url);
-    } catch (e: any) {
-      setProofErr(e?.detail || "Échec de l'envoi de la capture.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const submitProof = async () => {
-    if (!proofTask || !proofUrl) {
-      setProofErr("Ajoutez une capture d'écran pour valider.");
-      return;
-    }
-    setSubmitting(true);
-    setProofErr(null);
-    try {
-      const r = await api.post<{ credited: number; task_status: string; ai?: { verified: boolean; confidence: number; reason: string } }>(
-        `/special-tasks/${proofTask.id}/complete`,
-        { proof_url: proofUrl },
-      );
-      if (typeof window !== "undefined") {
-        const conf = r.ai ? ` (IA : ${(r.ai.confidence * 100).toFixed(0)}%)` : "";
-        window.alert(`✅ Tâche validée${conf}. Vous avez gagné ${r.credited} FCFA !`);
-      }
-      setProofTask(null);
-      setProofUrl("");
-      load();
-    } catch (e: any) {
-      setProofErr(e?.detail || "Impossible de valider la tâche.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const ACTION_ICONS: any = { video: "play", subscribe: "person-add", share: "share-social", like: "heart", comment: "chatbubble", group: "people" };
-  const ACTION_BTN: any = { video: "▶️ Regarder", subscribe: "➕ S'abonner", share: "📤 Partager", like: "❤️ Aimer", comment: "💬 Commenter", group: "👥 Rejoindre" };
-  const NET_LABELS: any = { tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", whatsapp: "WhatsApp", telegram: "Telegram" };
-
-  const cards: { key: string; icon: any; title: string; sub: string; route?: string; soon?: boolean; hidden?: boolean; badgeCount?: number }[] = [
-    {
-      key: "missions", icon: "briefcase",
-      title: "Missions Rémunérées",
-      sub: "Missions quotidiennes récurrentes — retraits indépendants par catégorie.",
-      route: "/(app)/missions",
-      hidden: !features.paid_tasks,
-    },
-    {
-      key: "campaigns", icon: "megaphone",
-      title: "Campagnes rémunérées",
-      sub: "Participez aux campagnes publicitaires de la communauté SPILOVEURE.",
-      soon: true,
-      hidden: !features.ads,
-    },
-    {
-      key: "special", icon: "flash",
-      title: "Tâches spéciales",
-      sub: "Créez votre propre campagne de likes, abonnements, vues, partages ou groupes.",
-      route: "/(app)/special-task-create",
-      hidden: !features.special_tasks,
-      badgeCount: unreadCount,
-    },
-    {
-      key: "challenges", icon: "trophy",
-      title: "Challenges actifs",
-      sub: "Objectif d'invitations avec grosse récompense — voir le dashboard.",
-      route: "/(app)/dashboard",
-    },
-  ];
-
-  const previewUri = proofUrl ? resolveMediaUrl(proofUrl) : "";
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="tasks-back">
-          <Ionicons name="arrow-back" size={22} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.title}>📋 Tâches</Text>
-      </View>
-      <ScrollView contentContainerStyle={styles.list}>
-        <Text style={styles.intro}>
-          Toutes les activités rémunérées de SPILOVEURE en un seul endroit. Choisissez une catégorie pour commencer à générer des revenus.
-        </Text>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
+        <SafeAreaView edges={["top"]}>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.back} testID="tasks-back">
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.title}>Tâches</Text>
+              <Text style={styles.subtitle}>Choisissez une catégorie</Text>
+            </View>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
 
-        {tasks.length > 0 && (
-          <>
-            <Text style={{ fontWeight: "900", fontSize: 14, color: theme.colors.textPrimary, marginTop: 8 }}>🔥 Tâches actives ({tasks.length})</Text>
-            {tasks.map((t) => (
-              <View key={t.id} style={styles.card} testID={`st-card-${t.id}`}>
-                <View style={styles.iconBox}>
-                  <Ionicons name={ACTION_ICONS[t.action_type]} size={22} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <Text style={styles.cardTitle}>{ACTION_BTN[t.action_type]} • {NET_LABELS[t.network]}</Text>
-                    {t.is_new ? (
-                      <View style={styles.newBadge} testID={`st-new-${t.id}`}>
-                        <Text style={styles.newBadgeTxt}>NOUVEAU</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.cardSub} numberOfLines={2}>{t.description || "Aucune description"}</Text>
-                  <Text style={{ fontSize: 11, color: theme.colors.success, fontWeight: "800", marginTop: 4 }}>
-                    💰 {t.reward_per_action} FCFA • {t.quantity_completed}/{t.quantity_target}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => openTaskLink(t)} style={styles.doBtn} testID={`st-do-${t.id}`}>
-                  <Text style={styles.doT}>{ACTION_BTN[t.action_type].split(" ")[0]}</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </>
-        )}
-        {cards.filter((c) => !c.hidden).map((c) => (
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+        {MAIN_CARDS.map((c) => (
           <TouchableOpacity
-            key={c.key} style={styles.card}
-            onPress={() => {
-              if (c.route) router.push(c.route as any);
-              else if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
-            }}
+            key={c.key}
+            style={styles.card}
+            onPress={() => router.push(c.route as any)}
+            activeOpacity={0.85}
             testID={`tasks-card-${c.key}`}
           >
-            <View style={styles.iconBox}>
-              <Ionicons name={c.icon} size={22} color="#fff" />
-              {c.badgeCount && c.badgeCount > 0 ? (
-                <View style={styles.iconBadge} testID={`tasks-badge-${c.key}`}>
-                  <Text style={styles.iconBadgeTxt}>{c.badgeCount > 99 ? "99+" : c.badgeCount}</Text>
-                </View>
-              ) : null}
+            <View style={[styles.iconWrap, { backgroundColor: c.bg }]}>
+              <Ionicons name={c.icon as any} size={28} color={c.color} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>{c.title}</Text>
-              <Text style={styles.cardSub}>{c.sub}</Text>
+              <Text style={styles.cardSub} numberOfLines={2}>{c.subtitle}</Text>
             </View>
-            {c.soon ? (
-              <View style={styles.soonBadge}>
-                <Text style={styles.soonText}>Bientôt</Text>
-              </View>
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-            )}
+            <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         ))}
+
+        <TouchableOpacity
+          onPress={() => router.push("/(app)/tasks-more" as any)}
+          style={styles.seeMoreBtn}
+          activeOpacity={0.85}
+          testID="tasks-see-more"
+        >
+          <Text style={styles.seeMoreTxt}>Voir plus</Text>
+          <Ionicons name="chevron-down" size={16} color={theme.colors.primary} />
+        </TouchableOpacity>
       </ScrollView>
 
-      {/* ─── Screenshot-proof modal ────────────────────────────── */}
-      <Modal
-        visible={!!proofTask}
-        animationType="slide"
-        transparent
-        onRequestClose={closeProof}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard} testID="proof-modal">
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>📸 Preuve d'exécution</Text>
-              <TouchableOpacity onPress={closeProof} disabled={submitting || uploading}>
-                <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.modalStep}>
-              1️⃣ Effectuez l'action demandée sur le lien qui vient de s'ouvrir.
-            </Text>
-            <Text style={styles.modalStep}>
-              2️⃣ Prenez une <Text style={{ fontWeight: "800" }}>capture d'écran</Text> montrant clairement l'action réalisée.
-            </Text>
-            <Text style={styles.modalStep}>
-              3️⃣ Importez-la ci-dessous, puis validez pour recevoir votre récompense.
-            </Text>
-
-            <TouchableOpacity
-              style={[styles.uploadBtn, uploading && { opacity: 0.6 }]}
-              onPress={pickScreenshot}
-              disabled={uploading || submitting || Platform.OS !== "web"}
-              testID="proof-pick-btn"
-            >
-              {uploading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
-              )}
-              <Text style={styles.uploadTxt}>
-                {uploading ? "Envoi…" : proofUrl ? "Remplacer la capture" : "Importer une capture d'écran"}
-              </Text>
-            </TouchableOpacity>
-
-            {proofUrl && previewUri ? (
-              <View style={styles.previewBox}>
-                <Image source={{ uri: previewUri }} style={styles.previewImg} resizeMode="cover" />
-                <Text style={styles.previewOk}>✓ Capture prête à être envoyée</Text>
-              </View>
-            ) : null}
-
-            {proofErr ? <Text style={styles.errTxt}>{proofErr}</Text> : null}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={closeProof}
-                style={styles.cancelBtn}
-                disabled={submitting || uploading}
-                testID="proof-cancel-btn"
-              >
-                <Text style={styles.cancelTxt}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={submitProof}
-                style={[styles.submitBtn, (!proofUrl || submitting) && { opacity: 0.5 }]}
-                disabled={!proofUrl || submitting || uploading}
-                testID="proof-submit-btn"
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.submitTxt}>Valider & recevoir</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {Platform.OS === "web" && (
-              // @ts-ignore raw html input on web only
-              <input
-                ref={fileInputRef as any}
-                type="file"
-                accept="image/*"
-                style={{ display: "none" }}
-                onChange={(e: any) => handleFile(e?.target?.files?.[0])}
-              />
-            )}
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+      <BottomNav />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14,
-    backgroundColor: theme.colors.primary,
-  },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  header: { paddingHorizontal: 14, paddingBottom: 14 },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 },
+  back: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center", justifyContent: "center",
   },
-  title: { color: "#fff", fontWeight: "900", fontSize: 18 },
-  list: { padding: 16, gap: 12 },
-  intro: { color: theme.colors.textSecondary, fontSize: 13, marginBottom: 4 },
-  card: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    padding: 14, borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.border,
-  },
-  iconBox: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center", justifyContent: "center",
-  },
-  cardTitle: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 15 },
-  cardSub: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 },
-  soonBadge: {
-    backgroundColor: theme.colors.warning,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14,
-  },
-  soonText: { color: "#fff", fontWeight: "800", fontSize: 10 },
-  newBadge: {
-    backgroundColor: "#EF4444",
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
-  },
-  newBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9, letterSpacing: 0.5 },
-  iconBadge: {
-    position: "absolute", top: -4, right: -4,
-    minWidth: 20, height: 20, borderRadius: 12,
-    backgroundColor: "#EF4444",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#fff",
-    paddingHorizontal: 4,
-  },
-  iconBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 10 },
-  doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
-  doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
+  title: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: -0.2 },
+  subtitle: { color: "#A5C2FF", fontSize: 11, marginTop: 2 },
 
-  // Modal
-  modalOverlay: {
-    flex: 1, backgroundColor: "rgba(11,45,111,0.55)",
-    alignItems: "center", justifyContent: "center", padding: 20,
-  },
-  modalCard: {
-    width: "100%", maxWidth: 480,
-    backgroundColor: "#fff", borderRadius: 24, padding: 20,
-  },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     marginBottom: 14,
+    ...theme.shadow.card,
   },
-  modalTitle: { fontSize: 18, fontWeight: "900", color: theme.colors.textPrimary },
-  modalStep: { fontSize: 13, color: theme.colors.textSecondary, marginBottom: 8, lineHeight: 19 },
-  uploadBtn: {
-    marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 14,
+  iconWrap: {
+    width: 60, height: 60, borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
   },
-  uploadTxt: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  previewBox: {
-    marginTop: 12, borderRadius: 14, overflow: "hidden",
-    borderWidth: 1, borderColor: theme.colors.border,
+  cardTitle: {
+    fontSize: 15, fontWeight: "900",
+    color: theme.colors.textPrimary, letterSpacing: -0.2,
   },
-  previewImg: { width: "100%", height: 180, backgroundColor: "#F1F5F9" },
-  previewOk: { color: theme.colors.success, fontWeight: "700", fontSize: 12, padding: 8, textAlign: "center" },
-  errTxt: { color: theme.colors.danger, fontSize: 12, marginTop: 10, fontWeight: "600" },
-  modalActions: { flexDirection: "row", gap: 10, marginTop: 18 },
-  cancelBtn: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 14,
-    borderWidth: 1.5, borderColor: theme.colors.border,
+  cardSub: {
+    fontSize: 12, color: theme.colors.textSecondary,
+    marginTop: 4, lineHeight: 18,
   },
-  cancelTxt: { color: theme.colors.textSecondary, fontWeight: "700" },
-  submitBtn: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 14,
-    backgroundColor: theme.colors.success,
+  seeMoreBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    marginTop: 10,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: theme.colors.primaryBg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  submitTxt: { color: "#fff", fontWeight: "900" },
+  seeMoreTxt: {
+    color: theme.colors.primary,
+    fontWeight: "900",
+    fontSize: 14,
+  },
 });
