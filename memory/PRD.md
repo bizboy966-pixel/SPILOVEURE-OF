@@ -21,6 +21,35 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v18) — 🚧 Fonctionnalités en développement + séparation Portefeuille / Solde
+
+**Demande utilisateur** :
+1. Trading, IA SPV, Dépôt, Envoyer, Échange doivent afficher "Bientôt disponible" (fonctionnalités en développement).
+2. Le "Portefeuille" affiché sur le hero doit refléter UNIQUEMENT les dépôts confirmés, JAMAIS les commissions/gains qui restent dans "Solde disponible".
+
+**Frontend** :
+- Nouveau composant réutilisable `src/components/ComingSoonScreen.tsx` — template pro (icône colorée, message "Bientôt disponible", bouton "Retour à l'accueil"). Bottom-nav flottante préservée.
+- Pages remplacées par `ComingSoonScreen` :
+  - `/(app)/trading.tsx` — icône trending-up bleu clair
+  - `/(app)/spvia.tsx` — icône sparkles violet
+  - `/(app)/depot.tsx` (nouveau) — icône arrow-down-circle vert
+  - `/(app)/envoyer.tsx` (nouveau) — icône paper-plane bleu
+  - `/(app)/echanger.tsx` (nouveau) — icône swap-horizontal or
+- `dashboard.tsx` — les Quick Actions Dépôt/Envoyer/Échanger routent désormais vers les nouvelles pages "Bientôt disponible" (au lieu de `/recharger` et `soon()` alert).
+- `DashboardHero.tsx` — nouvelle logique **Portefeuille = wallet_deposit_balance uniquement** (JAMAIS `balance_profit`). Sous-titre changé de "Solde disponible" à "Total des dépôts". La 3ᵉ mini-stat "Solde dispo." continue d'afficher `balance_profit` (commissions/gains).
+
+**Backend** (`server.py::/api/dashboard`) :
+- Nouveau champ dans le payload : `wallet_deposit_balance` = `user.wallet_deposit_balance` ou `0.0`. Il reste à `0` par défaut tant que le Dépôt n'est pas re-lancé.
+- **Aucune modification** des calculs commissions, balance_profit, balance_upgrade, total_profit, spillover, matrices, retraits.
+
+**Distinction claire** (essentielle) :
+- **Compte inactif + action protégée** → modal "Activez votre compte" (v16, bouton *Activer mon compte*)
+- **Fonctionnalité en développement** → page "Bientôt disponible" (v18, bouton *Retour à l'accueil*)
+
+**testIDs** : `trading-soon`, `spvia-soon`, `depot-soon`, `envoyer-soon`, `echanger-soon`, `dashboard-wallet-amount`.
+
+---
+
 ### 2026-02-14 (v17) — 📋 Réorganisation espace Tâches
 
 **Demande utilisateur** : simplifier l'accueil Tâches. Ne montrer que 2 grandes cartes prioritaires ("Missions rémunérées" + "Publicités rémunérées") et regrouper le reste (Tâches spéciales, Challenges, liste des tâches actives) derrière un bouton "Voir plus".

@@ -185,6 +185,12 @@ export const DashboardHero: React.FC<Props> = ({
   const trend = stats?.trend || {};
   const total_profit = stats?.total_profit || 0;
   const balance_profit = stats?.balance_profit || 0;
+  // v18 (2026-02-14) — Portefeuille reflects ONLY confirmed deposits. It
+  // is NOT the same as balance_profit (which mixes commissions/rewards).
+  // Backend exposes `wallet_deposit_balance` (defaults to 0 until the
+  // Dépôt flow ships). Never fall back to balance_profit here — the two
+  // values must remain visually and financially separated.
+  const wallet_deposit = stats?.wallet_deposit_balance ?? 0;
   const level = user?.max_level ?? 0;
 
   return (
@@ -241,7 +247,7 @@ export const DashboardHero: React.FC<Props> = ({
               adjustsFontSizeToFit
               testID="dashboard-wallet-amount"
             >
-              {balanceHidden ? "••••••" : formatFCFA(balance_profit)}
+              {balanceHidden ? "••••••" : formatFCFA(wallet_deposit)}
             </Text>
             <TouchableOpacity
               style={styles.eyeBtn}
@@ -255,7 +261,7 @@ export const DashboardHero: React.FC<Props> = ({
               <Ionicons name="chevron-down" size={11} color="#fff" />
             </View>
           </View>
-          <Text style={styles.walletHint}>Solde disponible</Text>
+          <Text style={styles.walletHint}>Total des dépôts</Text>
         </View>
       </View>
 

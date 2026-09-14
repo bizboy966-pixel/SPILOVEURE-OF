@@ -26,10 +26,10 @@ import { useActivationGuard } from "@/src/components/ActivationGuard";
 const QUICK_ACTIONS: Array<{
   key: string; label: string; icon: any; color: string; bg: string; route?: string;
 }> = [
-  { key: "deposit",  label: "Dépôt",    icon: "arrow-down-circle", color: "#10B981", bg: "#D1FAE5", route: "/(app)/recharger" },
+  { key: "deposit",  label: "Dépôt",    icon: "arrow-down-circle", color: "#10B981", bg: "#D1FAE5", route: "/(app)/depot" },
   { key: "withdraw", label: "Retrait",  icon: "arrow-up-circle",   color: "#EF4444", bg: "#FEE2E2" },
-  { key: "send",     label: "Envoyer",  icon: "paper-plane",       color: "#1B5BFF", bg: "#DBEAFE" },
-  { key: "exchange", label: "Échanger", icon: "swap-horizontal",   color: "#F59E0B", bg: "#FEF3C7" },
+  { key: "send",     label: "Envoyer",  icon: "paper-plane",       color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/envoyer" },
+  { key: "exchange", label: "Échanger", icon: "swap-horizontal",   color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/echanger" },
 ];
 
 /* -------------------------------------------------------------

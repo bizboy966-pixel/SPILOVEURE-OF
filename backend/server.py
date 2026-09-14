@@ -872,6 +872,11 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "balance_total": user.get("balance_profit", 0) + user.get("balance_upgrade", 0),
         "balance_profit": user.get("balance_profit", 0),
         "balance_upgrade": user.get("balance_upgrade", 0),
+        # v18 (2026-02-14) — wallet_deposit_balance is a NEW field that
+        # tracks ONLY confirmed deposit/recharge amounts. It MUST stay
+        # separated from commissions/rewards which live in balance_profit.
+        # Default to 0 until the Dépôt flow ships.
+        "wallet_deposit_balance": float(user.get("wallet_deposit_balance", 0) or 0),
         "commission_direct": user.get("commission_direct", 0),
         "commission_spillover": user.get("commission_spillover", 0),
         "total_profit": total_profit,
