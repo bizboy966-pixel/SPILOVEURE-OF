@@ -79,10 +79,19 @@ async def mark_read(notif_id: str, request: Request, user=Depends(get_current_us
 
 @router.post("/mark-all-read")
 async def mark_all_read(request: Request, user=Depends(get_current_user)):
-    """Idempotently mark every notification for this user as read."""
     db = request.app.state.db
     r = await db.notifications.update_many(
         {"user_id": user["id"], "read": False},
         {"$set": {"read": True, "read_at": datetime.now(timezone.utc)}},
     )
-    return {"ok": True, "updated": int(r.modified_count)}
+    return {"ok": True, "updated": r.modified_count}
+
+
+@router.delete("/all")
+async def delete_all(request: Request, user=Depends(get_current_user)):
+    """v25 (2026-02-14) — wipe every notification for the current user.
+    Powers the "Tout supprimer" button in the frontend notif center.
+    Historical transactions are NOT affected — they live in db.transactions."""
+    db = request.app.state.db
+    r = await db.notifications.delete_many({"user_id": user["id"]})
+    return {"ok": True, "deleted": r.deleted_count}

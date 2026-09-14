@@ -101,6 +101,12 @@ export const ActivationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     "/(app)/missions",
     "/(app)/reactor-rewards",
     "/(app)/profile",
+    "/(app)/notifications",
+    // v25 (2026-02-14) — Dépôt / Envoyer / Échanger débloqués pour les
+    // comptes non activés (spec: mode consultation + 3 exceptions).
+    "/(app)/depot",
+    "/(app)/envoyer",
+    "/(app)/echanger",
   ]), []);
 
   const guardedNavigate = useCallback((path: string, extra?: () => void) => {

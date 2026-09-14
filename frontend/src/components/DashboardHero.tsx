@@ -193,17 +193,17 @@ export const DashboardHero: React.FC<Props> = ({
   const wallet_deposit = stats?.wallet_deposit_balance ?? 0;
   const level = user?.max_level ?? 0;
 
-  // v22 (2026-02-14) — the currency chip on the wallet row is now a
-  // real selector: XOF (default) / XAF / USDT. Rate 1 USDT = 500 FCFA
-  // per the canonical business rate hard-coded in the backend
-  // (server.py line ~2914). XAF is 1:1 with XOF in-app.
+  // v22 (2026-02-14) — the currency chip on the wallet row is a real
+  // selector: XOF (default) / XAF / USD. Internal identifier stays
+  // "USDT" for backward compatibility with the backend rate, but the
+  // UI displays "USD" per user request (v25, 2026-02-14).
   const [currency, setCurrency] = useState<"XOF" | "XAF" | "USDT">("XOF");
   const [currencyOpen, setCurrencyOpen] = useState(false);
 
   const formatAmount = (fcfa: number) => {
     if (currency === "USDT") {
-      const usdt = (fcfa || 0) / 500;
-      return `${usdt.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+      const usd = (fcfa || 0) / 500;
+      return `${usd.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
     }
     // XOF and XAF share the same numeric display — only the suffix changes.
     const n = Math.round(fcfa || 0).toLocaleString("fr-FR").replace(/,/g, "\u202f");
@@ -279,7 +279,7 @@ export const DashboardHero: React.FC<Props> = ({
               activeOpacity={0.8}
               testID="dashboard-currency-btn"
             >
-              <Text style={styles.currencyPillTxt}>{currency}</Text>
+              <Text style={styles.currencyPillTxt}>{currency === "USDT" ? "USD" : currency}</Text>
               <Ionicons name="chevron-down" size={11} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -368,11 +368,11 @@ export const DashboardHero: React.FC<Props> = ({
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.currencyRowLabel}>{c}</Text>
+                    <Text style={styles.currencyRowLabel}>{c === "USDT" ? "USD" : c}</Text>
                     <Text style={styles.currencyRowSub}>
                       {c === "XOF" && "Franc CFA (UEMOA)"}
                       {c === "XAF" && "Franc CFA (CEMAC)"}
-                      {c === "USDT" && "Tether (1 USDT = 500 FCFA)"}
+                      {c === "USDT" && "Tether (TT)"}
                     </Text>
                   </View>
                   {active ? (

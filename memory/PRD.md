@@ -3614,3 +3614,28 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - Metro tourne en `CI=1` mode (pas de watch). Un changement de code peut nécessiter `supervisorctl restart frontend` pour purger le cache de bundle SSR.
 - AsyncStorage web v2 stocke dans `localStorage` (clé `auth_token`, valeur JSON.stringified).
 - React Native `Alert.alert` ne fonctionne pas sur Expo Web — utiliser `window.confirm`/`window.alert` côté web.
+
+### 2026-02-14 (v25) — 🔔 Centre de notifications + 3 quick actions dépublock + label USD
+
+**Demandes** :
+1. Cloche du dashboard 100 % fonctionnelle : badge non-lues, page dédiée `/notifications` avec icônes/titres/dates + boutons "Tout marquer lu" et "Tout supprimer".
+2. Dépôt / Envoyer / Échanger accessibles aux comptes pending (menant simplement aux pages "Bientôt disponible", plus de modal d'activation forcé).
+3. Sélecteur de devise : afficher "USD" (au lieu de "USDT") avec sous-titre "Tether (TT)" ; supprimer tout texte "1 USD = 500 FCFA".
+
+**Backend** — `notifications_api.py` :
+- `GET /api/me/notifications` (paginé, filtrable `unread_only`, `since`).
+- `GET /api/me/notifications/unread-count`.
+- `POST /api/me/notifications/{id}/read`.
+- `POST /api/me/notifications/mark-all-read`.
+- `DELETE /api/me/notifications/all` — supprime uniquement les notifs du user courant.
+- Nettoyage : suppression d'un doublon `mark_all_read` (F811).
+
+**Frontend** :
+- `app/(app)/notifications.tsx` — écran plein-écran, FlatList + refresh, badge non-lues, boutons "Tout marquer lu" + "Tout supprimer" (avec `window.confirm`), icônes par `kind`.
+- `ActivationGuard.tsx` — allow-list pending étendue : `/notifications`, `/depot`, `/envoyer`, `/echanger` (les pages elles-mêmes affichent "Bientôt disponible").
+- `DashboardHero.tsx` — pill devise : label affiche "USD" (l'identifiant interne reste `"USDT"` pour compatibilité), sous-titre "Tether (TT)", conversion silencieuse (500 FCFA/USD) sans afficher le taux.
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Backend endpoints protégés 401 sans auth ; avec token admin : liste OK (3 items), mark-all-read OK, delete-all OK (23 supprimés).
+- ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
+- ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
