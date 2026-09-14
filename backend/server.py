@@ -793,7 +793,16 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         spillover_active = await db.users.count_documents({"id": {"$in": spillover_active_ids}, "status": "active"})
     cur = user.get("max_level", 0)
     level_info = LEVELS_BY_NUM.get(cur) if cur else None
-    total_profit = float(user.get("commission_direct", 0) or 0) + float(user.get("commission_spillover", 0) or 0)
+    # v19 (2026-02-14) — `total_profit` reflects ALL profit-side inflows,
+    # not only the automatic commission attributions. Admin-side credits
+    # (bucket=profit OR upgrade) are tracked in `admin_credit_total` so
+    # they surface on the Profit Total card. Withdrawals never affect
+    # this cumulative number (they only reduce `balance_profit`).
+    total_profit = (
+        float(user.get("commission_direct", 0) or 0)
+        + float(user.get("commission_spillover", 0) or 0)
+        + float(user.get("admin_credit_total", 0) or 0)
+    )
 
     # ─── Daily activity trend (v14 dashboard hero) ──────────────
     # Compute the daily variation (%) between today and yesterday for
@@ -879,6 +888,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "wallet_deposit_balance": float(user.get("wallet_deposit_balance", 0) or 0),
         "commission_direct": user.get("commission_direct", 0),
         "commission_spillover": user.get("commission_spillover", 0),
+        "admin_credit_total": float(user.get("admin_credit_total", 0) or 0),
         "total_profit": total_profit,
         "total_withdrawn": float(user.get("total_withdrawn", 0) or 0),
         "direct_count": direct_count,
@@ -3126,7 +3136,14 @@ async def admin_user_action(user_id: str, data: AdminUserActionIn, request: Requ
         if bucket not in ("profit", "upgrade"):
             raise HTTPException(400, "Bucket invalide (profit ou upgrade).")
         field = "balance_profit" if bucket == "profit" else "balance_upgrade"
-        await db.users.update_one({"id": user_id}, {"$inc": {field: int(data.amount)}})
+        # v19 (2026-02-14) — admin credits (profit OR upgrade) MUST also
+        # bump `admin_credit_total` so they surface on the user's Profit
+        # Total card. Without this, admin adjustments would silently
+        # disappear from the cumulative profit display.
+        await db.users.update_one(
+            {"id": user_id},
+            {"$inc": {field: int(data.amount), "admin_credit_total": int(data.amount)}},
+        )
     elif action == "debit_wallet":
         if not data.amount or data.amount <= 0:
             raise HTTPException(400, "Montant invalide.")
@@ -3137,7 +3154,11 @@ async def admin_user_action(user_id: str, data: AdminUserActionIn, request: Requ
         current = target.get(field, 0)
         if current < int(data.amount):
             raise HTTPException(400, "Solde insuffisant pour ce débit.")
-        await db.users.update_one({"id": user_id}, {"$inc": {field: -int(data.amount)}})
+        # Mirror the credit path : debits reduce the cumulative admin bump.
+        await db.users.update_one(
+            {"id": user_id},
+            {"$inc": {field: -int(data.amount), "admin_credit_total": -int(data.amount)}},
+        )
     elif action == "make_admin":
         updates["role"] = "admin"
     elif action == "remove_admin":

@@ -235,6 +235,65 @@ export default function Dashboard() {
             );
           })}
         </View>
+
+        {/* ─── Commissions duo card (v19) ─── */}
+        <View style={styles.commissionsDuo} testID="dashboard-commissions-duo">
+          <LinearGradient
+            colors={["#0E1F4F", "#1B5BFF"] as any}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.commissionCard}
+          >
+            <View style={styles.commissionHead}>
+              <View style={[styles.commissionIcon, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
+                <Ionicons name="git-branch" size={20} color="#93C5FD" />
+              </View>
+              <View style={styles.commissionMeta}>
+                <Text style={styles.commissionLabel}>Commissions</Text>
+                <Text style={styles.commissionSubLabel}>Directes</Text>
+              </View>
+            </View>
+            <Text
+              style={styles.commissionValue}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              testID="dashboard-commission-direct"
+            >
+              {balanceHidden ? "••••••" : formatFCFA(stats?.commission_direct)}
+            </Text>
+            <View style={styles.commissionFoot}>
+              <Ionicons name="person" size={11} color="#93C5FD" />
+              <Text style={styles.commissionFootTxt}>Filleuls directs</Text>
+            </View>
+          </LinearGradient>
+
+          <LinearGradient
+            colors={["#7B61FF", "#A855F7"] as any}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.commissionCard}
+          >
+            <View style={styles.commissionHead}>
+              <View style={[styles.commissionIcon, { backgroundColor: "rgba(255,255,255,0.22)" }]}>
+                <Ionicons name="git-network" size={20} color="#F5F3FF" />
+              </View>
+              <View style={styles.commissionMeta}>
+                <Text style={styles.commissionLabel}>Commissions</Text>
+                <Text style={styles.commissionSubLabel}>Spillover</Text>
+              </View>
+            </View>
+            <Text
+              style={styles.commissionValue}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              testID="dashboard-commission-spillover"
+            >
+              {balanceHidden ? "••••••" : formatFCFA(stats?.commission_spillover)}
+            </Text>
+            <View style={styles.commissionFoot}>
+              <Ionicons name="people" size={11} color="#F5F3FF" />
+              <Text style={styles.commissionFootTxt}>Réseau indirect</Text>
+            </View>
+          </LinearGradient>
+        </View>
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
@@ -345,6 +404,73 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: theme.colors.textPrimary,
     textAlign: "center",
+  },
+
+  commissionsDuo: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  commissionCard: {
+    flex: 1,
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    shadowColor: "#0B2D6F",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 6,
+    overflow: "hidden",
+  },
+  commissionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  commissionIcon: {
+    width: 38, height: 38, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  commissionMeta: { flex: 1 },
+  commissionLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  commissionSubLabel: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: -0.1,
+    marginTop: 1,
+  },
+  commissionValue: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
+  commissionFoot: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.14)",
+  },
+  commissionFootTxt: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 10,
+    fontWeight: "700",
   },
 
   linkBox: { backgroundColor: theme.colors.surfaceMuted, padding: 14, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border },

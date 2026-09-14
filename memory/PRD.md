@@ -21,6 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v19) — 💳 Crédits admin cumulés dans Profit Total + duo cartes commissions
+
+**Demande utilisateur** :
+1. Quand l'admin crédite un compte utilisateur (profit ou upgrade), le montant doit apparaître dans "Profit Total". Actuellement il ne s'affiche pas car `total_profit = commission_direct + commission_spillover` uniquement.
+2. Ajouter en dessous des 8 cartes "Nos services" deux nouvelles cartes combinées (Commissions Directes + Commissions Spillover) au style professionnel amélioré.
+
+**Backend** (`server.py`) :
+- Endpoint admin `POST /admin/users/{user_id}/action` — actions `credit_wallet` et `debit_wallet` :
+  - Le crédit incrémente désormais aussi le nouveau champ `admin_credit_total` (idem debit qui le décrémente).
+  - Aucune modification du bucket cible (balance_profit / balance_upgrade).
+- `GET /api/dashboard` — nouvelle formule :
+  ```
+  total_profit = commission_direct + commission_spillover + admin_credit_total
+  ```
+  Le payload expose aussi `admin_credit_total` pour l'audit côté client.
+- Test regression `tests/test_v19_admin_credit_profit.py` — crédite l'admin de 500 FCFA, vérifie que `total_profit` a augmenté de 500, `admin_credit_total ≥ 500`, puis nettoie via debit. **PASS** ✅.
+
+**Frontend** (`app/(app)/dashboard.tsx`) :
+- Ajout d'un **duo de cartes premium** juste sous "Nos services" (`testID="dashboard-commissions-duo"`) :
+  - Gauche : **Commissions Directes** — gradient bleu marine → bleu cobalt, icône `git-branch`, sous-titre "Filleuls directs"
+  - Droite : **Commissions Spillover** — gradient violet → magenta, icône `git-network`, sous-titre "Réseau indirect"
+- Chaque carte : icône ronde translucide, label "COMMISSIONS" (uppercase) + sous-label bold, montant en gros (masquable via `balanceHidden`), séparateur puis footer avec icône + texte descriptif.
+- Format monétaire réutilise `formatFCFA()`, cohérent avec le reste du dashboard.
+
+**Aucun autre changement** — les calculs de commissions (matrix.py, direct/spillover repartition, upgrade reserve, etc.) restent stricts.
+
+**testIDs** : `dashboard-commissions-duo`, `dashboard-commission-direct`, `dashboard-commission-spillover`.
+
+---
+
 ### 2026-02-14 (v18) — 🚧 Fonctionnalités en développement + séparation Portefeuille / Solde
 
 **Demande utilisateur** :
