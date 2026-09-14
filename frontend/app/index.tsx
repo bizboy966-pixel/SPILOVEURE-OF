@@ -20,9 +20,13 @@ export default function Index() {
     if (user) {
       if (user.role === "admin") {
         router.replace("/(admin)");
-      } else if (user.status === "pending" || user.max_level === 0) {
-        router.replace("/(app)/pay");
       } else {
+        // v16 (2026-02-14) — new activation flow.
+        // Pending users are no longer bounced to /pay. They land on the
+        // dashboard and can browse the platform freely. The activation
+        // modal only pops when they try to run a protected action (via
+        // `useActivationGuard()`), and the backend still enforces the
+        // rule on protected endpoints (withdrawal, etc.).
         router.replace("/(app)/dashboard");
       }
       return;

@@ -21,6 +21,34 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v16) — 🔐 Nouveau flow d'activation "consultation libre, action bloquée"
+
+**Demande utilisateur** : un utilisateur inactif doit pouvoir naviguer partout dans SPILOVEURE — dashboard, pages, sections. Le blocage n'intervient QUE lorsqu'il tente une action protégée (retrait, publier, etc.). Exceptions : Dépôt / Envoyer / Échange / Tâches restent accessibles sans activation.
+
+**Frontend** :
+- `(app)/_layout.tsx` refondu — **suppression totale du redirect `router.replace("/(app)/pay")`** pour les users pending. Le layout ne gère plus que l'auth (not-logged-in → /login).
+- Nouveau composant **`src/components/ActivationGuard.tsx`** :
+  - `<ActivationProvider>` — wrapper monté dans `_layout.tsx`, expose un contexte React.
+  - Hook `useActivationGuard()` — retourne `{ isActive, isPending, guardAction, showModal, hideModal }`.
+  - `guardAction(fn)` — exécute `fn` si activé, sinon ouvre le modal.
+  - Modal global centralisé (icône bouclier or, "Compte non activé", "Activez votre compte…", boutons **"Activer mon compte"** → `/pay` et **"Plus tard"**).
+- `dashboard.tsx` — Quick Action **Retrait** wrappée dans `guardAction()`. Dépôt/Envoyer/Échanger restent directs.
+
+**Backend** (`server.py`) :
+- `POST /api/withdrawals` — nouveau guard en tête de la fonction : si `user.status != "active"` ET `user.max_level < 1`, renvoie `HTTP 403 { detail: "ACTIVATION_REQUIRED" }`. Aucun contournement possible via appel API direct.
+- Nouveau test `tests/test_v16_activation_guard.py` — crée un user pending, tente `/withdrawals`, exige 401/403 (jamais 200).
+
+**Règles préservées** :
+- Tâches : participation + gain crédité fonctionnent sans activation (aucun changement backend nécessaire).
+- Retrait des tâches : suivra le même pattern (guard 403) — sera protégé sur l'endpoint mission_withdrawals lorsqu'il sera ajouté.
+- Aucune modification des passerelles, matrices, commissions, spillover, dépôts, transactions, marketplace, ads, jobs.
+
+**Testabilité (frontend)** : `guardAction` peut être réutilisé sur n'importe quel bouton d'action protégée (publier annonce, publier marketplace, publier emploi, commenter, retirer, etc.) simplement en wrappant le `onPress`. Aucune duplication de logique par écran.
+
+**testIDs** : `activation-required-modal`, `activation-required-primary`, `activation-required-close`.
+
+---
+
 ### 2026-02-14 (v15) — 🧭 Réorganisation "Nos services" (dashboard + Voir tout)
 
 **Demande utilisateur** : "Nos services" doit afficher exactement 8 cartes en 2 × 4 sur l'accueil, un bouton "Voir tout" ouvre le catalogue complet. Bouton flottant → Telegram direct. Profil → lien d'inscription visible en premier.

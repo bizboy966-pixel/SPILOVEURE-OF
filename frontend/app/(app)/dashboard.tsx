@@ -18,6 +18,7 @@ import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
 import { useServiceBadges } from "@/src/hooks/useServiceBadges";
+import { useActivationGuard } from "@/src/components/ActivationGuard";
 
 /* -------------------------------------------------------------
  * Quick action pills — Depot / Retrait / Envoyer / Echanger.
@@ -60,6 +61,7 @@ export default function Dashboard() {
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
   const badges = useServiceBadges();
+  const { guardAction } = useActivationGuard();
 
   // NOTE: activation guard is centralised in `(app)/_layout.tsx`.
   useEffect(() => {
@@ -170,20 +172,30 @@ export default function Dashboard() {
 
         {/* ─── Quick Actions ─── */}
         <View style={styles.quickActionsRow} testID="dashboard-quick-actions">
-          {QUICK_ACTIONS.map((a) => (
-            <TouchableOpacity
-              key={a.key}
-              style={styles.quickAction}
-              onPress={() => (a.route ? router.push(a.route as any) : soon())}
-              activeOpacity={0.85}
-              testID={`quick-action-${a.key}`}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: a.bg }]}>
-                <Ionicons name={a.icon} size={22} color={a.color} />
-              </View>
-              <Text style={styles.quickActionLabel}>{a.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {QUICK_ACTIONS.map((a) => {
+            // Per spec v16 : Dépôt / Envoyer / Échanger are accessible
+            // to pending users; Retrait is protected (activation modal).
+            const isProtected = a.key === "withdraw";
+            const handle = () => {
+              const run = () => (a.route ? router.push(a.route as any) : soon());
+              if (isProtected) guardAction(run);
+              else run();
+            };
+            return (
+              <TouchableOpacity
+                key={a.key}
+                style={styles.quickAction}
+                onPress={handle}
+                activeOpacity={0.85}
+                testID={`quick-action-${a.key}`}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: a.bg }]}>
+                  <Ionicons name={a.icon} size={22} color={a.color} />
+                </View>
+                <Text style={styles.quickActionLabel}>{a.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* ─── Nos services (8 raccourcis stricts) ─── */}

@@ -930,6 +930,11 @@ async def save_wallet(data: WalletIn, request: Request, user=Depends(get_current
 @api.post("/withdrawals")
 async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(require_pwd_confirm)):
     db = request.app.state.db
+    # ⚡ Activation guard (v16) — MLM withdrawals require an activated account.
+    # Frontend shows an "Activate your account" modal for pending users, but
+    # the backend enforces the rule so the endpoint can never be bypassed.
+    if (user.get("status") != "active") and (int(user.get("max_level") or 0) < 1):
+        raise HTTPException(403, "ACTIVATION_REQUIRED")
     if user.get("withdrawals_disabled"):
         raise HTTPException(403, "Retraits désactivés par l’administrateur.")
     wallet = await db.wallets.find_one({"user_id": user["id"]})
