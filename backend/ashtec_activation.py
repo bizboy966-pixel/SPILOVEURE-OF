@@ -66,9 +66,13 @@ def _normalize_phone(phone: str, country_code: str) -> str:
 # Values can be overridden via .env without a redeploy.
 ACTIVATION_LEVEL: int = 1
 COUNTDOWN_MINUTES: int = 10
+# v20 (2026-02-14) — mobile-money activation fee bumped from 2 500 to
+# 2 650 FCFA on the product owner's decision. Crypto side is unaffected
+# (still 5 USDT ≈ 2 500 FCFA canonical) because it does not read this
+# table. Values remain overridable via .env without a redeploy.
 ACTIVATION_AMOUNT_BY_CURRENCY: dict[str, float] = {
-    "XOF": float(os.environ.get("ACTIVATION_AMOUNT_XOF") or 2500),
-    "XAF": float(os.environ.get("ACTIVATION_AMOUNT_XAF") or 2500),
+    "XOF": float(os.environ.get("ACTIVATION_AMOUNT_XOF") or 2650),
+    "XAF": float(os.environ.get("ACTIVATION_AMOUNT_XAF") or 2650),
     "CDF": float(os.environ.get("ACTIVATION_AMOUNT_CDF") or 12500),
 }
 # Default legacy amount for callers that don't know the currency yet.

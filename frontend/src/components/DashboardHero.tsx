@@ -274,7 +274,7 @@ export const DashboardHero: React.FC<Props> = ({
           bg="rgba(16,185,129,0.18)"
           border="rgba(16,185,129,0.45)"
           label="Activation"
-          value={balanceHidden ? "•••" : "2 500 FCFA"}
+          value={balanceHidden ? "•••" : "2 650 FCFA"}
           hint={level >= 1 ? `Niveau ${level} activé` : "Non activé"}
           trendPct={trend.activation_pct ?? 0}
           series={trend.activation_series || [0, 0, 0, 0, 0, 0, 0]}

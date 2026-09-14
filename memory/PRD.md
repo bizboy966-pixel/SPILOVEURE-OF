@@ -21,6 +21,27 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v20) — 💵 Frais d'activation Mobile Money 2 500 → 2 650 FCFA
+
+**Demande utilisateur** : le frais d'activation côté FCFA passe de 2 500 à 2 650 FCFA à partir d'aujourd'hui. Le côté crypto (5 USDT) reste inchangé.
+
+**Backend** :
+- `ashtec_activation.py` — `ACTIVATION_AMOUNT_BY_CURRENCY` : XOF/XAF default **2650** (CDF reste 12 500). Toujours overridable via `ACTIVATION_AMOUNT_XOF` / `ACTIVATION_AMOUNT_XAF` en env.
+- `server.py` — nouveau helper `_mobile_activation_amount(currency)` qui lit `ACTIVATION_AMOUNT_BY_CURRENCY`. Utilisé dans les 3 flux mobile-money Level 1 :
+  - SoleasPay `POST /activations` (bloc `gw == "soleas"`) — était `LEVELS_BY_NUM[1]["price"]`
+  - AshtecPay `POST /activations` (bloc `gw == "ashtec"`) — même remplacement
+  - Manual mobile `POST /activations/manual-request` — même remplacement
+- Flux **crypto INCHANGÉ** : `POST /activations/crypto-request` continue de lire `LEVELS_BY_NUM[1]["price"] = 2500` pour la trace FCFA-equivalente à côté des 5 USDT réellement débités.
+- `LEVELS_BY_NUM[1]` **strictement conservé** (invites=2, commission_per_invite=2000, upgrade_reserve=1000, profit=3000) — les 150 FCFA supplémentaires vont à la plateforme (platform_fee effectif = 650 côté mobile money).
+- Série activation dashboard mise à jour (2500 → 2650) pour cohérence visuelle.
+
+**Frontend** :
+- `DashboardHero.tsx` — carte Activation affiche désormais **"2 650 FCFA"**.
+
+**Tests** : `tests/test_v20_activation_fee_2650.py` — 3 tests (ashtec defaults / server helper / levels intacts). **3/3 PASS** ✅.
+
+---
+
 ### 2026-02-14 (v19) — 💳 Crédits admin cumulés dans Profit Total + duo cartes commissions
 
 **Demande utilisateur** :

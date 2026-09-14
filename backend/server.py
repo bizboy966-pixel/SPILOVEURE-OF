@@ -37,6 +37,25 @@ from auth import (  # noqa: E402
     get_current_user, require_admin, require_pwd_confirm,
 )
 from levels import LEVELS, LEVELS_BY_NUM, COUNTRIES, OPERATORS_BY_COUNTRY  # noqa: E402
+
+
+def _mobile_activation_amount(currency: str = "XOF") -> float:
+    """v20 (2026-02-14) — mobile-money Level 1 activation fee.
+
+    Bumped from 2 500 to 2 650 FCFA per product owner request. Crypto
+    (5 USDT ≈ 2 500 FCFA) still reads `LEVELS_BY_NUM[1]["price"]` so
+    the canonical matrix / commission math (invites=2, commission=2 000,
+    upgrade_reserve=1 000) stays untouched. Only the entry fee grows —
+    the extra 150 FCFA goes to the platform.
+    """
+    try:
+        from ashtec_activation import ACTIVATION_AMOUNT_BY_CURRENCY  # type: ignore
+        amt = ACTIVATION_AMOUNT_BY_CURRENCY.get((currency or "XOF").upper())
+        if amt:
+            return float(amt)
+    except Exception:
+        pass
+    return 2650.0
 from matrix import activate_level, try_auto_upgrade  # noqa: E402
 from models import (  # noqa: E402
     RegisterIn, LoginIn, TokenOut, ChangePasswordIn, ConfirmPasswordIn,
@@ -845,8 +864,8 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
             comm_by_day.get(k, 0.0) - wd_by_day.get(k, 0.0) for k in keys
         ]
 
-        # Activation series: 2500 XOF on the day the user was created /
-        # activated (level 1 flat fee). Non-zero only on that specific day.
+        # Activation series: 2650 XOF on the day the user was created /
+        # activated (level 1 flat fee, v20 bump). Non-zero only on that day.
         activation_series = [0.0] * 7
         created_at = user.get("created_at")
         if created_at and (user.get("max_level") or 0) >= 1:
@@ -858,7 +877,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
             if isinstance(created_at, datetime):
                 day_key = created_at.strftime("%Y-%m-%d")
                 if day_key in keys:
-                    activation_series[keys.index(day_key)] = 2500.0
+                    activation_series[keys.index(day_key)] = 2650.0
 
         def _pct(today_v: float, yest_v: float) -> float:
             if yest_v == 0:
@@ -2287,7 +2306,9 @@ async def payments_activate(
         if not svc:
             raise HTTPException(400, "Opérateur non disponible pour ce pays chez SoleasPay.")
         order_id = _new_order_id()
-        amount = LEVELS_BY_NUM[1]["price"]
+        # v20 (2026-02-14) — Level 1 mobile-money activation is now 2 650
+        # FCFA (bump from 2 500). Crypto path (5 USDT) is unchanged.
+        amount = _mobile_activation_amount(svc["currency"])
         currency = svc["currency"]
         now = datetime.now(timezone.utc)
         # Persist payment intent BEFORE calling provider to close idempotency gap.
@@ -2338,7 +2359,12 @@ async def payments_activate(
     if (gw == "ashtec"):
         try:
             from ashtec_activation import create_ashtec_payment  # type: ignore
-            amount = LEVELS_BY_NUM[1]["price"]
+            # v20 — mobile-money Level 1 activation = 2 650 FCFA.
+            _svc_curr = "XOF"
+            _country = COUNTRIES.get(cc) if isinstance(COUNTRIES, dict) else None
+            if isinstance(_country, dict):
+                _svc_curr = _country.get("currency") or "XOF"
+            amount = _mobile_activation_amount(_svc_curr)
             r = await create_ashtec_payment(
                 db=db, user=user, kind="activation",
                 amount=amount, country_code=cc,
@@ -2589,7 +2615,8 @@ async def create_manual_activation(
         }
 
     act_id = str(uuid.uuid4())
-    amount = LEVELS_BY_NUM[1]["price"]
+    # v20 — manual mobile-money Level 1 activation = 2 650 FCFA.
+    amount = _mobile_activation_amount("XOF")
     now = datetime.now(timezone.utc)
     await db.activations.insert_one({
         "id": act_id,
