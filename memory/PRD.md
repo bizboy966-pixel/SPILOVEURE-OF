@@ -21,6 +21,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v21-v22) — 🔗 Retrait couplé + sélecteur devise cliquable
+
+**v21 — Retrait couplé à Solde disponible**
+- `dashboard.tsx` — Quick Action **Retrait** pointe désormais vers `/(app)/withdrawal` (identique au clic sur la carte "Solde dispo." du hero).
+- Comportement double protection préservé :
+  - Compte actif → navigation directe vers `/withdrawal`
+  - Compte pending → modal "Compte non activé" (guard v16)
+  - API `POST /api/withdrawals` renvoie `403 ACTIVATION_REQUIRED` pour les pending (backend v16)
+
+**v22 — Sélecteur devise XOF / XAF / USDT**
+- `DashboardHero.tsx` — la pill `XOF ▾` devient un vrai bouton (`testID="dashboard-currency-btn"`) qui ouvre un bottom-sheet de sélection.
+- Modal `testID="dashboard-currency-modal"` avec 3 options (`dashboard-currency-option-{XOF|XAF|USDT}`) :
+  - **XOF** — Franc CFA (UEMOA)
+  - **XAF** — Franc CFA (CEMAC)
+  - **USDT** — Tether (rate 1 USDT = 500 FCFA canonique, cohérent avec `server.py`)
+- Le montant du Portefeuille est reformaté en temps réel selon la devise choisie via `formatAmount()` (2 décimales pour USDT, format `fr-FR` avec espace fine pour XOF/XAF).
+- L'état de la devise est local au composant (défaut XOF).
+
+**Aucune modification métier** — la devise choisie ne concerne QUE l'affichage. Les calculs de commissions, retraits, dépôts, matrix restent en FCFA.
+
+**testIDs** : `dashboard-currency-btn`, `dashboard-currency-modal`, `dashboard-currency-option-{XOF|XAF|USDT}`, `quick-action-withdraw`.
+
+---
+
 ### 2026-02-14 (v20) — 💵 Frais d'activation Mobile Money 2 500 → 2 650 FCFA
 
 **Demande utilisateur** : le frais d'activation côté FCFA passe de 2 500 à 2 650 FCFA à partir d'aujourd'hui. Le côté crypto (5 USDT) reste inchangé.

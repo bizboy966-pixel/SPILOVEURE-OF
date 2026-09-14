@@ -1,5 +1,5 @@
-import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
+import React, { useState } from "react";
+import { Modal, StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, {
@@ -193,6 +193,23 @@ export const DashboardHero: React.FC<Props> = ({
   const wallet_deposit = stats?.wallet_deposit_balance ?? 0;
   const level = user?.max_level ?? 0;
 
+  // v22 (2026-02-14) — the currency chip on the wallet row is now a
+  // real selector: XOF (default) / XAF / USDT. Rate 1 USDT = 500 FCFA
+  // per the canonical business rate hard-coded in the backend
+  // (server.py line ~2914). XAF is 1:1 with XOF in-app.
+  const [currency, setCurrency] = useState<"XOF" | "XAF" | "USDT">("XOF");
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+
+  const formatAmount = (fcfa: number) => {
+    if (currency === "USDT") {
+      const usdt = (fcfa || 0) / 500;
+      return `${usdt.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+    }
+    // XOF and XAF share the same numeric display — only the suffix changes.
+    const n = Math.round(fcfa || 0).toLocaleString("fr-FR").replace(/,/g, "\u202f");
+    return `${n} ${currency}`;
+  };
+
   return (
     <LinearGradient
       colors={["#0E1F4F", "#1B5BFF", "#0B2D6F"] as any}
@@ -247,7 +264,7 @@ export const DashboardHero: React.FC<Props> = ({
               adjustsFontSizeToFit
               testID="dashboard-wallet-amount"
             >
-              {balanceHidden ? "••••••" : formatFCFA(wallet_deposit)}
+              {balanceHidden ? "••••••" : formatAmount(wallet_deposit)}
             </Text>
             <TouchableOpacity
               style={styles.eyeBtn}
@@ -256,10 +273,15 @@ export const DashboardHero: React.FC<Props> = ({
             >
               <Ionicons name={balanceHidden ? "eye-off" : "eye"} size={16} color="#fff" />
             </TouchableOpacity>
-            <View style={styles.currencyPill}>
-              <Text style={styles.currencyPillTxt}>XOF</Text>
+            <TouchableOpacity
+              style={styles.currencyPill}
+              onPress={() => setCurrencyOpen(true)}
+              activeOpacity={0.8}
+              testID="dashboard-currency-btn"
+            >
+              <Text style={styles.currencyPillTxt}>{currency}</Text>
               <Ionicons name="chevron-down" size={11} color="#fff" />
-            </View>
+            </TouchableOpacity>
           </View>
           <Text style={styles.walletHint}>Total des dépôts</Text>
         </View>
@@ -311,6 +333,57 @@ export const DashboardHero: React.FC<Props> = ({
           onPress={onBalancePress}
         />
       </View>
+
+      {/* v22 — currency selector bottom-sheet */}
+      <Modal
+        visible={currencyOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCurrencyOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.currencyBackdrop}
+          activeOpacity={1}
+          onPress={() => setCurrencyOpen(false)}
+        />
+        <View style={styles.currencySheetWrap} pointerEvents="box-none">
+          <View style={styles.currencySheet} testID="dashboard-currency-modal">
+            <View style={styles.currencySheetHandle} />
+            <Text style={styles.currencySheetTitle}>Devise d'affichage</Text>
+            {(["XOF", "XAF", "USDT"] as const).map((c) => {
+              const active = c === currency;
+              return (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.currencyRow, active && styles.currencyRowActive]}
+                  onPress={() => { setCurrency(c); setCurrencyOpen(false); }}
+                  testID={`dashboard-currency-option-${c}`}
+                  activeOpacity={0.88}
+                >
+                  <View style={[styles.currencyRowIcon, active && styles.currencyRowIconActive]}>
+                    <Ionicons
+                      name={c === "USDT" ? "logo-usd" : "cash"}
+                      size={18}
+                      color={active ? "#fff" : "#1B5BFF"}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.currencyRowLabel}>{c}</Text>
+                    <Text style={styles.currencyRowSub}>
+                      {c === "XOF" && "Franc CFA (UEMOA)"}
+                      {c === "XAF" && "Franc CFA (CEMAC)"}
+                      {c === "USDT" && "Tether (1 USDT = 500 FCFA)"}
+                    </Text>
+                  </View>
+                  {active ? (
+                    <Ionicons name="checkmark-circle" size={22} color="#1B5BFF" />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 };
@@ -406,6 +479,76 @@ const styles = StyleSheet.create({
   miniStatValue: { color: "#fff", fontSize: 12, fontWeight: "900", marginTop: 2, letterSpacing: -0.4 },
   sparkRow: { marginTop: 4, height: 22, alignSelf: "stretch" },
   miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 8, marginTop: 2 },
+
+  /* v22 — currency selector modal */
+  currencyBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(11,45,111,0.55)",
+  },
+  currencySheetWrap: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  currencySheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 32,
+    shadowColor: "#0B2D6F",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  currencySheetHandle: {
+    width: 44, height: 4,
+    backgroundColor: "#E2E8F0",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 14,
+  },
+  currencySheetTitle: {
+    fontSize: 16, fontWeight: "900",
+    color: "#0B2D6F",
+    letterSpacing: -0.2,
+    marginBottom: 14,
+    textAlign: "center",
+  },
+  currencyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginBottom: 8,
+    backgroundColor: "#F8FAFC",
+  },
+  currencyRowActive: {
+    borderColor: "#1B5BFF",
+    backgroundColor: "#DBEAFE",
+  },
+  currencyRowIcon: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: "#DBEAFE",
+    alignItems: "center", justifyContent: "center",
+  },
+  currencyRowIconActive: {
+    backgroundColor: "#1B5BFF",
+  },
+  currencyRowLabel: {
+    fontSize: 15, fontWeight: "900",
+    color: "#0B2D6F",
+    letterSpacing: -0.2,
+  },
+  currencyRowSub: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+    fontWeight: "500",
+  },
 });
 
 export default DashboardHero;
