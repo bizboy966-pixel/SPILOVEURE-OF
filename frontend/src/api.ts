@@ -29,6 +29,17 @@ export function setUnauthorizedHandler(cb: UnauthorizedHandler | null) {
   _onUnauthorized = cb;
 }
 
+// ─── Global 403 ACTIVATION_REQUIRED handler (v23) ───────────────
+// Any protected-action endpoint on the backend returns 403 with detail
+// "ACTIVATION_REQUIRED" for pending users. ActivationProvider registers
+// a callback here so we open the activation modal automatically instead
+// of surfacing a generic error to the user.
+type ActivationRequiredHandler = () => void;
+let _onActivationRequired: ActivationRequiredHandler | null = null;
+export function setActivationRequiredHandler(cb: ActivationRequiredHandler | null) {
+  _onActivationRequired = cb;
+}
+
 // Detail strings the backend uses for JWT-related failures (auth.py).
 const AUTH_ERROR_STRINGS = new Set([
   "Session expirée.",
@@ -110,6 +121,14 @@ async function request<T = any>(
       _authToken = null;
       if (_onUnauthorized) {
         try { _onUnauthorized(message); } catch { /* ignore handler bugs */ }
+      }
+    }
+    // v23 — global ACTIVATION_REQUIRED hook. Any protected-action backend
+    // guard sends `403 { detail: "ACTIVATION_REQUIRED" }` for pending
+    // users. Route it to the activation modal instead of a generic toast.
+    if (res.status === 403 && message === "ACTIVATION_REQUIRED") {
+      if (_onActivationRequired) {
+        try { _onActivationRequired(); } catch { /* ignore handler bugs */ }
       }
     }
     const err: ApiError = { detail: message, status: res.status };

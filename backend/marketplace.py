@@ -14,7 +14,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_active_user, require_admin
 from feature_flags import is_enabled as feature_enabled
 
 
@@ -74,7 +74,7 @@ async def cfg(request: Request, user=Depends(get_current_user)):
 
 
 @public.post("/marketplace")
-async def create_listing(data: ListingCreate, request: Request, user=Depends(get_current_user)):
+async def create_listing(data: ListingCreate, request: Request, user=Depends(require_active_user)):
     db = request.app.state.db
     if not await feature_enabled(db, "marketplace"):
         raise HTTPException(503, "Marketplace momentanément désactivé par l'administrateur.")

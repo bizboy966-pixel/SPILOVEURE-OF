@@ -87,6 +87,29 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+async def require_active_user(user: dict = Depends(get_current_user)) -> dict:
+    """v23 (2026-02-14) — protected-action gate.
+
+    Blocks any pending user (status != "active" AND max_level < 1) from
+    executing an action that requires an activated account (publish an
+    ad, create a listing, post a job, comment, participate to a campaign,
+    withdraw, etc.). Admin bypass — admin is always considered active.
+
+    Frontend catches the 403 payload `ACTIVATION_REQUIRED` and shows the
+    activation modal (see `src/components/ActivationGuard.tsx`).
+
+    Exceptions listed by the product spec (Dépôt, Envoyer, Échange,
+    consulter / participer à une tâche, recevoir un gain de tâche) MUST
+    NOT wire this dependency — they stay open to pending users.
+    """
+    if user.get("role") == "admin":
+        return user
+    is_pending = (user.get("status") != "active") and (int(user.get("max_level") or 0) < 1)
+    if is_pending:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ACTIVATION_REQUIRED")
+    return user
+
+
 async def require_pwd_confirm(
     user: dict = Depends(get_current_user),
     x_password_confirm: Optional[str] = Header(default=None, alias="X-Password-Confirm"),

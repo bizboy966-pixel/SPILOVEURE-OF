@@ -18,7 +18,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_admin, require_active_user
 
 # 5 mission types — each maps 1-to-1 to a user balance field.
 MISSION_TYPES = ["youtube", "tiktok", "instagram", "facebook", "questionnaire"]
@@ -481,7 +481,7 @@ class MissionWithdrawalIn(BaseModel):
 
 
 @public.post("/me/mission-withdrawals")
-async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request, user=Depends(get_current_user)):
+async def request_mission_withdrawal(body: MissionWithdrawalIn, request: Request, user=Depends(require_active_user)):
     """Submit a withdrawal request from ONE specific mission wallet.
     Applies admin-configured min withdrawal and fee_percent.
     Reuses the user's registered `wallets` entry (same one used by the

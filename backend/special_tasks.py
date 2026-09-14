@@ -23,7 +23,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_active_user, require_admin
 from feature_flags import is_enabled as feature_enabled
 
 
@@ -212,7 +212,7 @@ async def user_get_config(request: Request, user=Depends(get_current_user)):
 
 
 @public.post("/special-tasks")
-async def create_task(data: TaskCreate, request: Request, user=Depends(get_current_user)):
+async def create_task(data: TaskCreate, request: Request, user=Depends(require_active_user)):
     db = request.app.state.db
     if not await feature_enabled(db, "special_tasks"):
         raise HTTPException(503, "Création de tâches spéciales momentanément désactivée par l'administrateur.")
@@ -361,7 +361,7 @@ async def admin_delete_task(task_id: str, request: Request):
 
 
 @public.post("/special-tasks/{task_id}/publish")
-async def publish_task(task_id: str, request: Request, user=Depends(get_current_user)):
+async def publish_task(task_id: str, request: Request, user=Depends(require_active_user)):
     """Mark task ready for payment. Next step: /special-tasks/{id}/pay."""
     db = request.app.state.db
     t = await _get_task(db, task_id, user["id"])

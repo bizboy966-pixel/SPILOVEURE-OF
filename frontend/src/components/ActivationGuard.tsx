@@ -17,12 +17,13 @@
  * Exceptions listed by the product spec (Dépôt, Envoyer, Échange, Tâches
  * participate) MUST NOT be wrapped — they stay accessible while pending.
  */
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/auth";
+import { setActivationRequiredHandler } from "@/src/api";
 
 type Ctx = {
   isActive: boolean;
@@ -61,6 +62,16 @@ export const ActivationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setOpen(true);
   }, []);
   const hideModal = useCallback(() => setOpen(false), []);
+
+  // v23 (2026-02-14) — wire the global 403 ACTIVATION_REQUIRED interceptor.
+  // Any protected backend endpoint (POST /ads, /marketplace, /special-tasks,
+  // /me/mission-withdrawals, /withdrawals, /ads/{id}/comment...) that
+  // rejects a pending user opens the modal automatically, no matter which
+  // screen fired the request.
+  useEffect(() => {
+    setActivationRequiredHandler(() => setOpen(true));
+    return () => setActivationRequiredHandler(null);
+  }, []);
 
   const guardAction = useCallback(
     (fn: () => void) => {

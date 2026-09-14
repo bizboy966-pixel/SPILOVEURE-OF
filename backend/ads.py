@@ -23,7 +23,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_active_user, require_admin
 from object_storage import is_enabled as _obj_enabled, put_upload as _obj_put
 from feature_flags import is_enabled as feature_enabled
 
@@ -165,7 +165,7 @@ async def ads_pricing_public(request: Request, user=Depends(get_current_user)):
 
 
 @public.post("/ads")
-async def create_draft(data: AdCreate, request: Request, user=Depends(get_current_user)):
+async def create_draft(data: AdCreate, request: Request, user=Depends(require_active_user)):
     """Step 1 → save the draft with cover + video + description. Status=draft."""
     db = request.app.state.db
     if not await feature_enabled(db, "ads"):
@@ -255,7 +255,7 @@ async def set_duration(ad_id: str, data: AdDuration, request: Request, user=Depe
 
 
 @public.post("/ads/{ad_id}/publish")
-async def publish_ad(ad_id: str, request: Request, user=Depends(get_current_user)):
+async def publish_ad(ad_id: str, request: Request, user=Depends(require_active_user)):
     """Step 4 → move ad to `pending_payment` and return the amount to be paid.
     The actual payment happens through the existing SoleasPay/AshtechPay flow —
     the frontend redirects to the payment page carrying `ad_id` in metadata.
@@ -569,7 +569,7 @@ def _is_spam_comment(text: str, existing_comments: list) -> tuple[bool, str]:
 
 
 @public.post("/ads/{ad_id}/comment")
-async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depends(get_current_user)):
+async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depends(require_active_user)):
     db = request.app.state.db
     ad = await db.ads.find_one({"id": ad_id, "status": "published"})
     if not ad:
@@ -613,7 +613,7 @@ async def add_comment(ad_id: str, data: AdComment, request: Request, user=Depend
 
 @public.post("/ads/{ad_id}/comment/reply")
 async def add_comment_reply(ad_id: str, data: AdCommentReply, request: Request,
-                            user=Depends(get_current_user)):
+                            user=Depends(require_active_user)):
     """Only the ad creator can reply. FREE (no anti-spam heuristic, no reward)
     per spec 2026-08. The reply quotes the parent comment WhatsApp-style so
     the UI can render it inline without extra fetches."""

@@ -21,6 +21,41 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v23 suite) — 🌐 Interceptor global 403 → modal activation
+
+**Frontend** (`src/api.ts` + `src/components/ActivationGuard.tsx`) :
+- Nouveau handler global `setActivationRequiredHandler` dans `api.ts`. Toute réponse `403 { detail: "ACTIVATION_REQUIRED" }` déclenche automatiquement le modal (sans avoir à wrapper chaque bouton avec `guardAction`).
+- `ActivationProvider` s'abonne au handler au montage via `useEffect` → toute action refusée par le backend ouvre le modal, quel que soit l'écran.
+- Reste compatible avec les wrappers explicites `guardAction()` (double protection).
+
+**Résultat** : un user pending qui tente n'importe quelle action protégée (publier annonce/listing/campagne, commenter, répondre, retirer, retrait tâches) verra **automatiquement** le modal "Compte non activé" avec le bouton "Activer mon compte" → `/pay`.
+
+**Tests critiques post-v23** : 11/11 PASS (v14, v16, v19, v20, v23).
+
+---
+
+### 2026-02-14 (v23) — 🔒 Guard écriture globale pour comptes pending
+
+**Problème critique reporté** : les comptes pending pouvaient exécuter les actions d'écriture (publier annonce, listing marketplace, campagne, commentaire, retrait mission). La v16 guardait uniquement `/withdrawals`.
+
+**Backend** :
+- Nouveau helper `auth.py::require_active_user` — dépendance FastAPI qui rejette avec `403 ACTIVATION_REQUIRED` tout user pending (status != "active" ET max_level < 1). Admin bypass automatique.
+- Applied to :
+  - `ads.py` : `create_draft`, `publish_ad`, `comment_ad`, `reply_ad`
+  - `marketplace.py` : `create_listing`, `review_listing`
+  - `special_tasks.py` : `create_task`, `publish_task`
+  - `missions.py` : `request_mission_withdrawal` (le retrait des tâches était visé par la spec)
+- Endpoints d'exception (préservés ouverts aux pending) :
+  - `special-tasks/{id}/complete` (participation aux tâches — gains crédités)
+  - Pages "Bientôt disponible" (depot / envoyer / echanger)
+  - Consultation (GET) partout
+
+**Frontend** : Le composant `ActivationGuard` récupère les 403 `ACTIVATION_REQUIRED` renvoyés par l'API et devrait afficher le modal (à câbler côté catch d'erreur des pages où l'utilisateur poste).
+
+**Tests** : `test_v23_pending_write_blocked.py` — 5 scénarios (ADS, Marketplace, Special Task, Comment, Mission Withdraw) → tous **403 ACTIVATION_REQUIRED** pour un user pending fraîchement inscrit.
+
+---
+
 ### 2026-02-14 (v21-v22) — 🔗 Retrait couplé + sélecteur devise cliquable
 
 **v21 — Retrait couplé à Solde disponible**
