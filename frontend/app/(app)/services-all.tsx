@@ -32,13 +32,13 @@ const MAIN: Service[] = [
   { key: "ebooks",      label: "E-book",       icon: "book",      color: "#8B5CF6", bg: "#F3E8FF", route: "/(app)/ebooks" },
   { key: "emploi",      label: "Emploi",       icon: "briefcase", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/emploi" },
   { key: "premium",     label: "Application Premium", icon: "diamond", color: "#7B61FF", bg: "#EDE9FE", route: "/(app)/premium-apps" },
-  { key: "lottery",     label: "Jackpot",      icon: "gift",      color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
+  { key: "publish",     label: "Publier un article", icon: "create", color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/marketplace-create" },
   { key: "advertising", label: "Espace publicitaire", icon: "tv", color: "#10B981", bg: "#D1FAE5", route: "/(app)/advertising" },
 ];
 
 const EXTRA: Service[] = [
-  { key: "publish",     label: "Publier un article", icon: "create",   color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/marketplace-create" },
   { key: "coupons",     label: "Coupon",        icon: "ticket",       color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/coupons" },
+  { key: "lottery",     label: "Jackpot",       icon: "gift",         color: "#F97316", bg: "#FFEDD5", route: "/(app)/lottery" },
   { key: "matrices",    label: "Matrice",       icon: "grid",         color: "#1B5BFF", bg: "#DBEAFE", route: "/(app)/matrices" },
   { key: "team",        label: "Mon équipe",    icon: "people",       color: "#10B981", bg: "#D1FAE5", route: "/(app)/equipe" },
   { key: "community",   label: "Communauté",    icon: "chatbubbles",  color: "#EC4899", bg: "#FCE7F3", route: "/(app)/community" },
