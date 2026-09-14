@@ -29,6 +29,7 @@ type Ctx = {
   isActive: boolean;
   isPending: boolean;
   guardAction: (fn: () => void) => void;
+  guardedNavigate: (path: string, extra?: () => void) => void;
   showModal: (reason?: string) => void;
   hideModal: () => void;
 };
@@ -37,6 +38,7 @@ const ActivationCtx = createContext<Ctx>({
   isActive: false,
   isPending: true,
   guardAction: () => {},
+  guardedNavigate: () => {},
   showModal: () => {},
   hideModal: () => {},
 });
@@ -82,9 +84,41 @@ export const ActivationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     [isActive]
   );
 
+  // v24 (2026-02-14) — guardedNavigate wraps expo-router's push with the
+  // activation check. Any destination NOT in the allow-list opens the
+  // activation modal for pending users. The allow-list mirrors the
+  // product spec: only /dashboard, /pay (activation flow itself),
+  // /tasks + /missions + /reactor-rewards (Missions/Publicités
+  // rémunérées) and /profile (read-only account state) remain open.
+  const PENDING_ALLOWED = useMemo(() => new Set<string>([
+    "/(app)/dashboard",
+    "/(app)/pay",
+    "/(app)/pay-ashtec",
+    "/(app)/activation",
+    "/(app)/activation-ashtec",
+    "/(app)/activation-crypto-auto",
+    "/(app)/tasks",
+    "/(app)/missions",
+    "/(app)/reactor-rewards",
+    "/(app)/profile",
+  ]), []);
+
+  const guardedNavigate = useCallback((path: string, extra?: () => void) => {
+    if (isActive) {
+      if (extra) extra(); else router.push(path as any);
+      return;
+    }
+    if (PENDING_ALLOWED.has(path)) {
+      if (extra) extra(); else router.push(path as any);
+      return;
+    }
+    setReason(undefined);
+    setOpen(true);
+  }, [isActive, router, PENDING_ALLOWED]);
+
   const value = useMemo<Ctx>(() => ({
-    isActive, isPending, guardAction, showModal, hideModal,
-  }), [isActive, isPending, guardAction, showModal, hideModal]);
+    isActive, isPending, guardAction, guardedNavigate, showModal, hideModal,
+  }), [isActive, isPending, guardAction, guardedNavigate, showModal, hideModal]);
 
   const goToPay = () => {
     setOpen(false);

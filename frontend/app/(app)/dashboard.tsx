@@ -61,7 +61,7 @@ export default function Dashboard() {
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
   const badges = useServiceBadges();
-  const { guardAction } = useActivationGuard();
+  const { guardAction, guardedNavigate, showModal, isPending } = useActivationGuard();
 
   // NOTE: activation guard is centralised in `(app)/_layout.tsx`.
   useEffect(() => {
@@ -137,7 +137,7 @@ export default function Dashboard() {
             <View style={{ flexDirection: "row" }}>
               <TouchableOpacity
                 style={styles.headerIconBtn}
-                onPress={() => router.push("/(app)/notifications" as any)}
+                onPress={() => guardedNavigate("/(app)/notifications")}
                 testID="dashboard-notifications-btn"
               >
                 <Ionicons name="notifications" size={18} color="#fff" />
@@ -147,7 +147,7 @@ export default function Dashboard() {
                   </View>
                 ) : null}
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setMenuOpen(true)} testID="dashboard-menu-btn">
+              <TouchableOpacity style={styles.headerIconBtn} onPress={() => { if (isPending) return showModal(); setMenuOpen(true); }} testID="dashboard-menu-btn">
                 <Ionicons name="ellipsis-vertical" size={18} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -173,13 +173,14 @@ export default function Dashboard() {
         {/* ─── Quick Actions ─── */}
         <View style={styles.quickActionsRow} testID="dashboard-quick-actions">
           {QUICK_ACTIONS.map((a) => {
-            // Per spec v16 : Dépôt / Envoyer / Échanger are accessible
-            // to pending users; Retrait is protected (activation modal).
-            const isProtected = a.key === "withdraw";
+            // v24 (2026-02-14) — for pending users, ONLY Tasks-family paths
+            // are open. Dépôt/Retrait/Envoyer/Échanger all trigger the
+            // activation modal (Retrait was the only one before). Active
+            // users navigate normally through guardedNavigate() which is
+            // a no-op on the allow check when the account is active.
             const handle = () => {
-              const run = () => (a.route ? router.push(a.route as any) : soon());
-              if (isProtected) guardAction(run);
-              else run();
+              if (a.route) guardedNavigate(a.route);
+              else showModal();
             };
             return (
               <TouchableOpacity
@@ -201,7 +202,7 @@ export default function Dashboard() {
         {/* ─── Nos services (8 raccourcis stricts) ─── */}
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Nos services</Text>
-          <TouchableOpacity onPress={() => router.push("/(app)/services-all" as any)} testID="dashboard-services-see-all">
+          <TouchableOpacity onPress={() => guardedNavigate("/(app)/services-all")} testID="dashboard-services-see-all">
             <Text style={styles.sectionLink}>Voir tout</Text>
           </TouchableOpacity>
         </View>
@@ -216,7 +217,7 @@ export default function Dashboard() {
               <TouchableOpacity
                 key={s.key}
                 style={styles.serviceCard}
-                onPress={() => router.push(s.route as any)}
+                onPress={() => guardedNavigate(s.route)}
                 activeOpacity={0.85}
                 testID={`service-${s.key}`}
               >
@@ -298,7 +299,11 @@ export default function Dashboard() {
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
       <ProfilePhotoManager visible={photoModal} onClose={() => setPhotoModal(false)} />
-      {user && (user.role === "admin" || (user.max_level || 0) >= 1) ? <BottomNav /> : null}
+      {/* v24 (2026-02-14) — BottomNav ALWAYS visible per product spec.
+          Its items are individually guarded (via useActivationGuard's
+          guardedNavigate) so pending users see the modal on protected
+          taps but can still reach /tasks. */}
+      {user ? <BottomNav /> : null}
     </View>
   );
 }

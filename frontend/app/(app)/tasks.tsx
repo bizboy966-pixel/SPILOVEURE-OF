@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
+import { useActivationGuard } from "@/src/components/ActivationGuard";
 
 /**
  * TÂCHES — new v17 landing (2026-02-14).
@@ -42,6 +43,7 @@ const MAIN_CARDS = [
 
 export default function TasksScreen() {
   const router = useRouter();
+  const { showModal, isPending } = useActivationGuard();
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -80,7 +82,7 @@ export default function TasksScreen() {
         ))}
 
         <TouchableOpacity
-          onPress={() => router.push("/(app)/tasks-more" as any)}
+          onPress={() => isPending ? showModal() : router.push("/(app)/tasks-more" as any)}
           style={styles.seeMoreBtn}
           activeOpacity={0.85}
           testID="tasks-see-more"

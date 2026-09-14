@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { theme } from "../theme";
 import { api } from "../api";
+import { useActivationGuard } from "./ActivationGuard";
 
 /**
  * Floating bottom navigation (v14 — mockup-driven refresh).
@@ -57,6 +58,7 @@ export const BottomNav: React.FC = () => {
   const pathname = usePathname() || "";
   const [plusOpen, setPlusOpen] = useState(false);
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
+  const { guardedNavigate, showModal } = useActivationGuard();
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +88,7 @@ export const BottomNav: React.FC = () => {
     if (typeof window !== "undefined") window.alert("Service client indisponible pour le moment.");
   };
 
-  const goto = (route: string) => router.push(route as any);
+  const goto = (route: string) => guardedNavigate(route);
   const tasksActive = pathname.includes("/tasks");
 
   const renderItem = (it: Item, side: "L" | "R") => {
@@ -120,8 +122,8 @@ export const BottomNav: React.FC = () => {
           <View style={styles.centreSlot}>
             <TouchableOpacity
               style={[styles.centreBtn, tasksActive && styles.centreBtnActive]}
-              onPress={() => goto("/(app)/tasks")}
-              onLongPress={() => setPlusOpen(true)}
+              onPress={() => router.push("/(app)/tasks" as any)}
+              onLongPress={() => showModal()}
               testID="bottom-nav-tasks"
               activeOpacity={0.88}
             >

@@ -21,6 +21,29 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-14 (v24) — 🔐 Mode consultation strict pour comptes pending
+
+**Demande utilisateur** : un compte non activé doit uniquement pouvoir naviguer sur le dashboard + Tâches/Missions/Publicités rémunérées. TOUT le reste (cartes services, Voir tout, quick actions Dépôt/Retrait/Envoyer/Échange, menu 3-points, IA SPV, Trading, Profil, Voir plus dans Tâches, retrait des gains) doit afficher le modal "Compte non activé".
+
+**Frontend** — `src/components/ActivationGuard.tsx` :
+- Nouveau hook `guardedNavigate(path, extra?)` — si compte activé OU chemin dans l'allow-list pending, navigue normalement ; sinon ouvre le modal.
+- Allow-list pending : `/dashboard`, `/pay`, `/pay-ashtec`, `/activation*`, `/tasks`, `/missions`, `/reactor-rewards`, `/profile`.
+- Exposé dans le contexte `useActivationGuard()`.
+
+**Application** :
+- `dashboard.tsx` — service cards (8), Voir tout, quick actions Dépôt/Retrait/Envoyer/Échanger, cloche notifications, menu 3-points (`ellipsis-vertical`) : tous passent par `guardedNavigate` ou `showModal`.
+- `BottomNav.tsx` — items Accueil / IA SPV / Trading / Profil passent par `guardedNavigate` (Tâches reste ouvert). Le long-press sur Tâches (qui ouvrait la feuille "Nos services") déclenche `showModal()` pour les pending.
+- `tasks.tsx` — bouton "Voir plus" wrap avec `isPending ? showModal() : router.push(/tasks-more)`.
+
+**Backend** : intercepteur global 403 `ACTIVATION_REQUIRED` déjà en place (v16 + v23) sur tous les endpoints d'écriture protégés. Impossible de bypass.
+
+**Résultat vérifié** :
+- ✅ Accueil accessible + scroll
+- ✅ Tâches → Missions rémunérées et Publicités rémunérées accessibles
+- 🔒 Toutes cartes services, Voir tout, quick actions, menu 3-points, IA SPV, Trading, Profil, Voir plus, retraits → modal activation
+
+---
+
 ### 2026-02-14 (v23 suite) — 🌐 Interceptor global 403 → modal activation
 
 **Frontend** (`src/api.ts` + `src/components/ActivationGuard.tsx`) :
