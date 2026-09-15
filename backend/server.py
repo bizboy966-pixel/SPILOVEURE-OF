@@ -918,6 +918,11 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "spillover_inactive": spillover_count - spillover_active,
         "current_level": level_info,
         "trend": trend,
+        # v27 (2026-02-14) — feed the dashboard bell badge without an extra
+        # round-trip. Frontend already reads `stats.unread_notifications`.
+        "unread_notifications": await db.notifications.count_documents(
+            {"user_id": user["id"], "read": False}
+        ),
     }
 
 

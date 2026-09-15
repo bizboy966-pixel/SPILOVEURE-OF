@@ -34,7 +34,7 @@ const MAX_STACK = 2;
 const AUTO_DISMISS_MS = 5000;
 
 export function NotificationToaster() {
-  const { latest, unread, markAllRead } = useNotificationsFeed(10000);
+  const { latest, unread } = useNotificationsFeed(10000);
   const [stack, setStack] = useState<Displayed[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
@@ -56,9 +56,12 @@ export function NotificationToaster() {
           .start(() => setStack((prev) => prev.filter((p) => p.id !== f.id)));
       }, AUTO_DISMISS_MS);
     });
-    // Reset the badge on the server so a page refresh doesn't re-fire the toasts.
-    markAllRead();
-  }, [latest, markAllRead]);
+    // v27 (2026-02-14) — the toaster no longer touches the "read" flag.
+    // The bell badge must persist until the user visits /notifications
+    // (or taps a specific item). Local `seenIdsRef` handles dedup within
+    // the current session, `isFirstFetchRef` in the hook prevents re-firing
+    // on refresh.
+  }, [latest]);
 
   if (stack.length === 0) return null;
 

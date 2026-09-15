@@ -33,14 +33,20 @@ export function useNotificationsFeed(pollMs: number = 10000) {
   const [state, setState] = useState<State>({ unread: 0, latest: [], isReady: false });
   const cancelledRef = useRef(false);
   const lastUnreadRef = useRef(0);
+  // v27 (2026-02-14) — the very first poll after mount just records the
+  // baseline unread count. Otherwise the toaster would re-fire for every
+  // already-unread notification on every page load, and cleaning them up
+  // would silently defeat the bell badge (user complaint).
+  const isFirstFetchRef = useRef(true);
 
   const fetchOnce = useCallback(async () => {
     try {
       const c = await api.get<{ unread: number }>("/me/notifications/unread-count");
       const nextUnread = c.unread || 0;
-      if (nextUnread > lastUnreadRef.current) {
-        // Only fetch the actual items when the count grows — avoids
-        // pulling the full list on every tick.
+      if (!isFirstFetchRef.current && nextUnread > lastUnreadRef.current) {
+        // Only fetch the actual items when the count grows (and never on
+        // the first tick) — avoids pulling the full list on every poll
+        // and prevents the "toast on refresh" spam.
         const list = await api.get<{ items: AppNotification[] }>(
           "/me/notifications?unread_only=true&limit=10",
         );
@@ -51,12 +57,17 @@ export function useNotificationsFeed(pollMs: number = 10000) {
         setState((s) => ({ ...s, unread: nextUnread, isReady: true }));
       }
       lastUnreadRef.current = nextUnread;
+      isFirstFetchRef.current = false;
     } catch {
       // Silent — endpoint may not exist in the preview backend yet.
       if (!cancelledRef.current) {
         setState((s) => ({ ...s, isReady: true }));
       }
     }
+  }, []);
+
+  const markOneRead = useCallback(async (id: string) => {
+    try { await api.post(`/me/notifications/${id}/read`, {}); } catch {}
   }, []);
 
   const markAllRead = useCallback(async () => {
@@ -77,5 +88,5 @@ export function useNotificationsFeed(pollMs: number = 10000) {
     };
   }, [fetchOnce, pollMs]);
 
-  return { ...state, refresh: fetchOnce, markAllRead };
+  return { ...state, refresh: fetchOnce, markAllRead, markOneRead };
 }

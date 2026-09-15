@@ -3640,7 +3640,30 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
-### 2026-02-14 (v26) — 📈 Carte Trading Telegram + auto-modal activation
+### 2026-02-14 (v27) — 🔔 Bell notifications : commissions + level-up + badge persistant
+
+**Demande utilisateur** : la cloche du dashboard doit afficher les commissions de parrainage ET les commissions de niveau reçues, avec un badge de non-lus qui persiste tant que l'utilisateur n'a pas consulté la page.
+
+**Root cause identifié** :
+1. `matrix.py` distribuait les commissions et level-ups **uniquement via Firebase push** (`push_to_user`) — aucune écriture dans `db.notifications` → la cloche/notifications-center n'affichait rien.
+2. `NotificationToaster` appelait `markAllRead()` juste après avoir affiché un toast → le badge se vidait AVANT que l'utilisateur ne consulte.
+3. L'endpoint `/api/dashboard` ne renvoyait pas `unread_notifications` → le badge sur la cloche restait toujours à 0.
+
+**Backend** :
+- `matrix.py` `distribute_commission()` : ajout `db.notifications.insert_one` pour chaque bénéficiaire, avec `kind="commission"`, `sub_kind` = `direct` / `spillover_sponsor` / `spillover_beneficiary`, titre "💰 Commission {type} — Niveau N", meta `{level, amount, commission_kind, from_user_id, source_name}`.
+- `matrix.py` cascade auto-upgrade : ajout `db.notifications.insert_one` pour chaque montée de niveau avec `kind="level_up"`.
+- `server.py` `/api/dashboard` : ajout du champ `unread_notifications = count_documents({user_id, read:False})`.
+
+**Frontend** :
+- `useNotificationsFeed.ts` : ajout `isFirstFetchRef` — le 1ᵉʳ poll après mount enregistre la baseline sans déclencher de toasts (empêche le "spam de toasts à chaque refresh"). Ajout de `markOneRead(id)` disponible pour marquer un item spécifique.
+- `NotificationToaster.tsx` : suppression complète des appels `markAllRead()` / `markOneRead()` — le badge persiste maintenant jusqu'à ce que l'utilisateur ouvre `/notifications` ou tape sur un item. Dédup géré côté client par `seenIdsRef`.
+- `notifications.tsx` : ajout icônes `level_up` (trophy), `lottery_win` (trophy), `reactor_reward` (flame).
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Curl : /dashboard renvoie `unread_notifications=6` après insertion.
+- ✅ Bell dashboard affiche badge "6" (mobile 390×844).
+- ✅ Notifications center liste : 4 commissions (direct + spillover + niveau 1/2/3) + 2 level-ups (niveau 3 et 5), toutes avec titre + body + date.
+- ✅ Après reload du dashboard : badge conserve la valeur 6, `unread-count` DB toujours à 6 (badge non-vidé par le toaster).
 
 **Demandes** :
 1. Ajouter une carte **Trading** horizontale, longue, compacte et animée sur le Dashboard entre "Nos services" et la section Commissions ; un clic ouvre le canal Telegram configuré depuis l'Admin Panel.

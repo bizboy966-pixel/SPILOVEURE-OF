@@ -23,8 +23,11 @@ const KIND_ICON: Record<string, any> = {
   deposit: "arrow-down-circle",
   withdrawal: "arrow-up-circle",
   commission: "cash",
+  reactor_reward: "flame",
   reward: "gift",
   activation: "shield-checkmark",
+  level_up: "trophy",
+  lottery_win: "trophy",
   task: "checkmark-circle",
   ad: "megaphone",
 };

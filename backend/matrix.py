@@ -229,10 +229,44 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
             from push_helper import push_to_user
             from levels import LEVELS_BY_NUM as _LVL
             src_name = _LVL.get(level, {}).get("name", f"Niveau {level}")
+            # v27 (2026-02-14) — also persist to `db.notifications` so the
+            # in-app bell / notifications center picks up every commission
+            # credit (previously only Firebase push, which meant the bell
+            # never showed commissions).
+            kind_label = {
+                "direct": "Commission directe",
+                "spillover_sponsor": "Commission spillover (sponsor)",
+                "spillover_beneficiary": "Commission spillover",
+            }.get(kind, "Commission")
+            notif_title = f"💰 {kind_label} — Niveau {level}"
+            notif_body = (
+                f"Vous venez de recevoir {int(amount):,} FCFA — source : {src_name}."
+                .replace(",", " ")
+            )
+            try:
+                await db.notifications.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "user_id": user_id,
+                    "kind": "commission",
+                    "sub_kind": kind,
+                    "title": notif_title,
+                    "body": notif_body,
+                    "meta": {
+                        "level": level,
+                        "amount": int(amount),
+                        "commission_kind": kind,
+                        "from_user_id": new_user_id,
+                        "source_name": src_name,
+                    },
+                    "read": False,
+                    "created_at": datetime.now(timezone.utc),
+                })
+            except Exception as e:
+                log.warning(f"notification insert failed for commission {commission_doc['id']}: {e}")
             await push_to_user(
                 db, user_id,
-                title="💰 Nouvelle commission reçue !",
-                body=f"Vous venez de recevoir {int(amount):,} FCFA — source : {src_name}.".replace(",", " "),
+                title=notif_title,
+                body=notif_body,
                 link="/(app)/withdrawal",
                 data={"kind": "commission", "level": str(level), "amount": str(int(amount))},
                 tag=f"commission-{commission_doc['id']}",
@@ -247,13 +281,28 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
                 if not upgraded_to:
                     break
                 log.info(f"Auto-upgrade: user {user_id} → level {upgraded_to}")
-                # 🔔 Notify user of level-up.
+                # 🔔 Notify user of level-up (persistent + push).
                 try:
+                    lvl_title = "🎉 Félicitations — Niveau supérieur !"
+                    lvl_body = f"Votre compte vient de passer automatiquement au Niveau {upgraded_to}."
+                    try:
+                        await db.notifications.insert_one({
+                            "id": str(uuid.uuid4()),
+                            "user_id": user_id,
+                            "kind": "level_up",
+                            "title": lvl_title,
+                            "body": lvl_body,
+                            "meta": {"level": upgraded_to},
+                            "read": False,
+                            "created_at": datetime.now(timezone.utc),
+                        })
+                    except Exception as e:
+                        log.warning(f"notification insert failed for level_up {user_id}→{upgraded_to}: {e}")
                     from push_helper import push_to_user as _pu
                     await _pu(
                         db, user_id,
-                        title="🎉 Félicitations — Niveau supérieur !",
-                        body=f"Votre compte vient de passer automatiquement au Niveau {upgraded_to}.",
+                        title=lvl_title,
+                        body=lvl_body,
                         link="/(app)/dashboard",
                         data={"kind": "level_up", "level": str(upgraded_to)},
                         tag=f"levelup-{user_id}-{upgraded_to}",
