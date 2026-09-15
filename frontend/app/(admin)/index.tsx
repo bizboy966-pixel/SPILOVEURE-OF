@@ -285,6 +285,14 @@ export default function AdminHome() {
   const [cpSeconds, setCpSeconds] = useState("5");
   const [cpSaving, setCpSaving] = useState(false);
 
+  // Trading Telegram channel (v26)
+  const [trEnabled, setTrEnabled] = useState(true);
+  const [trTelegram, setTrTelegram] = useState("");
+  const [trTitle, setTrTitle] = useState("TRADING");
+  const [trDesc, setTrDesc] = useState("");
+  const [trButton, setTrButton] = useState("Accéder au canal Telegram");
+  const [trSaving, setTrSaving] = useState(false);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") {
@@ -394,6 +402,13 @@ export default function AdminHome() {
         setCpTelegram(cpop.telegram_url || "");
         setCpButton(cpop.button_label || "🚀 REJOINDRE MAINTENANT");
         setCpSeconds(String(cpop.auto_close_seconds ?? 5));
+
+        const tr = await api.get<any>("/admin/settings/trading");
+        setTrEnabled(tr.enabled !== false);
+        setTrTelegram(tr.telegram_url || "");
+        setTrTitle(tr.title || "TRADING");
+        setTrDesc(tr.description || "");
+        setTrButton(tr.button_label || "Accéder au canal Telegram");
       }
     } catch (e: any) {
       console.log("admin load err", e?.detail);
@@ -2714,6 +2729,79 @@ export default function AdminHome() {
                   }
                 }}
                 testID="cp-save"
+              />
+            </Card>
+            <Card style={{ marginTop: 12 }} testID="admin-trading-card">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Ionicons name="trending-up" size={18} color={theme.colors.primary} />
+                <Text style={styles.h3}>📈 Trading — Canal Telegram</Text>
+              </View>
+              <Text style={styles.help}>
+                Ce lien pilote la carte Trading affichée sur le Dashboard des utilisateurs.
+                Un clic sur la carte redirige vers ce canal Telegram.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.toggleRow, trEnabled ? styles.toggleOn : styles.toggleOff]}
+                onPress={() => setTrEnabled(!trEnabled)}
+                testID="tr-enabled"
+              >
+                <Ionicons name={trEnabled ? "checkmark-circle" : "close-circle"} size={18} color="#fff" />
+                <Text style={styles.toggleTxt}>
+                  {trEnabled ? "Activé — carte Trading visible sur le Dashboard" : "Désactivé — carte masquée"}
+                </Text>
+              </TouchableOpacity>
+
+              <Input
+                label="Lien du canal Telegram Trading"
+                value={trTelegram}
+                onChangeText={setTrTelegram}
+                placeholder="https://t.me/spiloveure_trading"
+                autoCapitalize="none"
+                testID="tr-telegram"
+              />
+              <Input label="Titre" value={trTitle} onChangeText={setTrTitle} placeholder="TRADING" testID="tr-title" />
+              <Input
+                label="Description"
+                value={trDesc}
+                onChangeText={setTrDesc}
+                placeholder="Texte affiché sur la carte…"
+                multiline
+                numberOfLines={2}
+                style={{ minHeight: 60, textAlignVertical: "top" }}
+                testID="tr-desc"
+              />
+              <Input
+                label="Libellé du bouton"
+                value={trButton}
+                onChangeText={setTrButton}
+                placeholder="Accéder au canal Telegram"
+                testID="tr-button"
+              />
+
+              <View style={{ height: 8 }} />
+              <Button
+                title="ENREGISTRER LE CANAL TRADING"
+                icon={<Ionicons name="save" size={18} color="#fff" />}
+                loading={trSaving}
+                onPress={async () => {
+                  setTrSaving(true);
+                  try {
+                    await api.put("/admin/settings/trading", {
+                      enabled: trEnabled,
+                      telegram_url: trTelegram,
+                      title: trTitle,
+                      description: trDesc,
+                      button_label: trButton,
+                    });
+                    if (typeof window !== "undefined") window.alert("Canal Trading enregistré ✅");
+                  } catch (e: any) {
+                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
+                  } finally {
+                    setTrSaving(false);
+                  }
+                }}
+                testID="tr-save"
               />
             </Card>
           </>

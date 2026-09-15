@@ -2729,6 +2729,24 @@ class CommunityPopupSettings(BaseModel):
     auto_close_seconds: int = Field(default=5, ge=0, le=60)
 
 
+class TradingSettings(BaseModel):
+    """v26 (2026-02-14) — Trading Telegram channel shown on Dashboard card.
+
+    Reused as-is on both the public read endpoint and the admin CRUD. The
+    frontend `TradingCard` fetches the URL dynamically and opens it via
+    `Linking.openURL` on tap. No trading logic changes — this is purely a
+    community redirect.
+    """
+    enabled: bool = True
+    telegram_url: Optional[str] = None
+    title: str = "TRADING"
+    description: str = (
+        "Rejoignez notre canal Telegram Trading et retrouvez nos "
+        "actualités, analyses et contenus liés au Trading."
+    )
+    button_label: str = "Accéder au canal Telegram"
+
+
 def _withdrawal_defaults(doc: dict) -> dict:
     raw_days = doc.get("allowed_days")
     if isinstance(raw_days, list):
@@ -2825,6 +2843,19 @@ def _community_popup_defaults(doc: dict) -> dict:
     }
 
 
+def _trading_defaults(doc: dict) -> dict:
+    return {
+        "enabled": bool(doc.get("enabled", True)),
+        "telegram_url": doc.get("telegram_url") or "",
+        "title": doc.get("title") or "TRADING",
+        "description": doc.get("description") or (
+            "Rejoignez notre canal Telegram Trading et retrouvez nos "
+            "actualités, analyses et contenus liés au Trading."
+        ),
+        "button_label": doc.get("button_label") or "Accéder au canal Telegram",
+    }
+
+
 async def _get_withdrawal_settings(db) -> dict:
     doc = await db.app_settings.find_one({"_id": "withdrawal_settings"}, {"_id": 0}) or {}
     return _withdrawal_defaults(doc)
@@ -2861,6 +2892,16 @@ async def get_community_popup(request: Request):
     db = request.app.state.db
     doc = await db.app_settings.find_one({"_id": "community_popup"}, {"_id": 0}) or {}
     return _community_popup_defaults(doc)
+
+
+@api.get("/settings/trading")
+async def get_trading_settings(request: Request):
+    """v26 (2026-02-14) — public read of Trading Telegram channel config.
+    Consumed by the Dashboard `TradingCard`. No auth required so the card
+    can be shown even before the user is fully hydrated."""
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "trading_settings"}, {"_id": 0}) or {}
+    return _trading_defaults(doc)
 
 
 
@@ -4051,6 +4092,40 @@ async def admin_update_community_popup(
     )
     return {"ok": True, "settings": payload}
 
+
+# --- Trading Telegram channel (v26) ---
+
+@admin_router.get("/settings/trading")
+async def admin_get_trading_settings(request: Request):
+    db = request.app.state.db
+    doc = await db.app_settings.find_one({"_id": "trading_settings"}, {"_id": 0}) or {}
+    out = _trading_defaults(doc)
+    out["updated_at"] = doc.get("updated_at")
+    out["updated_by"] = doc.get("updated_by")
+    return out
+
+
+@admin_router.put("/settings/trading")
+async def admin_update_trading_settings(
+    data: TradingSettings, request: Request, admin=Depends(require_admin),
+):
+    db = request.app.state.db
+    url = (data.telegram_url or "").strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(400, "L'URL Telegram doit commencer par http:// ou https://.")
+    payload = {
+        "enabled": bool(data.enabled),
+        "telegram_url": url,
+        "title": (data.title or "TRADING").strip(),
+        "description": (data.description or "").strip(),
+        "button_label": (data.button_label or "Accéder au canal Telegram").strip(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": admin.get("username"),
+    }
+    await db.app_settings.update_one(
+        {"_id": "trading_settings"}, {"$set": payload}, upsert=True,
+    )
+    return {"ok": True, "settings": payload}
 
 
 # --- Withdrawal settings ---

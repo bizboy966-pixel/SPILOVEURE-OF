@@ -3639,3 +3639,39 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Backend endpoints protégés 401 sans auth ; avec token admin : liste OK (3 items), mark-all-read OK, delete-all OK (23 supprimés).
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
+
+### 2026-02-14 (v26) — 📈 Carte Trading Telegram + auto-modal activation
+
+**Demandes** :
+1. Ajouter une carte **Trading** horizontale, longue, compacte et animée sur le Dashboard entre "Nos services" et la section Commissions ; un clic ouvre le canal Telegram configuré depuis l'Admin Panel.
+2. Afficher automatiquement le modal "Compte non activé" à l'arrivée sur le Dashboard pour les comptes pending, sans casser le système actuel (guards, restrictions, exceptions).
+
+**Backend** — `server.py` :
+- Nouveau model `TradingSettings` (enabled, telegram_url, title, description, button_label).
+- Nouveau helper `_trading_defaults`.
+- Endpoint public `GET /api/settings/trading` (aucune auth requise).
+- Endpoints admin `GET /api/admin/settings/trading` + `PUT /api/admin/settings/trading` (validation URL http/https).
+- Stockage : `db.app_settings` avec `_id = "trading_settings"` (isolé — n'interfère pas avec support_links, community_popup, etc.).
+
+**Frontend** :
+- Nouveau composant `src/components/TradingCard.tsx` :
+  - Design horizontal (gradient `#0E1F4F → #0EA5E9 → #0B2D6F`) avec logo `trending-up` animé (pulse+glow via Animated).
+  - Badge "Telegram" + CTA "Accéder au canal Telegram →".
+  - Clic → `window.open(url, "_blank")` sur web (Linking sur natif) → l'utilisateur reste sur le Dashboard.
+- `app/(app)/dashboard.tsx` :
+  - Fetch `/settings/trading` au mount.
+  - Rendu conditionnel : `trading.enabled !== false && trading.telegram_url` — masquée si non configurée.
+  - Placement : après le grid "Nos services", avant les cartes Commissions.
+  - Auto-modal activation : `useEffect` déclenche `showModal()` **une fois par session** (flag `sessionStorage.activation_modal_shown`), avec délai de 3.2 s pour ne pas chevaucher le popup Communauté.
+- `app/(admin)/index.tsx` — onglet Réglages : nouvelle carte "📈 Trading — Canal Telegram" (toggle enabled + inputs URL/title/description/button + bouton ENREGISTRER LE CANAL TRADING).
+
+**Ce qui N'A PAS été modifié** (par design) :
+- Logique Trading existante (page `/trading` reste `ComingSoonScreen`).
+- Commissions, matrices, tâches, paiements, activation, autres cartes du Dashboard.
+- ActivationGuard : allow-list pending, guardedNavigate, guardAction et interceptor 403 restent identiques.
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Backend : public GET (defaults), admin GET/PUT (audit fields), PUT avec URL invalide → 400.
+- ✅ Dashboard : carte Trading affichée entre services et commissions, texte "TRADING • Telegram • description • Accéder au canal Telegram".
+- ✅ Clic : `window.open("https://t.me/spiloveure_trading", "_blank")` — l'utilisateur reste sur `/dashboard`.
+- ✅ Admin panel `/Réglages` : carte affichée en bas, URL pré-chargée, sauvegarde persistée.

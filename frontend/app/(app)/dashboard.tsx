@@ -13,6 +13,7 @@ import { SideMenu } from "@/src/components/SideMenu";
 import { BottomNav } from "@/src/components/BottomNav";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import { DashboardHero } from "@/src/components/DashboardHero";
+import { TradingCard } from "@/src/components/TradingCard";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -60,6 +61,7 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
+  const [trading, setTrading] = useState<{ enabled: boolean; telegram_url: string; title: string; description: string; button_label: string } | null>(null);
   const badges = useServiceBadges();
   const { guardAction, guardedNavigate, showModal, isPending } = useActivationGuard();
 
@@ -91,6 +93,35 @@ export default function Dashboard() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // v26 (2026-02-14) — Trading Telegram card (config from Admin Panel).
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = await api.get<any>("/settings/trading");
+        setTrading(t);
+      } catch {}
+    })();
+  }, []);
+
+  // v26 (2026-02-14) — auto-display activation modal on Dashboard mount
+  // for pending users. Shown ONCE per browser session (sessionStorage
+  // flag) with a 3.2 s delay so it never overlaps the community popup
+  // (which auto-closes after ~5 s but usually renders in <200 ms).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!user || !isPending) return;
+    let shown = false;
+    try { shown = window.sessionStorage.getItem("activation_modal_shown") === "1"; } catch {}
+    if (shown) return;
+    const t = setTimeout(() => {
+      try { window.sessionStorage.setItem("activation_modal_shown", "1"); } catch {}
+      showModal(
+        "Votre compte n'est pas encore activé. Activez votre compte pour accéder aux fonctionnalités disponibles et profiter pleinement de la plateforme SPILOVEURE."
+      );
+    }, 3200);
+    return () => clearTimeout(t);
+  }, [user, isPending, showModal]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -236,6 +267,16 @@ export default function Dashboard() {
             );
           })}
         </View>
+
+        {/* ─── Trading card (v26) — canal Telegram configurable ─── */}
+        {trading && trading.enabled !== false && trading.telegram_url ? (
+          <TradingCard
+            title={trading.title}
+            description={trading.description}
+            buttonLabel={trading.button_label}
+            telegramUrl={trading.telegram_url}
+          />
+        ) : null}
 
         {/* ─── Commissions duo card (v19) ─── */}
         <View style={styles.commissionsDuo} testID="dashboard-commissions-duo">
