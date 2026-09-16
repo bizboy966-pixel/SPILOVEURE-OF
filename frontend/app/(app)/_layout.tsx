@@ -42,6 +42,15 @@ export default function AppLayout() {
     return user.status === "pending" && (user.max_level || 0) === 0;
   }, [user]);
 
+  // v27d (2026-02-14) — compute the "bounce" decision at render time so
+  // we can short-circuit `<Stack>` BEFORE the target screen has a chance
+  // to render + flash. Previously the target route mounted, its `load()`
+  // spinner rendered, and only then the `useEffect` fired `router.replace`
+  // → the user saw the target page appear then instantly disappear.
+  const currentSeg = segments[1] || "";
+  const shouldBounceToPay =
+    !loading && !!user && isPending && !PENDING_ALLOWED_SEGMENTS.has(currentSeg);
+
   useEffect(() => {
     const pref = user?.preferred_language;
     if ((pref === "fr" || pref === "en") && pref !== lang) {
@@ -55,14 +64,17 @@ export default function AppLayout() {
       router.replace("/(auth)/login");
       return;
     }
-    if (isPending) {
-      // segments = ["(app)", "<screen>", ...]
-      const current = segments[1] || "";
-      if (!PENDING_ALLOWED_SEGMENTS.has(current)) {
-        router.replace("/(app)/pay");
-      }
+    if (shouldBounceToPay) {
+      router.replace("/(app)/pay");
     }
-  }, [user, loading, isPending, router, segments]);
+  }, [user, loading, shouldBounceToPay, router]);
+
+  // While we're about to bounce, render an empty screen so the target
+  // page never has a chance to mount + call its API + spin. This kills
+  // the "click, enter, exit" flash the user reported.
+  if (shouldBounceToPay) {
+    return <View style={{ flex: 1, backgroundColor: "#fff" }} />;
+  }
 
   return (
     <ActivationProvider>

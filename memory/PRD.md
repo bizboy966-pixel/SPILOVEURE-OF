@@ -3640,6 +3640,22 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27d) — 🚀 Bounce sans flash pour comptes pending
+
+**Bug rapporté (vidéo utilisateur)** : "Tu cliques sur Option, ça rentre et ça sort en même temps." → quand un compte pending clique sur une route protégée (Formations, Publicités, Dashboard, etc.), l'écran cible apparaît brièvement (avec spinner de load) AVANT que le layout guard v27c redirige vers `/pay`. Effet "flash aller-retour" gênant.
+
+**Root cause** : dans `(app)/_layout.tsx`, `<Stack>` était rendu inconditionnellement puis un `useEffect` déclenchait `router.replace("/pay")`. Le composant cible mountait, lançait son `api.get()`, affichait son `ActivityIndicator` → *puis* seulement le router basculait.
+
+**Fix (`app/(app)/_layout.tsx`)** :
+- Calcul `shouldBounceToPay` au render (pas dans un useEffect).
+- Si vrai → return `<View />` blanche → la route cible ne monte jamais.
+- Le `useEffect` déclenche toujours `router.replace("/(app)/pay")` en parallèle.
+
+**Vérifications** :
+- ✅ Login pending → landing sur `/pay` (URL) sans clignotement.
+- ✅ Direct nav `/formations`, `/ads`, `/dashboard` pour pending → bounce instantané vers `/pay`, aucun flash de la page cible.
+- ✅ Admin (activé) → `/formations` affiche "Bientôt disponible" (state EmptySoon), `/ads` affiche la liste normalement. Le bug spinner infini de la vidéo était dû au flash du guard, résolu automatiquement.
+
 ### 2026-02-14 (v27c) — 🔒 Comptes pending forcés sur `/pay` (flow historique restauré)
 
 **Demande utilisateur** : après inscription, l'utilisateur doit tomber DIRECTEMENT sur la page de paiement (sélecteur Mobile / Crypto) et ne PAS pouvoir accéder au dashboard tant que le compte n'est pas activé. Après paiement, activation auto + accès complet.
