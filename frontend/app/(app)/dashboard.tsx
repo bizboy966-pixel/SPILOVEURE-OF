@@ -104,25 +104,6 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // v26 (2026-02-14) — auto-display activation modal on Dashboard mount
-  // for pending users. Shown ONCE per browser session (sessionStorage
-  // flag) with a 3.2 s delay so it never overlaps the community popup
-  // (which auto-closes after ~5 s but usually renders in <200 ms).
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!user || !isPending) return;
-    let shown = false;
-    try { shown = window.sessionStorage.getItem("activation_modal_shown") === "1"; } catch {}
-    if (shown) return;
-    const t = setTimeout(() => {
-      try { window.sessionStorage.setItem("activation_modal_shown", "1"); } catch {}
-      showModal(
-        "Votre compte n'est pas encore activé. Activez votre compte pour accéder aux fonctionnalités disponibles et profiter pleinement de la plateforme SPILOVEURE."
-      );
-    }, 3200);
-    return () => clearTimeout(t);
-  }, [user, isPending, showModal]);
-
   const onRefresh = async () => {
     setRefreshing(true);
     await refresh();

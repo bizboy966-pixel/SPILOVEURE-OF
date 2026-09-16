@@ -3640,6 +3640,24 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27b) — 🔁 Retour au flow d'activation classique (retrait auto-modal)
+
+**Demande utilisateur** : "Ça, ça dérange" — l'auto-modal ajouté en v26 sur le Dashboard est intrusif. Rétablir le flow historique : après inscription → page de paiement directement → après paiement → dashboard avec toutes les fonctionnalités activées automatiquement.
+
+**Changement appliqué** :
+- `app/(app)/dashboard.tsx` — suppression complète du `useEffect` d'auto-modal (v26). Les comptes pending qui arrivent sur le dashboard ne voient plus le modal automatiquement à 3.2 s.
+- `sessionStorage.activation_modal_shown` — flag conservé côté client mais désormais inutilisé (backward-compat, aucun impact).
+
+**Ce qui N'A PAS bougé** (flow historique confirmé fonctionnel) :
+- `register.tsx` : après `signUp()` → `router.replace("/(app)/activation")` — l'utilisateur atterrit DIRECTEMENT sur la page de paiement.
+- `pay.tsx` + `pay-ashtec.tsx` : après confirmation de paiement → `window.localStorage.setItem("just_activated", ...)` + `router.replace("/(app)/dashboard")` → activation automatique + dashboard avec toutes les features déverrouillées.
+- `ActivationGuard` : le modal on-demand reste actif pour tout clic sur une fonctionnalité protégée (Retrait, Marketplace, IA SPV, Trading interne, etc.).
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Login pending user → dashboard, aucun modal automatique après 11 s.
+- ✅ Clic sur Quick Action "Retrait" (protégée) → modal "Compte non activé" s'ouvre normalement.
+- ✅ Register redirige toujours vers `/(app)/activation`.
+
 ### 2026-02-14 (v27) — 🔔 Bell notifications : commissions + level-up + badge persistant
 
 **Demande utilisateur** : la cloche du dashboard doit afficher les commissions de parrainage ET les commissions de niveau reçues, avec un badge de non-lus qui persiste tant que l'utilisateur n'a pas consulté la page.
