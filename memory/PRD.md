@@ -3640,6 +3640,29 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27c) — 🔒 Comptes pending forcés sur `/pay` (flow historique restauré)
+
+**Demande utilisateur** : après inscription, l'utilisateur doit tomber DIRECTEMENT sur la page de paiement (sélecteur Mobile / Crypto) et ne PAS pouvoir accéder au dashboard tant que le compte n'est pas activé. Après paiement, activation auto + accès complet.
+
+**Changements** :
+- `app/(auth)/register.tsx` : `router.replace("/(app)/activation")` → `router.replace("/(app)/pay")` (sélecteur unifié Mobile Money + Crypto).
+- `app/(app)/_layout.tsx` : réintroduction du guard historique — si `isPending` (status=pending && max_level=0) et segment courant hors allow-list, `router.replace("/(app)/pay")`.
+  - **Allow-list pending** : `pay`, `pay-ashtec`, `activation`, `activation-ashtec`, `activation-crypto-auto`, `profile`.
+  - Toute autre route (`dashboard`, `marketplace`, `ads`, `tasks`, `emploi`, `notifications`, quick actions...) bounce vers `/pay`.
+- `<ActivationProvider>` on-demand : conservé mais rarement déclenché puisque le layout bounce en amont.
+
+**Flow attendu (validé)** :
+1. Register → `/pay` (Mobile Money / Crypto).
+2. Choix méthode → paiement → poll `/payments/{ref}/status` → succès → `window.location.href = "/dashboard"` (hard reload avec `just_activated` flag).
+3. Auth refetch → `max_level>=1` → dashboard complet avec toutes les fonctionnalités.
+4. En cas de logout/relogin avant paiement : re-login → toujours forcé sur `/pay`.
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Login pending user → URL = `/pay`, screenshot affiche "Sélectionner le mode de paiement — 📱 Paiement Mobile / ₿ Crypto".
+- ✅ Direct nav `/dashboard` (pending) → bounce vers `/pay`.
+- ✅ Direct nav `/marketplace` (pending) → bounce vers `/pay`.
+- ✅ Admin (activé) → login → `/` admin panel, accès `/dashboard` OK sans bounce.
+
 ### 2026-02-14 (v27b) — 🔁 Retour au flow d'activation classique (retrait auto-modal)
 
 **Demande utilisateur** : "Ça, ça dérange" — l'auto-modal ajouté en v26 sur le Dashboard est intrusif. Rétablir le flow historique : après inscription → page de paiement directement → après paiement → dashboard avec toutes les fonctionnalités activées automatiquement.

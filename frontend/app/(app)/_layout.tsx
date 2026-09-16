@@ -1,5 +1,5 @@
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { View } from "react-native";
 import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
@@ -10,22 +10,37 @@ import TelegramFab from "@/src/components/TelegramFab";
 import { ActivationProvider } from "@/src/components/ActivationGuard";
 
 /**
- * v16 (2026-02-14) — new activation flow.
+ * v27c (2026-02-14) — activation flow rétabli.
  *
- * The historical guard used to bounce pending users to `/(app)/pay`
- * automatically. Product spec says otherwise now: a pending user
- * should be able to browse the whole platform, and only be prompted
- * for activation when they try to run a PROTECTED action (retrait,
- * publier, participer, etc.). The `<ActivationProvider>` centralises
- * this — see `useActivationGuard()`.
+ * L'utilisateur veut : après inscription (ou login sans avoir activé),
+ * on tombe DIRECTEMENT sur `/(app)/pay` (sélecteur Paiement Mobile /
+ * Crypto). Impossible d'accéder au dashboard tant que le compte n'est
+ * pas activé. Les seules routes ouvertes aux comptes pending sont donc :
+ *   - /pay, /pay-ashtec (sélecteur + gateway direct)
+ *   - /activation, /activation-ashtec, /activation-crypto-auto
+ *   - /profile (permet à l'utilisateur de vérifier/modifier ses infos)
+ * Toute autre route protégée bounce automatiquement vers `/(app)/pay`.
  *
- * Therefore this layout ONLY handles auth (not-logged-in → /login).
+ * Une fois `max_level >= 1`, le guard laisse passer (activation-required
+ * modal on-demand pour les actions protégées si le compte redevient
+ * pending, ce qui n'arrive pas en pratique).
  */
+const PENDING_ALLOWED_SEGMENTS = new Set<string>([
+  "pay", "pay-ashtec",
+  "activation", "activation-ashtec", "activation-crypto-auto",
+  "profile",
+]);
+
 export default function AppLayout() {
   const { user, loading } = useAuth();
   const { lang, setLang } = useI18n();
   const router = useRouter();
   const segments = useSegments() as string[];
+
+  const isPending = useMemo(() => {
+    if (!user) return false;
+    return user.status === "pending" && (user.max_level || 0) === 0;
+  }, [user]);
 
   useEffect(() => {
     const pref = user?.preferred_language;
@@ -40,7 +55,14 @@ export default function AppLayout() {
       router.replace("/(auth)/login");
       return;
     }
-  }, [user, loading, router, segments]);
+    if (isPending) {
+      // segments = ["(app)", "<screen>", ...]
+      const current = segments[1] || "";
+      if (!PENDING_ALLOWED_SEGMENTS.has(current)) {
+        router.replace("/(app)/pay");
+      }
+    }
+  }, [user, loading, isPending, router, segments]);
 
   return (
     <ActivationProvider>

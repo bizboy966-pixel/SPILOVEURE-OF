@@ -129,7 +129,7 @@ export default function Register() {
         sponsor_username: sponsor, accept_terms: accept,
       });
       armWelcomeSplash();
-      router.replace("/(app)/activation");
+      router.replace("/(app)/pay");
     } catch (e: any) {
       setErr(e?.detail || "Erreur lors de l'inscription.");
     } finally {
