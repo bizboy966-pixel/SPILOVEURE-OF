@@ -3640,6 +3640,24 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27g) — 🌍 AshTech : +3 pays (CG, TD, CF) + CI restreint à MTN
+
+**Demande** : ajouter Congo Brazzaville, Tchad, Centrafrique ; vérifier Sénégal & Mali ; Côte d'Ivoire limité à MTN uniquement.
+
+**Backend** (`ashtec_activation.py`) :
+- `DIAL_CODES` : +`CG=242, TD=235, CF=236`.
+- `COUNTRIES` (bootstrap fallback, override live via `/v1/countries` toutes les 30 min) :
+  - +`CF` (Centrafrique, XAF, Orange Money + Telecel Money).
+  - +`CG` (Congo Brazzaville, XAF, Airtel Money + MTN Money).
+  - +`TD` (Tchad, XAF, Airtel Money + Moov Money).
+  - `CI` : restreint à `["MTN Money"]` uniquement (Moov/Orange/Wave suspendus in-app).
+  - `ML` : ajout de `Wave Money`.
+  - Total : 13 pays (vs 10 avant).
+
+**Frontend** (`pay.tsx`) : `FLAGS` + `NAMES` étendus avec 🇨🇬 🇹🇩 🇨🇫 (suppression des placeholders COG/GAB/UGA obsolètes).
+
+**Vérifications** : `/api/payments/ashtec/catalog` retourne 13 pays triés avec les bons opérateurs. La normalisation E.164 marche pour tous les nouveaux préfixes.
+
 ### 2026-02-14 (v27f) — 🎥 Module Vidéo d'activation
 
 **Demande utilisateur** : nouvelle rubrique admin `🎥 Vidéo d'activation` pour importer des vidéos guides ; affichage automatique sur la page `/pay` avec lecteur intégré (pas de redirection externe).

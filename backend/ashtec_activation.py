@@ -29,12 +29,13 @@ webhook = APIRouter(prefix="/api/webhooks", tags=["ashtec-webhook"])
 admin = APIRouter(prefix="/api/admin", tags=["ashtec-admin"],
                   dependencies=[Depends(require_admin)])
 
-# International dial codes for the 10 countries officially supported by
+# International dial codes for the 13 countries officially supported by
 # Ashtech Pay Direct v1 — used to normalize a bare local number
 # ("91978352") to E.164 ("+22891978352") which is what /v1/collect expects.
 DIAL_CODES: dict[str, str] = {
-    "BJ": "229", "BF": "226", "CD": "243", "CI": "225", "CM": "237",
-    "GA": "241", "ML": "223", "NE": "227", "SN": "221", "TG": "228",
+    "BJ": "229", "BF": "226", "CD": "243", "CF": "236", "CG": "242",
+    "CI": "225", "CM": "237", "GA": "241", "ML": "223", "NE": "227",
+    "SN": "221", "TD": "235", "TG": "228",
 }
 
 
@@ -79,28 +80,40 @@ ACTIVATION_AMOUNT_BY_CURRENCY: dict[str, float] = {
 ACTIVATION_AMOUNT: float = ACTIVATION_AMOUNT_BY_CURRENCY["XOF"]
 
 # ─── EXACT catalog per Ashtech Pay Direct API v1 documentation ────────
-# Only the 10 officially supported countries. Operator strings MUST match
-# byte-for-byte what /v1/countries returns — Ashtech's /v1/collect returns
-# 422 "Opérateur non supporté" otherwise.
+# 13 countries in the hardcoded bootstrap (live catalog from /v1/countries
+# overrides this in production every 30 min via _refresh_live_countries).
+# Operator strings MUST match byte-for-byte what /v1/countries returns —
+# Ashtech's /v1/collect returns 422 "Opérateur non supporté" otherwise.
+#
+# v27g (2026-02-14) — added CG (Congo Brazzaville), TD (Tchad), CF
+# (Centrafrique). Côte d'Ivoire restricted to MTN Money on product owner's
+# decision (Moov / Orange / Wave suspended in-app pending validation).
+# Mali extended with Wave (very widely used since 2024 in Mali).
 COUNTRIES: dict[str, dict] = {
     "BJ": {"name": "Bénin",         "currency": "XOF",
            "operators": ["Celtiis Money", "Coris Money", "Moov Money", "MTN Money"]},
     "BF": {"name": "Burkina Faso",  "currency": "XOF",
            "operators": ["Moov Money", "Orange Money (OTP)", "Wallet LigdiCash"]},
+    "CF": {"name": "Centrafrique",  "currency": "XAF",
+           "operators": ["Orange Money", "Telecel Money"]},
+    "CG": {"name": "Congo Brazzaville", "currency": "XAF",
+           "operators": ["Airtel Money", "MTN Money"]},
     "CM": {"name": "Cameroun",      "currency": "XAF",
            "operators": ["MTN Money", "Orange Money"]},
     "CI": {"name": "Côte d'Ivoire", "currency": "XOF",
-           "operators": ["Moov Money", "MTN Money", "Orange (OTP)", "Wave Money"]},
+           "operators": ["MTN Money"]},
     "GA": {"name": "Gabon",         "currency": "XAF",
            "operators": ["Airtel Money", "Moov Money"]},
     "ML": {"name": "Mali",          "currency": "XOF",
-           "operators": ["Moov Money", "Orange Money"]},
+           "operators": ["Moov Money", "Orange Money", "Wave Money"]},
     "NE": {"name": "Niger",         "currency": "XOF",
            "operators": ["Airtel Money"]},
     "CD": {"name": "RD Congo",      "currency": "CDF",
            "operators": ["Afri Money", "Airtel", "Mpesa Money", "Orange", "Vodacom"]},
     "SN": {"name": "Sénégal",       "currency": "XOF",
            "operators": ["E-money", "Free Money", "Orange Money (OTP)", "Wave Money"]},
+    "TD": {"name": "Tchad",         "currency": "XAF",
+           "operators": ["Airtel Money", "Moov Money"]},
     "TG": {"name": "Togo",          "currency": "XOF",
            "operators": ["Flooz (Moov)", "T-Money"]},
 }

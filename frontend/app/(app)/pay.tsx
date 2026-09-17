@@ -24,12 +24,12 @@ import ActivationVideoList from "@/src/components/ActivationVideoList";
 const FLAGS: Record<string, string> = {
   TG: "🇹🇬", BJ: "🇧🇯", BF: "🇧🇫", CI: "🇨🇮", ML: "🇲🇱",
   SN: "🇸🇳", NE: "🇳🇪", CM: "🇨🇲", GA: "🇬🇦", CD: "🇨🇩",
-  COG: "🇨🇬", GAB: "🇬🇦", UGA: "🇺🇬",
+  CG: "🇨🇬", TD: "🇹🇩", CF: "🇨🇫",
 };
 const NAMES: Record<string, string> = {
   TG: "Togo", BJ: "Bénin", BF: "Burkina Faso", CI: "Côte d'Ivoire",
   ML: "Mali", SN: "Sénégal", NE: "Niger", CM: "Cameroun", GA: "Gabon",
-  CD: "RD Congo", COG: "Congo", GAB: "Gabon", UGA: "Ouganda",
+  CD: "RD Congo", CG: "Congo Brazzaville", TD: "Tchad", CF: "Centrafrique",
 };
 
 type MethodRow = {
