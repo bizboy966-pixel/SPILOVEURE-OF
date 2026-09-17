@@ -19,6 +19,7 @@ import { useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import ActivationVideoList from "@/src/components/ActivationVideoList";
 
 const FLAGS: Record<string, string> = {
   TG: "🇹🇬", BJ: "🇧🇯", BF: "🇧🇫", CI: "🇨🇮", ML: "🇲🇱",
@@ -460,6 +461,9 @@ export default function Pay() {
         )}
 
         {err && <Text style={styles.err}>❌ {err}</Text>}
+
+        {/* v27f (2026-02-14) — admin-managed activation guide videos */}
+        <ActivationVideoList />
       </ScrollView>
 
       {step < 5 && (

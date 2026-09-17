@@ -293,6 +293,14 @@ export default function AdminHome() {
   const [trButton, setTrButton] = useState("Accéder au canal Telegram");
   const [trSaving, setTrSaving] = useState(false);
 
+  // Activation Videos (v27f) — admin uploads guide videos shown on /pay.
+  const [avVideos, setAvVideos] = useState<any[]>([]);
+  const [avTitle, setAvTitle] = useState("");
+  const [avDesc, setAvDesc] = useState("");
+  const [avUploading, setAvUploading] = useState(false);
+  const [avProgress, setAvProgress] = useState(0);
+  const [avErr, setAvErr] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       if (tab === "dashboard") {
@@ -345,6 +353,12 @@ export default function AdminHome() {
         const url = adminQ ? `/admin/admins?q=${encodeURIComponent(adminQ)}` : "/admin/admins";
         const r = await api.get<any>(url);
         setAdmins(r?.items || []);
+      }
+      if (tab === "activation_videos") {
+        try {
+          const r = await api.get<{ items: any[] }>("/admin/activation-videos");
+          setAvVideos(r?.items || []);
+        } catch { setAvVideos([]); }
       }
       if (tab === "payment") {
         try {
@@ -473,6 +487,7 @@ export default function AdminHome() {
     { key: "features", label: "Fonctionnalités", icon: "toggle" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "channels", label: "Canaux", icon: "link" },
+    { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
     { key: "support", label: "Support 💬", icon: "chatbubbles" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
@@ -2803,6 +2818,191 @@ export default function AdminHome() {
                 }}
                 testID="tr-save"
               />
+            </Card>
+          </>
+        )}
+
+        {tab === "activation_videos" && (
+          <>
+            <Card testID="admin-av-card">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Ionicons name="videocam" size={20} color={theme.colors.primary} />
+                <Text style={styles.section}>🎥 Vidéos d'activation</Text>
+              </View>
+              <Text style={styles.helperTxt}>
+                Ces vidéos apparaissent sur la page de paiement des nouveaux
+                utilisateurs. Elles sont affichées dans l'ordre d'import (la
+                première ajoutée apparaît en tête). Formats acceptés :
+                MP4, MOV, WEBM, M4V — taille max 300 MB.
+              </Text>
+
+              <View style={{ height: 10 }} />
+              <Input
+                label="Titre de la vidéo *"
+                value={avTitle}
+                onChangeText={setAvTitle}
+                placeholder="Ex : Comment activer votre compte"
+                testID="av-title"
+              />
+              <Input
+                label="Description (facultatif)"
+                value={avDesc}
+                onChangeText={setAvDesc}
+                placeholder="Ex : Guide rapide pour effectuer votre activation"
+                multiline
+                numberOfLines={2}
+                style={{ minHeight: 60, textAlignVertical: "top" }}
+                testID="av-desc"
+              />
+
+              {Platform.OS === "web" ? (
+                // @ts-ignore native file input for reliable multipart on web
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm,video/x-m4v"
+                  data-testid="av-file-input"
+                  style={{ marginTop: 8, marginBottom: 4 }}
+                  onChange={async (e: any) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!avTitle.trim()) {
+                      setAvErr("Le titre est obligatoire.");
+                      return;
+                    }
+                    setAvErr(null);
+                    setAvUploading(true);
+                    setAvProgress(0);
+                    try {
+                      const form = new FormData();
+                      form.append("title", avTitle.trim());
+                      form.append("description", avDesc.trim());
+                      form.append("file", f);
+                      const base = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+                      const token = (typeof window !== "undefined")
+                        ? JSON.parse(window.localStorage.getItem("auth_token") || '""')
+                        : "";
+                      // Use XHR for upload progress support.
+                      await new Promise<void>((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open("POST", `${base}/api/admin/activation-videos`);
+                        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+                        xhr.upload.onprogress = (evt) => {
+                          if (evt.lengthComputable) {
+                            setAvProgress(Math.round((evt.loaded / evt.total) * 100));
+                          }
+                        };
+                        xhr.onload = () => {
+                          if (xhr.status >= 200 && xhr.status < 300) resolve();
+                          else {
+                            let msg = `Erreur ${xhr.status}`;
+                            try { msg = JSON.parse(xhr.responseText).detail || msg; } catch {}
+                            reject(new Error(msg));
+                          }
+                        };
+                        xhr.onerror = () => reject(new Error("Erreur réseau"));
+                        xhr.send(form);
+                      });
+                      // Reload list + reset form
+                      const r = await api.get<any>("/admin/activation-videos");
+                      setAvVideos(r?.items || []);
+                      setAvTitle("");
+                      setAvDesc("");
+                      (e.target as HTMLInputElement).value = "";
+                      window.alert("Vidéo enregistrée ✅");
+                    } catch (err: any) {
+                      setAvErr(err?.message || "Import échoué.");
+                    } finally {
+                      setAvUploading(false);
+                      setAvProgress(0);
+                    }
+                  }}
+                />
+              ) : (
+                <Text style={styles.helperTxt}>
+                  L'upload de vidéos est disponible uniquement depuis un
+                  navigateur web.
+                </Text>
+              )}
+              {avUploading && (
+                <View style={{ marginTop: 6, gap: 4 }}>
+                  <ActivityIndicator color={theme.colors.primary} />
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                    Import en cours… {avProgress}%
+                  </Text>
+                </View>
+              )}
+              {avErr && (
+                <Text style={{ color: theme.colors.danger, fontSize: 12, marginTop: 6 }}>
+                  {avErr}
+                </Text>
+              )}
+            </Card>
+
+            <Card style={{ marginTop: 12 }} testID="admin-av-list-card">
+              <Text style={styles.section}>
+                Vidéos enregistrées ({avVideos.length})
+              </Text>
+              {avVideos.length === 0 ? (
+                <Text style={styles.empty}>Aucune vidéo. Importez la première ci-dessus.</Text>
+              ) : (
+                avVideos.map((v, i) => (
+                  <View
+                    key={v.id}
+                    style={{
+                      padding: 10,
+                      borderRadius: 12,
+                      backgroundColor: theme.colors.surfaceSecondary,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      marginBottom: 8,
+                    }}
+                    data-testid={`av-item-${v.id}`}
+                  >
+                    <Text style={{ color: theme.colors.textPrimary, fontWeight: "800" }}>
+                      {i + 1}. {v.title}
+                    </Text>
+                    {!!v.description && (
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                        {v.description}
+                      </Text>
+                    )}
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>
+                      {v.filename} • {Math.round((v.size_bytes || 0) / 1024 / 1024)} MB • {v.active ? "actif" : "masqué"}
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: v.active ? theme.colors.warning : theme.colors.success }}
+                        onPress={async () => {
+                          try {
+                            await api.put(`/admin/activation-videos/${v.id}`, { active: !v.active });
+                            const r = await api.get<any>("/admin/activation-videos");
+                            setAvVideos(r?.items || []);
+                          } catch (e: any) { notify("Erreur", e?.detail || "Échec"); }
+                        }}
+                        data-testid={`av-toggle-${v.id}`}
+                      >
+                        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>
+                          {v.active ? "Masquer" : "Activer"}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.danger }}
+                        onPress={async () => {
+                          if (typeof window !== "undefined" && !window.confirm(`Supprimer définitivement « ${v.title} » ?`)) return;
+                          try {
+                            await api.delete(`/admin/activation-videos/${v.id}`);
+                            const r = await api.get<any>("/admin/activation-videos");
+                            setAvVideos(r?.items || []);
+                          } catch (e: any) { notify("Erreur", e?.detail || "Échec"); }
+                        }}
+                        data-testid={`av-delete-${v.id}`}
+                      >
+                        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>Supprimer</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
             </Card>
           </>
         )}

@@ -3640,6 +3640,37 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27f) — 🎥 Module Vidéo d'activation
+
+**Demande utilisateur** : nouvelle rubrique admin `🎥 Vidéo d'activation` pour importer des vidéos guides ; affichage automatique sur la page `/pay` avec lecteur intégré (pas de redirection externe).
+
+**Backend** (`activation_videos.py` — nouveau module) :
+- Collection Mongo `activation_videos` : `{id, title, description, filename, url, content_type, size_bytes, position, active, created_at, created_by}`.
+- `POST /api/admin/activation-videos` (multipart) : upload avec title (required) + description (optional), validation extension (.mp4/.mov/.webm/.m4v), taille max 300 MB (env `ACTIVATION_VIDEO_MAX_MB`).
+- `GET /api/admin/activation-videos` : liste complète pour admin.
+- `PUT /api/admin/activation-videos/{id}` : update title/description/active/position.
+- `DELETE /api/admin/activation-videos/{id}` : supprime la vidéo du disque local (object storage garde tombstone).
+- `GET /api/settings/activation-videos` (public) : liste des vidéos actives, triée par `position` puis `created_at`.
+- Storage : dual-write local `UPLOADS_DIR` + Emergent Object Storage (même pattern que `ads.py`). Servi via `/api/uploads/{filename}`.
+- Position auto-assignée = max(position) + 1 → première vidéo importée = #1.
+
+**Frontend** :
+- `src/components/ActivationVideoList.tsx` — composant réutilisable, fetch `/settings/activation-videos`, affiche chaque vidéo dans une carte (titre + description + `<video controls>` HTML5 sur web, message fallback sur natif). Silencieux si aucune vidéo.
+- `app/(app)/pay.tsx` — insertion du composant en bas de la ScrollView, sous la zone de paiement existante (aucune modif du flow d'activation).
+- `app/(admin)/index.tsx` — nouvelle rubrique `activation_videos` dans les tabs, avec :
+  - Formulaire d'import (titre, description, `<input type=file>` avec upload XHR + barre de progression).
+  - Liste des vidéos enregistrées avec position, taille, statut actif/masqué.
+  - Actions : Masquer/Activer, Supprimer (confirmation `window.confirm`).
+
+**Vérifications end-to-end** (2026-02-14) :
+- ✅ Public GET vide OK.
+- ✅ Upload MP4 valide → id, title, position=1, url `/api/uploads/activation-video-*.mp4`.
+- ✅ Deuxième upload → position=2, ordre préservé côté public.
+- ✅ Upload .txt (mauvaise extension) → 415.
+- ✅ Upload sans titre → 400 "Le titre est obligatoire".
+- ✅ Lecteur HTML5 rendu inline sur web (`<video controls>` = play/pause/volume/fullscreen).
+- ✅ Aucune modification du système d'activation existant.
+
 ### 2026-02-14 (v27e) — 🔁 AshTech Pay : nouveau domaine + catalogue pays live
 
 **Contexte** : AshTechPay a migré son domaine principal de `ashtechpay.top` → `www.ashtechpay.com` (source officielle : `https://doc.ashtechpay.com/docs/introduction#base-url`). L'utilisateur demande également d'ajouter automatiquement tout nouveau pays supporté par AshTech, plutôt que d'avoir à toucher au code chaque fois.

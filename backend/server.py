@@ -4771,6 +4771,13 @@ app.include_router(ashtec_api)
 app.include_router(ashtec_webhook)
 app.include_router(ashtec_admin)
 
+# Activation Videos — admin uploads guide videos shown on the payment page.
+from activation_videos import public as av_public, admin as av_admin  # noqa: E402
+app.include_router(av_public)
+app.include_router(av_admin)
+app.include_router(ashtec_webhook)
+app.include_router(ashtec_admin)
+
 # BizTransPay integration removed 2026-09-02 — crypto activation is now
 # handled by IziChangePay (routes in izichange.py), mobile activation by
 # SolesPay/Ashtec (routes in server.py + ashtec_activation.py).
