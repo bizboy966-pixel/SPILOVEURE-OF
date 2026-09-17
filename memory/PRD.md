@@ -3640,6 +3640,25 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27e) — 🔁 AshTech Pay : nouveau domaine + catalogue pays live
+
+**Contexte** : AshTechPay a migré son domaine principal de `ashtechpay.top` → `www.ashtechpay.com` (source officielle : `https://doc.ashtechpay.com/docs/introduction#base-url`). L'utilisateur demande également d'ajouter automatiquement tout nouveau pays supporté par AshTech, plutôt que d'avoir à toucher au code chaque fois.
+
+**Changements backend** :
+- `ashtecpay.py` :
+  - `BASE_URL` par défaut = `https://www.ashtechpay.com` (override possible via `ASHTECPAY_BASE_URL`).
+  - Nouvelle fonction `list_countries(api_key)` qui appelle `GET /v1/countries` et retourne la liste normalisée `[{code, name, currency, operators}]`. Retourne `[]` silencieusement en cas d'erreur.
+- `ashtec_activation.py` :
+  - Nouveau cache mémoire `_live_cache` (TTL 30 min) qui hydrate le catalogue via `_refresh_live_countries()`.
+  - `/api/payments/ashtec/catalog` renvoie la liste **live** merged avec la liste hardcodée en fallback + expose `source: "live" | "bootstrap"`.
+  - `validate_country_operator()`, `ashtec_initiate`, `ashtec_recharge_initiate` consultent aussi `_live_cache` — un pays fraîchement ajouté côté AshTech marche immédiatement sans redéploiement.
+  - `CATALOG_VERSION` = `"2026-02-14-v5-www-domain-live-catalog"`.
+
+**Vérifications end-to-end** :
+- ✅ `/api/admin/payments/ashtec/health` : `base_url = https://www.ashtechpay.com`, catalog_version affiche la nouvelle valeur.
+- ✅ Catalog endpoint retourne la nouvelle version.
+- ⚠️ **Note importante pour la prod** : si l'ancienne clé API a été rotée après la migration, il faudra la rebrancher dans Admin Panel → Configuration paiements → `ashtec_api_key`. Une clé toujours valide fonctionne telle quelle avec le nouveau domaine.
+
 ### 2026-02-14 (v27d) — 🚀 Bounce sans flash pour comptes pending
 
 **Bug rapporté (vidéo utilisateur)** : "Tu cliques sur Option, ça rentre et ça sort en même temps." → quand un compte pending clique sur une route protégée (Formations, Publicités, Dashboard, etc.), l'écran cible apparaît brièvement (avec spinner de load) AVANT que le layout guard v27c redirige vers `/pay`. Effet "flash aller-retour" gênant.

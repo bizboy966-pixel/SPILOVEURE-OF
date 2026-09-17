@@ -205,7 +205,53 @@ def _verify_ashtec_signature(secret: str, timestamp: str, raw_body: bytes,
 # Version marker — bumped when the fix for Flooz (Moov) / E.164 / operator
 # translation is deployed. If /api/payments/ashtec/catalog does NOT return
 # this version string, the production is still running old code.
-CATALOG_VERSION: str = "2026-09-03-v4-official-v1.2"
+CATALOG_VERSION: str = "2026-02-14-v5-www-domain-live-catalog"
+
+# ── Live catalog cache (2026-02-14) ────────────────────────────────────
+# The hardcoded `COUNTRIES` map above is the *bootstrap* — the actual
+# live catalog is fetched from `GET /v1/countries` on the AshTech domain
+# and merged in every 30 minutes. That way, whenever AshTech adds a new
+# country (e.g. Guinée Bissau, Tchad, Comores…) it appears automatically
+# in our /api/payments/ashtec/catalog response without a redeploy.
+import asyncio  # noqa: E402
+_live_cache: dict[str, dict] = {}
+_live_cache_ts: float = 0.0
+_LIVE_CACHE_TTL_SEC: int = 30 * 60
+
+
+async def _refresh_live_countries(db):
+    """Best-effort refresh of the live catalog. Silently no-ops when no
+    API key is configured or when AshTech is unreachable."""
+    global _live_cache, _live_cache_ts
+    api_key = await _get_api_key(db)
+    if not api_key:
+        return
+    live = await ashtecpay.list_countries(api_key)
+    if not live:
+        return
+    merged: dict[str, dict] = {}
+    for entry in live:
+        code = entry["code"]
+        merged[code] = {
+            "name": entry.get("name") or COUNTRIES.get(code, {}).get("name", code),
+            "currency": entry["currency"],
+            "operators": entry["operators"],
+        }
+    _live_cache = merged
+    _live_cache_ts = asyncio.get_event_loop().time()
+    log.info("ashtec live catalog refreshed: %d countries", len(merged))
+
+
+async def _get_effective_countries(db) -> dict[str, dict]:
+    """Return the live catalog if fresh, else the hardcoded one.
+    Kicks off a background refresh if the cache is stale."""
+    now = asyncio.get_event_loop().time()
+    if not _live_cache or (now - _live_cache_ts) > _LIVE_CACHE_TTL_SEC:
+        try:
+            await _refresh_live_countries(db)
+        except Exception as e:
+            log.warning("ashtec live catalog refresh failed: %s", e)
+    return _live_cache if _live_cache else COUNTRIES
 
 
 @api.get("/payments/ashtec/catalog")
@@ -213,6 +259,9 @@ async def ashtec_catalog(request: Request):
     """Public catalog — country + operator list for the UI selectors.
     Returns `enabled: false` when the admin has disabled Ashtech, so the
     frontend can hide the entire Auto-Activation flow.
+    v27e (2026-02-14) — hydrates from LIVE `/v1/countries` when possible so
+    that any new country added by AshTech is picked up automatically. Falls
+    back to the hardcoded `COUNTRIES` catalog on error.
     """
     db = request.app.state.db
     enabled = await _ashtec_enabled(db)
@@ -222,11 +271,15 @@ async def ashtec_catalog(request: Request):
             "version": CATALOG_VERSION,
             "countries": [],
         }
+    effective = await _get_effective_countries(db)
+    # Ensure every currency has a fee-scaled activation amount (falls back
+    # to the XOF value when we discover a new currency for the first time).
     countries = [
         {"code": code, "name": info["name"], "currency": info["currency"],
          "operators": info["operators"],
-         "activation_amount": ACTIVATION_AMOUNT_BY_CURRENCY.get(info["currency"], ACTIVATION_AMOUNT)}
-        for code, info in COUNTRIES.items()
+         "activation_amount": ACTIVATION_AMOUNT_BY_CURRENCY.get(
+             info["currency"], ACTIVATION_AMOUNT)}
+        for code, info in effective.items()
     ]
     countries.sort(key=lambda c: c["name"])
     return {
@@ -237,13 +290,18 @@ async def ashtec_catalog(request: Request):
         "level": ACTIVATION_LEVEL,
         "countdown_minutes": COUNTDOWN_MINUTES,
         "countries": countries,
+        "source": "live" if _live_cache else "bootstrap",
     }
 
 
 # ─── Shared helper (usable by ads.py + special_tasks.py) ────────────────
 def validate_country_operator(cc: str, operator: str) -> dict:
-    """Raise HTTPException on bad country/operator, return country info."""
-    info = COUNTRIES.get(cc.upper())
+    """Raise HTTPException on bad country/operator, return country info.
+    v27e (2026-02-14) — checks the LIVE cache first (populated by
+    /v1/countries) so newly added AshTech countries validate correctly
+    even before a redeploy. Falls back to the hardcoded map."""
+    cc_up = cc.upper()
+    info = _live_cache.get(cc_up) or COUNTRIES.get(cc_up)
     if not info:
         raise HTTPException(400, f"Pays {cc} non disponible.")
     if operator not in info["operators"]:
@@ -404,7 +462,7 @@ async def ashtec_initiate(
     db = request.app.state.db
     if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
         raise HTTPException(400, "Votre compte est déjà activé.")
-    info = COUNTRIES.get(data.country_code.upper())
+    info = COUNTRIES.get(data.country_code.upper()) or _live_cache.get(data.country_code.upper())
     if not info:
         raise HTTPException(400, f"Pays {data.country_code} non disponible.")
     amount = ACTIVATION_AMOUNT_BY_CURRENCY.get(info["currency"], ACTIVATION_AMOUNT)
@@ -477,7 +535,7 @@ async def ashtec_recharge_initiate(
     (idempotent — see `_apply_payment_success` recharge branch).
     """
     db = request.app.state.db
-    info = COUNTRIES.get(data.country_code.upper())
+    info = COUNTRIES.get(data.country_code.upper()) or _live_cache.get(data.country_code.upper())
     if not info:
         raise HTTPException(400, f"Pays {data.country_code} non disponible.")
     amount = await _current_recharge_amount(db)

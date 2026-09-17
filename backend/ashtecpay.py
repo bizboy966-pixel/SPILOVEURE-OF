@@ -14,8 +14,11 @@ import httpx
 
 log = logging.getLogger("ashtecpay")
 
-# Base URL is fixed per the API spec. Allow override via .env for staging/sandbox.
-BASE_URL = os.environ.get("ASHTECPAY_BASE_URL") or "https://ashtechpay.top"
+# Base URL updated 2026-02-14 — Ashtechpay migrated to www.ashtechpay.com
+# (previous host `ashtechpay.top` still resolves but is deprecated per the
+# official docs at https://doc.ashtechpay.com/docs/introduction#base-url).
+# Overridable via ASHTECPAY_BASE_URL for staging/sandbox.
+BASE_URL = os.environ.get("ASHTECPAY_BASE_URL") or "https://www.ashtechpay.com"
 
 
 def _headers(api_key: str) -> dict:
@@ -198,3 +201,48 @@ def normalize_status(raw: str | None) -> str:
     if s in ("failed", "refused", "expired", "cancelled", "canceled", "error"):
         return "failed"
     return "pending"
+
+
+async def list_countries(api_key: str) -> list[dict]:
+    """GET /v1/countries — returns the LIVE catalog straight from AshTech Pay.
+
+    Added 2026-02-14 after the domain migration to `www.ashtechpay.com`.
+    Each item is:
+        {"code": "CM", "name": "Cameroun",
+         "currency": "XAF",
+         "operators": ["MTN Money", "Orange Money"]}
+    Returns [] on any error so callers can fall back to their cached list.
+    """
+    if not api_key:
+        return []
+    url = f"{BASE_URL}/v1/countries"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.get(url, headers=_headers(api_key))
+    except Exception as e:
+        log.warning("AshtecPay /v1/countries network error: %s", e)
+        return []
+    if r.status_code != 200:
+        log.warning("AshtecPay /v1/countries HTTP %s: %s", r.status_code, r.text[:200])
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        code = (item.get("code") or "").strip().upper()
+        name = (item.get("name") or "").strip()
+        currency = (item.get("currency") or "").strip().upper()
+        operators = item.get("operators") or []
+        if not code or not currency or not isinstance(operators, list):
+            continue
+        out.append({
+            "code": code, "name": name, "currency": currency,
+            "operators": [str(op) for op in operators if op],
+        })
+    return out
