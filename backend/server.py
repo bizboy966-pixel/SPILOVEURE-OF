@@ -812,13 +812,15 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         spillover_active = await db.users.count_documents({"id": {"$in": spillover_active_ids}, "status": "active"})
     cur = user.get("max_level", 0)
     level_info = LEVELS_BY_NUM.get(cur) if cur else None
-    # v27h (2026-02-14) — task rewards (Special Tasks, paid ads, reactor,
-    # etc.) are credited to `balance_profit` but NEVER to the two counters
-    # `commission_direct` / `commission_spillover`. As a result the
-    # Dashboard's "Total profit cumulé" was ignoring them, even though the
-    # Tasks screen showed the amounts correctly. We now sum the commissions
-    # collection for all reward-kind rows and include the result in
-    # total_profit + expose it as its own `task_earnings` stat.
+    # v27h/v27i (2026-02-14) — task rewards (Special Tasks, Ads reactor,
+    # paid_tasks, lottery wins) are credited to `balance_profit` but NOT
+    # to the two counters `commission_direct` / `commission_spillover`.
+    # Different modules log to different collections:
+    #   • Special tasks & lottery & paid tasks → db.commissions with a
+    #     non-commission `kind`.
+    #   • Ads reactor rewards                  → db.ads_reactor_rewards.
+    # We aggregate BOTH so the Dashboard "Total profit cumulé" reflects
+    # every gain on the platform.
     _reward_kinds = {
         "direct", "spillover_sponsor", "spillover_beneficiary",
     }
@@ -832,9 +834,18 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
             {"$group": {"_id": None, "total": {"$sum": "$profit_share"}}},
         ])
         async for row in agg:
-            task_earnings = float(row.get("total") or 0)
+            task_earnings += float(row.get("total") or 0)
     except Exception:
-        task_earnings = 0.0
+        pass
+    try:
+        agg2 = db.ads_reactor_rewards.aggregate([
+            {"$match": {"user_id": user["id"]}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ])
+        async for row in agg2:
+            task_earnings += float(row.get("total") or 0)
+    except Exception:
+        pass
 
     # v19 (2026-02-14) — `total_profit` reflects ALL profit-side inflows,
     # not only the automatic commission attributions. Admin-side credits

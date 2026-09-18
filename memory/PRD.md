@@ -3640,6 +3640,23 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27i) — 💰 Total profit inclut aussi les publicités rémunérées (reactor)
+
+**Bug résiduel après v27h** : Les rewards de la **publicité rémunérée** (module reactor de `ads.py`) sont stockés dans une collection **séparée** `db.ads_reactor_rewards`, PAS dans `db.commissions`. Résultat : v27h agrégeait les Special Tasks mais ratait complètement les gains sur Publicités.
+
+**Fix** (`server.py` `/api/dashboard`) : ajout d'une **seconde agrégation** sur `db.ads_reactor_rewards` (sum `amount`) → ajoutée à `task_earnings` puis à `total_profit`.
+
+**Formule finale** :
+```
+total_profit = commission_direct
+             + commission_spillover
+             + admin_credit_total
+             + Σ commissions.profit_share (kinds ≠ direct/spillover_*)
+             + Σ ads_reactor_rewards.amount
+```
+
+**Vérification** : compte admin — insertion d'un reactor reward de 100 FCFA → total_profit passe de 519 000 → **519 100 FCFA** ✅ (comportement attendu par l'utilisateur : "si j'ai 1000 et que je gagne 100 sur une tâche, total_profit → 1100").
+
 ### 2026-02-14 (v27h) — 💰 Total profit inclut désormais les gains de tâches
 
 **Bug rapporté** : le Total profit cumulé sur le Dashboard n'incrémentait pas quand l'utilisateur validait une tâche (spéciale/publicité rémunérée/réacteur), alors que la page Tâches affichait correctement les montants.
