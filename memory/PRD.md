@@ -3640,6 +3640,18 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27h) — 💰 Total profit inclut désormais les gains de tâches
+
+**Bug rapporté** : le Total profit cumulé sur le Dashboard n'incrémentait pas quand l'utilisateur validait une tâche (spéciale/publicité rémunérée/réacteur), alors que la page Tâches affichait correctement les montants.
+
+**Root cause** : `total_profit` dans `/api/dashboard` était calculé uniquement à partir de `commission_direct + commission_spillover + admin_credit_total`. Les rewards de tâches sont créditées à `balance_profit` et loggées dans `db.commissions` avec des `kind` non-commission (`special_task_reward`, `paid_task_reward`, `reactor_reward`) — donc invisibles pour le compteur.
+
+**Fix** (`server.py`) : agrégation Mongo sur `db.commissions` où `kind ∉ {direct, spillover_sponsor, spillover_beneficiary}` → somme `profit_share` → ajoutée à `total_profit`. Nouveau champ `task_earnings` exposé également pour un affichage détaillé futur.
+
+**Vérification** (compte admin) :
+- Avant : commissions=456 500 → total_profit=456 500 (tâches ignorées).
+- Après : task_earnings=62 500 → total_profit=519 000 (cumul correct).
+
 ### 2026-02-14 (v27g) — 🌍 AshTech : +3 pays (CG, TD, CF) + CI restreint à MTN
 
 **Demande** : ajouter Congo Brazzaville, Tchad, Centrafrique ; vérifier Sénégal & Mali ; Côte d'Ivoire limité à MTN uniquement.

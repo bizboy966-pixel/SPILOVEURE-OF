@@ -812,6 +812,30 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         spillover_active = await db.users.count_documents({"id": {"$in": spillover_active_ids}, "status": "active"})
     cur = user.get("max_level", 0)
     level_info = LEVELS_BY_NUM.get(cur) if cur else None
+    # v27h (2026-02-14) — task rewards (Special Tasks, paid ads, reactor,
+    # etc.) are credited to `balance_profit` but NEVER to the two counters
+    # `commission_direct` / `commission_spillover`. As a result the
+    # Dashboard's "Total profit cumulé" was ignoring them, even though the
+    # Tasks screen showed the amounts correctly. We now sum the commissions
+    # collection for all reward-kind rows and include the result in
+    # total_profit + expose it as its own `task_earnings` stat.
+    _reward_kinds = {
+        "direct", "spillover_sponsor", "spillover_beneficiary",
+    }
+    task_earnings = 0.0
+    try:
+        agg = db.commissions.aggregate([
+            {"$match": {
+                "user_id": user["id"],
+                "kind": {"$nin": list(_reward_kinds)},
+            }},
+            {"$group": {"_id": None, "total": {"$sum": "$profit_share"}}},
+        ])
+        async for row in agg:
+            task_earnings = float(row.get("total") or 0)
+    except Exception:
+        task_earnings = 0.0
+
     # v19 (2026-02-14) — `total_profit` reflects ALL profit-side inflows,
     # not only the automatic commission attributions. Admin-side credits
     # (bucket=profit OR upgrade) are tracked in `admin_credit_total` so
@@ -821,6 +845,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         float(user.get("commission_direct", 0) or 0)
         + float(user.get("commission_spillover", 0) or 0)
         + float(user.get("admin_credit_total", 0) or 0)
+        + task_earnings
     )
 
     # ─── Daily activity trend (v14 dashboard hero) ──────────────
@@ -908,6 +933,9 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "commission_direct": user.get("commission_direct", 0),
         "commission_spillover": user.get("commission_spillover", 0),
         "admin_credit_total": float(user.get("admin_credit_total", 0) or 0),
+        # v27h (2026-02-14) — cumulative task rewards (special tasks, paid
+        # tasks, reactor). Frontend can display this separately if needed.
+        "task_earnings": task_earnings,
         "total_profit": total_profit,
         "total_withdrawn": float(user.get("total_withdrawn", 0) or 0),
         "direct_count": direct_count,
