@@ -3640,6 +3640,24 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27j) — 💰 Total profit inclut aussi les Missions rémunérées
+
+**Bug résiduel** : les Missions rémunérées (YouTube/TikTok/Instagram/Facebook/Questionnaire) créditent des wallets séparés (`balance_youtube`, `_tiktok`, …) et maintiennent un cumul `balance_missions_total` sur l'utilisateur — mais ce cumul n'était pas ajouté à `total_profit`.
+
+**Fix** (`server.py` `/api/dashboard`) : ajout de `user.balance_missions_total` à `task_earnings` (et donc à `total_profit`).
+
+**Formule finale complète** :
+```
+total_profit = commission_direct                       (matrix)
+             + commission_spillover                    (matrix)
+             + admin_credit_total                      (admin credits)
+             + Σ commissions.profit_share (non-mlm)   (special_tasks + lottery)
+             + Σ ads_reactor_rewards.amount           (publicités rémunérées)
+             + balance_missions_total                  (missions rémunérées)
+```
+
+**Vérification** : compte admin — mission YouTube simulée à +250 FCFA → total_profit passe de 520 100 → **520 350 FCFA** ✅.
+
 ### 2026-02-14 (v27i) — 💰 Total profit inclut aussi les publicités rémunérées (reactor)
 
 **Bug résiduel après v27h** : Les rewards de la **publicité rémunérée** (module reactor de `ads.py`) sont stockés dans une collection **séparée** `db.ads_reactor_rewards`, PAS dans `db.commissions`. Résultat : v27h agrégeait les Special Tasks mais ratait complètement les gains sur Publicités.

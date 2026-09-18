@@ -847,6 +847,14 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     except Exception:
         pass
 
+    # v27j (2026-02-14) — Missions rémunérées credit dedicated wallets
+    # (balance_youtube / _tiktok / _instagram / _facebook / _questionnaire)
+    # AND maintain a running total `balance_missions_total` on the user
+    # document (see missions.py line 426). Include it in the cumulative
+    # total profit so mission earnings surface on the Dashboard.
+    mission_earnings = float(user.get("balance_missions_total", 0) or 0)
+    task_earnings += mission_earnings
+
     # v19 (2026-02-14) — `total_profit` reflects ALL profit-side inflows,
     # not only the automatic commission attributions. Admin-side credits
     # (bucket=profit OR upgrade) are tracked in `admin_credit_total` so
