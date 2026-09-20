@@ -21,6 +21,21 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27f) — 🔒 Bouton flottant Telegram + pop-up chaîne d'info : accès activé uniquement
+
+**Demande utilisateur** : un compte non activé ne doit voir NI le bouton flottant Telegram (support client), NI le pop-up chaîne d'information. Ces éléments réapparaissent automatiquement dès que l'activation est confirmée.
+
+**Frontend** — `app/(app)/_layout.tsx` :
+- Nouveau booléen `isActivated = user.status === "active" && (user.max_level || 0) >= 1`.
+- `<TelegramFab />` et `<CommunityPopup />` conditionnés par `{isActivated && …}` → aucun montage tant que le compte est pending.
+
+**Vérifié** :
+- Compte pending (`pending1789496024@gmail.com`) sur `/pay` : FAB=0, popup=0 ✅
+- Compte activé niveau 2 (`tst_val_yt2qn9@example.com`) sur `/dashboard` : bouton "Support" Telegram visible en bas à droite ✅
+
+**Non modifié** (conformément à la demande) : paiements, Mobile Money, USDT BEP20, missions, publicités, commissions, retraits.
+
+
 ### 2026-02-14 (v24) — 🔐 Mode consultation strict pour comptes pending
 
 **Demande utilisateur** : un compte non activé doit uniquement pouvoir naviguer sur le dashboard + Tâches/Missions/Publicités rémunérées. TOUT le reste (cartes services, Voir tout, quick actions Dépôt/Retrait/Envoyer/Échange, menu 3-points, IA SPV, Trading, Profil, Voir plus dans Tâches, retrait des gains) doit afficher le modal "Compte non activé".

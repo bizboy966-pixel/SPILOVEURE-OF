@@ -42,6 +42,15 @@ export default function AppLayout() {
     return user.status === "pending" && (user.max_level || 0) === 0;
   }, [user]);
 
+  // v27e (2026-02-14) — le bouton flottant Telegram et le pop-up chaîne
+  // d'information ne doivent apparaître QUE pour les comptes réellement
+  // activés (paiement confirmé). Un compte "pending" (inscrit mais non
+  // activé) ne doit pas y avoir accès.
+  const isActivated = useMemo(() => {
+    if (!user) return false;
+    return user.status === "active" && (user.max_level || 0) >= 1;
+  }, [user]);
+
   // v27d (2026-02-14) — compute the "bounce" decision at render time so
   // we can short-circuit `<Stack>` BEFORE the target screen has a chance
   // to render + flash. Previously the target route mounted, its `load()`
@@ -82,10 +91,10 @@ export default function AppLayout() {
         <Stack screenOptions={{ headerShown: false }} />
         {user && (
           <>
-            <CommunityPopup userId={user.id} />
+            {isActivated && <CommunityPopup userId={user.id} />}
             <NotificationToaster />
             <PushBootstrap />
-            <TelegramFab />
+            {isActivated && <TelegramFab />}
           </>
         )}
       </View>
