@@ -3640,6 +3640,25 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27l) — 🌍 USDT BEP20 disponible pour TOUS les pays
+
+**Demande utilisateur** : USDT BEP20 doit être disponible partout, en plus des opérateurs Mobile Money — pas à la place. Un utilisateur au Togo doit pouvoir choisir T-Money OU Flooz OU USDT BEP20 depuis la même liste.
+
+**Backend** (`server.py`, endpoint `/payments/activation-catalog`) :
+- Chaque pays retourne désormais `operators = [<mobile ops>...] + USDT_BEP20` (quand la gateway crypto est configurée).
+- Pays sans Mobile Money → `operators = [USDT_BEP20]` (auto-sélectionné côté frontend).
+- Le champ `type` reste (`"mobile"` si au moins un op non-crypto, sinon `"crypto"`) pour compat.
+- Résultat : 60 pays, USDT BEP20 présent partout, opérateurs Mobile Money ajoutés seulement si configurés + non désactivés en admin.
+
+**Frontend** (`pay.tsx`) :
+- Le mode Mobile/Crypto est dérivé de `selectedOperator.gateway === "izichange"`, plus du pays.
+- Le champ numéro de téléphone n'apparaît QUE si l'opérateur choisi n'est PAS crypto.
+- Auto-sélection de l'opérateur si le pays n'a qu'une seule option (verrouillé visuellement).
+- Changement de pays réinitialise l'opérateur et le numéro sauf si option unique.
+- Modal opérateur : icône dynamique (`phone-portrait` pour Mobile Money, `logo-bitcoin` pour USDT).
+
+**Testing** : Togo/Bénin/CI/SN/BF affichent leurs opérateurs Mobile Money **+ USDT BEP20** ; France/Allemagne/États-Unis affichent uniquement USDT BEP20. Aucune modification aux flux paiement/webhook/activation.
+
 ### 2026-02-14 (v27k) — 🎨 Refonte complète de la page d'activation
 
 **Demande utilisateur** : nouveau parcours plus simple. Suppression du choix "Mobile Money vs Crypto" en tête. Nouvelle logique : Pays → détection automatique → opérateurs Mobile Money OU fallback USDT BEP20 → numéro (mobile uniquement) → ACTIVER. Suppression du champ mot de passe de confirmation.

@@ -2585,27 +2585,35 @@ async def activation_catalog(request: Request):
         crypto_available = False
 
     countries_out: list = []
+    # v27l (2026-02-14) — USDT BEP20 is a UNIVERSAL payment method,
+    # available in every country in addition to any Mobile Money
+    # operator. Each country therefore always exposes at least the
+    # USDT_BEP20 entry (as long as the crypto gateway is configured).
+    crypto_row = {"code": "USDT_BEP20", "label": "USDT BEP20",
+                  "currency": "USDT", "gateway": "izichange"}
     for c in COUNTRIES:
         cc = c.get("code")
         if not cc:
             continue
-        ops = mobile_lookup.get(cc) or []
-        if ops:
-            countries_out.append({
-                "code": cc, "name": c.get("name") or cc,
-                "flag": c.get("flag"), "dial": c.get("dial"),
-                "type": "mobile", "operators": ops,
-                "currency": ops[0].get("currency") or "XOF",
-            })
-        else:
-            countries_out.append({
-                "code": cc, "name": c.get("name") or cc,
-                "flag": c.get("flag"), "dial": c.get("dial"),
-                "type": "crypto",
-                "operators": [{"code": "USDT_BEP20", "label": "USDT BEP20",
-                               "currency": "USDT", "gateway": "izichange"}],
-                "crypto_available": crypto_available,
-            })
+        ops = list(mobile_lookup.get(cc) or [])
+        if crypto_available:
+            ops.append(dict(crypto_row))
+        if not ops:
+            # Neither Mobile Money nor Crypto configured — hide the country
+            # from the picker to avoid a dead-end.
+            continue
+        # `type` reflects whether the country has at least one Mobile Money
+        # operator. Kept for backward-compat, but the frontend now decides
+        # from `operator.gateway` (mobile vs crypto) not from this field.
+        has_mobile = any(o.get("gateway") != "izichange" for o in ops)
+        countries_out.append({
+            "code": cc, "name": c.get("name") or cc,
+            "flag": c.get("flag"), "dial": c.get("dial"),
+            "type": "mobile" if has_mobile else "crypto",
+            "operators": ops,
+            "currency": (ops[0].get("currency") if has_mobile else "USDT"),
+            "crypto_available": crypto_available,
+        })
     countries_out.sort(key=lambda x: (x["type"] != "mobile", x.get("name") or ""))
     return {
         "amount_fcfa": 2650,

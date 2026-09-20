@@ -78,42 +78,49 @@ export default function Pay() {
     () => catalog?.countries.find((c) => c.code === countryCode) || null,
     [catalog, countryCode],
   );
-  const isMobile = selectedCountry?.type === "mobile";
   const operators = selectedCountry?.operators || [];
   const selectedOperator = useMemo(
     () => operators.find((o) => o.code === operatorCode) || null,
     [operators, operatorCode],
   );
+  // v27l (2026-02-14) — the "mode" is derived from the selected operator's
+  // gateway, not from the country. Any country can offer USDT BEP20
+  // alongside its Mobile Money operators; the phone field only shows when
+  // the picked operator is NOT the crypto one.
+  const isCryptoPick = selectedOperator?.gateway === "izichange";
+  const isMobilePick = !!selectedOperator && !isCryptoPick;
+  // Country picker helper — show "mixte" when a country has both a mobile
+  // operator AND USDT_BEP20.
+  const countryHasMobile = (c: CountryEntry) =>
+    c.operators.some((o) => o.gateway !== "izichange");
 
-  // When the country changes, clear operator + phone unless the new country
-  // is Crypto (single-method — auto-select).
+  // When the country changes, always clear operator + phone. Auto-select
+  // USDT_BEP20 only when it is the ONLY option available (pays sans MoMo).
   const pickCountry = (cc: string) => {
     setCountryCode(cc);
     setCountryPicker(false);
     const c = catalog?.countries.find((x) => x.code === cc) || null;
     setPhone("");
-    if (c?.type === "crypto") {
-      setOperatorCode("USDT_BEP20");
+    if (c && c.operators.length === 1) {
+      setOperatorCode(c.operators[0].code);
     } else {
       setOperatorCode("");
     }
   };
 
   const canActivate = useMemo(() => {
-    if (!selectedCountry) return false;
-    if (selectedCountry.type === "crypto") return !!operatorCode;
-    return !!operatorCode && phone.replace(/\s/g, "").length >= 6;
-  }, [selectedCountry, operatorCode, phone]);
+    if (!selectedCountry || !selectedOperator) return false;
+    if (isCryptoPick) return true;
+    return phone.replace(/\s/g, "").length >= 6;
+  }, [selectedCountry, selectedOperator, isCryptoPick, phone]);
 
   const activate = async () => {
-    if (!selectedCountry) return;
+    if (!selectedCountry || !selectedOperator) return;
     setErr(null);
     setLoading(true);
     try {
-      const body: any = {
-        method: selectedCountry.type === "mobile" ? "mobile" : "crypto",
-      };
-      if (body.method === "mobile") {
+      const body: any = { method: isCryptoPick ? "crypto" : "mobile" };
+      if (!isCryptoPick) {
         body.country = selectedCountry.code;
         body.operator = operatorCode;
         body.phone = phone;
@@ -213,39 +220,50 @@ export default function Pay() {
               <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
 
-            {/* Step 2 — operator or USDT */}
+            {/* Step 2 — operator (mobile ops + USDT always as an extra choice) */}
             {selectedCountry && (
               <>
                 <Text style={styles.label}>
-                  {isMobile ? "📱 Choisissez votre opérateur" : "🪙 Mode de paiement"}
+                  💳 Choisissez votre moyen de paiement
                 </Text>
-                {isMobile ? (
+                {selectedCountry.operators.length === 1 ? (
+                  <View style={[styles.selector, styles.selectorLocked]} testID="pay-usdt-fixed">
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons
+                        name={selectedCountry.operators[0].gateway === "izichange" ? "logo-bitcoin" : "phone-portrait"}
+                        size={18}
+                        color={theme.colors.primary}
+                      />
+                      <Text style={styles.selectorTxt}>{selectedCountry.operators[0].label}</Text>
+                    </View>
+                    <Ionicons name="lock-closed" size={14} color={theme.colors.textSecondary} />
+                  </View>
+                ) : (
                   <TouchableOpacity
                     style={styles.selector}
                     onPress={() => setOperatorPicker(true)}
                     testID="pay-operator-selector"
                   >
                     {selectedOperator ? (
-                      <Text style={styles.selectorTxt}>{selectedOperator.label}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Ionicons
+                          name={isCryptoPick ? "logo-bitcoin" : "phone-portrait"}
+                          size={18}
+                          color={theme.colors.primary}
+                        />
+                        <Text style={styles.selectorTxt}>{selectedOperator.label}</Text>
+                      </View>
                     ) : (
-                      <Text style={styles.selectorPh}>Sélectionner un opérateur</Text>
+                      <Text style={styles.selectorPh}>Sélectionner un moyen de paiement</Text>
                     )}
                     <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
                   </TouchableOpacity>
-                ) : (
-                  <View style={[styles.selector, styles.selectorLocked]} testID="pay-usdt-fixed">
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name="logo-bitcoin" size={18} color={theme.colors.primary} />
-                      <Text style={styles.selectorTxt}>USDT BEP20</Text>
-                    </View>
-                    <Ionicons name="lock-closed" size={14} color={theme.colors.textSecondary} />
-                  </View>
                 )}
               </>
             )}
 
-            {/* Step 3 — phone (mobile only) */}
-            {selectedCountry && isMobile && !!selectedOperator && (
+            {/* Step 3 — phone (mobile ops only) */}
+            {selectedCountry && isMobilePick && (
               <>
                 <Text style={styles.label}>📞 Numéro de téléphone</Text>
                 <TextInput
@@ -367,8 +385,8 @@ export default function Pay() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalRowT}>{c.name}</Text>
                   <Text style={styles.modalRowSub}>
-                    {c.type === "mobile"
-                      ? `${c.operators.length} opérateur${c.operators.length > 1 ? "s" : ""} Mobile Money`
+                    {countryHasMobile(c)
+                      ? `${c.operators.filter((o) => o.gateway !== "izichange").length} Mobile Money + USDT BEP20`
                       : "USDT BEP20"}
                   </Text>
                 </View>
