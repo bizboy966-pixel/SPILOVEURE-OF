@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27g) — 📞 Numéro payeur affiché sur les Ads en attente
+
+**Demande utilisateur** : après paiement Mobile Money, la publicité passe en `pending_admin_review`. L'admin doit voir le numéro qui a effectué le paiement pour vérifier auprès de l'opérateur.
+
+**Backend** — `ads.py` (`pay_ad`, méthode `mobile_money`) :
+- À l'initiation d'un paiement Mobile Money, on persiste sur le document `ads` : `payer_phone`, `payer_country`, `payer_operator` en plus de `payment_reference` et `payment_method`.
+- `_serialize` renvoie automatiquement ces champs → dispo via `GET /api/admin/ads`.
+
+**Frontend** — `app/(admin)/index.tsx` (carte publicité admin) :
+- Nouvelle ligne KV entre "Prix payé" et "Pays" :
+  - `📞 N° payeur` → `<phone> — <operator> (<country>)` si paiement Mobile Money.
+  - `💳 Paiement` → `Crypto USDT (BEP20)` si paiement crypto (pas de numéro).
+
+**Vérifié** :
+- `GET /api/admin/ads?status=pending_admin_review` retourne bien `payer_phone`, `payer_operator`, `payer_country`.
+- Screenshot admin : ligne "📞 N° payeur : +22890555999 — T-Money (TG)" visible sur la carte.
+
+
 ### 2026-02-20 (v27f) — 🔒 Bouton flottant Telegram + pop-up chaîne d'info : accès activé uniquement
 
 **Demande utilisateur** : un compte non activé ne doit voir NI le bouton flottant Telegram (support client), NI le pop-up chaîne d'information. Ces éléments réapparaissent automatiquement dès que l'activation est confirmée.

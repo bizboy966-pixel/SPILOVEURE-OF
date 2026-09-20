@@ -1679,6 +1679,18 @@ export default function AdminHome() {
                 <View style={styles.kvBox}>
                   <KvRow k="Durée" v={`${a.duration_days || "?"} jour(s)`} />
                   <KvRow k="Prix payé" v={`${a.price_amount || 0} ${a.currency || "FCFA"}`} />
+                  {/* v27g — Numéro qui a effectué le paiement (Mobile Money).
+                      Affiché en priorité pour les publicités en attente de
+                      validation admin afin de pouvoir vérifier le paiement
+                      auprès de l'opérateur. */}
+                  {a.payment_method === "mobile_money" && a.payer_phone ? (
+                    <KvRow
+                      k="📞 N° payeur"
+                      v={`${a.payer_phone}${a.payer_operator ? ` — ${a.payer_operator}` : ""}${a.payer_country ? ` (${a.payer_country})` : ""}`}
+                    />
+                  ) : a.payment_method === "crypto" ? (
+                    <KvRow k="💳 Paiement" v="Crypto USDT (BEP20)" />
+                  ) : null}
                   <KvRow k="Pays" v={(a.target_countries || []).join(", ") || "—"} />
                   <KvRow k="Âge" v={`${a.target_age_min || "?"} – ${a.target_age_max || "?"}`} />
                   <KvRow k="Genre" v={a.target_gender || "—"} />

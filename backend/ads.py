@@ -318,6 +318,12 @@ async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_c
             {"$set": {"status": "pending_payment",
                       "payment_reference": result["reference"],
                       "payment_method": "mobile_money",
+                      # v27g — persist the phone number that initiated the
+                      # Mobile Money payment so admins can cross-check with
+                      # the operator dashboard before approving.
+                      "payer_phone": (data.phone or "").strip(),
+                      "payer_country": (data.country_code or "").strip().upper() or None,
+                      "payer_operator": (data.operator or "").strip() or None,
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {"method": "mobile_money", **result}
