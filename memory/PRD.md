@@ -21,6 +21,19 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27g bis) — 🔄 Backfill numéro payeur pour anciennes pubs
+
+**Problème constaté** : après le patch v27g, les publicités déjà payées AVANT le déploiement n'affichaient pas le numéro payeur (le champ `payer_phone` n'existait pas encore sur ces documents `ads`).
+
+**Correctif** — `ads.py` (`admin_list_ads`) :
+- Pour chaque pub sans `payer_phone` mais avec un `payment_reference`, l'endpoint va chercher `phone` / `operator` / `country_code` dans `db.payments` (créés par `create_ashtec_payment` ou la voie crypto).
+- Backfill best-effort du document `ads` pour éviter la lookup au prochain appel.
+- Publicités crypto (provider=`izichange`) → `payment_method` fixé à `crypto`, pas de numéro (l'UI affiche "💳 Paiement : Crypto USDT (BEP20)").
+
+**Vérifié** :
+- Test synthétique : ad sans `payer_phone` + payments row avec `phone=+22896012345, operator=Moov, country=TG` → l'API renvoie bien ces valeurs et backfill le document.
+
+
 ### 2026-02-20 (v27g) — 📞 Numéro payeur affiché sur les Ads en attente
 
 **Demande utilisateur** : après paiement Mobile Money, la publicité passe en `pending_admin_review`. L'admin doit voir le numéro qui a effectué le paiement pour vérifier auprès de l'opérateur.

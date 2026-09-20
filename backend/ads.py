@@ -1102,6 +1102,43 @@ async def admin_list_ads(request: Request, status: Optional[str] = None):
     items = []
     async for a in db.ads.find(q).sort("created_at", -1).limit(500):
         items.append(_serialize(a))
+
+    # v27g bis — Enrichissement rétroactif : pour toute pub qui n'a pas
+    # encore les champs `payer_phone` / `payer_operator` / `payer_country`
+    # (publicités payées AVANT le patch), on va récupérer les infos dans
+    # `db.payments` via le `payment_reference` puis on backfill sur le
+    # document `ads` pour éviter de refaire la lookup au prochain appel.
+    for a in items:
+        if a.get("payer_phone") or not a.get("payment_reference"):
+            continue
+        try:
+            p = await db.payments.find_one(
+                {"reference": a["payment_reference"]},
+                {"_id": 0, "phone": 1, "phone_original": 1,
+                 "operator": 1, "country_code": 1, "provider": 1},
+            ) or {}
+        except Exception:
+            p = {}
+        phone = p.get("phone") or p.get("phone_original")
+        if phone:
+            a["payer_phone"] = phone
+            a["payer_operator"] = p.get("operator")
+            a["payer_country"] = p.get("country_code")
+            if not a.get("payment_method"):
+                a["payment_method"] = "crypto" if p.get("provider") == "izichange" else "mobile_money"
+            # Backfill DB (best-effort, ne bloque pas la réponse)
+            try:
+                await db.ads.update_one(
+                    {"id": a["id"]},
+                    {"$set": {"payer_phone": phone,
+                              "payer_operator": p.get("operator"),
+                              "payer_country": p.get("country_code"),
+                              "payment_method": a["payment_method"]}},
+                )
+            except Exception:
+                pass
+        elif p.get("provider") == "izichange" and not a.get("payment_method"):
+            a["payment_method"] = "crypto"
     return {"items": items}
 
 
