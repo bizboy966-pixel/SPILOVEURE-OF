@@ -3640,6 +3640,29 @@ Voir `/app/memory/test_credentials.md`. Admin: `kossikotokou4@gmail.com` / `@Emm
 - ✅ Écran `/notifications` : header "Notifications", "0 non lues", 2 boutons visibles, état vide correct.
 - ✅ Modal devise : `XOF Franc CFA (UEMOA)` / `XAF Franc CFA (CEMAC)` / `USD Tether (TT)` — plus aucune occurrence "USDT" ni "1 USD = 500 FCFA" côté UI.
 
+### 2026-02-14 (v27k) — 🎨 Refonte complète de la page d'activation
+
+**Demande utilisateur** : nouveau parcours plus simple. Suppression du choix "Mobile Money vs Crypto" en tête. Nouvelle logique : Pays → détection automatique → opérateurs Mobile Money OU fallback USDT BEP20 → numéro (mobile uniquement) → ACTIVER. Suppression du champ mot de passe de confirmation.
+
+**Backend** (`server.py`) :
+- Nouveau endpoint `GET /api/payments/activation-catalog` : retourne les 60 pays de `levels.COUNTRIES` annotés avec `type="mobile"` (+opérateurs) OU `type="crypto"` (fallback USDT BEP20). Format : `{amount_fcfa: 2650, crypto_available, countries: [...]}`.
+- `POST /api/payments/activate` : `require_pwd_confirm` → `get_current_user` (JWT suffisant, la vraie sécurité reste la confirmation webhook du paiement).
+
+**Frontend** (`app/(app)/pay.tsx` — rewrite complet ~450 lignes) :
+- Carte header : "ACTIVATION DU COMPTE / 2 650 FCFA / Montant fixe · non modifiable" (gradient bleu premium).
+- Sélecteur pays modal plein écran (tous les pays cliquables, badge "Mobile Money" ou "USDT BEP20").
+- Après sélection : soit "📱 Choisissez votre opérateur" (modal), soit "🪙 USDT BEP20" verrouillé.
+- Numéro de téléphone : affiché uniquement pour Mobile Money.
+- Bouton "ACTIVER MON COMPTE" désactivé tant que champs incomplets.
+- Écrans pending/success/failed conservés (adresse crypto, QR, copie).
+- Changement de pays : reset automatique de l'opérateur + numéro.
+- Section `<ActivationVideoList />` conservée en bas.
+
+**Testing** :
+- ✅ `/payments/activation-catalog` retourne 60 pays (13 mobile + 47 crypto fallback).
+- ✅ Screenshot mobile 390×844 : carte 2 650 FCFA + sélecteur pays + bouton + vidéos.
+- ✅ Login pending user → landing direct sur `/pay` avec le nouveau design.
+
 ### 2026-02-14 (v27j) — 💰 Total profit inclut aussi les Missions rémunérées
 
 **Bug résiduel** : les Missions rémunérées (YouTube/TikTok/Instagram/Facebook/Questionnaire) créditent des wallets séparés (`balance_youtube`, `_tiktok`, …) et maintiennent un cumul `balance_missions_total` sur l'utilisateur — mais ce cumul n'était pas ajouté à `total_profit`.

@@ -2299,14 +2299,15 @@ class ActivateIn(_PGBaseModel):
 
 @api.post("/payments/activate")
 async def payments_activate(
-    body: ActivateIn, request: Request, user=Depends(require_pwd_confirm),
+    body: ActivateIn, request: Request, user=Depends(get_current_user),
 ):
     """Server-side routing: given {method, country, operator, phone} the
     backend picks the correct gateway and calls its `initiate` handler.
 
-    Returns a normalized envelope:
-      {reference, gateway, status: "processing",
-       // crypto: deposit_address, qr_data, amount, asset_code, network}
+    v27k (2026-02-14) — password confirm removed from the UX per product
+    request. Auth is still enforced (JWT via `get_current_user`), and the
+    real activation only happens after webhook confirmation of the actual
+    payment. Removing the extra password prompt does not weaken this.
     """
     db = request.app.state.db
     method = (body.method or "").lower().strip()
@@ -2518,6 +2519,98 @@ async def payments_catalog(request: Request):
             {"code": "crypto", "label": "Crypto", "available": crypto_available,
              "info": crypto_info},
         ],
+    }
+
+
+@api.get("/payments/activation-catalog")
+async def activation_catalog(request: Request):
+    """v27k (2026-02-14) — country-centric catalog for the redesigned
+    activation page.
+
+    Returns the FULL country list from `levels.COUNTRIES` (~60 entries)
+    regardless of Mobile Money availability. Each country is annotated
+    with:
+      • `type: "mobile"` and its available operators — when at least one
+        Mobile Money operator is configured & enabled for that country.
+      • `type: "crypto"` with a single "USDT BEP20" method — otherwise.
+
+    The FCFA activation amount is fixed by backend policy (2 650 FCFA).
+    """
+    db = request.app.state.db
+    cfg = await _load_payment_gateway(db)
+    matrix_all = cfg.get("country_matrix") or {}
+
+    # Build the mobile lookup once (cc → [{code,label,currency}]).
+    mobile_lookup: dict[str, list] = {}
+    if cfg.get("soleas_enabled") and await soleaspay.is_configured_async(db):
+        soleas_matrix = matrix_all.get("soleas") or {}
+        for cc, ops in soleaspay.SUPPORTED.items():
+            if cc in soleaspay.EXCLUDED_COUNTRIES:
+                continue
+            if soleas_matrix.get(cc, True) is False:
+                continue
+            mobile_lookup[cc] = [
+                {"code": str(op["id"]), "label": op["label"],
+                 "currency": op["currency"], "gateway": "soleas"}
+                for op in ops
+            ]
+    if cfg.get("ashtec_enabled"):
+        try:
+            from ashtec_activation import COUNTRIES as ASHTEC_COUNTRIES  # type: ignore
+        except Exception:
+            ASHTEC_COUNTRIES = {}
+        ashtec_matrix = matrix_all.get("ashtec") or {}
+        for cc, info in ASHTEC_COUNTRIES.items():
+            if ashtec_matrix.get(cc, True) is False:
+                continue
+            operators = info.get("operators") or []
+            if not operators or cc in mobile_lookup:
+                continue
+            currency = info.get("currency") or "XOF"
+            mobile_lookup[cc] = [
+                {"code": op if isinstance(op, str) else op.get("code") or op.get("label"),
+                 "label": op if isinstance(op, str) else op.get("label") or op.get("code"),
+                 "currency": currency, "gateway": "ashtec"}
+                for op in operators
+            ]
+
+    # Crypto availability — same rule as /payments/catalog.
+    crypto_available = False
+    try:
+        from feature_flags import is_enabled as _feat_enabled
+        from izichange import API_KEY as _IZI_KEY
+        flag_on = await _feat_enabled(db, "crypto_auto")
+        crypto_available = bool(flag_on and _IZI_KEY)
+    except Exception:
+        crypto_available = False
+
+    countries_out: list = []
+    for c in COUNTRIES:
+        cc = c.get("code")
+        if not cc:
+            continue
+        ops = mobile_lookup.get(cc) or []
+        if ops:
+            countries_out.append({
+                "code": cc, "name": c.get("name") or cc,
+                "flag": c.get("flag"), "dial": c.get("dial"),
+                "type": "mobile", "operators": ops,
+                "currency": ops[0].get("currency") or "XOF",
+            })
+        else:
+            countries_out.append({
+                "code": cc, "name": c.get("name") or cc,
+                "flag": c.get("flag"), "dial": c.get("dial"),
+                "type": "crypto",
+                "operators": [{"code": "USDT_BEP20", "label": "USDT BEP20",
+                               "currency": "USDT", "gateway": "izichange"}],
+                "crypto_available": crypto_available,
+            })
+    countries_out.sort(key=lambda x: (x["type"] != "mobile", x.get("name") or ""))
+    return {
+        "amount_fcfa": 2650,
+        "crypto_available": crypto_available,
+        "countries": countries_out,
     }
 
 
