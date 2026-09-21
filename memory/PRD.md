@@ -21,6 +21,18 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27h.2) — 🔌 Câblage /pay → Biz-transPay dispatcher
+
+**Contexte** : après v27h l'admin pouvait activer Biz-transPay et la carte apparaissait dans l'admin panel, mais le dispatcher `/payments/activate` (backend) ne routait pas vers `biztranspay.biztranspay_activation`.
+
+**Backend** (`server.py`) :
+- `pick_gateway_for_country` — Biz-transPay prioritaire pour TG dès que `biztranspay_enabled` + `biztranspay_payin_enabled` + clé API dispo.
+- `/payments/activate` (branche mobile) — nouveau case `gw == "biztranspay"` qui délègue à `biztranspay_activation`.
+- `/payments/{ref}/status` — poll live via `GET /payments/{id}/status` sur BTP quand status pending, miroir de la logique SoleasPay.
+
+**Vérifié** : `POST /api/payments/activate` (TG/tmoney_tg) route bien vers BTP ; refus propre par la passerelle avec fake key. Dès que la vraie clé sk_test/sk_live est saisie dans l'admin panel, les utilisateurs togolais passent transparent via BTP — aucun changement frontend requis.
+
+
 ### 2026-02-20 (v27h) — 💳 Biz-transPay (SoftPay) + onglet unifié « Prestataires de paiement »
 
 **Demande utilisateur** : intégrer Biz-transPay (Passerelle Togo — SoftPay direct payin + BizPUSH payout). Regrouper tous les prestataires dans un onglet admin unique. Activation auto après paiement. Retrait auto ou manuel selon le switch PayOut. Toggles Pays/Opérateur (TG : T-Money, Flooz Moov).

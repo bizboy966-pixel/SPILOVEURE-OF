@@ -1708,6 +1708,36 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
         except Exception as exc:
             log.warning("poll verify_payment failed ref=%s: %s", reference, exc)
 
+    # v27h — Biz-transPay live status poll (same idea as soleaspay above).
+    if gw == "biztranspay" and current_status in ("processing", "pending"):
+        try:
+            from biztranspay import _get_api_key as _btp_key, _get as _btp_get
+            intent_id = p.get("provider_intent_id")
+            key = await _btp_key(db)
+            if intent_id and key:
+                r = await _btp_get(f"/payments/{intent_id}/status", key)
+                if r.status_code < 400:
+                    jd = r.json()
+                    remote = str(jd.get("status") or "").lower()
+                    if remote == "paid":
+                        await db.payments.update_one(
+                            {"reference": reference, "activation_done": {"$ne": True}},
+                            {"$set": {"status": "paid",
+                                      "biztranspay_status": remote,
+                                      "poll_verified_at": datetime.now(timezone.utc),
+                                      "updated_at": datetime.now(timezone.utc)}},
+                        )
+                        p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+                    elif remote == "failed":
+                        await db.payments.update_one(
+                            {"reference": reference},
+                            {"$set": {"status": "rejected", "biztranspay_status": remote,
+                                      "updated_at": datetime.now(timezone.utc)}},
+                        )
+                        p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+        except Exception as exc:
+            log.warning("poll biztranspay status failed ref=%s: %s", reference, exc)
+
     out = {
         "reference": reference,
         "status": p.get("status"),
@@ -1762,18 +1792,32 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
     """Cascade based on admin's `active` preference AND per-gateway coverage.
 
     A gateway is considered viable when:
-      1) it is globally enabled (soleas_enabled / ashtec_enabled)
+      1) it is globally enabled (soleas_enabled / ashtec_enabled / biztranspay_enabled)
       2) the country is NOT explicitly disabled in country_matrix.<gw>.<CC>
       3) the country IS actually served by that gateway's SDK
-         (soleaspay.SUPPORTED for soleas, ashtec_activation.COUNTRIES for ashtec)
+         (soleaspay.SUPPORTED for soleas, ashtec_activation.COUNTRIES for ashtec,
+          biztranspay.OPERATORS for biztranspay)
 
-    Preference order: cfg['active'] first, then the other enabled gateways.
+    v27h — Biz-transPay takes PRIORITY over any other pay-in gateway for
+    Togo when its PayIn switch is on. Reason: the product owner explicitly
+    chose Biz-transPay as the preferred provider for TG.
+
+    Preference order: biztranspay (if TG & enabled) → cfg['active'] → others.
     Returns None when no gateway can serve the country.
     """
     country = (country or "").upper()
     cfg = await _load_payment_gateway(db)
     matrix = cfg.get("country_matrix") or {}
     active = cfg.get("active") or "soleas"
+
+    # v27h — Biz-transPay TG override.
+    if country == "TG" and cfg.get("biztranspay_enabled") \
+            and cfg.get("biztranspay_payin_enabled", True):
+        api_key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
+                          or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
+        if api_key_ok:
+            return "biztranspay"
+
     order = [active] + [g for g in ("soleas", "ashtec") if g != active]
 
     # Pre-load Ashtec coverage lazily.
@@ -2505,6 +2549,25 @@ async def payments_activate(
             raise
         except Exception as e:
             raise HTTPException(503, f"Passerelle Ashtec indisponible : {e}")
+
+    if gw == "biztranspay":
+        # v27h — Biz-transPay SoftPay (Togo). The frontend passes the
+        # operator CODE directly (`tmoney_tg` or `flooz_tg`) because the
+        # activation-catalog exposes those codes.
+        try:
+            from biztranspay import biztranspay_activation, BtpActivationIn  # type: ignore
+            r = await biztranspay_activation(
+                BtpActivationIn(country_code=cc, operator=op, phone=phone),
+                request, user,
+            )
+            return {"reference": r.get("reference"),
+                    "gateway": "biztranspay", "method": "mobile",
+                    "status": r.get("status") or "processing"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(503, f"Passerelle Biz-transPay indisponible : {e}")
+
     raise HTTPException(500, "Passerelle inconnue.")
 
 
