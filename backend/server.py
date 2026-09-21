@@ -1082,6 +1082,17 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
             auto_result = {"auto_dispatched": False, "reason": "exception"}
         if auto_result.get("auto_dispatched"):
             dispatched_gateway = "soleaspay"
+    elif preferred == "biztranspay" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
+        try:
+            from biztranspay import dispatch_biztranspay_withdrawal
+            auto_result = await dispatch_biztranspay_withdrawal(db, wd_doc)
+        except Exception as e:
+            import logging as _lg
+            _lg.getLogger("biztranspay").exception(
+                "Biz-transPay P-Out dispatch failed for wd_id=%s: %s", wd_id, e)
+            auto_result = {"auto_dispatched": False, "reason": "exception"}
+        if auto_result.get("auto_dispatched"):
+            dispatched_gateway = "biztranspay"
 
     resp = {"id": wd_id, "status": "dispatched" if auto_result.get("auto_dispatched") else "pending",
             "amount": data.amount, "fee": fee, "net_payout": net}
@@ -1367,6 +1378,14 @@ _PG_DEFAULTS = {
     # SoleasPay Pay-OUT.
     "soleaspay_pout_enabled": False,
     "soleaspay_pout_country_matrix": {},
+    # v27h (2026-02-20) — Biz-transPay (SoftPay) integration, TG only.
+    "biztranspay_enabled": False,
+    "biztranspay_payin_enabled": True,
+    "biztranspay_payout_enabled": False,
+    "biztranspay_api_key": "",
+    "biztranspay_webhook_secret": "",
+    # { "TG": { "tmoney_tg": bool, "flooz_tg": bool } }
+    "biztranspay_countries": {},
 }
 
 
@@ -1406,6 +1425,13 @@ class PaymentGatewayUpdate(_PGBaseModel):
     soleaspay_webhook_hash: Optional[str] = None
     soleaspay_public_key: Optional[str] = None
     soleaspay_secret_key: Optional[str] = None
+    # v27h — Biz-transPay (SoftPay)
+    biztranspay_enabled: Optional[bool] = None
+    biztranspay_payin_enabled: Optional[bool] = None
+    biztranspay_payout_enabled: Optional[bool] = None
+    biztranspay_api_key: Optional[str] = None
+    biztranspay_webhook_secret: Optional[str] = None
+    biztranspay_countries: Optional[dict] = None
 
 
 # Note: the actual @admin_router routes are registered later in the file
@@ -1442,6 +1468,28 @@ def _register_payment_gateway_routes(router):
                 (os.environ.get("SOLEASPAY_WEBHOOK_SECRET") or "").strip()
                 or (cfg.get("soleaspay_webhook_secret") or "").strip()
             ),
+            # v27h — Biz-transPay
+            "biztranspay": {
+                "enabled": bool(cfg.get("biztranspay_enabled")),
+                "payin_enabled": bool(cfg.get("biztranspay_payin_enabled", True)),
+                "payout_enabled": bool(cfg.get("biztranspay_payout_enabled")),
+                "configured": bool((cfg.get("biztranspay_api_key") or "").strip()),
+                "api_key_masked": _mask_key(cfg.get("biztranspay_api_key") or ""),
+                "webhook_secret_set": bool((cfg.get("biztranspay_webhook_secret") or "").strip()),
+                "webhook_secret_masked": _mask_key(cfg.get("biztranspay_webhook_secret") or ""),
+                "countries": cfg.get("biztranspay_countries") or {},
+                # Catalog of supported countries+operators so the admin UI
+                # renders toggles even before anything is saved.
+                "catalog": {
+                    "TG": {
+                        "name": "Togo", "currency": "XOF",
+                        "operators": [
+                            {"code": "tmoney_tg", "label": "T-Money"},
+                            {"code": "flooz_tg",  "label": "Flooz (Moov)"},
+                        ],
+                    },
+                },
+            },
         }
 
     @router.post("/payment-gateways/soleaspay/test")
@@ -1542,6 +1590,28 @@ def _register_payment_gateway_routes(router):
                 new["soleaspay_secret_key"] = ""
             elif k:
                 new["soleaspay_secret_key"] = k
+        # ── Biz-transPay ──
+        if body.biztranspay_enabled is not None:
+            new["biztranspay_enabled"] = bool(body.biztranspay_enabled)
+        if body.biztranspay_payin_enabled is not None:
+            new["biztranspay_payin_enabled"] = bool(body.biztranspay_payin_enabled)
+        if body.biztranspay_payout_enabled is not None:
+            new["biztranspay_payout_enabled"] = bool(body.biztranspay_payout_enabled)
+        if body.biztranspay_api_key is not None:
+            k = body.biztranspay_api_key.strip()
+            if k == "DELETE":
+                new["biztranspay_api_key"] = ""
+            elif k:
+                new["biztranspay_api_key"] = k
+        if body.biztranspay_webhook_secret is not None:
+            s = body.biztranspay_webhook_secret.strip()
+            if s == "DELETE":
+                new["biztranspay_webhook_secret"] = ""
+            elif s:
+                new["biztranspay_webhook_secret"] = s
+        if body.biztranspay_countries is not None:
+            if isinstance(body.biztranspay_countries, dict):
+                new["biztranspay_countries"] = body.biztranspay_countries
         # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [("soleas", new.get("soleas_enabled")),
@@ -1739,12 +1809,17 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
 async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
     """Return the P-Out gateway to use for a given country, or None.
 
-    Only SolesPay is supported for automatic payouts. If SolesPay P-Out is off
-    or the country isn't allowed, returns None — the caller then leaves the
-    withdrawal "pending" for manual admin validation.
+    Priority: Biz-transPay (Togo, if enabled) → SoleasPay. If neither is
+    eligible, returns None — the caller then leaves the withdrawal
+    "pending" for manual admin validation.
     """
     country = (country or "").upper()
     cfg = await _load_payment_gateway(db)
+    # Biz-transPay first (TG only, requires payout switch ON + api key).
+    if country == "TG" and cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payout_enabled"):
+        if (cfg.get("biztranspay_api_key") or "").strip() \
+                or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip():
+            return "biztranspay"
     if (cfg.get("soleas_enabled")
             and cfg.get("soleaspay_pout_enabled")
             and country in soleaspay.SUPPORTED):
@@ -2573,6 +2648,31 @@ async def activation_catalog(request: Request):
                  "currency": currency, "gateway": "ashtec"}
                 for op in operators
             ]
+
+    # v27h — Biz-transPay overrides any existing Togo entry when its
+    # pay-in switch is on (product owner wants BizTransPay to take over
+    # activations for TG when configured).
+    if cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payin_enabled", True):
+        api_key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
+                          or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
+        if api_key_ok:
+            btp_countries = cfg.get("biztranspay_countries") or {}
+            try:
+                from biztranspay import OPERATORS as BTP_OPS
+            except Exception:
+                BTP_OPS = {}
+            for cc, info in BTP_OPS.items():
+                enabled_ops = []
+                toggles = btp_countries.get(cc) or {}
+                for op in info.get("operators") or []:
+                    if toggles.get(op["code"], True):
+                        enabled_ops.append({
+                            "code": op["code"], "label": op["label"],
+                            "currency": info.get("currency", "XOF"),
+                            "gateway": "biztranspay",
+                        })
+                if enabled_ops:
+                    mobile_lookup[cc] = enabled_ops
 
     # Crypto availability — same rule as /payments/catalog.
     crypto_available = False
@@ -4925,6 +5025,12 @@ app.include_router(av_public)
 app.include_router(av_admin)
 app.include_router(ashtec_webhook)
 app.include_router(ashtec_admin)
+
+# Biz-transPay (SoftPay) — TG-only PayIn/PayOut, admin-managed under the
+# unified "Prestataires de paiement" tab. See /app/backend/biztranspay.py.
+from biztranspay import api as btp_api, webhook as btp_webhook  # noqa: E402
+app.include_router(btp_api)
+app.include_router(btp_webhook)
 
 # BizTransPay integration removed 2026-09-02 — crypto activation is now
 # handled by IziChangePay (routes in izichange.py), mobile activation by

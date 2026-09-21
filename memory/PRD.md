@@ -21,6 +21,33 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27h) — 💳 Biz-transPay (SoftPay) + onglet unifié « Prestataires de paiement »
+
+**Demande utilisateur** : intégrer Biz-transPay (Passerelle Togo — SoftPay direct payin + BizPUSH payout). Regrouper tous les prestataires dans un onglet admin unique. Activation auto après paiement. Retrait auto ou manuel selon le switch PayOut. Toggles Pays/Opérateur (TG : T-Money, Flooz Moov).
+
+**Backend** :
+- `/app/backend/biztranspay.py` (NOUVEAU) — client HTTP Bearer, `POST /direct-payments` (PayIn activation), `POST /push` (PayOut BizPUSH), status polling, webhook HMAC-SHA256.
+- `server.py` — extension `_PG_DEFAULTS` : `biztranspay_enabled`, `biztranspay_payin_enabled`, `biztranspay_payout_enabled`, `biztranspay_api_key`, `biztranspay_webhook_secret`, `biztranspay_countries`.
+- `admin_get_payment_gateways` : renvoie l'objet `biztranspay` + `catalog` (TG → T-Money, Flooz Moov).
+- `pick_payout_gateway_for_country` : Biz-transPay prioritaire pour TG si PayOut activé.
+- `request_withdrawal` : dispatch auto via `biztranspay.dispatch_biztranspay_withdrawal` quand `preferred == "biztranspay"`.
+- `activation_catalog` : Biz-transPay écrase Ashtec pour TG quand PayIn activé.
+- Webhook `/api/webhooks/biztranspay` — signé, réconcilie payin (activation) & payout (retrait).
+
+**Frontend admin** (`(admin)/index.tsx`) :
+- Nouvel onglet `providers` — « Prestataires paiement ».
+- Nouveau composant `BizTransPayCard` : master switch, toggle PayIn/PayOut, clé API + secret webhook (Modifier/Enreg./✕), toggles opérateurs par pays.
+- L'onglet regroupe : `BizTransPayCard`, `SolesPaySettingsCard`, `PaymentGatewaysCard` (Ashtech).
+
+**Vérifié** :
+- Admin UI : carte Biz-transPay visible avec les 2 opérateurs T-Money + Flooz Moov, screenshot OK.
+- PUT enable+clé API : `configured=True`, `api_key_masked=sk_t**********1234`.
+- Catalog `/payments/activation-catalog` (TG) : `tmoney_tg`, `flooz_tg` gateway=`biztranspay` + USDT_BEP20.
+- Désactivation d'un opérateur retire immédiatement l'entrée du catalog utilisateur.
+
+**Reste à faire (P0 suivant)** : câbler `/(app)/pay.tsx` → appeler `POST /api/payments/biztranspay/activation` quand l'opérateur sélectionné a `gateway === "biztranspay"`.
+
+
 ### 2026-02-20 (v27g bis) — 🔄 Backfill numéro payeur pour anciennes pubs
 
 **Problème constaté** : après le patch v27g, les publicités déjà payées AVANT le déploiement n'affichaient pas le numéro payeur (le champ `payer_phone` n'existait pas encore sur ces documents `ads`).

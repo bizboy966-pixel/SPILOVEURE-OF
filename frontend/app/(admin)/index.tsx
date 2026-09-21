@@ -36,7 +36,7 @@ import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
 import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -489,6 +489,7 @@ export default function AdminHome() {
     { key: "channels", label: "Canaux", icon: "link" },
     { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
     { key: "support", label: "Support 💬", icon: "chatbubbles" },
+    { key: "providers", label: "Prestataires paiement", icon: "card" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
 
@@ -2195,6 +2196,20 @@ export default function AdminHome() {
           <>
             <SupportAgentsCard />
             <AdminSupportTab />
+          </>
+        )}
+
+        {tab === "providers" && (
+          <>
+            <View style={{ padding: 12, borderRadius: 14, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE", marginBottom: 12 }}>
+              <Text style={{ fontSize: 15, fontWeight: "900", color: "#1E1B4B" }}>💳 Prestataires de paiement</Text>
+              <Text style={{ fontSize: 11, color: "#312E81", marginTop: 4, lineHeight: 15 }}>
+                Toutes les intégrations d'activation & retrait automatique sont regroupées ici. Activez/désactivez chaque prestataire, configurez la clé API et gérez les pays/opérateurs. Les utilisateurs ne verront que les prestataires actifs.
+              </Text>
+            </View>
+            <BizTransPayCard />
+            <SolesPaySettingsCard />
+            <PaymentGatewaysCard />
           </>
         )}
 
@@ -4044,6 +4059,208 @@ function PaymentGatewaysCard() {
 
       {/* SolesPay-specific controls (test, matrix, P-Out) have been moved to
           the dedicated SolesPaySettingsCard above for true isolation. */}
+    </Card>
+  );
+}
+
+
+/**
+ * BizTransPayCard — ⚙️ Prestataires → Biz-transPay (SoftPay)
+ *
+ * Gestion complète de la passerelle Biz-transPay (Togo uniquement) :
+ *   • master switch, PayIn/PayOut toggles indépendants
+ *   • clé API + secret webhook (masqués côté serveur)
+ *   • toggles par pays + opérateur (TG : T-Money, Flooz Moov)
+ */
+function BizTransPayCard() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [webhookInput, setWebhookInput] = useState("");
+
+  const load = async () => {
+    try {
+      const r = await api.get<any>("/admin/payment-gateways");
+      setCfg(r.biztranspay || null);
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  const patch = async (body: any) => {
+    setSaving(true);
+    try {
+      await api.put<any>("/admin/payment-gateways", body);
+      await load();
+      setApiKeyInput(""); setWebhookInput("");
+      if (typeof window !== "undefined") window.alert("✅ Enregistré");
+    } catch (e: any) {
+      const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
+      if (typeof window !== "undefined") window.alert("❌ " + msg);
+    } finally { setSaving(false); }
+  };
+
+  const toggleOperator = async (cc: string, code: string) => {
+    if (!cfg) return;
+    const current: Record<string, Record<string, boolean>> = { ...(cfg.countries || {}) };
+    const inner: Record<string, boolean> = { ...(current[cc] || {}) };
+    // Default true if unset — flipping means becoming false.
+    const nowVal = inner[code] === false ? true : false;
+    inner[code] = nowVal;
+    current[cc] = inner;
+    await patch({ biztranspay_countries: current });
+  };
+
+  if (!cfg) return (
+    <Card style={{ padding: 12, marginBottom: 12 }}>
+      <ActivityIndicator color={theme.colors.primary} />
+    </Card>
+  );
+
+  const enabled = !!cfg.enabled;
+  const payinEnabled = cfg.payin_enabled !== false;   // default true
+  const payoutEnabled = !!cfg.payout_enabled;
+  const catalog = cfg.catalog || {};
+
+  const StatusRow = ({ label, on, onPress, hintOn, hintOff }: { label: string; on: boolean; onPress: () => void; hintOn: string; hintOff: string }) => (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={saving}
+      style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 12, backgroundColor: on ? "#DBEAFE" : "#FEE2E2", marginTop: 8 }}
+      testID={`btp-toggle-${label.replace(/\s+/g,'-').toLowerCase()}`}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: "900", color: on ? "#1E3A8A" : "#991B1B" }}>
+          {label} : {on ? "🟢 Activé" : "🔴 Désactivé"}
+        </Text>
+        <Text style={{ fontSize: 11, color: on ? "#1E3A8A" : "#991B1B", marginTop: 2 }}>
+          {on ? hintOn : hintOff}
+        </Text>
+      </View>
+      <Ionicons name={on ? "toggle" : "toggle-outline"} size={38} color={on ? "#2563EB" : "#9CA3AF"} />
+    </TouchableOpacity>
+  );
+
+  return (
+    <Card style={{ marginBottom: 12, borderWidth: 2, borderColor: enabled ? "#2563EB" : theme.colors.border }} testID="biztranspay-card">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="flash" size={22} color="#2563EB" />
+        <Text style={styles.section}>⚡ Biz-transPay <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>(SoftPay • Togo)</Text></Text>
+      </View>
+      <Text style={styles.helperTxt}>
+        Passerelle Biz-transPay — activation par SoftPay & retrait automatique via BizPUSH. Portée : Togo (T-Money, Flooz Moov).
+      </Text>
+
+      {/* Master switch */}
+      <StatusRow
+        label="Prestataire"
+        on={enabled}
+        onPress={() => patch({ biztranspay_enabled: !enabled })}
+        hintOn="Le prestataire est utilisable — PayIn/PayOut selon les switches ci-dessous."
+        hintOff="Aucune transaction ne sera envoyée à Biz-transPay."
+      />
+      {/* PayIn / PayOut */}
+      <StatusRow
+        label="Dépôt (PayIn — activation)"
+        on={payinEnabled && enabled}
+        onPress={() => patch({ biztranspay_payin_enabled: !payinEnabled })}
+        hintOn="Les utilisateurs togolais activent leur compte via Biz-transPay."
+        hintOff="Les utilisateurs ne verront pas Biz-transPay sur la page d'activation."
+      />
+      <StatusRow
+        label="Retrait (PayOut — automatique)"
+        on={payoutEnabled && enabled}
+        onPress={() => patch({ biztranspay_payout_enabled: !payoutEnabled })}
+        hintOn="Retraits togolais dispatchés automatiquement via BizPUSH."
+        hintOff="Retraits togolais restent en attente pour validation manuelle admin."
+      />
+
+      {/* API credentials */}
+      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary }}>🔑 Informations API</Text>
+          <TouchableOpacity onPress={() => setShowKeys((v) => !v)} testID="btp-toggle-keys">
+            <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "700" }}>
+              {showKeys ? "Masquer" : "Modifier"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>
+          Clé API (Bearer) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.api_key_masked || "— non configurée —"}</Text>
+        </Text>
+        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>
+          Secret webhook HMAC : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.webhook_secret_masked || "— non configuré —"}</Text>
+        </Text>
+
+        {showKeys && (
+          <View style={{ marginTop: 10, gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+              <TextInput
+                value={apiKeyInput}
+                onChangeText={setApiKeyInput}
+                placeholder="sk_test_… ou sk_live_…"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={[styles.input, { flex: 1 }]}
+                testID="btp-input-api-key"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_api_key: apiKeyInput })} disabled={saving || !apiKeyInput.trim()}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_api_key: "DELETE" })} disabled={saving}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+              <TextInput
+                value={webhookInput}
+                onChangeText={setWebhookInput}
+                placeholder="Secret HMAC webhook"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={[styles.input, { flex: 1 }]}
+                testID="btp-input-webhook"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_webhook_secret: webhookInput })} disabled={saving || !webhookInput.trim()}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_webhook_secret: "DELETE" })} disabled={saving}>
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Countries / operators toggles */}
+      <View style={{ marginTop: 12 }}>
+        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>🌍 Pays & opérateurs</Text>
+        {Object.entries(catalog).map(([cc, info]: [string, any]) => (
+          <View key={cc} style={{ marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+            <Text style={{ fontWeight: "800", fontSize: 13, color: theme.colors.textPrimary }}>{info.name} ({cc}) — {info.currency}</Text>
+            {(info.operators || []).map((op: any) => {
+              const on = ((cfg.countries || {})[cc] || {})[op.code] !== false;
+              return (
+                <TouchableOpacity
+                  key={op.code}
+                  onPress={() => toggleOperator(cc, op.code)}
+                  disabled={saving}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 10, borderRadius: 8, backgroundColor: on ? "#D1FAE5" : "#FEE2E2", marginTop: 6 }}
+                  testID={`btp-op-${cc}-${op.code}`}
+                >
+                  <View>
+                    <Text style={{ fontWeight: "800", color: on ? "#065F46" : "#991B1B" }}>{op.label}</Text>
+                    <Text style={{ fontSize: 10, color: on ? "#065F46" : "#991B1B", marginTop: 2 }}>
+                      Code : <Text style={{ fontFamily: "monospace" }}>{op.code}</Text>
+                    </Text>
+                  </View>
+                  <Ionicons name={on ? "checkmark-circle" : "close-circle-outline"} size={26} color={on ? "#10B981" : "#EF4444"} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </View>
     </Card>
   );
 }
