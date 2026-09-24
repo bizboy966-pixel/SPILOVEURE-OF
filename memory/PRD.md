@@ -21,6 +21,24 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27m, Phase 5) — 🔁 Worker de polling Biz-transPay
+
+**Motivation** : les webhooks BTP peuvent être perdus (réseau, firewall, misconfig admin). Un worker serveur poll toutes les 4 secondes les paiements BTP en attente pour ne dépendre plus uniquement du webhook.
+
+**Nouveau `biztranspay.py`** :
+- `_poll_once(db)` — un balayage : lit tous les `payments` avec `provider=biztranspay`, `status ∈ {pending, processing}`, `activation_done ≠ True`, créés il y a < 10 min. Pour chacun : `GET /payments/{intent_id}/status`. Si `paid` → `_apply_payment_success` (idempotent via l'activation partagée Ashtec/Soleas). Si `failed` → marque. Puis expire >10 min.
+- `polling_loop(db)` — while True: _poll_once + sleep(4).
+
+**`server.py` lifespan** :
+- Démarre `polling_loop` en tâche asyncio au boot (en plus du chat retention + soleaspay reconcile déjà présents).
+- Log : `"Biz-transPay polling worker scheduled (4-sec interval)"`.
+
+**Contraintes respectées** :
+- Aucune API BTP appelée si `api_key` absente (skip complet).
+- Idempotence : `_apply_payment_success` fait un CAS sur `activation_done` — pas de double activation.
+- Timeout 10 min automatique (`status → expired` avec `rejected_reason=timeout_10min`).
+
+
 ### 2026-02-20 (v27l, Phase 4) — ✋ Mode manuel + idempotence renforcée
 
 **Backend** :

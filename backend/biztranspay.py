@@ -520,3 +520,84 @@ def register(app):
     """Mount routers on the FastAPI app."""
     app.include_router(api)
     app.include_router(webhook)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# v27m (Phase 5) — Server-side polling worker
+# ═══════════════════════════════════════════════════════════════════════
+async def _poll_once(db) -> dict:
+    """One sweep: look up pending Biz-transPay activations (< 10 min old),
+    ask BTP for their current status, activate on `paid`, mark `failed` on
+    `failed`, expire past 10 min.
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    ten_min_ago = now - timedelta(minutes=10)
+
+    checked = activated = failed = expired = 0
+    api_key = await _get_api_key(db)
+    if not api_key:
+        return {"checked": 0, "skipped": "no_api_key"}
+
+    # 1. Poll pending payments still within the 10-min window.
+    cursor = db.payments.find({
+        "provider": "biztranspay",
+        "status": {"$in": ["pending", "processing"]},
+        "activation_done": {"$ne": True},
+        "created_at": {"$gte": ten_min_ago},
+    })
+    async for p in cursor:
+        checked += 1
+        intent_id = p.get("provider_intent_id")
+        if not intent_id:
+            continue
+        try:
+            r = await _get(f"/payments/{intent_id}/status", api_key)
+            if r.status_code >= 400:
+                continue
+            jd = r.json()
+        except Exception as e:
+            log.debug("btp poll error ref=%s: %s", p.get("reference"), e)
+            continue
+        remote = str(jd.get("status") or "").lower()
+        if remote == "paid":
+            # Idempotent activation via the shared _apply_payment_success.
+            try:
+                from ashtec_activation import _apply_payment_success
+                await _apply_payment_success(db, p, remote, source="biztranspay")
+                activated += 1
+            except Exception as e:
+                log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), e)
+        elif remote == "failed":
+            await db.payments.update_one(
+                {"reference": p["reference"]},
+                {"$set": {"status": "failed", "biztranspay_status": remote,
+                          "updated_at": now}},
+            )
+            failed += 1
+
+    # 2. Expire anything older than 10 min still pending.
+    exp = await db.payments.update_many(
+        {"provider": "biztranspay",
+         "status": {"$in": ["pending", "processing"]},
+         "activation_done": {"$ne": True},
+         "created_at": {"$lt": ten_min_ago}},
+        {"$set": {"status": "expired", "expired_at": now, "updated_at": now,
+                  "rejected_reason": "timeout_10min"}},
+    )
+    expired = exp.modified_count
+    return {"checked": checked, "activated": activated,
+            "failed": failed, "expired": expired}
+
+
+async def polling_loop(db):
+    """Background task: sweeps every 4 seconds. Started from server.lifespan."""
+    import asyncio as _a
+    while True:
+        try:
+            r = await _poll_once(db)
+            if r.get("activated") or r.get("failed") or r.get("expired"):
+                log.info("btp polling: %s", r)
+        except Exception as e:
+            log.exception("btp polling loop error: %s", e)
+        await _a.sleep(4)

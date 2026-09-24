@@ -195,6 +195,13 @@ async def lifespan(app: FastAPI):
         retention_task = asyncio.create_task(_start_retention(db))
         # SolesPay reconciliation — safety net for lost webhooks
         asyncio.create_task(_soleaspay_reconciliation_loop(db))
+        # v27m (Phase 5) — Biz-transPay server-side polling every 4s.
+        try:
+            from biztranspay import polling_loop as _btp_poll
+            asyncio.create_task(_btp_poll(db))
+            log.info("Biz-transPay polling worker scheduled (4-sec interval)")
+        except Exception as _btp_e:
+            log.warning(f"Biz-transPay polling worker failed to start: {_btp_e}")
         log.info("Chat retention worker scheduled")
     except Exception as _e:
         log.warning(f"Chat retention worker failed to start: {_e}")
