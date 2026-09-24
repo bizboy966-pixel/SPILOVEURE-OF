@@ -21,6 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27i, Phase 1) — 🔐 Hash crypto restauré + registre normalisé prestataires
+
+**Part A — Hash crypto USDT BEP20 restauré** (`/(app)/pay.tsx`) :
+- Nouveau champ "🔗 Ou collez la hash de votre transaction" + bouton "VALIDER LE PAIEMENT" sur l'écran d'attente crypto.
+- Appelle `POST /api/activations/crypto-auto/verify` (déjà présent côté backend) qui vérifie : unicité hash, statut passerelle completed, hash match, montant ≥ 5 USDT.
+- La sécurité vient du serveur — jamais le frontend ne décide de l'activation.
+
+**Part B — Registre normalisé prestataires** (`/app/backend/payment_providers.py`) :
+- Nouvelles collections : `payment_providers`, `payment_provider_countries`, `payment_provider_operators`.
+- Sync idempotent au boot depuis `app_settings.payment_gateway.value` (source de vérité intacte).
+- Peuplé au démarrage : 4 providers (biztranspay/soleaspay/ashtec/izichange), 23 countries, 53 operators.
+- Priorité par défaut : biztranspay=1 > soleaspay=2 > ashtec=3 > izichange=5.
+- Router (Phase 2) consommera ces collections. **Aucune bascule ni suppression de code existant**.
+
+**Vérifié** :
+- `payment_providers sync OK: {'providers': 4, 'countries': 23, 'operators': 53}` au boot.
+- TG a bien 6 opérateurs répartis sur 3 providers (2 BTP + 2 Soleas + 2 Ashtec).
+
+
 ### 2026-02-20 (v27h.2) — 🔌 Câblage /pay → Biz-transPay dispatcher
 
 **Contexte** : après v27h l'admin pouvait activer Biz-transPay et la carte apparaissait dans l'admin panel, mais le dispatcher `/payments/activate` (backend) ne routait pas vers `biztranspay.biztranspay_activation`.

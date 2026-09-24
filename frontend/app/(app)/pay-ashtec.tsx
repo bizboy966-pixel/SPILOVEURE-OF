@@ -17,6 +17,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { Button } from "@/src/components/Button";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 
 type Country = { code: string; name: string; currency: string; operators: string[] };
@@ -42,6 +43,7 @@ function notify(title: string, msg?: string) {
 
 export default function PayAshtec() {
   const router = useRouter();
+  const { refresh } = useAuth();
   const params = useLocalSearchParams<{
     kind?: string; target_id?: string; amount?: string;
     title?: string; return_to?: string;

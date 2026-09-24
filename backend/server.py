@@ -101,6 +101,14 @@ async def lifespan(app: FastAPI):
     # SoleasPay P-Out — one payout row per withdrawal id (idempotency).
     await db.soleaspay_payouts.create_index("wd_id", unique=True)
     await db.soleaspay_payouts.create_index("provider_reference")
+    # v27i (2026-02-20) — Normalized payment provider registry (Phase 1).
+    # Idempotently mirrors the flat config into normalized collections so
+    # the future PaymentProviderRouter (Phase 2) can consume them.
+    try:
+        from payment_providers import sync_providers as _sync_pp
+        await _sync_pp(db)
+    except Exception as _e:
+        log.warning(f"payment_providers sync failed at boot: {_e}")
     # seed admin
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": admin_email})

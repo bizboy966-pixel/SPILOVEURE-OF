@@ -62,6 +62,14 @@ export default function Pay() {
   } | null>(null);
   const [countryPicker, setCountryPicker] = useState(false);
   const [operatorPicker, setOperatorPicker] = useState(false);
+  // v27i (2026-02-20) — Restore the "Hash de transaction" field on the
+  // crypto pending screen. After sending USDT the user pastes the on-chain
+  // hash and hits "Valider le paiement". Backend
+  // `POST /api/activations/crypto-auto/verify` verifies the hash against
+  // IziChangePay (uniqueness, amount, status, hash match).
+  const [txHash, setTxHash] = useState<string>("");
+  const [hashSubmitting, setHashSubmitting] = useState(false);
+  const [hashErr, setHashErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -328,6 +336,57 @@ export default function Pay() {
                 <Text style={styles.pendingHint}>
                   Le compte sera activé automatiquement dès réception du paiement.
                 </Text>
+
+                {/* v27i — Manuel : coller la hash on-chain pour accélérer la validation */}
+                <View style={{ marginTop: 18, width: "100%" }}>
+                  <Text style={[styles.label, { textAlign: "center", marginTop: 0 }]}>
+                    🔗 Ou collez la hash de votre transaction
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={txHash}
+                    onChangeText={(v) => { setTxHash(v); setHashErr(null); }}
+                    placeholder="0x…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    autoCapitalize="none"
+                    testID="pay-tx-hash"
+                  />
+                  {hashErr && <Text style={styles.err}>❌ {hashErr}</Text>}
+                  <TouchableOpacity
+                    style={[styles.cta, (!txHash.trim() || hashSubmitting) && styles.ctaDisabled, { marginTop: 6 }]}
+                    disabled={!txHash.trim() || hashSubmitting}
+                    onPress={async () => {
+                      if (!ref) return;
+                      setHashSubmitting(true); setHashErr(null);
+                      try {
+                        await api.post<any>("/activations/crypto-auto/verify", {
+                          reference: ref, tx_hash: txHash.trim(),
+                        });
+                        setPhase("success");
+                        try { await refresh?.(); } catch {}
+                        setTimeout(() => {
+                          if (typeof window !== "undefined") window.location.href = "/dashboard";
+                          else router.replace("/(app)/dashboard" as any);
+                        }, 1200);
+                      } catch (e: any) {
+                        setHashErr(e?.detail || e?.message || "Hash invalide ou déjà utilisée.");
+                      } finally { setHashSubmitting(false); }
+                    }}
+                    testID="pay-tx-hash-submit"
+                  >
+                    {hashSubmitting ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-done" size={18} color="#fff" />
+                        <Text style={styles.ctaTxt}>VALIDER LE PAIEMENT</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 11, textAlign: "center", marginTop: 6, fontStyle: "italic" }}>
+                    La hash est vérifiée côté serveur (montant, adresse, réseau, unicité).
+                  </Text>
+                </View>
               </>
             ) : (
               <Text style={styles.pendingSub}>
