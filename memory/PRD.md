@@ -21,6 +21,34 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27p) — 📚 Alignement Biz-transPay avec la doc v1.0 officielle
+
+**Doc PDF v1.0 analysée** — codes opérateurs exacts confirmés :
+
+| Pays | Codes doc | Correction vs v27n |
+|---|---|---|
+| **TG** | `tmoney_tg`, `moov_tg` | ❌ `togocom_tg` → ✅ `moov_tg` |
+| **BJ** | `tmoney_bj` (MTN), `moov_bj`, `celtiis_bj` | ❌ `mtn_bj` → ✅ `tmoney_bj` + ➕ `celtiis_bj` |
+| **BF** | `orange_bf`, `moov_bf`, `coris_bf` | ➕ `coris_bf` (Coris Money) |
+
+**Tous les opérateurs sont maintenant activés par défaut** (`default_active=True`) puisque les codes viennent de la doc officielle — plus besoin de "confirmer avec BTP".
+
+**Endpoints/signature/auth déjà conformes** :
+- Base URL `https://biz-transppayy.com/api/v1` ✅
+- Auth `Authorization: Bearer sk_...` (pas de header public key) ✅
+- Deposit `/direct-payments` (SoftPay) ✅
+- Withdrawal `/push` (BizPUSH) ✅
+- Status `/payments/{id}/status`, `/push/{id}/status` ✅
+- Webhook `HMAC-SHA256(secret, timestamp + "." + rawBody)` ✅
+- Événements : `payment.completed`, `mobile_money.payment.approved`, `push.succeeded` (PAID) / `payment.failed`, `push.failed`, `payment.expired` (FAILED) ✅
+
+**Dispatcher payout amélioré** : le matching opérateur reconnaît maintenant les labels ET les préfixes de code (ex. "Moov" → `moov_bj` / `moov_bf` / `moov_tg` selon le pays).
+
+**Cleanup DB** : anciens opérateurs (`togocom_tg`, `flooz_tg`, `mtn_bj`) supprimés des collections normalisées.
+
+**⚠️ Rappel sur le 401 INVALID_API_KEY** : ce n'est PAS un bug de code. La clé stockée dans l'admin panel est refusée par le serveur BTP (soit mauvaise clé, soit compte marchand non activé). À résoudre côté BTP support / dashboard marchand.
+
+
 ### 2026-02-20 (v27o) — 🔔 Notification ouverture missions + diagnostic tâches
 
 **Bug 1 — Notifications missions absentes à l'ouverture** :

@@ -42,20 +42,18 @@ BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transppayy.com/ap
 HTTP_TIMEOUT = 30.0
 
 # Operator catalog for the admin toggles + user-facing /pay.
-# v27n (2026-02-20) — TG confirmed by BTP doc (tmoney_tg, togocom_tg).
-# BJ + BF added per product owner request; operator codes are placeholders
-# based on the standard TG/BJ/BF Mobile Money convention (mtn_bj, moov_bj,
-# orange_bf, moov_bf). BJ/BF operators are DISABLED by default in the
-# router — the admin must confirm each one with BTP support before turning
-# it on. The dispatcher will refuse an operator whose status is "inactive".
+# v27p (2026-02-20) — Codes confirmés par la doc BTP v1.0 officielle.
+# Tous les opérateurs sont maintenant activés par défaut car leurs codes
+# proviennent de la documentation Biz-transPay (section 4 — Opérateurs
+# Mobile Money supportés).
 OPERATORS: dict[str, dict] = {
     "TG": {
         "name": "Togo",
         "currency": "XOF",
         "dial": "228",
         "operators": [
-            {"code": "tmoney_tg",  "label": "T-Money",        "default_active": True},
-            {"code": "togocom_tg", "label": "Togocom (Flooz)", "default_active": True},
+            {"code": "tmoney_tg", "label": "T-Money (TogoCom)", "default_active": True},
+            {"code": "moov_tg",   "label": "Moov Money",         "default_active": True},
         ],
     },
     "BJ": {
@@ -63,8 +61,9 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "229",
         "operators": [
-            {"code": "mtn_bj",     "label": "MTN Mobile Money",   "default_active": False},
-            {"code": "moov_bj",    "label": "Moov Money",          "default_active": False},
+            {"code": "tmoney_bj",  "label": "MTN Mobile Money",  "default_active": True},
+            {"code": "moov_bj",    "label": "Moov Money",         "default_active": True},
+            {"code": "celtiis_bj", "label": "Celtiis Cash",       "default_active": True},
         ],
     },
     "BF": {
@@ -72,8 +71,9 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "226",
         "operators": [
-            {"code": "orange_bf",  "label": "Orange Money",        "default_active": False},
-            {"code": "moov_bf",    "label": "Moov Money",          "default_active": False},
+            {"code": "orange_bf", "label": "Orange Money", "default_active": True},
+            {"code": "moov_bf",   "label": "Moov Money",    "default_active": True},
+            {"code": "coris_bf",  "label": "Coris Money",   "default_active": True},
         ],
     },
 }
@@ -404,8 +404,13 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     if op_label in known_codes:
         op_code = op_label
     else:
+        # v27p — smart matching by keyword (works for label OR partial code)
+        # e.g. "Moov" → moov_bj / moov_bf / moov_tg depending on country.
         for o in catalog:
-            if op_label and op_label in o["label"].lower():
+            lbl = o["label"].lower()
+            code = o["code"].lower()
+            if op_label and (op_label in lbl or op_label in code
+                              or code.split("_")[0] in op_label):
                 op_code = o["code"]; break
     if not op_code:
         return {"auto_dispatched": False, "reason": "operator_not_supported"}
