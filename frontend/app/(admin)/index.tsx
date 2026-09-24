@@ -43,6 +43,8 @@ export default function AdminHome() {
   const { user, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [refreshing, setRefreshing] = useState(false);
+  // v27q — dropdown "3 dots" menu that lists all tabs vertically
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [stats, setStats] = useState<any>(null);
   const [serverIp, setServerIp] = useState<string | null>(null);
@@ -529,12 +531,49 @@ export default function AdminHome() {
             >
               <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color="#fff" />
             </TouchableOpacity>
+            {/* v27q — 3-dots menu that opens a vertical list of every tab */}
+            <TouchableOpacity
+              onPress={() => setMenuOpen((v) => !v)}
+              style={styles.logoutBtn}
+              testID="admin-tabs-menu"
+            >
+              <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
+            </TouchableOpacity>
             <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
               <Ionicons name="log-out-outline" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
       </LinearGradient>
+
+      {/* v27q — dropdown vertical listant tous les onglets. Se ferme au clic
+          sur un item OU sur l'overlay. La scroll bar horizontale existante
+          reste en place — c'est un ajout, pas un remplacement. */}
+      {menuOpen && (
+        <>
+          <TouchableOpacity
+            onPress={() => setMenuOpen(false)}
+            activeOpacity={1}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: "rgba(0,0,0,0.35)" }}
+            testID="admin-tabs-menu-overlay"
+          />
+          <View style={{ position: "absolute", top: 90, right: 12, zIndex: 41, minWidth: 240, maxHeight: 520, backgroundColor: theme.colors.background, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 12, overflow: "hidden" }}>
+            <ScrollView style={{ maxHeight: 520 }}>
+              {TABS.map((t) => (
+                <TouchableOpacity
+                  key={`menu-${t.key}`}
+                  onPress={() => { setTab(t.key); setMenuOpen(false); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 14, backgroundColor: tab === t.key ? theme.colors.primary : "transparent", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
+                  testID={`admin-menu-tab-${t.key}`}
+                >
+                  <Ionicons name={t.icon} size={18} color={tab === t.key ? "#fff" : theme.colors.primary} />
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: tab === t.key ? "#fff" : theme.colors.textPrimary }}>{t.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {TABS.map((t) => (

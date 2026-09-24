@@ -21,6 +21,18 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27q) — 📱 Menu 3-points admin (accès rapide aux onglets)
+
+**Demande** : entre le bouton "Actualiser" et "Se déconnecter" de l'admin panel, ajouter un bouton "⋮" qui ouvre une liste verticale de tous les onglets (sans supprimer la barre horizontale scrollable existante).
+
+**Implémentation** (`(admin)/index.tsx`) :
+- Nouveau state `menuOpen` + bouton `ellipsis-vertical` avec testID `admin-tabs-menu`.
+- Overlay semi-transparent + carte flottante positionnée sous le header (top: 90, right: 12, zIndex 41, max-height 520, scrollable si nécessaire).
+- Chaque item : icône + label, l'onglet courant est mis en surbrillance (fond primary blanc).
+- Clic sur un item → `setTab(key)` + fermeture du menu. Overlay clic-out = fermeture.
+- **Aucune modification** de la barre horizontale — c'est un ajout, pas un remplacement.
+
+
 ### 2026-02-20 (v27p) — 📚 Alignement Biz-transPay avec la doc v1.0 officielle
 
 **Doc PDF v1.0 analysée** — codes opérateurs exacts confirmés :
