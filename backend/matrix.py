@@ -374,7 +374,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
         "soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay", "gateway_return",
         "admin_validate", "manual_reprocess",
         # Internal / operator overrides
-        "auto_upgrade", "manual", "admin_manual",
+        "auto_upgrade", "manual", "admin_manual", "manual_review",
     }
     if source not in ALLOWED_SOURCES:
         raise ValueError(f"Source d'activation invalide : {source!r}. Activation refusée.")

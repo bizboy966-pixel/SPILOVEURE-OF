@@ -200,3 +200,21 @@ async def toggle_operator(
                   "updated_at": datetime.now(timezone.utc)}},
     )
     return r.matched_count > 0
+
+
+async def set_country_mode(
+    db, provider_id: str, country_code: str, mode: str,
+) -> bool:
+    """v27l (Phase 4) — flip a country between automatic and manual mode.
+
+    In manual mode, the dispatcher creates a `pending_manual_review`
+    payment instead of hitting the gateway API. Admin then validates from
+    the "Activations" tab.
+    """
+    if mode not in ("automatic", "manual"):
+        raise ValueError("mode must be 'automatic' or 'manual'")
+    r = await db.payment_provider_countries.update_one(
+        {"provider_id": provider_id, "country_code": country_code.upper()},
+        {"$set": {"mode": mode, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return r.matched_count > 0

@@ -93,7 +93,21 @@ async def lifespan(app: FastAPI):
     await db.withdrawals.create_index("user_id")
     await db.activations.create_index("user_id")
     await db.payments.create_index("user_id")
-    await db.payments.create_index("reference")
+    # v27l (Phase 4) — idempotency: reference must be globally unique across
+    # ALL payments (activations, ads, missions, marketplace). Prevents
+    # double-credit/double-activation from webhook replays or concurrent
+    # dispatchers hitting the same reference. Named separately so it can
+    # coexist with the legacy non-unique `reference_1` index if present.
+    try:
+        await db.payments.create_index("reference", unique=True, name="reference_unique")
+    except Exception as _idx_e:
+        # Legacy `reference_1` (non-unique) still around — best-effort drop
+        # + recreate. If drop fails we keep going without the constraint.
+        try:
+            await db.payments.drop_index("reference_1")
+            await db.payments.create_index("reference", unique=True, name="reference_unique")
+        except Exception:
+            log.warning("payments.reference unique index skipped: %s", _idx_e)
     await db.payments.create_index("transaction_id")
     # FCM push tokens — one row per (user_id, device_id)
     await db.push_tokens.create_index([("user_id", 1), ("device_id", 1)], unique=True)
@@ -1693,6 +1707,69 @@ def _register_payment_gateway_routes(router):
             raise HTTPException(404, "Country not found for this provider")
         return {"ok": True, "enabled": enabled}
 
+    @router.put("/payment-providers/{provider_id}/countries/{country_code}/mode")
+    async def admin_set_country_mode(provider_id: str, country_code: str, request: Request):
+        body = await request.json()
+        mode = str(body.get("mode") or "").strip().lower()
+        try:
+            from payment_router import set_country_mode
+            ok = await set_country_mode(request.app.state.db, provider_id, country_code, mode)
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+        if not ok:
+            raise HTTPException(404, "Country not found for this provider")
+        return {"ok": True, "mode": mode}
+
+    @router.post("/activations/{reference}/validate-manual")
+    async def admin_validate_manual_activation(reference: str, request: Request):
+        """v27l (Phase 4) — validate a `pending_manual_review` payment
+        created by the manual-mode dispatcher. Runs the same idempotent
+        activation path as the automatic gateways."""
+        db = request.app.state.db
+        p = await db.payments.find_one({"reference": reference}, {"_id": 0})
+        if not p:
+            raise HTTPException(404, "Paiement introuvable.")
+        if p.get("activation_done"):
+            return {"ok": True, "already_activated": True}
+        if p.get("status") != "pending_manual_review":
+            raise HTTPException(400, f"Ce paiement n'est pas en validation manuelle (status={p.get('status')}).")
+        # Idempotent CAS: only proceed if activation_done is still not set.
+        r = await db.payments.update_one(
+            {"reference": reference, "activation_done": {"$ne": True}},
+            {"$set": {"status": "paid", "manual_validated_at": datetime.now(timezone.utc),
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        if r.modified_count == 0:
+            return {"ok": True, "already_activated": True}
+        try:
+            await activate_level(db, p["user_id"], int(p.get("level") or 1),
+                                 source="manual_review")
+            await db.payments.update_one(
+                {"reference": reference},
+                {"$set": {"activation_done": True, "status": "validated"}},
+            )
+            return {"ok": True, "activated": True}
+        except Exception as e:
+            await db.payments.update_one(
+                {"reference": reference},
+                {"$set": {"activation_error": str(e)[:300]}},
+            )
+            raise HTTPException(500, f"Erreur activation: {e}")
+
+    @router.post("/activations/{reference}/reject-manual")
+    async def admin_reject_manual_activation(reference: str, request: Request):
+        db = request.app.state.db
+        body = await request.json()
+        reason = str(body.get("reason") or "manual_rejected")[:300]
+        r = await db.payments.update_one(
+            {"reference": reference, "status": "pending_manual_review"},
+            {"$set": {"status": "rejected", "rejected_reason": reason,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        if r.modified_count == 0:
+            raise HTTPException(404, "Aucun paiement en attente manuelle avec cette référence.")
+        return {"ok": True}
+
     @router.put("/payment-providers/{provider_id}/countries/{country_code}/operators/{operator_code}")
     async def admin_toggle_operator(
         provider_id: str, country_code: str, operator_code: str, request: Request,
@@ -2572,6 +2649,36 @@ async def payments_activate(
     gw = await pick_gateway_for_country(db, cc)
     if not gw:
         raise HTTPException(400, "Aucun opérateur de paiement disponible pour ce pays.")
+
+    # v27l (Phase 4) — Manual mode dispatch.
+    # If the router picked a provider whose country_row.mode == "manual",
+    # we DO NOT hit the gateway. We create a `pending_manual_review`
+    # payment doc that admin then validates from the Activations tab.
+    try:
+        from payment_router import pick_provider as _pp
+        _routed = await _pp(db, kind="payin", country=cc, operator=op)
+        _mode = (_routed or {}).get("mode") or "automatic"
+        _routed_pid = (_routed or {}).get("provider_id")
+    except Exception:
+        _mode = "automatic"
+        _routed_pid = None
+    if _mode == "manual" and _routed_pid:
+        order_id = _new_order_id()
+        now = datetime.now(timezone.utc)
+        amount = _mobile_activation_amount("XOF")
+        await db.payments.insert_one({
+            "reference": order_id, "user_id": user["id"], "username": user["username"],
+            "email": user["email"], "level": 1, "amount": amount, "currency": "XOF",
+            "gateway": _routed_pid, "provider": _routed_pid,
+            "country": cc, "operator": op, "phone": phone,
+            "manual_mode": True,
+            "status": "pending_manual_review",
+            "created_at": now, "updated_at": now,
+        })
+        return {"reference": order_id, "gateway": _routed_pid,
+                "method": "mobile", "status": "pending_manual_review",
+                "manual": True,
+                "message": "Paiement en attente de validation manuelle par l'administration."}
 
     if gw == "soleas":
         # For SoleasPay `operator` is the service_id.

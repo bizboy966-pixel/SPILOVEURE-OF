@@ -21,6 +21,28 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27l, Phase 4) — ✋ Mode manuel + idempotence renforcée
+
+**Backend** :
+- `payment_router.set_country_mode(provider, country, mode)` → bascule un couple provider×pays entre `automatic` et `manual`.
+- Dispatcher `/payments/activate` : quand la route sélectionnée retourne `mode == "manual"`, on crée un doc `payments` avec `status=pending_manual_review` au lieu de contacter la passerelle. L'admin valide ensuite depuis l'onglet Activations.
+- Nouveaux endpoints admin :
+  - `PUT /admin/payment-providers/{id}/countries/{cc}/mode {mode: automatic|manual}`
+  - `POST /admin/activations/{ref}/validate-manual` — activation idempotente (CAS sur `activation_done`).
+  - `POST /admin/activations/{ref}/reject-manual {reason}`
+- `matrix.ALLOWED_SOURCES` : ajout de `"manual_review"` pour tracer les activations validées manuellement via le nouveau flux.
+- Index unique `payments.reference_unique` (best-effort — cohabite avec l'ancien `reference_1` non-unique quand présent).
+
+**Frontend admin** :
+- Chaque ligne pays de la vue `PaymentProvidersRouterCard` a désormais un bouton latéral **⚡ AUTO / ✋ MANUEL** qui bascule le mode côté serveur.
+
+**Vérifié bout-en-bout** :
+- TG mode manuel → utilisateur pending appelle `/payments/activate` → réponse `status=pending_manual_review` ✅
+- Admin `POST .../validate-manual` → user devient `status=active max_level=1` ✅
+- Second appel validate-manual → `{"ok": true, "already_activated": true}` (idempotent) ✅
+- Reset propre (mode remis auto, payment purgé, user reset pending).
+
+
 ### 2026-02-20 (v27k, Phase 3) — 🖥️ Admin UI Prestataires v2
 
 **Nouveau composant** `PaymentProvidersRouterCard` (`(admin)/index.tsx`) :

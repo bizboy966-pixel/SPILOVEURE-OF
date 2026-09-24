@@ -4180,21 +4180,43 @@ function PaymentProvidersRouterCard() {
                 )}
                 {(p.countries || []).map((c: any) => {
                   const cActive = c.status === "active";
+                  const isManual = (c.mode || "automatic") === "manual";
                   return (
                     <View key={`${p.id}-${c.country_code}`} style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
-                      <TouchableOpacity
-                        onPress={() => toggleCountry(p.id, c.country_code, !cActive)}
-                        disabled={loading}
-                        style={{ padding: 8, backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
-                        testID={`provider-${p.id}-country-${c.country_code}`}
-                      >
-                        <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
-                          {c.country_code === "*" ? "🌍 Universel" : `🌍 ${c.country_code}`}  •  {c.currency}  •  {(c.mode || "automatic") === "automatic" ? "auto" : "manuel"}
-                        </Text>
-                        <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
-                          {cActive ? "🟢 Activé" : "🔴 Désactivé"}
-                        </Text>
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: "row", backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2" }}>
+                        <TouchableOpacity
+                          onPress={() => toggleCountry(p.id, c.country_code, !cActive)}
+                          disabled={loading}
+                          style={{ flex: 1, padding: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                          testID={`provider-${p.id}-country-${c.country_code}`}
+                        >
+                          <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
+                            {c.country_code === "*" ? "🌍 Universel" : `🌍 ${c.country_code}`}  •  {c.currency}
+                          </Text>
+                          <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
+                            {cActive ? "🟢 Activé" : "🔴 Désactivé"}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            const next = isManual ? "automatic" : "manual";
+                            setLoading(true);
+                            try {
+                              await api.put<any>(`/admin/payment-providers/${p.id}/countries/${c.country_code}/mode`, { mode: next });
+                              await load();
+                            } catch (e: any) {
+                              if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
+                            } finally { setLoading(false); }
+                          }}
+                          disabled={loading}
+                          style={{ paddingHorizontal: 10, justifyContent: "center", backgroundColor: isManual ? "#FDE68A" : "#BFDBFE" }}
+                          testID={`provider-${p.id}-mode-${c.country_code}`}
+                        >
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: isManual ? "#92400E" : "#1E3A8A" }}>
+                            {isManual ? "✋ MANUEL" : "⚡ AUTO"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                       <View style={{ padding: 6, backgroundColor: theme.colors.surface }}>
                         {(c.operators || []).map((o: any) => {
                           const oActive = o.status === "active";
