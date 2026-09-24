@@ -21,6 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27o) — 🔔 Notification ouverture missions + diagnostic tâches
+
+**Bug 1 — Notifications missions absentes à l'ouverture** :
+- Nouveau `missions.mission_window_watcher(db)` : boucle asyncio 60s. Détecte l'instant précis où le créneau de missions passe de "fermé" à "ouvert" (jour + heure config).
+- `_broadcast_mission_open(db)` : insère en `db.notifications` une notification `type=missions_open` pour chaque utilisateur `status=active` + `max_level>=1` (bulk 500 par batch).
+- **Idempotent** : marqueur `db.app_settings.mission_window_notif.last_day` — le broadcast se déclenche une seule fois par jour, y compris après redémarrage backend.
+- Titre : `🎯 <TYPE_LABEL> disponibles !` · Body avec le libellé du jour · lien `/(app)/missions`.
+- Wire dans `server.lifespan` : log `"Mission window watcher scheduled (60-sec interval)"`.
+
+**Bug 2 — Certains comptes actifs voient "aucune tâche disponible"** :
+- Analyse : le feed `/special-tasks` n'a **aucun filtre pays/âge/genre** — chaque utilisateur activé voit toutes les tâches actives (sauf ses propres campagnes et celles déjà soumises).
+- Ajout d'un commentaire de doc explicit + **log INFO** `"special-tasks feed: user=X completed=N items=M"` pour tracer les cas où items=0.
+- Cause probable côté données : utilisateur a soumis un proof en `pending` (bloque le task via `special_task_completions.status != rejected`). C'est le comportement voulu pour anti-doublon.
+
+**Vérifié** :
+- Broadcast manuel : `X notifications inserted`, second appel = 0 (idempotent).
+- Notification sample : `{title: '🎯 ... disponibles !', link: '/(app)/missions'}`.
+
+
 ### 2026-02-20 (v27n) — 🔧 Correction Biz-transPay (Developer v2 doc officielle)
 
 **Analyse doc PDF** : la vraie API est `https://biz-transppayy.com/api/v1` (pas `/api/developer/v2` comme mentionné dans le prompt utilisateur). Endpoints confirmés : `POST /v1/direct-payments`, `POST /v1/push`, `GET /v1/payments/{id}/status`. Webhook signé `HMAC-SHA256(ts + "." + body)`.

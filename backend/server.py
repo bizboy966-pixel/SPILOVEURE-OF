@@ -202,6 +202,13 @@ async def lifespan(app: FastAPI):
             log.info("Biz-transPay polling worker scheduled (4-sec interval)")
         except Exception as _btp_e:
             log.warning(f"Biz-transPay polling worker failed to start: {_btp_e}")
+        # v27o (2026-02-20) — Mission window opener notification watcher.
+        try:
+            from missions import mission_window_watcher as _mission_watch
+            asyncio.create_task(_mission_watch(db))
+            log.info("Mission window watcher scheduled (60-sec interval)")
+        except Exception as _mw_e:
+            log.warning(f"Mission window watcher failed to start: {_mw_e}")
         log.info("Chat retention worker scheduled")
     except Exception as _e:
         log.warning(f"Chat retention worker failed to start: {_e}")

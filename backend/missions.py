@@ -127,6 +127,79 @@ def _window_open_for_schedule(cfg: dict) -> bool:
     return oh * 60 + om <= cur < ch * 60 + cm
 
 
+# v27o (2026-02-20) — Notification broadcast when the mission window opens.
+# Fires ONCE per day, precisely when we first observe the window flipping
+# from "closed" to "open". Uses `db.app_settings.mission_window_notif` as a
+# per-day marker to guarantee idempotency across restarts / multi-process.
+async def _broadcast_mission_open(db) -> int:
+    """Insert an in-app notification for every activated user."""
+    cfg = await _load_schedule(db)
+    today_type = _today_mission_type(cfg)
+    today_lbl = _today_label(cfg)
+    tz_name = cfg.get("timezone") or "Africa/Lome"
+    now = datetime.now(_tz(tz_name))
+    today_iso = now.date().isoformat()
+
+    # Idempotency: one broadcast per day, ever.
+    marker = await db.app_settings.find_one_and_update(
+        {"key": "mission_window_notif"},
+        {"$setOnInsert": {"key": "mission_window_notif"}, "$set": {"last_day": today_iso}},
+        upsert=True, return_document=False,
+    )
+    if marker and marker.get("last_day") == today_iso:
+        return 0  # already fired today
+
+    label = TYPE_LABEL.get(today_type, "Missions du jour") if today_type else "Missions du jour"
+    title = f"🎯 {label} disponibles !"
+    body = f"C'est parti pour {today_lbl.split('→')[-1].strip()}. Ouvre l'onglet Missions et gagne dès maintenant."
+
+    now_utc = datetime.now(timezone.utc)
+    inserted = 0
+    # Insert notifs in bulk: only for activated users (status=active + max_level>=1).
+    cursor = db.users.find(
+        {"status": "active", "max_level": {"$gte": 1}, "role": {"$ne": "admin"}},
+        {"_id": 0, "id": 1},
+    )
+    docs: list = []
+    async for u in cursor:
+        docs.append({
+            "id": str(uuid.uuid4()),
+            "user_id": u["id"],
+            "type": "missions_open",
+            "title": title,
+            "body": body,
+            "link": "/(app)/missions",
+            "read": False,
+            "created_at": now_utc,
+        })
+        if len(docs) >= 500:
+            await db.notifications.insert_many(docs)
+            inserted += len(docs); docs = []
+    if docs:
+        await db.notifications.insert_many(docs)
+        inserted += len(docs)
+    return inserted
+
+
+async def mission_window_watcher(db):
+    """Background loop: every 60s, check if the mission window just opened
+    for the day and, if so, broadcast a notification to all activated users.
+    Kept idempotent by the per-day marker in `app_settings`.
+    """
+    import asyncio as _a, logging as _l
+    log = _l.getLogger("missions")
+    while True:
+        try:
+            cfg = await _load_schedule(db)
+            if _window_open_for_schedule(cfg):
+                n = await _broadcast_mission_open(db)
+                if n:
+                    log.info("mission_window_watcher: broadcast to %d users", n)
+        except Exception as e:
+            log.exception("mission_window_watcher error: %s", e)
+        await _a.sleep(60)
+
+
 def _current_period_key(cfg: dict) -> str:
     """Period key = ISO date in the configured TZ. Resets at midnight."""
     tz = _tz(cfg.get("timezone") or "Africa/Lome")

@@ -480,9 +480,22 @@ async def pay_task(task_id: str, data: TaskPayIn, request: Request, user=Depends
 # ---------- FEED + completion ----------
 @public.get("/special-tasks")
 async def user_feed(request: Request, user=Depends(get_current_user)):
-    """Active tasks the current user can still complete (hasn't already done)."""
+    """Active tasks the current user can still complete (hasn't already done).
+
+    v27o (2026-02-20) — no country/age/gender filter is applied by design:
+    every activated user, regardless of their country/age/gender, can see
+    and complete any active special task (the campaign owner picks the
+    audience only for their own record; the reward is paid the same way).
+    A task disappears from a user's feed ONLY when:
+      • its status ≠ active
+      • the user IS the campaign creator (can't earn from own campaign)
+      • the user has ALREADY submitted a completion (status ≠ rejected)
+    """
+    import logging as _log
+    _slog = _log.getLogger("special_tasks")
     db = request.app.state.db
     if not await feature_enabled(db, "special_tasks"):
+        _slog.info("special-tasks feed: feature flag OFF for user=%s", user.get("id"))
         return {"items": []}
     completed = await db.special_task_completions.distinct(
         "task_id", {"user_id": user["id"], "status": {"$ne": "rejected"}},
@@ -496,9 +509,6 @@ async def user_feed(request: Request, user=Depends(get_current_user)):
         "user_id": {"$ne": user["id"]},          # can't earn from your own campaign
         "id": {"$nin": completed},
     }).sort("created_at", -1).limit(200):
-        # A task is "new" for this user when its activated_at (fallback
-        # payment_confirmed_at / created_at) is after the user's last
-        # seen timestamp OR it was activated in the past 24h.
         activated = t.get("activated_at") or t.get("payment_confirmed_at") or t.get("created_at")
         is_new = False
         try:
@@ -512,6 +522,8 @@ async def user_feed(request: Request, user=Depends(get_current_user)):
         s = _serialize(t)
         s["is_new"] = is_new
         items.append(s)
+    _slog.info("special-tasks feed: user=%s completed=%d items=%d",
+               user.get("id"), len(completed), len(items))
     return {"items": items}
 
 
