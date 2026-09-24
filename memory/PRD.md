@@ -21,6 +21,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27k, Phase 3) — 🖥️ Admin UI Prestataires v2
+
+**Nouveau composant** `PaymentProvidersRouterCard` (`(admin)/index.tsx`) :
+- Vue unifiée alimentée par `/api/admin/payment-providers` (données normalisées Phase 1).
+- Une carte par prestataire (BizTransPay, SoleasPay, AshtecPay, IziChangePay).
+- En-tête cliquable pour dérouler : status (🟢/🔴), type (Mobile/Crypto), capacités PayIn/PayOut, nombre de pays.
+- Boutons ↑/↓ pour modifier la priorité en un clic (appelle `PUT /admin/payment-providers/{id}/priority`).
+- Pays imbriqués → opérateurs. Chaque pays cliquable pour toggler (`PUT .../countries/{cc}`) — vert si actif, rouge si désactivé.
+- Chaque opérateur cliquable pour toggler individuellement (`PUT .../countries/{cc}/operators/{code}`).
+
+**Nouveau composant** `PaymentRouterLogsCard` :
+- Panneau collapsible avec les 20 dernières décisions du router.
+- Affiche : date, kind (payin/payout), country/operator, prestataire sélectionné, attempts et raisons de rejet.
+
+**Structure onglet `providers`** :
+1. Bandeau intro
+2. `PaymentProvidersRouterCard` (vue unifiée nested)
+3. Section « 🔑 Configuration des clés » : BizTransPayCard + SolesPaySettingsCard + PaymentGatewaysCard (inchangés, config keys sécurisées comme avant).
+4. `PaymentRouterLogsCard` (audit)
+
+**Contraintes respectées** :
+- Les config keys existantes restent gérées par les cartes existantes (aucune régression).
+- Aucune clé exposée au frontend ; les inputs remplacent uniquement (masqués côté serveur).
+- Le router centralisé Phase 2 est déjà l'unique source de décision — l'UI reflète ses données.
+
+
 ### 2026-02-20 (v27j, Phase 2) — 🧭 PaymentProviderRouter centralisé
 
 **Nouveau module** `/app/backend/payment_router.py` :

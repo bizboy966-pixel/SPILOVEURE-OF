@@ -2204,12 +2204,20 @@ export default function AdminHome() {
             <View style={{ padding: 12, borderRadius: 14, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE", marginBottom: 12 }}>
               <Text style={{ fontSize: 15, fontWeight: "900", color: "#1E1B4B" }}>💳 Prestataires de paiement</Text>
               <Text style={{ fontSize: 11, color: "#312E81", marginTop: 4, lineHeight: 15 }}>
-                Toutes les intégrations d'activation & retrait automatique sont regroupées ici. Activez/désactivez chaque prestataire, configurez la clé API et gérez les pays/opérateurs. Les utilisateurs ne verront que les prestataires actifs.
+                Vue unifiée : chaque prestataire → statut, dépôt/retrait auto, priorité, pays et opérateurs. Le router central choisit dynamiquement le prestataire selon le pays, l'opérateur et la priorité.
               </Text>
             </View>
-            <BizTransPayCard />
-            <SolesPaySettingsCard />
-            <PaymentGatewaysCard />
+            <PaymentProvidersRouterCard />
+            <View style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8, marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 }}>🔑 Configuration des clés (par prestataire)</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 10 }}>
+                Les clés API/secrets restent sécurisées côté serveur (masquées). Modifiez uniquement pour remplacer une clé existante.
+              </Text>
+              <BizTransPayCard />
+              <SolesPaySettingsCard />
+              <PaymentGatewaysCard />
+            </View>
+            <PaymentRouterLogsCard />
           </>
         )}
 
@@ -4059,6 +4067,231 @@ function PaymentGatewaysCard() {
 
       {/* SolesPay-specific controls (test, matrix, P-Out) have been moved to
           the dedicated SolesPaySettingsCard above for true isolation. */}
+    </Card>
+  );
+}
+
+
+/**
+ * PaymentProvidersRouterCard (v27k, Phase 3) — vue unifiée alimentée par le
+ * PaymentProviderRouter (`/api/admin/payment-providers`).
+ *
+ * Affiche pour chaque prestataire :
+ *   • en-tête : nom, statut, ↑/↓ priorité
+ *   • capacités : dépôt automatique, retrait automatique (info uniquement)
+ *   • pays imbriqués → opérateurs, chacun activable/désactivable
+ */
+function PaymentProvidersRouterCard() {
+  const [providers, setProviders] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const load = async () => {
+    try {
+      const r = await api.get<any>("/admin/payment-providers");
+      setProviders(r.providers || []);
+    } catch { setProviders([]); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const bump = async (pid: string, delta: number, currentPrio: number) => {
+    setLoading(true);
+    try {
+      await api.put<any>(`/admin/payment-providers/${pid}/priority`, { priority: Math.max(1, currentPrio + delta) });
+      await load();
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
+    } finally { setLoading(false); }
+  };
+
+  const toggleCountry = async (pid: string, cc: string, next: boolean) => {
+    setLoading(true);
+    try {
+      await api.put<any>(`/admin/payment-providers/${pid}/countries/${cc}`, { enabled: next });
+      await load();
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
+    } finally { setLoading(false); }
+  };
+
+  const toggleOp = async (pid: string, cc: string, code: string, next: boolean) => {
+    setLoading(true);
+    try {
+      await api.put<any>(`/admin/payment-providers/${pid}/countries/${cc}/operators/${encodeURIComponent(code)}`, { enabled: next });
+      await load();
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
+    } finally { setLoading(false); }
+  };
+
+  if (providers === null) {
+    return <Card style={{ padding: 12 }}><ActivityIndicator color={theme.colors.primary} /></Card>;
+  }
+
+  return (
+    <View testID="providers-router-card">
+      {providers.map((p, idx) => {
+        const isActive = p.status === "active";
+        const isExpanded = expanded[p.id] !== false; // default true
+        return (
+          <Card key={p.id} style={{ marginBottom: 12, borderWidth: 2, borderColor: isActive ? "#2563EB" : theme.colors.border, padding: 0, overflow: "hidden" }}>
+            {/* Header */}
+            <TouchableOpacity
+              onPress={() => setExpanded({ ...expanded, [p.id]: !isExpanded })}
+              style={{ padding: 12, backgroundColor: isActive ? "#DBEAFE" : "#FEE2E2", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+              testID={`provider-${p.id}-header`}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontWeight: "900", color: isActive ? "#1E3A8A" : "#991B1B" }}>
+                  {isActive ? "🟢" : "🔴"} {p.name}
+                  <Text style={{ fontSize: 11, fontWeight: "600" }}>  •  Priorité {p.priority}</Text>
+                </Text>
+                <Text style={{ fontSize: 11, color: isActive ? "#1E3A8A" : "#991B1B", marginTop: 3 }}>
+                  {p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt {p.auto_deposit ? "✅" : "❌"} • Retrait {p.auto_withdrawal ? "✅" : "❌"} • {p.countries?.length || 0} pays
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+                <TouchableOpacity
+                  onPress={(e: any) => { e?.stopPropagation?.(); bump(p.id, -1, p.priority); }}
+                  disabled={loading || p.priority <= 1}
+                  style={{ padding: 6, borderRadius: 6, backgroundColor: p.priority <= 1 ? "#E5E7EB" : "#2563EB" }}
+                  testID={`provider-${p.id}-prio-up`}
+                >
+                  <Ionicons name="chevron-up" size={16} color={p.priority <= 1 ? "#9CA3AF" : "#fff"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={(e: any) => { e?.stopPropagation?.(); bump(p.id, +1, p.priority); }}
+                  disabled={loading}
+                  style={{ padding: 6, borderRadius: 6, backgroundColor: "#2563EB" }}
+                  testID={`provider-${p.id}-prio-down`}
+                >
+                  <Ionicons name="chevron-down" size={16} color="#fff" />
+                </TouchableOpacity>
+                <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={isActive ? "#1E3A8A" : "#991B1B"} style={{ marginLeft: 6 }} />
+              </View>
+            </TouchableOpacity>
+
+            {isExpanded && (
+              <View style={{ padding: 10 }}>
+                {(!p.countries || p.countries.length === 0) && (
+                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic" }}>
+                    Aucun pays configuré pour ce prestataire.
+                  </Text>
+                )}
+                {(p.countries || []).map((c: any) => {
+                  const cActive = c.status === "active";
+                  return (
+                    <View key={`${p.id}-${c.country_code}`} style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                      <TouchableOpacity
+                        onPress={() => toggleCountry(p.id, c.country_code, !cActive)}
+                        disabled={loading}
+                        style={{ padding: 8, backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                        testID={`provider-${p.id}-country-${c.country_code}`}
+                      >
+                        <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
+                          {c.country_code === "*" ? "🌍 Universel" : `🌍 ${c.country_code}`}  •  {c.currency}  •  {(c.mode || "automatic") === "automatic" ? "auto" : "manuel"}
+                        </Text>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
+                          {cActive ? "🟢 Activé" : "🔴 Désactivé"}
+                        </Text>
+                      </TouchableOpacity>
+                      <View style={{ padding: 6, backgroundColor: theme.colors.surface }}>
+                        {(c.operators || []).map((o: any) => {
+                          const oActive = o.status === "active";
+                          return (
+                            <TouchableOpacity
+                              key={`${p.id}-${c.country_code}-${o.operator_code}`}
+                              onPress={() => toggleOp(p.id, c.country_code, o.operator_code, !oActive)}
+                              disabled={loading}
+                              style={{ padding: 6, borderRadius: 6, backgroundColor: oActive ? "#D1FAE5" : "#FEF3C7", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}
+                              testID={`provider-${p.id}-op-${c.country_code}-${o.operator_code}`}
+                            >
+                              <View>
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: oActive ? "#065F46" : "#92400E" }}>
+                                  └─ {o.operator_label || o.operator_code}
+                                </Text>
+                                <Text style={{ fontSize: 9, color: oActive ? "#047857" : "#B45309", fontFamily: "monospace" }}>
+                                  {o.operator_code}
+                                </Text>
+                              </View>
+                              <Ionicons name={oActive ? "checkmark-circle" : "close-circle-outline"} size={20} color={oActive ? "#10B981" : "#F59E0B"} />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </Card>
+        );
+      })}
+    </View>
+  );
+}
+
+
+/**
+ * PaymentRouterLogsCard (v27k) — visualise les 20 dernières décisions
+ * du PaymentProviderRouter pour audit rapide.
+ */
+function PaymentRouterLogsCard() {
+  const [logs, setLogs] = useState<any[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await api.get<any>("/admin/payment-router/logs?limit=20");
+      setLogs(r.items || []);
+    } catch { setLogs([]); }
+  };
+  useEffect(() => { if (expanded && logs === null) load(); }, [expanded]);
+
+  return (
+    <Card style={{ marginTop: 6 }}>
+      <TouchableOpacity
+        onPress={() => setExpanded(!expanded)}
+        style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+        testID="router-logs-toggle"
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons name="analytics" size={20} color={theme.colors.primary} />
+          <Text style={styles.section}>📊 Journal du router (20 dernières décisions)</Text>
+        </View>
+        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={theme.colors.textSecondary} />
+      </TouchableOpacity>
+      {expanded && (
+        <View style={{ marginTop: 10 }}>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+            <TouchableOpacity onPress={load} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: theme.colors.primary }}>
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>🔄 Rafraîchir</Text>
+            </TouchableOpacity>
+          </View>
+          {logs === null && <ActivityIndicator color={theme.colors.primary} />}
+          {logs !== null && logs.length === 0 && (
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic" }}>
+              Aucune décision de routage enregistrée pour le moment.
+            </Text>
+          )}
+          {(logs || []).map((l: any, i: number) => (
+            <View key={l.id || i} style={{ padding: 8, borderRadius: 8, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary }}>
+                {String(l.created_at || "").slice(0, 19).replace("T", " ")} • {l.kind} • {l.country}
+                {l.operator ? ` / ${l.operator}` : ""}
+              </Text>
+              <Text style={{ fontSize: 11, marginTop: 2, color: l.selected_provider ? "#065F46" : "#991B1B" }}>
+                → {l.selected_provider || "aucun prestataire disponible"}
+              </Text>
+              {(l.attempts || []).length > 1 && (
+                <Text style={{ fontSize: 10, color: theme.colors.textSecondary, marginTop: 2, fontFamily: "monospace" }}>
+                  {l.attempts.map((a: any) => `${a.provider_id}${a.ready ? "✓" : `✗(${a.reason})`}`).join(" → ")}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
     </Card>
   );
 }
