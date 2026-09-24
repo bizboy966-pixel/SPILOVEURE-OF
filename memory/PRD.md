@@ -21,16 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27r) — 🧹 Suppression barre horizontale d'onglets admin (doublon avec ⋮)
+
+**Demande** : le menu déroulant ⋮ v27q liste déjà tous les onglets verticalement — la barre horizontale scrollable au-dessus du contenu est devenue un doublon. À supprimer.
+
+**Implémentation** (`(admin)/index.tsx`) :
+- Suppression complète de `<ScrollView horizontal>` (barre de tabs) et de son `TABS.map`.
+- Bouton ⋮ enrichi : affiche à gauche du picto le libellé de l'onglet actif (`TABS.find((t) => t.key === tab)?.label`) pour repérage rapide.
+- Style bouton passé de `styles.logoutBtn` (width fixe 40px) à un style inline (paddingHorizontal:12, gap:6, height:40, borderRadius:24) afin de laisser le texte s'étendre naturellement.
+- Le menu ⋮ reste l'**unique** moyen de navigation entre onglets.
+
 ### 2026-02-20 (v27q) — 📱 Menu 3-points admin (accès rapide aux onglets)
 
-**Demande** : entre le bouton "Actualiser" et "Se déconnecter" de l'admin panel, ajouter un bouton "⋮" qui ouvre une liste verticale de tous les onglets (sans supprimer la barre horizontale scrollable existante).
+**Demande** : entre le bouton "Actualiser" et "Se déconnecter" de l'admin panel, ajouter un bouton "⋮" qui ouvre une liste verticale de tous les onglets.
 
 **Implémentation** (`(admin)/index.tsx`) :
 - Nouveau state `menuOpen` + bouton `ellipsis-vertical` avec testID `admin-tabs-menu`.
 - Overlay semi-transparent + carte flottante positionnée sous le header (top: 90, right: 12, zIndex 41, max-height 520, scrollable si nécessaire).
 - Chaque item : icône + label, l'onglet courant est mis en surbrillance (fond primary blanc).
 - Clic sur un item → `setTab(key)` + fermeture du menu. Overlay clic-out = fermeture.
-- **Aucune modification** de la barre horizontale — c'est un ajout, pas un remplacement.
 
 
 ### 2026-02-20 (v27p) — 📚 Alignement Biz-transPay avec la doc v1.0 officielle

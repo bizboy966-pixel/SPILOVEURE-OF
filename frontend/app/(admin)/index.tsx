@@ -531,12 +531,16 @@ export default function AdminHome() {
             >
               <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color="#fff" />
             </TouchableOpacity>
-            {/* v27q — 3-dots menu that opens a vertical list of every tab */}
+            {/* v27r — 3-dots menu (seul moyen de naviguer entre onglets).
+                Affiche le nom de l'onglet actif à côté pour repérage. */}
             <TouchableOpacity
               onPress={() => setMenuOpen((v) => !v)}
-              style={styles.logoutBtn}
+              style={{ height: 40, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.2)", flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, gap: 6 }}
               testID="admin-tabs-menu"
             >
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, maxWidth: 120 }} numberOfLines={1}>
+                {(TABS.find((t) => t.key === tab)?.label) || ""}
+              </Text>
               <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
             </TouchableOpacity>
             <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
@@ -546,9 +550,9 @@ export default function AdminHome() {
         </View>
       </LinearGradient>
 
-      {/* v27q — dropdown vertical listant tous les onglets. Se ferme au clic
-          sur un item OU sur l'overlay. La scroll bar horizontale existante
-          reste en place — c'est un ajout, pas un remplacement. */}
+      {/* v27r — dropdown vertical listant tous les onglets. Se ferme au clic
+          sur un item OU sur l'overlay. La barre horizontale a été supprimée
+          car ce menu est désormais l'unique moyen de navigation. */}
       {menuOpen && (
         <>
           <TouchableOpacity
@@ -574,20 +578,6 @@ export default function AdminHome() {
           </View>
         </>
       )}
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t.key}
-            style={[styles.tab, tab === t.key && styles.tabOn]}
-            onPress={() => setTab(t.key)}
-            testID={`admin-tab-${t.key}`}
-          >
-            <Ionicons name={t.icon} size={14} color={tab === t.key ? "#fff" : theme.colors.primary} />
-            <Text style={[styles.tabT, tab === t.key && { color: "#fff" }]}>{t.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
