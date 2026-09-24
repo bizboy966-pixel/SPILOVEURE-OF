@@ -21,6 +21,32 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27j, Phase 2) — 🧭 PaymentProviderRouter centralisé
+
+**Nouveau module** `/app/backend/payment_router.py` :
+- `pick_provider(db, kind, country, operator)` : filtre providers actifs → country actif → operator actif → capacité (auto_deposit/auto_withdrawal) → runtime readiness (clé API) → tri priorité asc → premier match.
+- `log_decision(...)` : trace chaque décision dans `payment_router_logs` avec les tentatives et la raison de rejet éventuelle.
+- `set_priority`, `toggle_country`, `toggle_operator` : mutations admin.
+
+**Intégration `server.py`** :
+- `pick_gateway_for_country` (PayIn) et `pick_payout_gateway_for_country` (PayOut) délèguent au router. Fallback legacy si le router échoue (safety net).
+- Chaque `PUT /admin/payment-gateways` déclenche un `sync_providers()` idempotent → les toggles admin sont reflétés en temps réel dans les collections normalisées.
+- Alias legacy `soleaspay → soleas` pour rester compatible avec le dispatcher `/payments/activate` sans casser le code existant.
+
+**Nouveaux endpoints admin** :
+- `GET /api/admin/payment-providers` : liste providers + pays + opérateurs (nested).
+- `PUT /api/admin/payment-providers/{id}/priority {priority: int}`
+- `PUT /api/admin/payment-providers/{id}/countries/{cc} {enabled: bool}`
+- `PUT /api/admin/payment-providers/{id}/countries/{cc}/operators/{code} {enabled: bool}`
+- `GET /api/admin/payment-router/logs?limit=50`
+
+**Vérifié** :
+- Activation TG/tmoney_tg avec BTP enabled → router log `selected=biztranspay`, BTP appelé (refus fake key).
+- Priorité swap testée (Soleas=1, BTP=5).
+- Toggle opérateur : tmoney_tg BTP inactivé → status=inactive dans DB.
+- Fallback : si aucun provider actif, retour null → statut manuel classique.
+
+
 ### 2026-02-20 (v27i, Phase 1) — 🔐 Hash crypto restauré + registre normalisé prestataires
 
 **Part A — Hash crypto USDT BEP20 restauré** (`/(app)/pay.tsx`) :

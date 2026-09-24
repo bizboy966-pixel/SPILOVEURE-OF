@@ -1639,7 +1639,83 @@ def _register_payment_gateway_routes(router):
             }},
             upsert=True,
         )
+        # v27j — re-sync the normalized `payment_providers` collections so
+        # that the router immediately reflects the admin's toggle changes
+        # (master, PayIn, PayOut, per-provider). Best-effort.
+        try:
+            from payment_providers import sync_providers as _sync_pp
+            await _sync_pp(db)
+        except Exception:
+            pass
         return await admin_get_payment_gateways(request)
+
+    # ─── v27j (Phase 2) — Router admin endpoints ────────────────────
+    @router.get("/payment-providers")
+    async def admin_list_providers(request: Request):
+        """Return providers + countries + operators from the normalized
+        collections (Phase 2 source of truth for the router)."""
+        db = request.app.state.db
+        providers = [p async for p in db.payment_providers.find({}, {"_id": 0}).sort("priority", 1)]
+        for p in providers:
+            p["countries"] = [
+                c async for c in db.payment_provider_countries.find(
+                    {"provider_id": p["id"]}, {"_id": 0}
+                ).sort("country_code", 1)
+            ]
+            for c in p["countries"]:
+                c["operators"] = [
+                    o async for o in db.payment_provider_operators.find(
+                        {"provider_id": p["id"], "country_code": c["country_code"]}, {"_id": 0}
+                    ).sort("operator_code", 1)
+                ]
+        return {"providers": providers}
+
+    @router.put("/payment-providers/{provider_id}/priority")
+    async def admin_set_priority(provider_id: str, request: Request):
+        body = await request.json()
+        try:
+            prio = int(body.get("priority"))
+        except Exception:
+            raise HTTPException(400, "priority must be an integer")
+        from payment_router import set_priority
+        ok = await set_priority(request.app.state.db, provider_id, prio)
+        if not ok:
+            raise HTTPException(404, "Provider not found")
+        return {"ok": True, "priority": prio}
+
+    @router.put("/payment-providers/{provider_id}/countries/{country_code}")
+    async def admin_toggle_country(provider_id: str, country_code: str, request: Request):
+        body = await request.json()
+        enabled = bool(body.get("enabled"))
+        from payment_router import toggle_country
+        ok = await toggle_country(request.app.state.db, provider_id, country_code, enabled)
+        if not ok:
+            raise HTTPException(404, "Country not found for this provider")
+        return {"ok": True, "enabled": enabled}
+
+    @router.put("/payment-providers/{provider_id}/countries/{country_code}/operators/{operator_code}")
+    async def admin_toggle_operator(
+        provider_id: str, country_code: str, operator_code: str, request: Request,
+    ):
+        body = await request.json()
+        enabled = bool(body.get("enabled"))
+        from payment_router import toggle_operator
+        ok = await toggle_operator(
+            request.app.state.db, provider_id, country_code, operator_code, enabled,
+        )
+        if not ok:
+            raise HTTPException(404, "Operator not found for this provider/country")
+        return {"ok": True, "enabled": enabled}
+
+    @router.get("/payment-router/logs")
+    async def admin_router_logs(request: Request, limit: int = 50):
+        db = request.app.state.db
+        items = [
+            l async for l in db.payment_router_logs.find({}, {"_id": 0})
+            .sort("created_at", -1).limit(int(min(200, max(1, limit))))
+        ]
+        return {"items": items}
+
 from pydantic import BaseModel, Field  # noqa: E402
 
 
@@ -1799,26 +1875,35 @@ async def _soleaspay_webhook_secret(db) -> str:
 async def pick_gateway_for_country(db, country: str) -> Optional[str]:
     """Cascade based on admin's `active` preference AND per-gateway coverage.
 
-    A gateway is considered viable when:
-      1) it is globally enabled (soleas_enabled / ashtec_enabled / biztranspay_enabled)
-      2) the country is NOT explicitly disabled in country_matrix.<gw>.<CC>
-      3) the country IS actually served by that gateway's SDK
-         (soleaspay.SUPPORTED for soleas, ashtec_activation.COUNTRIES for ashtec,
-          biztranspay.OPERATORS for biztranspay)
-
-    v27h — Biz-transPay takes PRIORITY over any other pay-in gateway for
-    Togo when its PayIn switch is on. Reason: the product owner explicitly
-    chose Biz-transPay as the preferred provider for TG.
-
-    Preference order: biztranspay (if TG & enabled) → cfg['active'] → others.
-    Returns None when no gateway can serve the country.
+    v27j (Phase 2) — délègue au PaymentProviderRouter qui lit les
+    collections normalisées `payment_providers` + `payment_provider_countries`.
+    Le legacy `country_matrix` reste consulté en fallback si le router
+    ne trouve aucun candidat (garde-fou pour les installations anciennes
+    qui n'ont pas encore synchronisé les collections).
     """
     country = (country or "").upper()
+
+    # v27j — router path (Phase 2). Any router exception falls back to the
+    # legacy cascade below so we never regress a working payment flow.
+    try:
+        from payment_router import pick_provider, log_decision
+        result = await pick_provider(db, kind="payin", country=country)
+        pid = (result or {}).get("provider_id")
+        await log_decision(db, kind="payin", country=country, operator=None, result=result)
+        if pid:
+            # Legacy dispatcher name mapping (router uses full names like
+            # "soleaspay", legacy /payments/activate branches on short names).
+            _LEGACY_ALIAS = {"soleaspay": "soleas"}
+            return _LEGACY_ALIAS.get(pid, pid)
+    except Exception as e:
+        log.warning("payment_router pick_provider (payin) failed: %s", e)
+
+    # Legacy cascade (kept as safety net — will be removed in Phase 4).
     cfg = await _load_payment_gateway(db)
     matrix = cfg.get("country_matrix") or {}
     active = cfg.get("active") or "soleas"
 
-    # v27h — Biz-transPay TG override.
+    # Biz-transPay TG override (legacy — router already handled this above).
     if country == "TG" and cfg.get("biztranspay_enabled") \
             and cfg.get("biztranspay_payin_enabled", True):
         api_key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
@@ -1861,11 +1946,23 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
 async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
     """Return the P-Out gateway to use for a given country, or None.
 
-    Priority: Biz-transPay (Togo, if enabled) → SoleasPay. If neither is
-    eligible, returns None — the caller then leaves the withdrawal
-    "pending" for manual admin validation.
+    v27j (Phase 2) — délègue au PaymentProviderRouter. Fallback legacy si le
+    router échoue.
     """
     country = (country or "").upper()
+
+    try:
+        from payment_router import pick_provider, log_decision
+        result = await pick_provider(db, kind="payout", country=country)
+        pid = (result or {}).get("provider_id")
+        await log_decision(db, kind="payout", country=country, operator=None, result=result)
+        if pid:
+            _LEGACY_ALIAS = {"soleaspay": "soleaspay"}  # payout uses full name
+            return _LEGACY_ALIAS.get(pid, pid)
+    except Exception as e:
+        log.warning("payment_router pick_provider (payout) failed: %s", e)
+
+    # Legacy cascade
     cfg = await _load_payment_gateway(db)
     # Biz-transPay first (TG only, requires payout switch ON + api key).
     if country == "TG" and cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payout_enabled"):
