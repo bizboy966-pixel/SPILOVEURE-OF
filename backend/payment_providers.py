@@ -138,11 +138,18 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
         toggles = cfg.get("biztranspay_countries") or {}
         for cc, info in BTP.items():
             c_toggles = toggles.get(cc) or {}
-            # Country enabled if any operator is on
-            any_on = any(c_toggles.get(op["code"], True) for op in info["operators"])
+            # v27n — each operator carries a `default_active` flag (TG on,
+            # BJ/BF off) so BJ/BF land inactive by default; admin must
+            # explicitly enable them.
+            any_on = False
+            for op in info["operators"]:
+                default = bool(op.get("default_active", True))
+                if c_toggles.get(op["code"], default):
+                    any_on = True; break
             await _upsert_country(cc, info["currency"], any_on)
             for op in info["operators"]:
-                on = c_toggles.get(op["code"], True)
+                default = bool(op.get("default_active", True))
+                on = c_toggles.get(op["code"], default)
                 await _upsert_operator(cc, op["code"], op["label"], on)
 
     elif provider_id == "soleaspay":

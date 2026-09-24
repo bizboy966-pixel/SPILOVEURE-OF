@@ -21,6 +21,26 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-20 (v27n) — 🔧 Correction Biz-transPay (Developer v2 doc officielle)
+
+**Analyse doc PDF** : la vraie API est `https://biz-transppayy.com/api/v1` (pas `/api/developer/v2` comme mentionné dans le prompt utilisateur). Endpoints confirmés : `POST /v1/direct-payments`, `POST /v1/push`, `GET /v1/payments/{id}/status`. Webhook signé `HMAC-SHA256(ts + "." + body)`.
+
+**Corrections apportées à `biztranspay.py`** :
+- **OPERATORS enrichi** : TG (`tmoney_tg`, `togocom_tg` — confirmés doc), **BJ** (`mtn_bj`, `moov_bj`), **BF** (`orange_bf`, `moov_bf`). BJ/BF sont désactivés par défaut (`default_active=False`) car les codes ne sont pas dans la doc — admin doit les activer explicitement après confirmation avec BTP.
+- **Signature webhook corrigée** : `HMAC(ts + "." + body)` avec le point séparateur (bug avant, `ts + body` sans point).
+- **Nouveau `_timestamp_fresh`** : rejette les webhooks > 5 min (protection anti-replay).
+- **Déduplication `X-BizTransPay-Event-Id`** : nouvelle collection `biztranspay_webhook_events` avec index unique — un même event delivré 2 fois = ignoré au 2e appel.
+- **Mapping événements officiels** : `payment.completed`, `mobile_money.payment.approved`, `push.succeeded` → PAID ; `payment.failed`, `payment.expired`, `mobile_money.payment.declined/canceled`, `push.failed` → FAILED.
+- **Polling accepte les statuts `paid`, `completed`, `approved`** (le doc dit qu'en Mobile Money, "approved" est exposé comme "completed").
+- **Deposit payload enrichi** : ajout `customer_name`, `fee_bearer: "sender"`.
+- **Payout multi-pays** : dispatch_biztranspay_withdrawal accepte maintenant TG + BJ + BF. Vérifie via `payment_provider_operators` que le couple (country, operator) est bien activé par l'admin. Stocke `gateway_fee`, `gateway_total_debit` de la réponse.
+- **Gestion d'erreur enrichie** : capture `code` (INVALID_API_KEY, IDEMPOTENCY_KEY_REUSED, INSUFFICIENT_BALANCE, PAYMENT_METHOD_UNAVAILABLE, etc.) et le persiste sur le doc withdrawal.
+
+**Sync collections normalisées** : `payment_providers sync OK: {'providers': 4, 'countries': 25, 'operators': 58}` — 2 pays et 5 opérateurs de plus.
+
+**Non modifié** (conformément au cahier des charges) : SolesPay, AshtecPay, IziChangePay, paiement manuel, USDT BEP20, activation existante, router centralisé, worker polling.
+
+
 ### 2026-02-20 (v27m, Phase 5) — 🔁 Worker de polling Biz-transPay
 
 **Motivation** : les webhooks BTP peuvent être perdus (réseau, firewall, misconfig admin). Un worker serveur poll toutes les 4 secondes les paiements BTP en attente pour ne dépendre plus uniquement du webhook.

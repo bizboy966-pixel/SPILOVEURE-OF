@@ -42,15 +42,38 @@ BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transppayy.com/ap
 HTTP_TIMEOUT = 30.0
 
 # Operator catalog for the admin toggles + user-facing /pay.
-# Only Togo is supported per product spec 2026-02-20.
+# v27n (2026-02-20) — TG confirmed by BTP doc (tmoney_tg, togocom_tg).
+# BJ + BF added per product owner request; operator codes are placeholders
+# based on the standard TG/BJ/BF Mobile Money convention (mtn_bj, moov_bj,
+# orange_bf, moov_bf). BJ/BF operators are DISABLED by default in the
+# router — the admin must confirm each one with BTP support before turning
+# it on. The dispatcher will refuse an operator whose status is "inactive".
 OPERATORS: dict[str, dict] = {
     "TG": {
         "name": "Togo",
         "currency": "XOF",
         "dial": "228",
         "operators": [
-            {"code": "tmoney_tg", "label": "T-Money"},
-            {"code": "flooz_tg",  "label": "Flooz (Moov)"},
+            {"code": "tmoney_tg",  "label": "T-Money",        "default_active": True},
+            {"code": "togocom_tg", "label": "Togocom (Flooz)", "default_active": True},
+        ],
+    },
+    "BJ": {
+        "name": "Bénin",
+        "currency": "XOF",
+        "dial": "229",
+        "operators": [
+            {"code": "mtn_bj",     "label": "MTN Mobile Money",   "default_active": False},
+            {"code": "moov_bj",    "label": "Moov Money",          "default_active": False},
+        ],
+    },
+    "BF": {
+        "name": "Burkina Faso",
+        "currency": "XOF",
+        "dial": "226",
+        "operators": [
+            {"code": "orange_bf",  "label": "Orange Money",        "default_active": False},
+            {"code": "moov_bf",    "label": "Moov Money",          "default_active": False},
         ],
     },
 }
@@ -149,19 +172,35 @@ async def _get(path: str, api_key: str) -> httpx.Response:
 
 # ─── Webhook signature ───────────────────────────────────────────────
 def _verify_signature(secret: str, timestamp: str, raw_body: bytes, received: str) -> bool:
-    """HMAC-SHA256 over `timestamp + raw_body`. Header format `sha256=<hex>`."""
+    """HMAC-SHA256 over `timestamp + "." + raw_body` per the official BTP
+    v2 spec. Header format: `X-BizTransPay-Signature: sha256=<hex>`.
+
+    v27n (2026-02-20) — fixed to include the dot separator per the PDF.
+    Constant-time comparison via hmac.compare_digest.
+    """
     if not secret or not received:
         return False
     try:
+        body_str = raw_body.decode("utf-8", errors="replace")
+        signed_payload = f"{timestamp}.{body_str}".encode("utf-8")
         expected = hmac.new(
-            secret.encode("utf-8"),
-            (timestamp + raw_body.decode("utf-8", errors="replace")).encode("utf-8"),
-            hashlib.sha256,
+            secret.encode("utf-8"), signed_payload, hashlib.sha256,
         ).hexdigest()
     except Exception:
         return False
     got = received.split("=", 1)[1] if "=" in received else received
     return hmac.compare_digest(expected, got)
+
+
+def _timestamp_fresh(ts_header: str, max_age_seconds: int = 300) -> bool:
+    """Reject webhooks whose timestamp is older than 5 minutes (replay
+    protection). Accepts unix seconds (int as string)."""
+    try:
+        ts = int(str(ts_header).strip())
+    except Exception:
+        return False
+    now = int(datetime.now(timezone.utc).timestamp())
+    return abs(now - ts) <= max_age_seconds
 
 
 # ─── Public endpoints ────────────────────────────────────────────────
@@ -215,6 +254,8 @@ async def biztranspay_activation(
         "operator": data.operator,
         "customer_phone": e164_phone,
         "customer_email": user.get("email") or "",
+        "customer_name": user.get("full_name") or user.get("username") or "",
+        "fee_bearer": "sender",   # v27n — SPILOVEURE covers the gateway fee
         "reference": ref,
     }
 
@@ -339,43 +380,58 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
 async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     """Dispatch an auto-payout via Biz-transPay BizPUSH.
 
-    Returns {"auto_dispatched": bool, "reason"?: str, "id"?: str}
-    Mirrors the SoleasPay/IziChange dispatchers.
+    v27n (2026-02-20) — corrections per Developer v2 doc:
+      • Endpoint : POST /v1/push
+      • Body : {amount, currency, country, operator, beneficiary_phone,
+                beneficiary_name, reference} (+ Idempotency-Key header)
+      • Extended country coverage: TG + BJ + BF (admin-toggle-gated)
+      • Fees: `total_debit` in the response tells us the effective debit
     """
     if not await is_payout_enabled(db):
         return {"auto_dispatched": False, "reason": "disabled"}
     country = (wd_doc.get("country") or "").upper()
-    if country != "TG":
+    if country not in OPERATORS:
         return {"auto_dispatched": False, "reason": "country_not_supported"}
     api_key = await _get_api_key(db)
     if not api_key:
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
-    # Operator matching — accept the wallet operator label OR a code.
+    # Operator resolution — accept a code directly OR a label ("Moov", …).
     op_label = (wd_doc.get("operator") or "").strip().lower()
+    catalog = OPERATORS[country]["operators"]
+    known_codes = {o["code"] for o in catalog}
     op_code = None
-    if "flooz" in op_label or "moov" in op_label:
-        op_code = "flooz_tg"
-    elif "t-money" in op_label or "tmoney" in op_label:
-        op_code = "tmoney_tg"
+    if op_label in known_codes:
+        op_code = op_label
     else:
-        # If admin passed a code directly
-        if op_label in ("tmoney_tg", "flooz_tg"):
-            op_code = op_label
+        for o in catalog:
+            if op_label and op_label in o["label"].lower():
+                op_code = o["code"]; break
     if not op_code:
         return {"auto_dispatched": False, "reason": "operator_not_supported"}
+
+    # Router-level check : is this exact (provider, country, operator)
+    # actually enabled in payment_provider_operators?
+    op_row = await db.payment_provider_operators.find_one(
+        {"provider_id": "biztranspay", "country_code": country,
+         "operator_code": op_code, "status": "active"},
+    )
+    if not op_row:
+        return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     phone = _normalize_phone(wd_doc.get("phone") or "", country)
     body = {
         "amount": net,
-        "currency": "XOF",
+        "currency": OPERATORS[country]["currency"],
         "country": country,
         "operator": op_code,
         "beneficiary_phone": phone,
         "beneficiary_name": wd_doc.get("full_name") or wd_doc.get("username") or "SPILOVEURE",
         "reference": wd_doc["id"],
     }
+    if wd_doc.get("email"):
+        body["beneficiary_email"] = wd_doc["email"]
 
     try:
         r = await _post("/push", body, api_key, idempotency_key=f"wd-{wd_doc['id']}")
@@ -386,17 +442,23 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     if r.status_code >= 400:
         detail = ""
         try:
-            detail = str(r.json())[:400]
+            jd = r.json()
+            detail = str(jd)[:400]
+            code = str(jd.get("code") or "")
         except Exception:
             detail = r.text[:400]
-        log.warning("biztranspay push %s wd=%s body=%s", r.status_code, wd_doc["id"], detail)
+            code = ""
+        log.warning("biztranspay push %s wd=%s code=%s body=%s",
+                    r.status_code, wd_doc["id"], code, detail)
         await db.withdrawals.update_one(
             {"id": wd_doc["id"]},
             {"$set": {"gateway_error": detail[:400],
+                      "gateway_error_code": code,
                       "gateway_status_code": r.status_code,
                       "updated_at": datetime.now(timezone.utc)}},
         )
-        return {"auto_dispatched": False, "reason": "gateway_error", "detail": detail}
+        return {"auto_dispatched": False, "reason": "gateway_error",
+                "detail": detail, "code": code}
 
     resp_json = {}
     try:
@@ -411,6 +473,8 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
             "gateway": "biztranspay",
             "payout_id": resp_json.get("id"),
             "gateway_status": str(resp_json.get("status") or "").lower(),
+            "gateway_fee": resp_json.get("fee"),
+            "gateway_total_debit": resp_json.get("total_debit"),
             "dispatched_at": datetime.now(timezone.utc),
         }},
     )
@@ -421,22 +485,51 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
 # ─── Webhook ─────────────────────────────────────────────────────────
 @webhook.post("/biztranspay")
 async def biztranspay_webhook(request: Request):
-    """Receive payment status changes from Biz-transPay.
+    """Receive payment/payout events from Biz-transPay (Developer v2 spec).
 
-    Headers:
-      • X-BizTransPay-Signature   sha256=<hex>
-      • X-BizTransPay-Timestamp   unix ts or ISO
+    Security (per official doc):
+      • `X-BizTransPay-Signature: sha256=<hex>` — HMAC of `ts + "." + body`.
+      • `X-BizTransPay-Timestamp: <unix_seconds>` — reject if older than 5 min.
+      • `X-BizTransPay-Event-Id: evt_...` — dedup: reject on 2nd delivery.
+      • `X-BizTransPay-Event-Type: payment.completed | mobile_money.payment.approved | push.succeeded | ...`
+
+    Supported event types (real names from the doc):
+      • payment.completed, mobile_money.payment.approved   → treat as PAID
+      • payment.failed,    mobile_money.payment.declined,
+        mobile_money.payment.canceled                       → treat as FAILED
+      • push.succeeded                                      → payout completed
+      • push.failed                                         → payout failed
     """
     db = request.app.state.db
     raw = await request.body()
     sig = request.headers.get("X-BizTransPay-Signature") or request.headers.get("x-biztranspay-signature") or ""
     ts = request.headers.get("X-BizTransPay-Timestamp") or request.headers.get("x-biztranspay-timestamp") or ""
+    event_id = request.headers.get("X-BizTransPay-Event-Id") or request.headers.get("x-biztranspay-event-id") or ""
+    event_type_hdr = request.headers.get("X-BizTransPay-Event-Type") or request.headers.get("x-biztranspay-event-type") or ""
 
     secret = await _get_webhook_secret(db)
     if secret:
+        if not _timestamp_fresh(ts):
+            log.warning("biztranspay webhook: stale timestamp ts=%s", ts)
+            raise HTTPException(400, "Stale webhook timestamp")
         if not _verify_signature(secret, ts, raw, sig):
             log.warning("biztranspay webhook: bad signature ts=%s len=%s", ts, len(raw))
             raise HTTPException(401, "Invalid webhook signature")
+
+    # v27n — Event-Id deduplication. A same event delivered twice must NOT
+    # trigger a second activation. Best-effort unique index.
+    if event_id:
+        try:
+            await db.biztranspay_webhook_events.create_index("event_id", unique=True)
+            await db.biztranspay_webhook_events.insert_one({
+                "event_id": event_id,
+                "event_type": event_type_hdr,
+                "received_at": datetime.now(timezone.utc),
+            })
+        except Exception:
+            # Duplicate delivery — acknowledge without re-processing.
+            log.info("biztranspay webhook: duplicate event_id=%s ignored", event_id)
+            return {"ok": True, "duplicate": True}
 
     try:
         body = await request.json()
@@ -445,17 +538,31 @@ async def biztranspay_webhook(request: Request):
 
     await db.webhook_logs.insert_one({
         "gateway": "biztranspay",
-        "event_type": body.get("event") or "unknown",
+        "event_id": event_id,
+        "event_type": event_type_hdr or body.get("type") or body.get("event") or "unknown",
         "signed_ok": bool(secret),
         "payload": body,
         "received_at": datetime.now(timezone.utc),
     })
 
-    # Payload shape guess (docs light): { id, reference, status: paid|failed|pending, event: "payment.completed"|... }
-    ref = body.get("reference") or (body.get("data") or {}).get("reference")
-    provider_id = body.get("id") or (body.get("data") or {}).get("id")
-    status_raw = str(body.get("status") or (body.get("data") or {}).get("status") or "").lower()
-    event = str(body.get("event") or "").lower()
+    # Payload shape (per doc): {id: evt_..., type, data: {id, reference, status, ...}}
+    data_obj = body.get("data") or {}
+    ref = body.get("reference") or data_obj.get("reference")
+    provider_id = body.get("id") or data_obj.get("id")
+    status_raw = str(body.get("status") or data_obj.get("status") or "").lower()
+    event = (event_type_hdr or str(body.get("type") or body.get("event") or "")).lower()
+
+    # v27n — Map official event types to internal PAID / FAILED buckets.
+    PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded"}
+    FAIL_EVENTS = {"payment.failed", "payment.expired",
+                   "mobile_money.payment.declined", "mobile_money.payment.canceled",
+                   "push.failed"}
+    if event in PAID_EVENTS or status_raw in ("paid", "completed", "approved", "succeeded"):
+        internal_status = "paid"
+    elif event in FAIL_EVENTS or status_raw in ("failed", "declined", "canceled", "expired"):
+        internal_status = "failed"
+    else:
+        internal_status = "pending"
 
     # Locate our payment
     query: dict = {"provider": "biztranspay"}
@@ -467,39 +574,33 @@ async def biztranspay_webhook(request: Request):
         return {"ok": True, "ignored": "no_reference"}
 
     p = await db.payments.find_one(query, {"_id": 0})
-    # Also try to reconcile a payout (withdrawal) by reference
+    # Also try to reconcile a payout (withdrawal) by reference or payout_id
     if not p:
-        wd = await db.withdrawals.find_one({"id": ref} if ref else {"payout_id": provider_id})
+        wd_q = {"id": ref} if ref else {"payout_id": provider_id}
+        wd = await db.withdrawals.find_one(wd_q)
         if wd:
-            new_status = None
-            if status_raw == "paid" or event in ("push.completed", "payout.completed"):
-                new_status = "completed"
-            elif status_raw == "failed" or event in ("push.failed", "payout.failed"):
-                new_status = "rejected"
-            if new_status:
-                update = {"gateway_status": status_raw or event,
-                          "updated_at": datetime.now(timezone.utc)}
-                if new_status == "completed":
-                    update["status"] = "completed"
-                    update["completed_at"] = datetime.now(timezone.utc)
-                elif new_status == "rejected":
-                    update["status"] = "rejected"
-                    # Refund the balance
-                    try:
-                        await db.users.update_one(
-                            {"id": wd["user_id"]},
-                            {"$inc": {"balance_profit": float(wd.get("amount") or 0)}},
-                        )
-                    except Exception:
-                        pass
-                await db.withdrawals.update_one({"id": wd["id"]}, {"$set": update})
-            return {"ok": True, "reconciled": "withdrawal"}
+            update = {"gateway_status": status_raw or event,
+                      "updated_at": datetime.now(timezone.utc)}
+            if internal_status == "paid":
+                update["status"] = "completed"
+                update["completed_at"] = datetime.now(timezone.utc)
+            elif internal_status == "failed":
+                update["status"] = "rejected"
+                try:
+                    await db.users.update_one(
+                        {"id": wd["user_id"]},
+                        {"$inc": {"balance_profit": float(wd.get("amount") or 0)}},
+                    )
+                except Exception:
+                    pass
+            await db.withdrawals.update_one({"id": wd["id"]}, {"$set": update})
+            return {"ok": True, "reconciled": "withdrawal", "status": internal_status}
         return {"ok": True, "ignored": "unknown_payment"}
 
-    if status_raw == "paid" and not p.get("activation_done"):
+    if internal_status == "paid" and not p.get("activation_done"):
         try:
             from ashtec_activation import _apply_payment_success
-            await _apply_payment_success(db, p, status_raw, source="biztranspay")
+            await _apply_payment_success(db, p, "paid", source="biztranspay")
         except Exception as e:
             log.exception("biztranspay webhook activation failed ref=%s: %s", ref, e)
             await db.payments.update_one(
@@ -507,13 +608,13 @@ async def biztranspay_webhook(request: Request):
                 {"$set": {"activation_error": str(e)[:400],
                           "updated_at": datetime.now(timezone.utc)}},
             )
-    elif status_raw == "failed":
+    elif internal_status == "failed":
         await db.payments.update_one(
             {"reference": p["reference"]},
-            {"$set": {"status": "failed", "biztranspay_status": status_raw,
+            {"$set": {"status": "failed", "biztranspay_status": status_raw or event,
                       "updated_at": datetime.now(timezone.utc)}},
         )
-    return {"ok": True}
+    return {"ok": True, "status": internal_status}
 
 
 def register(app):
@@ -529,6 +630,9 @@ async def _poll_once(db) -> dict:
     """One sweep: look up pending Biz-transPay activations (< 10 min old),
     ask BTP for their current status, activate on `paid`, mark `failed` on
     `failed`, expire past 10 min.
+
+    v27n — status endpoint per doc: `GET /v1/payments/{id}/status`. Also
+    map "completed" (mobile money mapping) to internal "paid".
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
@@ -539,7 +643,6 @@ async def _poll_once(db) -> dict:
     if not api_key:
         return {"checked": 0, "skipped": "no_api_key"}
 
-    # 1. Poll pending payments still within the 10-min window.
     cursor = db.payments.find({
         "provider": "biztranspay",
         "status": {"$in": ["pending", "processing"]},
@@ -560,15 +663,16 @@ async def _poll_once(db) -> dict:
             log.debug("btp poll error ref=%s: %s", p.get("reference"), e)
             continue
         remote = str(jd.get("status") or "").lower()
-        if remote == "paid":
-            # Idempotent activation via the shared _apply_payment_success.
+        # v27n — mobile money returns "completed" for successful payments;
+        # crypto returns "paid". Treat both as PAID.
+        if remote in ("paid", "completed", "approved"):
             try:
                 from ashtec_activation import _apply_payment_success
-                await _apply_payment_success(db, p, remote, source="biztranspay")
+                await _apply_payment_success(db, p, "paid", source="biztranspay")
                 activated += 1
             except Exception as e:
                 log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), e)
-        elif remote == "failed":
+        elif remote in ("failed", "declined", "canceled", "expired"):
             await db.payments.update_one(
                 {"reference": p["reference"]},
                 {"$set": {"status": "failed", "biztranspay_status": remote,
@@ -576,7 +680,6 @@ async def _poll_once(db) -> dict:
             )
             failed += 1
 
-    # 2. Expire anything older than 10 min still pending.
     exp = await db.payments.update_many(
         {"provider": "biztranspay",
          "status": {"$in": ["pending", "processing"]},
