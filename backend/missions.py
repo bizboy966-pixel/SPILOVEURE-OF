@@ -250,12 +250,23 @@ admin = APIRouter(prefix="/api/admin", tags=["missions_admin"])
 
 @public.get("/missions")
 async def list_missions(request: Request, user=Depends(get_current_user)):
-    """Returns AT MOST ONE mission — the next one in the auto-rotation queue
-    for today's configured mission type. Each day maps to exactly one type
-    (Mon→YouTube, Tue→TikTok, …). Once a user completes a mission, it never
-    reappears for them (one-shot lifetime); the rotation auto-advances to
-    the next-oldest unfinished mission of the same type.
+    """v27t (2026-02-24) — TÂCHE DU JOUR GLOBALE UNIQUE.
+
+    Retourne la SEULE et MÊME mission du jour à TOUS les comptes actifs :
+      1. Filtre les missions actives dont `type == today_type` et non expirées.
+      2. Retient la PLUS RÉCENTE (ORDER BY created_at DESC).
+      3. Renvoie ce document unique à tous les utilisateurs.
+      4. Positionne `completed_by_user = True` si l'utilisateur courant l'a
+         déjà validée — la carte frontend affiche alors "✅ Mission déjà validée"
+         mais la mission reste visible.
+
+    Résultat : plus aucun utilisateur actif ne voit "Aucune tâche disponible"
+    tant qu'il existe une mission active pour la catégorie du jour, même s'il
+    a validé toutes les précédentes missions du même type. Chaque compte a
+    tout de même son propre état de complétion (individuel, non partagé).
     """
+    import logging as _l
+    log = _l.getLogger("missions")
     db = request.app.state.db
     cfg = await _load_schedule(db)
     open_now = _window_open_for_schedule(cfg)
@@ -281,33 +292,40 @@ async def list_missions(request: Request, user=Depends(get_current_user)):
             "message": f"🚫 Aucune catégorie de mission programmée pour aujourd'hui.\n{today_lbl}",
             "items": [],
         }
-    # Build the set of mission_ids the user already completed (lifetime).
-    completed_ids = set()
-    async for c in db.mission_completions.find(
-        {"user_id": user["id"]}, {"_id": 0, "mission_id": 1}
-    ):
-        completed_ids.add(c.get("mission_id"))
-    # Find the oldest active mission of today's type not yet completed by user.
+    # v27t — Mission du jour = la plus récente active du type, non expirée.
     now_iso = datetime.now(timezone.utc).isoformat()
-    cur = db.missions.find({"active": True, "type": today_type}, {"_id": 0}).sort("created_at", 1)
-    next_mission = None
-    queue_remaining = 0
-    async for m in cur:
+    today_mission = None
+    async for m in db.missions.find(
+        {"active": True, "type": today_type}, {"_id": 0},
+    ).sort("created_at", -1):
         if m.get("expires_at") and m["expires_at"] < now_iso:
             continue
-        if m["id"] in completed_ids:
-            continue
-        if next_mission is None:
-            next_mission = m
-        queue_remaining += 1
-    items = []
-    if next_mission:
-        next_mission["completed_by_user"] = False
-        # Enrich with participants_count so the UI card can display it.
-        next_mission["participants_count"] = await db.mission_completions.count_documents(
-            {"mission_id": next_mission["id"]}
+        today_mission = m
+        break
+
+    items: list = []
+    if today_mission:
+        # État individuel de complétion pour cette mission unique.
+        already_done = bool(await db.mission_completions.find_one(
+            {"user_id": user["id"], "mission_id": today_mission["id"]},
+            {"_id": 1},
+        ))
+        today_mission["completed_by_user"] = already_done
+        today_mission["participants_count"] = await db.mission_completions.count_documents(
+            {"mission_id": today_mission["id"]}
         )
-        items.append(next_mission)
+        items.append(today_mission)
+        log.info(
+            "list_missions user=%s status=%s max_level=%s type=%s mission_id=%s completed=%s",
+            user.get("id"), user.get("status"), user.get("max_level"),
+            today_type, today_mission["id"], already_done,
+        )
+    else:
+        log.info(
+            "list_missions user=%s status=%s max_level=%s type=%s no_active_mission",
+            user.get("id"), user.get("status"), user.get("max_level"), today_type,
+        )
+
     return {
         "window_open": True,
         "today_type": today_type,
@@ -315,10 +333,10 @@ async def list_missions(request: Request, user=Depends(get_current_user)):
         "schedule": cfg,
         "window_label": _window_human_label(cfg),
         "period_key": _current_period_key(cfg),
-        "queue_remaining": queue_remaining,
+        "queue_remaining": 1 if today_mission else 0,
         "items": items,
-        "message": "🎉 Aucune mission disponible pour vous aujourd'hui — revenez à la prochaine période programmée."
-                   if not next_mission else "",
+        "message": "🎉 Aucune mission publiée pour aujourd'hui — l'admin n'a pas encore publié la tâche du jour."
+                   if not today_mission else "",
     }
 
 

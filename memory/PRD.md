@@ -21,6 +21,25 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27t) — 🎯 Tâche du jour globale unique pour tous les actifs
+
+**Problème** : les utilisateurs signalaient qu'une même « tâche du jour » était visible chez certains comptes actifs mais **absente** chez d'autres (« Aucune mission disponible… »), alors que tous étaient activés.
+
+**Cause racine identifiée** : dans `list_missions` (`/app/backend/missions.py`), la mission renvoyée était **la plus ancienne active du type du jour NON encore complétée par l'utilisateur**. Résultat : deux utilisateurs différents pouvaient recevoir deux missions différentes, et un utilisateur ayant validé toutes les missions passées du même type se retrouvait avec **aucune** mission alors qu'une nouvelle était pourtant publiée.
+
+**Correction appliquée** (`missions.py`) :
+- La mission renvoyée est désormais **la plus récente active** du type du jour (`sort created_at DESC`), non expirée.
+- **Le MÊME document est renvoyé à tous les utilisateurs** — c'est la « tâche du jour » globale.
+- Le champ `completed_by_user` est calculé individuellement (le frontend affiche « ✅ Mission déjà validée » avec 55 % d'opacité lorsque l'utilisateur l'a déjà validée, mais la carte **reste visible**).
+- Ajout de logs `list_missions user=… status=… type=… mission_id=… completed=…` pour tracer précisément l'éligibilité côté serveur.
+
+**Comportement garanti** :
+- 100 % des comptes actifs voient la même mission tant qu'elle existe.
+- Un utilisateur validé ne peut plus la réclamer (idempotence préservée via `mission_completions`).
+- Aucune modification des récompenses, du système de validation, des balances, ni des API existantes.
+
+**Test de non-régression** : `/app/backend/tests/test_missions_global_today.py` — vérifie que 2 utilisateurs différents reçoivent le même `mission_id` et que l'état `completed_by_user` est individuel.
+
 ### 2026-02-24 (v27s) — 🔑 Biz-transPay Integration API v1 (3 clés + Webhook URL)
 
 **Contexte** : nouvelle documentation officielle Biz-transPay publiée sur https://biz-transppayy.com/integration/docs. Migration complète de l'ancienne API v1 (`/direct-payments`, `/push`) vers l'**Integration API v1** (`/api/integration/v1/deposits`, `/api/integration/v1/payouts`).
