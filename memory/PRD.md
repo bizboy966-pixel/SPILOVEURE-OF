@@ -21,6 +21,17 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27u) — 🔔 Notification PUSH quand la fenêtre missions s'ouvre
+
+**Demande** : « Dès que l'heure sonne, ils doivent recevoir une notification que cette mission est disponible ».
+
+**Constat** : la fonction `_broadcast_mission_open` insérait uniquement une notification **in-app** (`db.notifications`). Les téléphones (FCM Firebase) ne recevaient rien tant que l'utilisateur n'ouvrait pas l'app.
+
+**Correction** (`missions.py::_broadcast_mission_open`) :
+- Après l'insertion des notifs in-app, appel supplémentaire à `push_helper.push_to_activated(...)` pour envoyer un **push FCM** à tous les comptes actifs.
+- Idempotence préservée via `app_settings.mission_window_notif` → une seule salve push par jour.
+- Data payload : `{"kind": "missions_window_open", "day": "YYYY-MM-DD", "type": "questionnaire"}` pour permettre au frontend de router vers `/(app)/missions` au tap.
+
 ### 2026-02-24 (v27t) — 🎯 Tâche du jour globale unique pour tous les actifs
 
 **Problème** : les utilisateurs signalaient qu'une même « tâche du jour » était visible chez certains comptes actifs mais **absente** chez d'autres (« Aucune mission disponible… »), alors que tous étaient activés.

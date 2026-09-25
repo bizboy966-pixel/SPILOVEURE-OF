@@ -132,7 +132,14 @@ def _window_open_for_schedule(cfg: dict) -> bool:
 # from "closed" to "open". Uses `db.app_settings.mission_window_notif` as a
 # per-day marker to guarantee idempotency across restarts / multi-process.
 async def _broadcast_mission_open(db) -> int:
-    """Insert an in-app notification for every activated user."""
+    """Insert an in-app notification + fire a PUSH notification for every
+    activated user, ONCE per day, precisely when the window flips from
+    closed to open.
+
+    v27u (2026-02-24) — ajout du push FCM à côté de la notif in-app
+    (précédemment, seule la cloche in-app se remplissait — les mobiles ne
+    recevaient rien tant que l'utilisateur n'ouvrait pas l'app).
+    """
     cfg = await _load_schedule(db)
     today_type = _today_mission_type(cfg)
     today_lbl = _today_label(cfg)
@@ -178,6 +185,22 @@ async def _broadcast_mission_open(db) -> int:
     if docs:
         await db.notifications.insert_many(docs)
         inserted += len(docs)
+
+    # v27u — Fire a PUSH notification to every activated user's device.
+    try:
+        from push_helper import push_to_activated
+        await push_to_activated(
+            db,
+            title=title,
+            body=body,
+            link="/(app)/missions",
+            data={"kind": "missions_window_open", "day": today_iso, "type": today_type},
+            tag=f"missions-open-{today_iso}",
+        )
+    except Exception as _e:
+        import logging as _l
+        _l.getLogger("missions").exception("push broadcast on window open failed: %s", _e)
+
     return inserted
 
 
