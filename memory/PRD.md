@@ -21,6 +21,42 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27s) — 🔑 Biz-transPay Integration API v1 (3 clés + Webhook URL)
+
+**Contexte** : nouvelle documentation officielle Biz-transPay publiée sur https://biz-transppayy.com/integration/docs. Migration complète de l'ancienne API v1 (`/direct-payments`, `/push`) vers l'**Integration API v1** (`/api/integration/v1/deposits`, `/api/integration/v1/payouts`).
+
+**Changements clés** :
+1. **Authentification à 2 clés** obligatoires sur chaque requête :
+   - `Authorization: Bearer <clé secrète>` (sk_test_… / sk_live_…)
+   - `X-Public-Key: <clé publique>` (pk_test_… / pk_live_…)
+2. **Endpoints migrés** :
+   - Payin : `POST /api/integration/v1/deposits` (au lieu de `/direct-payments`)
+   - Payout : `POST /api/integration/v1/payouts` (au lieu de `/push`)
+   - Polling : `GET /deposits/{id}` et `GET /payouts/{id}` (au lieu de `/payments/{id}/status`)
+3. **Champs body payin** : `phone_number` / `email` / `full_name` (au lieu de `customer_phone` / `customer_email` / `customer_name`)
+4. **Champs body payout** : `recipient` seul (au lieu de `beneficiary_phone` + `beneficiary_name`)
+5. **Webhook** : signature HMAC-SHA256 sur `timestamp + "." + raw_body` (inchangée), gestion des event types payment.completed / mobile_money.payment.approved conservée.
+
+**Admin Panel — 3 champs de configuration** (`(admin)/index.tsx`) :
+- 1️⃣ Clé publique (pk_...)
+- 2️⃣ Clé secrète (sk_...)
+- 3️⃣ Secret webhook (whsec_...)
+- Affiche l'**URL de webhook** en lecture seule + bouton "Copier" (à coller dans le dashboard BTP → Paramètres → Webhooks)
+- Provient de `PUBLIC_APP_URL` env var → `https://spiloveure.com/api/webhooks/biztranspay`
+
+**Backend** (`server.py`, `biztranspay.py`, `payment_router.py`) :
+- Nouveaux champs config : `biztranspay_public_key`, `biztranspay_secret_key` (l'ancien `biztranspay_api_key` reste accepté en lecture pour rétro-compat, et est synchronisé côté écriture avec `biztranspay_secret_key`)
+- `_provider_ready()` du router vérifie désormais la présence des **DEUX** clés
+- Endpoint `GET /api/admin/payment-gateways` renvoie `public_key_masked`, `secret_key_masked`, `webhook_secret_masked`, `webhook_url`
+- Catalog complet TG / BJ / BF avec les 8 opérateurs confirmés par la doc
+
+**Pays & opérateurs supportés** :
+| Pays | Code | Opérateurs |
+|------|------|------------|
+| Togo | TG | `tmoney_tg` (T-Money TogoCom), `moov_tg` (Moov Money) |
+| Bénin | BJ | `tmoney_bj` (MTN Mobile Money), `moov_bj` (Moov Money), `celtiis_bj` (Celtiis Cash) |
+| Burkina Faso | BF | `orange_bf` (Orange Money), `moov_bf` (Moov Money), `coris_bf` (Coris Money) |
+
 ### 2026-02-24 (v27r) — 🧹 Suppression barre horizontale d'onglets admin (doublon avec ⋮)
 
 **Demande** : le menu déroulant ⋮ v27q liste déjà tous les onglets verticalement — la barre horizontale scrollable au-dessus du contenu est devenue un doublon. À supprimer.

@@ -4349,18 +4349,20 @@ function PaymentRouterLogsCard() {
 
 
 /**
- * BizTransPayCard — ⚙️ Prestataires → Biz-transPay (SoftPay)
+ * BizTransPayCard — ⚙️ Prestataires → Biz-transPay (Integration API v1)
  *
- * Gestion complète de la passerelle Biz-transPay (Togo uniquement) :
- *   • master switch, PayIn/PayOut toggles indépendants
- *   • clé API + secret webhook (masqués côté serveur)
- *   • toggles par pays + opérateur (TG : T-Money, Flooz Moov)
+ * v27s (2026-02-24) — migration vers Integration API v1 :
+ *   • 3 clés distinctes : Publique (pk_...), Secrète (sk_...), Webhook Secret
+ *   • Affiche l'URL de webhook à copier dans le dashboard BTP
+ *   • master switch + PayIn/PayOut toggles indépendants
+ *   • toggles par pays + opérateur (TG / BJ / BF)
  */
 function BizTransPayCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [publicKeyInput, setPublicKeyInput] = useState("");
+  const [secretKeyInput, setSecretKeyInput] = useState("");
   const [webhookInput, setWebhookInput] = useState("");
 
   const load = async () => {
@@ -4376,7 +4378,7 @@ function BizTransPayCard() {
     try {
       await api.put<any>("/admin/payment-gateways", body);
       await load();
-      setApiKeyInput(""); setWebhookInput("");
+      setPublicKeyInput(""); setSecretKeyInput(""); setWebhookInput("");
       if (typeof window !== "undefined") window.alert("✅ Enregistré");
     } catch (e: any) {
       const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
@@ -4406,6 +4408,25 @@ function BizTransPayCard() {
   const payoutEnabled = !!cfg.payout_enabled;
   const catalog = cfg.catalog || {};
 
+  // Reconstruit l'URL webhook côté client à partir du base URL public si le
+  // backend n'a renvoyé qu'un chemin relatif.
+  const backendBase = (process.env.EXPO_PUBLIC_BACKEND_URL || "").replace(/\/+$/, "");
+  const rawWebhookUrl: string = String(cfg.webhook_url || "/api/webhooks/biztranspay");
+  const webhookUrl = rawWebhookUrl.startsWith("http")
+    ? rawWebhookUrl
+    : `${backendBase}${rawWebhookUrl}`;
+
+  const copyWebhook = async () => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(webhookUrl);
+        if (typeof window !== "undefined") window.alert("✅ URL Webhook copiée");
+      }
+    } catch {
+      if (typeof window !== "undefined") window.alert(webhookUrl);
+    }
+  };
+
   const StatusRow = ({ label, on, onPress, hintOn, hintOff }: { label: string; on: boolean; onPress: () => void; hintOn: string; hintOff: string }) => (
     <TouchableOpacity
       onPress={onPress}
@@ -4429,10 +4450,10 @@ function BizTransPayCard() {
     <Card style={{ marginBottom: 12, borderWidth: 2, borderColor: enabled ? "#2563EB" : theme.colors.border }} testID="biztranspay-card">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Ionicons name="flash" size={22} color="#2563EB" />
-        <Text style={styles.section}>⚡ Biz-transPay <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>(SoftPay • Togo)</Text></Text>
+        <Text style={styles.section}>⚡ Biz-transPay <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>(Integration API v1 • TG / BJ / BF)</Text></Text>
       </View>
       <Text style={styles.helperTxt}>
-        Passerelle Biz-transPay — activation par SoftPay & retrait automatique via BizPUSH. Portée : Togo (T-Money, Flooz Moov).
+        Passerelle Biz-transPay — Mobile Money via l'API Integration v1 (dépôts + retraits). Portée : Togo, Bénin, Burkina Faso.
       </Text>
 
       {/* Master switch */}
@@ -4448,21 +4469,49 @@ function BizTransPayCard() {
         label="Dépôt (PayIn — activation)"
         on={payinEnabled && enabled}
         onPress={() => patch({ biztranspay_payin_enabled: !payinEnabled })}
-        hintOn="Les utilisateurs togolais activent leur compte via Biz-transPay."
+        hintOn="Les utilisateurs activent leur compte via Biz-transPay."
         hintOff="Les utilisateurs ne verront pas Biz-transPay sur la page d'activation."
       />
       <StatusRow
         label="Retrait (PayOut — automatique)"
         on={payoutEnabled && enabled}
         onPress={() => patch({ biztranspay_payout_enabled: !payoutEnabled })}
-        hintOn="Retraits togolais dispatchés automatiquement via BizPUSH."
-        hintOff="Retraits togolais restent en attente pour validation manuelle admin."
+        hintOn="Retraits Mobile Money dispatchés automatiquement via /payouts."
+        hintOff="Retraits restent en attente pour validation manuelle admin."
       />
 
-      {/* API credentials */}
+      {/* Webhook URL — read-only, à coller dans le dashboard BTP */}
+      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <Ionicons name="link" size={16} color="#4338CA" />
+          <Text style={{ fontSize: 13, fontWeight: "800", color: "#3730A3" }}>URL Webhook (à configurer dans Biz-transPay)</Text>
+        </View>
+        <Text style={{ fontSize: 11, color: "#4338CA", marginBottom: 8 }}>
+          Copiez cette URL dans votre dashboard Biz-transPay (Paramètres → Webhooks). Biz-transPay vous fournira ensuite un secret webhook — collez-le ci-dessous.
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <TextInput
+            value={webhookUrl}
+            editable={false}
+            selectTextOnFocus
+            style={[styles.input, { flex: 1, fontFamily: "monospace", fontSize: 12 }]}
+            testID="btp-webhook-url"
+          />
+          <TouchableOpacity
+            onPress={copyWebhook}
+            style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#4F46E5", flexDirection: "row", alignItems: "center", gap: 4 }}
+            testID="btp-copy-webhook-url"
+          >
+            <Ionicons name="copy-outline" size={14} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Copier</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* API credentials — 3 champs (publique, secrète, webhook) */}
       <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary }}>🔑 Informations API</Text>
+          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary }}>🔑 Clés d'intégration Biz-transPay</Text>
           <TouchableOpacity onPress={() => setShowKeys((v) => !v)} testID="btp-toggle-keys">
             <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "700" }}>
               {showKeys ? "Masquer" : "Modifier"}
@@ -4470,47 +4519,81 @@ function BizTransPayCard() {
           </TouchableOpacity>
         </View>
         <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>
-          Clé API (Bearer) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.api_key_masked || "— non configurée —"}</Text>
+          Clé publique (X-Public-Key) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.public_key_masked || "— non configurée —"}</Text>
         </Text>
         <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>
-          Secret webhook HMAC : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.webhook_secret_masked || "— non configuré —"}</Text>
+          Clé secrète (Bearer) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.secret_key_masked || "— non configurée —"}</Text>
+        </Text>
+        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>
+          Secret webhook (HMAC-SHA256) : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.webhook_secret_masked || "— non configuré —"}</Text>
         </Text>
 
         {showKeys && (
           <View style={{ marginTop: 10, gap: 8 }}>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput
-                value={apiKeyInput}
-                onChangeText={setApiKeyInput}
-                placeholder="sk_test_… ou sk_live_…"
-                placeholderTextColor={theme.colors.textSecondary}
-                style={[styles.input, { flex: 1 }]}
-                testID="btp-input-api-key"
-                autoCapitalize="none"
-              />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_api_key: apiKeyInput })} disabled={saving || !apiKeyInput.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_api_key: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
+            {/* Clé publique */}
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 4 }}>1️⃣ Clé publique (X-Public-Key)</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <TextInput
+                  value={publicKeyInput}
+                  onChangeText={setPublicKeyInput}
+                  placeholder="pk_test_… ou pk_live_…"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={[styles.input, { flex: 1 }]}
+                  testID="btp-input-public-key"
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_public_key: publicKeyInput })} disabled={saving || !publicKeyInput.trim()}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_public_key: "DELETE" })} disabled={saving}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput
-                value={webhookInput}
-                onChangeText={setWebhookInput}
-                placeholder="Secret HMAC webhook"
-                placeholderTextColor={theme.colors.textSecondary}
-                style={[styles.input, { flex: 1 }]}
-                testID="btp-input-webhook"
-                autoCapitalize="none"
-              />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_webhook_secret: webhookInput })} disabled={saving || !webhookInput.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_webhook_secret: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
+
+            {/* Clé secrète */}
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 4 }}>2️⃣ Clé secrète (Authorization Bearer)</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <TextInput
+                  value={secretKeyInput}
+                  onChangeText={setSecretKeyInput}
+                  placeholder="sk_test_… ou sk_live_…"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={[styles.input, { flex: 1 }]}
+                  testID="btp-input-secret-key"
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_secret_key: secretKeyInput })} disabled={saving || !secretKeyInput.trim()}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_secret_key: "DELETE" })} disabled={saving}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Secret webhook */}
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 4 }}>3️⃣ Secret webhook (fourni par Biz-transPay après création du webhook)</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <TextInput
+                  value={webhookInput}
+                  onChangeText={setWebhookInput}
+                  placeholder="whsec_…"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={[styles.input, { flex: 1 }]}
+                  testID="btp-input-webhook"
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_webhook_secret: webhookInput })} disabled={saving || !webhookInput.trim()}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_webhook_secret: "DELETE" })} disabled={saving}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}

@@ -1,22 +1,27 @@
-"""Biz-transPay (SoftPay) integration — direct payin + BizPUSH payout.
+"""Biz-transPay (SoftPay) integration — Integration API v1 (2026-02-24).
 
-Documentation: /app/customer_docs/Biz-transPay.pdf
-Scope: Togo only (XOF), operators: T-Money (`tmoney_tg`) + Moov Flooz (`flooz_tg`).
+Documentation: https://biz-transppayy.com/integration/docs
+Scope: TG / BJ / BF (XOF), Mobile Money.
 
-Endpoints:
-  • POST /api/v1/direct-payments        — PSR/SoftPay pay-in
-  • POST /api/v1/push                   — BizPUSH pay-out
-  • GET  /api/v1/payments/{id}/status   — status polling (payin)
-  • GET  /api/v1/push/{id}/status       — status polling (payout)
-  • Webhook: signed via HMAC-SHA256 on `timestamp + raw_body`
+Endpoints (Integration v1):
+  • POST /api/integration/v1/deposits            — pay-in (Mobile Money)
+  • POST /api/integration/v1/payouts             — pay-out (Mobile Money)
+  • GET  /api/integration/v1/deposits/{id}       — status polling (payin)
+  • GET  /api/integration/v1/payouts/{id}        — status polling (payout)
+  • Webhook: HMAC-SHA256 on `timestamp + "." + raw_body`
+
+Authentication (per new doc): TWO keys required on every request
+  • Authorization: Bearer <secret_key>
+  • X-Public-Key: <public_key>
 
 Config lives in `app_settings.payment_gateway.value` under keys:
   • biztranspay_enabled       (bool)  master switch
   • biztranspay_payin_enabled (bool)  activations
   • biztranspay_payout_enabled(bool)  auto-withdrawal
-  • biztranspay_api_key       (str)   Bearer key (sk_test_* / sk_live_*)
+  • biztranspay_public_key    (str)   Public key (pk_test_* / pk_live_*)
+  • biztranspay_secret_key    (str)   Secret key (sk_test_* / sk_live_*)
   • biztranspay_webhook_secret(str)   HMAC secret
-  • biztranspay_countries     (dict)  { "TG": { "tmoney_tg": True, "flooz_tg": True } }
+  • biztranspay_countries     (dict)  per-country per-operator toggles
 """
 from __future__ import annotations
 import hashlib
@@ -38,7 +43,7 @@ log = logging.getLogger("biztranspay")
 api = APIRouter(prefix="/api", tags=["biztranspay"])
 webhook = APIRouter(prefix="/api/webhooks", tags=["biztranspay-webhook"])
 
-BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transppayy.com/api/v1")
+BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transppayy.com/api/integration/v1")
 HTTP_TIMEOUT = 30.0
 
 # Operator catalog for the admin toggles + user-facing /pay.
@@ -104,10 +109,25 @@ async def _load_cfg(db) -> dict:
     return val
 
 
-async def _get_api_key(db) -> str:
+async def _get_public_key(db) -> str:
     cfg = await _load_cfg(db)
-    return (cfg.get("biztranspay_api_key") or "").strip() \
+    return (cfg.get("biztranspay_public_key") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_PUBLIC_KEY") or "").strip()
+
+
+async def _get_secret_key(db) -> str:
+    cfg = await _load_cfg(db)
+    # v27s (2026-02-24) — new field name is `biztranspay_secret_key`.
+    # Legacy `biztranspay_api_key` is still accepted for backward-compat.
+    return (cfg.get("biztranspay_secret_key") or "").strip() \
+        or (cfg.get("biztranspay_api_key") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_SECRET_KEY") or "").strip() \
         or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip()
+
+
+# Legacy alias kept for internal callers.
+async def _get_api_key(db) -> str:
+    return await _get_secret_key(db)
 
 
 async def _get_webhook_secret(db) -> str:
@@ -118,7 +138,11 @@ async def _get_webhook_secret(db) -> str:
 
 async def is_enabled(db) -> bool:
     cfg = await _load_cfg(db)
-    return bool(cfg.get("biztranspay_enabled")) and bool(await _get_api_key(db))
+    return (
+        bool(cfg.get("biztranspay_enabled"))
+        and bool(await _get_secret_key(db))
+        and bool(await _get_public_key(db))
+    )
 
 
 async def is_payin_enabled(db) -> bool:
@@ -154,9 +178,11 @@ async def enabled_operators(db, country_code: str) -> list[dict]:
 
 
 # ─── HTTP client ─────────────────────────────────────────────────────
-async def _post(path: str, body: dict, api_key: str, *, idempotency_key: str) -> httpx.Response:
+async def _post(path: str, body: dict, secret_key: str, public_key: str, *, idempotency_key: str) -> httpx.Response:
+    """v27s — Integration API v1 requires BOTH Bearer secret AND X-Public-Key."""
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {secret_key}",
+        "X-Public-Key": public_key,
         "Content-Type": "application/json",
         "Idempotency-Key": idempotency_key,
     }
@@ -164,8 +190,11 @@ async def _post(path: str, body: dict, api_key: str, *, idempotency_key: str) ->
         return await client.post(f"{BASE_URL}{path}", json=body, headers=headers)
 
 
-async def _get(path: str, api_key: str) -> httpx.Response:
-    headers = {"Authorization": f"Bearer {api_key}"}
+async def _get(path: str, secret_key: str, public_key: str) -> httpx.Response:
+    headers = {
+        "Authorization": f"Bearer {secret_key}",
+        "X-Public-Key": public_key,
+    }
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         return await client.get(f"{BASE_URL}{path}", headers=headers)
 
@@ -214,10 +243,10 @@ class BtpActivationIn(BaseModel):
 async def biztranspay_activation(
     data: BtpActivationIn, request: Request, user=Depends(get_current_user),
 ):
-    """Kick off a Level-1 activation payment via Biz-transPay SoftPay.
+    """Kick off a Level-1 activation payment via Biz-transPay Integration v1.
 
-    Mirrors `ashtec_initiate` — same 2 650 FCFA amount, same activation
-    downstream via `_apply_payment_success`.
+    v27s (2026-02-24) — migrated to Integration API v1 (/deposits) with the
+    dual-key auth (Bearer secret + X-Public-Key).
     """
     db = request.app.state.db
     from ashtec_activation import (
@@ -227,13 +256,14 @@ async def biztranspay_activation(
         raise HTTPException(400, "Votre compte est déjà activé.")
 
     cc = data.country_code.upper()
-    if cc != "TG":
-        raise HTTPException(400, "Biz-transPay est disponible uniquement pour le Togo.")
+    if cc not in OPERATORS:
+        raise HTTPException(400, "Biz-transPay n'est pas disponible pour ce pays.")
     if not await is_payin_enabled(db):
         raise HTTPException(503, "Biz-transPay n'est pas disponible.")
-    api_key = await _get_api_key(db)
-    if not api_key:
-        raise HTTPException(503, "Biz-transPay non configuré (clé API manquante).")
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        raise HTTPException(503, "Biz-transPay non configuré (clés publique/secrète manquantes).")
 
     ops = await enabled_operators(db, cc)
     op_codes = {o["code"] for o in ops}
@@ -247,16 +277,17 @@ async def biztranspay_activation(
     e164_phone = _normalize_phone(data.phone, cc)
     now = datetime.now(timezone.utc)
 
+    # v27s — Integration v1 body schema (POST /deposits).
     payload = {
         "amount": amount,
         "currency": currency,
         "country": cc,
         "operator": data.operator,
-        "customer_phone": e164_phone,
-        "customer_email": user.get("email") or "",
-        "customer_name": user.get("full_name") or user.get("username") or "",
-        "fee_bearer": "sender",   # v27n — SPILOVEURE covers the gateway fee
+        "phone_number": e164_phone,
+        "email": user.get("email") or "",
+        "full_name": user.get("full_name") or user.get("username") or "",
         "reference": ref,
+        "fee_bearer": "sender",   # SPILOVEURE covers the gateway fee
     }
 
     # Persist BEFORE the API call so a webhook cannot arrive on an unknown ref.
@@ -280,9 +311,9 @@ async def biztranspay_activation(
     })
 
     try:
-        resp = await _post("/direct-payments", payload, api_key, idempotency_key=ref)
+        resp = await _post("/deposits", payload, secret_key, public_key, idempotency_key=ref)
     except Exception as e:
-        log.exception("biztranspay direct-payments call failed ref=%s: %s", ref, e)
+        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, e)
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "failed", "activation_error": str(e)[:400],
@@ -296,7 +327,7 @@ async def biztranspay_activation(
             detail = str(resp.json())[:400]
         except Exception:
             detail = resp.text[:400]
-        log.warning("biztranspay direct-payments %s ref=%s body=%s",
+        log.warning("biztranspay /deposits %s ref=%s body=%s",
                     resp.status_code, ref, detail)
         await db.payments.update_one(
             {"reference": ref},
@@ -312,8 +343,11 @@ async def biztranspay_activation(
         data_resp = resp.json()
     except Exception:
         pass
-    provider_id = data_resp.get("id")
-    provider_status = str(data_resp.get("status") or "pending").lower()
+    # v1 envelope: {"id": "...", "status": "...", "deposit": {...}}
+    provider_id = data_resp.get("id") or (data_resp.get("deposit") or {}).get("id")
+    provider_status = str(
+        data_resp.get("status") or (data_resp.get("deposit") or {}).get("status") or "pending"
+    ).lower()
 
     await db.payments.update_one(
         {"reference": ref},
@@ -338,7 +372,7 @@ async def biztranspay_activation(
 
 @api.get("/payments/biztranspay/status/{reference}")
 async def biztranspay_status(reference: str, request: Request, user=Depends(get_current_user)):
-    """Poll a payin status. Also triggers `_apply_payment_success` if paid."""
+    """Poll a payin status via GET /deposits/{id}."""
     db = request.app.state.db
     p = await db.payments.find_one({"reference": reference, "provider": "biztranspay"}, {"_id": 0})
     if not p or p.get("user_id") != user.get("id"):
@@ -350,17 +384,19 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
 
     intent_id = p.get("provider_intent_id")
     if intent_id:
-        api_key = await _get_api_key(db)
+        secret_key = await _get_secret_key(db)
+        public_key = await _get_public_key(db)
         try:
-            r = await _get(f"/payments/{intent_id}/status", api_key)
+            r = await _get(f"/deposits/{intent_id}", secret_key, public_key)
             if r.status_code < 400:
                 jd = r.json()
                 remote = str(jd.get("status") or "").lower()
-                if remote == "paid" and not p.get("activation_done"):
+                # v1 completed states: completed / approved / paid / success
+                if remote in ("paid", "completed", "approved", "success") and not p.get("activation_done"):
                     from ashtec_activation import _apply_payment_success  # reuse dispatch
-                    await _apply_payment_success(db, p, remote, source="biztranspay")
+                    await _apply_payment_success(db, p, "paid", source="biztranspay")
                     p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
-                elif remote == "failed":
+                elif remote in ("failed", "declined", "canceled", "expired"):
                     await db.payments.update_one(
                         {"reference": reference},
                         {"$set": {"status": "failed", "biztranspay_status": remote,
@@ -376,24 +412,24 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
             "activation_error": p.get("activation_error")}
 
 
-# ─── Payout (BizPUSH) ────────────────────────────────────────────────
+# ─── Payout (Integration v1 /payouts) ────────────────────────────────
 async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
-    """Dispatch an auto-payout via Biz-transPay BizPUSH.
+    """Dispatch an auto-payout via Biz-transPay Integration v1 /payouts.
 
-    v27n (2026-02-20) — corrections per Developer v2 doc:
-      • Endpoint : POST /v1/push
-      • Body : {amount, currency, country, operator, beneficiary_phone,
-                beneficiary_name, reference} (+ Idempotency-Key header)
-      • Extended country coverage: TG + BJ + BF (admin-toggle-gated)
-      • Fees: `total_debit` in the response tells us the effective debit
+    v27s (2026-02-24) — migrated to Integration API v1:
+      • Endpoint : POST /api/integration/v1/payouts
+      • Body : {amount, currency, country, operator, recipient, reference, fee_bearer}
+      • Auth : Authorization Bearer secret + X-Public-Key + Idempotency-Key
+      • Country coverage: TG + BJ + BF (admin-toggle-gated)
     """
     if not await is_payout_enabled(db):
         return {"auto_dispatched": False, "reason": "disabled"}
     country = (wd_doc.get("country") or "").upper()
     if country not in OPERATORS:
         return {"auto_dispatched": False, "reason": "country_not_supported"}
-    api_key = await _get_api_key(db)
-    if not api_key:
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
     # Operator resolution — accept a code directly OR a label ("Moov", …).
@@ -404,8 +440,6 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     if op_label in known_codes:
         op_code = op_label
     else:
-        # v27p — smart matching by keyword (works for label OR partial code)
-        # e.g. "Moov" → moov_bj / moov_bf / moov_tg depending on country.
         for o in catalog:
             lbl = o["label"].lower()
             code = o["code"].lower()
@@ -431,17 +465,16 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         "currency": OPERATORS[country]["currency"],
         "country": country,
         "operator": op_code,
-        "beneficiary_phone": phone,
-        "beneficiary_name": wd_doc.get("full_name") or wd_doc.get("username") or "SPILOVEURE",
+        "recipient": phone,
         "reference": wd_doc["id"],
+        "fee_bearer": "sender",
     }
-    if wd_doc.get("email"):
-        body["beneficiary_email"] = wd_doc["email"]
 
     try:
-        r = await _post("/push", body, api_key, idempotency_key=f"wd-{wd_doc['id']}")
+        r = await _post("/payouts", body, secret_key, public_key,
+                        idempotency_key=f"wd-{wd_doc['id']}")
     except Exception as e:
-        log.exception("biztranspay push failed wd=%s: %s", wd_doc["id"], e)
+        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], e)
         return {"auto_dispatched": False, "reason": "network_error"}
 
     if r.status_code >= 400:
@@ -453,7 +486,7 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         except Exception:
             detail = r.text[:400]
             code = ""
-        log.warning("biztranspay push %s wd=%s code=%s body=%s",
+        log.warning("biztranspay /payouts %s wd=%s code=%s body=%s",
                     r.status_code, wd_doc["id"], code, detail)
         await db.withdrawals.update_one(
             {"id": wd_doc["id"]},
@@ -470,21 +503,24 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         resp_json = r.json()
     except Exception:
         pass
+    # v1 envelope: {"id": "...", "status": "...", "payout": {...}}
+    payout_env = resp_json.get("payout") or {}
+    payout_id = resp_json.get("id") or (payout_env.get("transaction") or {}).get("id")
+    payout_status = str(resp_json.get("status") or (payout_env.get("transaction") or {}).get("status") or "").lower()
 
     await db.withdrawals.update_one(
         {"id": wd_doc["id"]},
         {"$set": {
             "status": "dispatched",
             "gateway": "biztranspay",
-            "payout_id": resp_json.get("id"),
-            "gateway_status": str(resp_json.get("status") or "").lower(),
-            "gateway_fee": resp_json.get("fee"),
-            "gateway_total_debit": resp_json.get("total_debit"),
+            "payout_id": payout_id,
+            "gateway_status": payout_status,
+            "gateway_fee": payout_env.get("fee"),
+            "gateway_total_debit": payout_env.get("total_debit"),
             "dispatched_at": datetime.now(timezone.utc),
         }},
     )
-    return {"auto_dispatched": True, "id": resp_json.get("id"),
-            "status": resp_json.get("status")}
+    return {"auto_dispatched": True, "id": payout_id, "status": payout_status}
 
 
 # ─── Webhook ─────────────────────────────────────────────────────────
@@ -633,19 +669,19 @@ def register(app):
 # ═══════════════════════════════════════════════════════════════════════
 async def _poll_once(db) -> dict:
     """One sweep: look up pending Biz-transPay activations (< 10 min old),
-    ask BTP for their current status, activate on `paid`, mark `failed` on
-    `failed`, expire past 10 min.
+    ask BTP for their current status, activate on `paid/completed`, mark
+    `failed` on failure, expire past 10 min.
 
-    v27n — status endpoint per doc: `GET /v1/payments/{id}/status`. Also
-    map "completed" (mobile money mapping) to internal "paid".
+    v27s (2026-02-24) — migrated to Integration API v1: GET /deposits/{id}.
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
     ten_min_ago = now - timedelta(minutes=10)
 
     checked = activated = failed = expired = 0
-    api_key = await _get_api_key(db)
-    if not api_key:
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
         return {"checked": 0, "skipped": "no_api_key"}
 
     cursor = db.payments.find({
@@ -660,7 +696,7 @@ async def _poll_once(db) -> dict:
         if not intent_id:
             continue
         try:
-            r = await _get(f"/payments/{intent_id}/status", api_key)
+            r = await _get(f"/deposits/{intent_id}", secret_key, public_key)
             if r.status_code >= 400:
                 continue
             jd = r.json()
@@ -668,9 +704,8 @@ async def _poll_once(db) -> dict:
             log.debug("btp poll error ref=%s: %s", p.get("reference"), e)
             continue
         remote = str(jd.get("status") or "").lower()
-        # v27n — mobile money returns "completed" for successful payments;
-        # crypto returns "paid". Treat both as PAID.
-        if remote in ("paid", "completed", "approved"):
+        # v1: only completed/approved/paid/success are terminal success states.
+        if remote in ("paid", "completed", "approved", "success"):
             try:
                 from ashtec_activation import _apply_payment_success
                 await _apply_payment_success(db, p, "paid", source="biztranspay")

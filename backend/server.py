@@ -1415,12 +1415,16 @@ _PG_DEFAULTS = {
     "soleaspay_pout_enabled": False,
     "soleaspay_pout_country_matrix": {},
     # v27h (2026-02-20) — Biz-transPay (SoftPay) integration, TG only.
+    # v27s (2026-02-24) — migrated to Integration API v1: dual-key auth
+    # (public + secret) + webhook secret.
     "biztranspay_enabled": False,
     "biztranspay_payin_enabled": True,
     "biztranspay_payout_enabled": False,
-    "biztranspay_api_key": "",
+    "biztranspay_public_key": "",
+    "biztranspay_secret_key": "",
+    "biztranspay_api_key": "",   # legacy field, kept for backward-compat
     "biztranspay_webhook_secret": "",
-    # { "TG": { "tmoney_tg": bool, "flooz_tg": bool } }
+    # { "TG": { "tmoney_tg": bool, "moov_tg": bool }, "BJ": {...}, "BF": {...} }
     "biztranspay_countries": {},
 }
 
@@ -1462,10 +1466,13 @@ class PaymentGatewayUpdate(_PGBaseModel):
     soleaspay_public_key: Optional[str] = None
     soleaspay_secret_key: Optional[str] = None
     # v27h — Biz-transPay (SoftPay)
+    # v27s (2026-02-24) — Integration API v1 dual-key + webhook secret.
     biztranspay_enabled: Optional[bool] = None
     biztranspay_payin_enabled: Optional[bool] = None
     biztranspay_payout_enabled: Optional[bool] = None
-    biztranspay_api_key: Optional[str] = None
+    biztranspay_public_key: Optional[str] = None
+    biztranspay_secret_key: Optional[str] = None
+    biztranspay_api_key: Optional[str] = None   # legacy alias
     biztranspay_webhook_secret: Optional[str] = None
     biztranspay_countries: Optional[dict] = None
 
@@ -1505,23 +1512,52 @@ def _register_payment_gateway_routes(router):
                 or (cfg.get("soleaspay_webhook_secret") or "").strip()
             ),
             # v27h — Biz-transPay
+            # v27s (2026-02-24) — expose public_key & secret_key masks; add
+            # webhook_url so the admin knows where to point the BTP dashboard.
             "biztranspay": {
                 "enabled": bool(cfg.get("biztranspay_enabled")),
                 "payin_enabled": bool(cfg.get("biztranspay_payin_enabled", True)),
                 "payout_enabled": bool(cfg.get("biztranspay_payout_enabled")),
-                "configured": bool((cfg.get("biztranspay_api_key") or "").strip()),
-                "api_key_masked": _mask_key(cfg.get("biztranspay_api_key") or ""),
+                "configured": bool(
+                    ((cfg.get("biztranspay_secret_key") or "").strip()
+                     or (cfg.get("biztranspay_api_key") or "").strip())
+                    and (cfg.get("biztranspay_public_key") or "").strip()
+                ),
+                "public_key_masked": _mask_key(cfg.get("biztranspay_public_key") or ""),
+                "secret_key_masked": _mask_key(
+                    (cfg.get("biztranspay_secret_key") or "")
+                    or (cfg.get("biztranspay_api_key") or "")
+                ),
                 "webhook_secret_set": bool((cfg.get("biztranspay_webhook_secret") or "").strip()),
                 "webhook_secret_masked": _mask_key(cfg.get("biztranspay_webhook_secret") or ""),
+                "webhook_url": (os.environ.get("PUBLIC_APP_URL") or "").rstrip("/") + "/api/webhooks/biztranspay"
+                    if os.environ.get("PUBLIC_APP_URL") else "/api/webhooks/biztranspay",
                 "countries": cfg.get("biztranspay_countries") or {},
                 # Catalog of supported countries+operators so the admin UI
                 # renders toggles even before anything is saved.
+                # v27s — 3 pays confirmés par la doc v1 : TG / BJ / BF.
                 "catalog": {
                     "TG": {
                         "name": "Togo", "currency": "XOF",
                         "operators": [
-                            {"code": "tmoney_tg", "label": "T-Money"},
-                            {"code": "flooz_tg",  "label": "Flooz (Moov)"},
+                            {"code": "tmoney_tg", "label": "T-Money (TogoCom)"},
+                            {"code": "moov_tg",   "label": "Moov Money"},
+                        ],
+                    },
+                    "BJ": {
+                        "name": "Bénin", "currency": "XOF",
+                        "operators": [
+                            {"code": "tmoney_bj",  "label": "MTN Mobile Money"},
+                            {"code": "moov_bj",    "label": "Moov Money"},
+                            {"code": "celtiis_bj", "label": "Celtiis Cash"},
+                        ],
+                    },
+                    "BF": {
+                        "name": "Burkina Faso", "currency": "XOF",
+                        "operators": [
+                            {"code": "orange_bf", "label": "Orange Money"},
+                            {"code": "moov_bf",   "label": "Moov Money"},
+                            {"code": "coris_bf",  "label": "Coris Money"},
                         ],
                     },
                 },
@@ -1633,12 +1669,30 @@ def _register_payment_gateway_routes(router):
             new["biztranspay_payin_enabled"] = bool(body.biztranspay_payin_enabled)
         if body.biztranspay_payout_enabled is not None:
             new["biztranspay_payout_enabled"] = bool(body.biztranspay_payout_enabled)
+        # v27s — public / secret keys (Integration API v1 dual-key auth).
+        if body.biztranspay_public_key is not None:
+            k = body.biztranspay_public_key.strip()
+            if k == "DELETE":
+                new["biztranspay_public_key"] = ""
+            elif k:
+                new["biztranspay_public_key"] = k
+        if body.biztranspay_secret_key is not None:
+            k = body.biztranspay_secret_key.strip()
+            if k == "DELETE":
+                new["biztranspay_secret_key"] = ""
+                new["biztranspay_api_key"] = ""   # also clear legacy alias
+            elif k:
+                new["biztranspay_secret_key"] = k
+                new["biztranspay_api_key"] = k     # keep legacy alias in sync
+        # Legacy field — kept for backward compatibility with older clients.
         if body.biztranspay_api_key is not None:
             k = body.biztranspay_api_key.strip()
             if k == "DELETE":
                 new["biztranspay_api_key"] = ""
+                new["biztranspay_secret_key"] = ""
             elif k:
                 new["biztranspay_api_key"] = k
+                new["biztranspay_secret_key"] = k
         if body.biztranspay_webhook_secret is not None:
             s = body.biztranspay_webhook_secret.strip()
             if s == "DELETE":

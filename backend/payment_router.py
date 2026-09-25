@@ -42,9 +42,14 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
     if provider_id == "biztranspay":
-        key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
-                      or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
-        if not key_ok:
+        # v27s (2026-02-24) — Integration v1 requires BOTH public + secret.
+        secret_ok = bool((cfg.get("biztranspay_secret_key") or "").strip()
+                         or (cfg.get("biztranspay_api_key") or "").strip()
+                         or (os.environ.get("BIZTRANSPAY_SECRET_KEY") or "").strip()
+                         or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
+        public_ok = bool((cfg.get("biztranspay_public_key") or "").strip()
+                         or (os.environ.get("BIZTRANSPAY_PUBLIC_KEY") or "").strip())
+        if not (secret_ok and public_ok):
             return False, "missing_api_key"
         if kind == "payin" and not cfg.get("biztranspay_payin_enabled", True):
             return False, "payin_disabled"
