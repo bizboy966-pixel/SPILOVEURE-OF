@@ -21,6 +21,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27v) — 💰 Commissions : auto-upgrade dès réserve pleine + traçabilité fine
+
+**Contexte** : audit complet du système de commissions demandé par l'utilisateur (spec 35 sections). Après analyse, 2 fixes ciblés étaient nécessaires. **AUCUNE modification** des règles de génération, de répartition, ou du split spillover 50/50 — le code existant était déjà conforme sur ces points.
+
+**Fix #2 — Auto-upgrade cascade dès réserve pleine** (`matrix.py::try_auto_upgrade`) :
+- Suppression de la condition `descendants >= invites_required` qui bloquait l'upgrade tant que le nombre de filleuls matriciels n'était pas atteint.
+- Conforme spec §5 & §27 : « Dès que la réserve est complète → upgrade automatique immédiat ».
+- La cascade se poursuit tant que la réserve le permet (L1→L2→L3→… selon fonds disponibles).
+
+**Fix #3 — Traçabilité fine des types de commissions** (`matrix.py::distribute_commission`) :
+- Nouveaux compteurs dédiés sur le doc utilisateur :
+  - `commission_direct` (L1 direct)
+  - `commission_spillover_sponsor` (part sponsor lors spillover)
+  - `commission_spillover_beneficiary` (part bénéficiaire lors spillover)
+  - `commission_generation` (L≥2 remontant l'arbre matriciel)
+- Ancien `commission_spillover` conservé pour rétro-compat frontend.
+- Log structuré `commission user=… from=… level=… kind=… amount=… profit=… upgrade=…` pour tracer chaque événement dans les logs backend.
+
+**Confirmé conforme (non modifié)** :
+- L1 direct : 100 % sponsor puis split 50/50 profit/réserve ✅
+- L1 spillover : 50 % sponsor + 50 % bénéficiaire, `spillover_sponsor` → 100 % profit ✅
+- Bénéficiaire spillover : split 50/50 sur sa part ✅
+- Génération = profondeur matricielle (`parent_id`), spillover N'intervient PAS sur L≥2 ✅
+- Guards §10 (recipient max_level ≥ N), idempotence placement + paiement ✅
+
+**Tests de régression** — `/app/backend/tests/test_commissions_spec_v27v.py` (5/5 passent) :
+1. `test_1_premier_filleul_direct_upgrade_auto` — TEST 1 : A invite B → 1000 profit + upgrade auto L2
+2. `test_2_deuxieme_filleul_direct_100pct_profit` — TEST 2 : 2ᵉ filleul, profit cumulé
+3. `test_5_troisieme_filleul_spillover_split` — TEST 5 : 3ᵉ filleul placé par spillover, split 50/50 vérifié + `spillover_sponsor.upgrade_share == 0`
+4. `test_7_beneficiaire_spillover_split_50_50` — TEST 7 : bénéficiaire reçoit 500 profit + 500 réserve
+5. `test_8_generation_via_matrice_meme_avec_spillover` — TEST 8 : D placé par spillover sous B est bien génération 2 matricielle de A
+
 ### 2026-02-24 (v27u) — 🔔 Notification PUSH quand la fenêtre missions s'ouvre
 
 **Demande** : « Dès que l'heure sonne, ils doivent recevoir une notification que cette mission est disponible ».

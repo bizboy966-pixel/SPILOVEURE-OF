@@ -212,6 +212,22 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
             "created_at": datetime.now(timezone.utc),
         }
         await db.commissions.insert_one(commission_doc)
+        # v27v (2026-02-24) — fine-grained counters :
+        #   • direct                → commission_direct
+        #   • spillover_sponsor     → commission_spillover_sponsor
+        #   • spillover_beneficiary → commission_spillover_beneficiary
+        #   • generation (L≥2)      → commission_generation
+        # Ancienne clé fusionnée `commission_spillover` gardée pour rétro-
+        # compatibilité côté frontend.
+        counter_field = {
+            "direct":                  "commission_direct",
+            "spillover_sponsor":       "commission_spillover_sponsor",
+            "spillover_beneficiary":   "commission_spillover_beneficiary",
+        }.get(kind, "commission_generation")
+        legacy_bump: dict = {}
+        if kind in ("spillover_sponsor", "spillover_beneficiary"):
+            # keep legacy total for old dashboards / API consumers.
+            legacy_bump = {"commission_spillover": amount}
         await db.users.update_one(
             {"id": user_id},
             {"$inc": {
@@ -219,8 +235,14 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
                 "balance_upgrade": upgrade_share,
                 f"earnings_per_level.{level}": amount,
                 "total_earned": amount,
-                "commission_direct" if kind == "direct" else "commission_spillover": amount,
+                counter_field: amount,
+                **legacy_bump,
             }},
+        )
+        log.info(
+            "commission user=%s from=%s level=%s kind=%s amount=%s "
+            "profit=%s upgrade=%s",
+            user_id, new_user_id, level, kind, amount, profit_share, upgrade_share,
         )
         credits.append(commission_doc)
 
@@ -316,7 +338,15 @@ async def distribute_commission(db, new_user_id: str, sponsor_id: Optional[str],
 
 
 async def try_auto_upgrade(db, user_id: str) -> Optional[int]:
-    """If user has enough in balance_upgrade and matrix is sufficiently filled, auto-activate next level."""
+    """If user has enough in balance_upgrade, auto-activate next level.
+
+    v27v (2026-02-24) — conforme spec SPILOVEURE §5 & §27 : l'upgrade doit
+    se déclencher DÈS QUE la réserve est complète, sans condition sur le
+    nombre de descendants matriciels. La condition `descendants >=
+    invites_required` a été supprimée : elle empêchait à tort un utilisateur
+    ayant rempli sa réserve avec une seule commission de passer au niveau
+    suivant automatiquement (blocage jusqu'à ce qu'il ait ses 2 filleuls).
+    """
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user:
         return None
@@ -326,14 +356,8 @@ async def try_auto_upgrade(db, user_id: str) -> Optional[int]:
     next_lv = LEVELS_BY_NUM[cur + 1]
     if user.get("balance_upgrade", 0) < next_lv["price"]:
         return None
-    # check current level matrix fill: at least invites_required filled at current level
-    if cur >= 1:
-        cur_lv = LEVELS_BY_NUM[cur]
-        # BFS-aware count of all descendants under user_id at level=cur
-        descendants = await _count_descendants(db, user_id, cur)
-        if descendants < cur_lv["invites_required"]:
-            return None
-    # Activate next level
+    # v27v — la condition descendants >= invites_required a été supprimée.
+    # Activate next level immediately once the reserve is funded.
     return await activate_level(db, user_id, next_lv["level"], source="auto_upgrade")
 
 
