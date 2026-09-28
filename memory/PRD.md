@@ -21,6 +21,43 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27z) — 🐛 Fix critique retrait BTP bloqué en `pending` (rebrand Mixx By Yas)
+
+**Rapport utilisateur** : le retrait automatique via Biz-transPay ne fonctionne pas en production. Master switch + clés BTP + payout activés côté admin, mais le retrait Mobile Money reste indéfiniment en `pending`.
+
+**Diagnostic (deployer_agent RCA `9df45644-d8b2-4b9f-b8fa-d21c56599b61`, prod lecture-seule)** :
+- ✅ Config BTP prod tous OK : `biztranspay_enabled=true`, `biztranspay_payout_enabled=true`, `pk_live_*` + `sk_live_*` + `whsec_*` non-vides.
+- ✅ Router prod : `payment_router_logs` → `selected_provider=biztranspay`, ready=true.
+- ❌ **Cause racine** : le retrait admin avait `operator="Mixx By Yas"` (nom commercial actuel de T-Money au Togo). Aucun `operator_code` BTP ne correspond à ce libellé → `dispatch_biztranspay_withdrawal` abandonne à l'étape de résolution **sans persister aucune trace** (`gateway_error*` absent) → le retrait reste muet en `pending`.
+- ⚠️ Effet aggravant : silencieux — l'admin doit deviner que c'est un problème de mapping, pas un problème de gateway.
+
+**Correction (`biztranspay.py`)** :
+1. **Table `OPERATORS` enrichie** avec un champ `aliases` par opérateur :
+   - `tmoney_tg` label passé à **"Mixx By Yas (T-Money)"** — aliases : `t-money`, `tmoney`, `togocom`, `mixx`, `mixx by yas`, `yas`, `yas t-money`.
+   - `moov_tg` label **"Moov Money (Flooz)"** — aliases : `moov`, `moov money`, `flooz`, `moov africa`.
+   - Mêmes enrichissements sur BJ (MTN / Moov Money / Celtiis) et BF (Orange / Moov / Coris).
+2. **Nouvelle helper `_resolve_operator_code(country, label)`** — matching en 3 passes :
+   1. code exact (ex: `moov_tg`)
+   2. label contains (case-insensitive, normalisation whitespace)
+   3. aliases contains (bidirectionnel : `norm in alias OR alias in norm`)
+3. **Persistance obligatoire des échecs précoces** — `_persist_dispatch_failure(db, wd_id, reason, detail)` appelé sur CHAQUE early-abort du dispatcher (`disabled`, `country_not_supported`, `no_api_key`, `operator_not_supported`, `operator_disabled_by_admin`). Écrit `gateway`, `auto_dispatched=False`, `gateway_error_code`, `gateway_error` — plus jamais de retrait qui reste `pending` sans trace.
+
+**Test de régression** — `/app/backend/tests/test_biztranspay_operator_resolution_v27z.py` (**6/6 passent**) :
+- `Mixx By Yas` / `Yas` / `T-Money` / `TogoCom` → `tmoney_tg` ✅
+- `Moov` / `Moov Money` / `Flooz` → `moov_tg` ✅
+- Opérateurs BJ (MTN, Moov, Celtiis) et BF (Orange, Moov, Coris) tous mappés.
+- Libellé inconnu → `None` (pas de faux positif).
+- Dispatcher : opérateur inconnu → écrit bien `gateway_error_code=operator_not_supported` + `gateway_error` détaillé sur le doc withdrawal.
+- Dispatcher : `Mixx By Yas` passe la porte de résolution (échec suivant = `operator_disabled_by_admin` avec mock DB).
+
+**Action utilisateur requise (côté secrets prod)** :
+- Le secret `BIZ_TRANSPAY_BASE_URL` en production a une valeur non-vide ET non-canonique. **À corriger** dans Deployment Panel → Secrets :
+  - Option A (recommandée) : **VIDER** complètement le secret (le code fallback sur l'URL officielle).
+  - Option B : mettre exactement `https://biz-transppayy.com/api/integration/v1`.
+  - Puis **redéployer**. Sans ce fix, une fois le mapping opérateur corrigé, l'appel BTP taperait la mauvaise URL.
+
+---
+
 ### 2026-03-04 (v27y) — 🔒 Sécurité Biz-transPay : renforcement défense-en-profondeur (R1+R2+R3)
 
 **Contexte** : suite à l'audit de sécurité complet (v27x fin) où aucune vulnérabilité critique n'avait été trouvée (la Secret Key est strictement server-side), l'utilisateur a demandé d'appliquer les 3 recommandations mineures avant activation des retraits en live.

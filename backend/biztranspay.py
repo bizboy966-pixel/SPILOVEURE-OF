@@ -83,8 +83,18 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "228",
         "operators": [
-            {"code": "tmoney_tg", "label": "T-Money (TogoCom)", "default_active": True},
-            {"code": "moov_tg",   "label": "Moov Money",         "default_active": True},
+            # v27z (2026-03-04) — rebrand awareness.
+            # T-Money (TogoCom) est désormais commercialisé sous "Mixx By Yas"
+            # au Togo (Togocom fait partie du groupe Yas). Moov Money est en
+            # cours de rebrand global mais reste "Moov Money" au Togo.
+            {"code": "tmoney_tg", "label": "Mixx By Yas (T-Money)",
+             "default_active": True,
+             "aliases": ["t-money", "tmoney", "togocom",
+                         "mixx", "mixx by yas", "mixx yas", "yas",
+                         "yas t-money", "yas tmoney"]},
+            {"code": "moov_tg",   "label": "Moov Money (Flooz)",
+             "default_active": True,
+             "aliases": ["moov", "moov money", "flooz", "moov africa"]},
         ],
     },
     "BJ": {
@@ -92,9 +102,15 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "229",
         "operators": [
-            {"code": "tmoney_bj",  "label": "MTN Mobile Money",  "default_active": True},
-            {"code": "moov_bj",    "label": "Moov Money",         "default_active": True},
-            {"code": "celtiis_bj", "label": "Celtiis Cash",       "default_active": True},
+            {"code": "tmoney_bj",  "label": "MTN Mobile Money",
+             "default_active": True,
+             "aliases": ["mtn", "mtn momo", "momo", "tmoney bj"]},
+            {"code": "moov_bj",    "label": "Moov Money (Flooz)",
+             "default_active": True,
+             "aliases": ["moov", "moov money", "flooz", "moov africa"]},
+            {"code": "celtiis_bj", "label": "Celtiis Cash",
+             "default_active": True,
+             "aliases": ["celtiis", "celtiis cash"]},
         ],
     },
     "BF": {
@@ -102,12 +118,57 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "226",
         "operators": [
-            {"code": "orange_bf", "label": "Orange Money", "default_active": True},
-            {"code": "moov_bf",   "label": "Moov Money",    "default_active": True},
-            {"code": "coris_bf",  "label": "Coris Money",   "default_active": True},
+            {"code": "orange_bf", "label": "Orange Money",
+             "default_active": True,
+             "aliases": ["orange", "orange money", "om"]},
+            {"code": "moov_bf",   "label": "Moov Money",
+             "default_active": True,
+             "aliases": ["moov", "moov money", "moov africa"]},
+            {"code": "coris_bf",  "label": "Coris Money",
+             "default_active": True,
+             "aliases": ["coris", "coris money", "coris bank"]},
         ],
     },
 }
+
+
+def _resolve_operator_code(country: str, raw_label: str) -> Optional[str]:
+    """v27z — robust operator resolution.
+
+    Accepts (in order):
+      1. exact `operator_code` match (e.g. "moov_tg")
+      2. `label` case-insensitive contains match
+      3. any registered `alias` — the alias matches if the normalized label
+         either equals or contains the alias (so "Mixx By Yas" and "yas"
+         both resolve to `moov_tg` on TG).
+
+    Returns the canonical `operator_code` or None if nothing matches.
+    """
+    cc = (country or "").upper()
+    if cc not in OPERATORS:
+        return None
+    catalog = OPERATORS[cc]["operators"]
+    if not raw_label:
+        return None
+    norm = " ".join(str(raw_label).strip().lower().split())
+    # 1) code exact
+    for o in catalog:
+        if norm == o["code"].lower():
+            return o["code"]
+    # 2) label contains
+    for o in catalog:
+        lbl = o["label"].lower()
+        if norm == lbl or norm in lbl or lbl in norm:
+            return o["code"]
+    # 3) alias match
+    for o in catalog:
+        for alias in o.get("aliases", []):
+            a = alias.lower().strip()
+            if not a:
+                continue
+            if norm == a or a in norm or norm in a:
+                return o["code"]
+    return None
 
 
 def _new_ref() -> str:
@@ -440,6 +501,25 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
 
 
 # ─── Payout (Integration v1 /payouts) ────────────────────────────────
+async def _persist_dispatch_failure(db, wd_id: str, reason: str, detail: str = "") -> None:
+    """v27z — every early-abort in the dispatcher now leaves a trace on the
+    withdrawals doc so admins can see WHY the retrait didn't auto-dispatch
+    instead of it silently staying `pending`."""
+    try:
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {
+                "gateway": "biztranspay",
+                "auto_dispatched": False,
+                "gateway_error_code": reason,
+                "gateway_error": detail or reason,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+    except Exception:
+        pass
+
+
 async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     """Dispatch an auto-payout via Biz-transPay Integration v1 /payouts.
 
@@ -448,33 +528,40 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
       • Body : {amount, currency, country, operator, recipient, reference, fee_bearer}
       • Auth : Authorization Bearer secret + X-Public-Key + Idempotency-Key
       • Country coverage: TG + BJ + BF (admin-toggle-gated)
+
+    v27z (2026-03-04) — persist `gateway_error*` on every early abort so
+    unresolved rebrands ("Mixx By Yas", "Yas Togo", …) surface immediately
+    in the admin panel instead of silently leaving the retrait pending.
     """
+    wd_id = wd_doc.get("id") or ""
     if not await is_payout_enabled(db):
+        await _persist_dispatch_failure(db, wd_id, "disabled",
+                                        "Auto-payout Biz-transPay désactivé (clés manquantes ou switch OFF).")
         return {"auto_dispatched": False, "reason": "disabled"}
     country = (wd_doc.get("country") or "").upper()
     if country not in OPERATORS:
+        await _persist_dispatch_failure(db, wd_id, "country_not_supported",
+                                        f"Pays {country} non supporté par Biz-transPay.")
         return {"auto_dispatched": False, "reason": "country_not_supported"}
     secret_key = await _get_secret_key(db)
     public_key = await _get_public_key(db)
     if not secret_key or not public_key:
+        await _persist_dispatch_failure(db, wd_id, "no_api_key",
+                                        "Clés Biz-transPay manquantes.")
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
-    # Operator resolution — accept a code directly OR a label ("Moov", …).
-    op_label = (wd_doc.get("operator") or "").strip().lower()
-    catalog = OPERATORS[country]["operators"]
-    known_codes = {o["code"] for o in catalog}
-    op_code = None
-    if op_label in known_codes:
-        op_code = op_label
-    else:
-        for o in catalog:
-            lbl = o["label"].lower()
-            code = o["code"].lower()
-            if op_label and (op_label in lbl or op_label in code
-                              or code.split("_")[0] in op_label):
-                op_code = o["code"]; break
+    # v27z — Operator resolution with alias support (handles "Mixx By Yas"
+    # rebrand of Moov Money across TG/BJ/BF).
+    raw_op = (wd_doc.get("operator") or "").strip()
+    op_code = _resolve_operator_code(country, raw_op)
     if not op_code:
-        return {"auto_dispatched": False, "reason": "operator_not_supported"}
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_not_supported",
+            f"Opérateur '{raw_op}' non reconnu pour {country}. "
+            f"Codes acceptés : {', '.join(o['code'] for o in OPERATORS[country]['operators'])}.",
+        )
+        return {"auto_dispatched": False, "reason": "operator_not_supported",
+                "operator_raw": raw_op}
 
     # Router-level check : is this exact (provider, country, operator)
     # actually enabled in payment_provider_operators?
@@ -483,6 +570,10 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
          "operator_code": op_code, "status": "active"},
     )
     if not op_row:
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_disabled_by_admin",
+            f"L'opérateur {op_code} ({country}) est désactivé côté admin BTP.",
+        )
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
