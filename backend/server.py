@@ -1059,6 +1059,21 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         raise HTTPException(403, "ACTIVATION_REQUIRED")
     if user.get("withdrawals_disabled"):
         raise HTTPException(403, "Retraits désactivés par l’administrateur.")
+    # R2 (2026-03-04) — rate-limit: max 5 withdrawal attempts per rolling 5 min
+    # per user. Defends against automated abuse of the Biz-transPay payout
+    # gateway (each PayOut hits the provider quota + costs real money). Admin
+    # accounts bypass. Applies to all users regardless of preferred gateway.
+    if not user.get("is_admin"):
+        _rl_since = datetime.now(timezone.utc) - timedelta(minutes=5)
+        _rl_count = await db.withdrawals.count_documents({
+            "user_id": user["id"],
+            "created_at": {"$gte": _rl_since},
+        })
+        if _rl_count >= 5:
+            raise HTTPException(
+                429,
+                "Trop de demandes de retrait. Réessayez dans quelques minutes.",
+            )
     wallet = await db.wallets.find_one({"user_id": user["id"]})
     if not wallet:
         raise HTTPException(400, "Veuillez d’abord enregistrer votre portefeuille de retrait.")
@@ -1442,11 +1457,24 @@ async def _load_payment_gateway(db) -> dict:
 
 
 def _mask_key(k: str) -> str:
+    """Mask a non-sensitive key (e.g. public key) showing 4 leading + 4 trailing chars."""
     if not k or not isinstance(k, str):
         return ""
     if len(k) <= 8:
         return "*" * len(k)
     return k[:4] + "*" * (len(k) - 8) + k[-4:]
+
+
+def _mask_secret_strict(k: str) -> str:
+    """R1 (2026-03-04) — strict masking for SECRET material (secret_key,
+    webhook_secret, api_key). Never exposes the prefix (which would leak
+    whether the key is `sk_test_*` vs `sk_live_*`), only the last 4 chars.
+    Returns "" if empty, otherwise a fixed 8-dot prefix + last 4 chars."""
+    if not k or not isinstance(k, str):
+        return ""
+    if len(k) <= 4:
+        return "•" * len(k)
+    return "••••••••" + k[-4:]
 
 
 # Payment gateway admin endpoints — declared right after the helper, before any
@@ -1499,12 +1527,12 @@ def _register_payment_gateway_routes(router):
             "ashtec": {
                 "enabled": bool(cfg["ashtec_enabled"]),
                 "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
-                "api_key_masked": _mask_key(cfg.get("ashtec_api_key") or ""),
+                "api_key_masked": _mask_secret_strict(cfg.get("ashtec_api_key") or ""),
                 "webhook_secret_set": bool(
                     (os.environ.get("ASHTECPAY_WEBHOOK_SECRET") or "").strip()
                     or (cfg.get("ashtec_webhook_secret") or "").strip()
                 ),
-                "webhook_secret_masked": _mask_key(cfg.get("ashtec_webhook_secret") or ""),
+                "webhook_secret_masked": _mask_secret_strict(cfg.get("ashtec_webhook_secret") or ""),
             },
             "country_matrix": cfg.get("country_matrix") or {},
             "soleas_countries": list(soleaspay.SUPPORTED.keys()),
@@ -1527,12 +1555,12 @@ def _register_payment_gateway_routes(router):
                     and (cfg.get("biztranspay_public_key") or "").strip()
                 ),
                 "public_key_masked": _mask_key(cfg.get("biztranspay_public_key") or ""),
-                "secret_key_masked": _mask_key(
+                "secret_key_masked": _mask_secret_strict(
                     (cfg.get("biztranspay_secret_key") or "")
                     or (cfg.get("biztranspay_api_key") or "")
                 ),
                 "webhook_secret_set": bool((cfg.get("biztranspay_webhook_secret") or "").strip()),
-                "webhook_secret_masked": _mask_key(cfg.get("biztranspay_webhook_secret") or ""),
+                "webhook_secret_masked": _mask_secret_strict(cfg.get("biztranspay_webhook_secret") or ""),
                 "webhook_url": (os.environ.get("PUBLIC_APP_URL") or "").rstrip("/") + "/api/webhooks/biztranspay"
                     if os.environ.get("PUBLIC_APP_URL") else "/api/webhooks/biztranspay",
                 # v27w — USDT.BEP20 crypto sub-status

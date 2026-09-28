@@ -21,6 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27y) — 🔒 Sécurité Biz-transPay : renforcement défense-en-profondeur (R1+R2+R3)
+
+**Contexte** : suite à l'audit de sécurité complet (v27x fin) où aucune vulnérabilité critique n'avait été trouvée (la Secret Key est strictement server-side), l'utilisateur a demandé d'appliquer les 3 recommandations mineures avant activation des retraits en live.
+
+**R1 — Masquage strict des secrets** (`server.py`) :
+- Nouvelle helper `_mask_secret_strict(k)` — retourne `"••••••••" + k[-4:]` (jamais le préfixe).
+- Appliqué à : `biztranspay_secret_key`, `biztranspay_webhook_secret`, `ashtec_api_key`, `ashtec_webhook_secret`.
+- L'ancien `_mask_key` reste actif pour les clés publiques (`biztranspay_public_key`) — c'est de l'info non sensible (comme Stripe `pk_*`).
+- **Avant** : `sk_t****99c1` (fuite du préfixe test/live). **Après** : `••••••••99c1` (indistinguable).
+
+**R2 — Rate-limit sur `/api/withdrawals`** (`server.py::request_withdrawal`) :
+- Max 5 tentatives / rolling 5 min par `user_id`, comptées via `db.withdrawals.count_documents({user_id, created_at: {$gte: now-5min}})`.
+- Admins bypass (`is_admin=True`).
+- 6ᵉ tentative → `HTTPException(429, "Trop de demandes de retrait. Réessayez dans quelques minutes.")`.
+- Défend contre l'abus automatisé du gateway BTP payout (quota provider + $).
+
+**R3 — Redaction des secrets dans les logs BTP** (`biztranspay.py`) :
+- Nouvelle helper `_redact(s)` — scrub par regex des motifs `sk_(test|live)_*`, `whsec_*`, `Bearer *`, `Authorization/api_key/secret_key: *`. Public keys `pk_*` NON scrubbées (safe par design).
+- Appliqué à toutes les branches `log.exception/warning/error/debug` qui incluent : réponses gateway, tracebacks, tx bodies, et champs `activation_error` / `gateway_error` persistés en DB.
+- Défense contre un provider ré-echoing un header, ou un stack-trace httpx incluant les headers de requête.
+
+**Tests de régression** — `/app/backend/tests/test_security_recommendations_v27y.py` (**8/8 passent**) :
+- R1 : `sk_test_*` et `sk_live_*` produisent le même masque, `pk_*` garde le préfixe visible.
+- R3 : redaction sur strings, exceptions, dictionnaires JSON ; public key jamais scrubbée.
+- R2 : parseur statique qui échoue si `minutes=5` / `429` / `count_documents` disparaissent de la route.
+
+**Impact opérationnel** : ✅ zéro régression fonctionnelle (retraits admin ok, gateway masks admin API renvoient `••••••••XXXX`), ✅ backend redémarre proprement, ✅ activation Live Withdrawals débloquée côté sécurité — l'utilisateur peut basculer le master switch BTP quand il veut.
+
+---
+
 ### 2026-02-28 (v27x) — 🚨 BUG FIX CRITIQUE : « Mission déjà validée » à 08h00 sans action utilisateur
 
 **Rapport utilisateur** : dès l'ouverture de la fenêtre à 08h00, plusieurs utilisateurs voient « Mission déjà validée » alors qu'ils n'ont RIEN fait aujourd'hui. Empêche l'exécution de la tâche quotidienne.

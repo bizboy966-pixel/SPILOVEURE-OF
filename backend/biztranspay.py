@@ -28,6 +28,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -39,6 +40,31 @@ from pydantic import BaseModel, Field
 from auth import get_current_user, require_admin  # type: ignore
 
 log = logging.getLogger("biztranspay")
+
+
+# R3 (2026-03-04) — defense-in-depth: redact anything that looks like a
+# Biz-transPay secret or a Bearer token before it hits the log/error store.
+# Applied on gateway response bodies, HTTP text, and exception messages so
+# a misbehaving provider echoing our own header cannot leak the key.
+_REDACT_PATTERNS = [
+    re.compile(r"sk_(?:test|live)_[A-Za-z0-9_\-]{4,}"),
+    re.compile(r"whsec_[A-Za-z0-9_\-]{4,}"),
+    re.compile(r"(?i)Bearer\s+[A-Za-z0-9._\-]{6,}"),
+    re.compile(r"(?i)\"?(?:authorization|x-public-key|api[_-]?key|secret[_-]?key|webhook[_-]?secret)\"?\s*[:=]\s*\"?[^\"\s,}]+"),
+]
+
+
+def _redact(s) -> str:
+    """Return `s` as a str with sensitive tokens replaced by ***REDACTED***.
+    Public keys (pk_*) are intentionally NOT redacted — they are, by design,
+    safe to expose (like Stripe pk_*)."""
+    try:
+        out = str(s) if not isinstance(s, str) else s
+    except Exception:
+        return "<unloggable>"
+    for pat in _REDACT_PATTERNS:
+        out = pat.sub("***REDACTED***", out)
+    return out
 
 api = APIRouter(prefix="/api", tags=["biztranspay"])
 webhook = APIRouter(prefix="/api/webhooks", tags=["biztranspay-webhook"])
@@ -313,10 +339,10 @@ async def biztranspay_activation(
     try:
         resp = await _post("/deposits", payload, secret_key, public_key, idempotency_key=ref)
     except Exception as e:
-        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, e)
+        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, _redact(e))
         await db.payments.update_one(
             {"reference": ref},
-            {"$set": {"status": "failed", "activation_error": str(e)[:400],
+            {"$set": {"status": "failed", "activation_error": _redact(str(e)[:400]),
                       "updated_at": datetime.now(timezone.utc)}},
         )
         raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
@@ -327,6 +353,7 @@ async def biztranspay_activation(
             detail = str(resp.json())[:400]
         except Exception:
             detail = resp.text[:400]
+        detail = _redact(detail)
         log.warning("biztranspay /deposits %s ref=%s body=%s",
                     resp.status_code, ref, detail)
         await db.payments.update_one(
@@ -474,7 +501,7 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         r = await _post("/payouts", body, secret_key, public_key,
                         idempotency_key=f"wd-{wd_doc['id']}")
     except Exception as e:
-        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], e)
+        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], _redact(e))
         return {"auto_dispatched": False, "reason": "network_error"}
 
     if r.status_code >= 400:
@@ -486,6 +513,7 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         except Exception:
             detail = r.text[:400]
             code = ""
+        detail = _redact(detail)
         log.warning("biztranspay /payouts %s wd=%s code=%s body=%s",
                     r.status_code, wd_doc["id"], code, detail)
         await db.withdrawals.update_one(
@@ -647,10 +675,10 @@ async def biztranspay_webhook(request: Request):
             from ashtec_activation import _apply_payment_success
             await _apply_payment_success(db, p, "paid", source="biztranspay")
         except Exception as e:
-            log.exception("biztranspay webhook activation failed ref=%s: %s", ref, e)
+            log.exception("biztranspay webhook activation failed ref=%s: %s", ref, _redact(e))
             await db.payments.update_one(
                 {"reference": p["reference"]},
-                {"$set": {"activation_error": str(e)[:400],
+                {"$set": {"activation_error": _redact(str(e)[:400]),
                           "updated_at": datetime.now(timezone.utc)}},
             )
     elif internal_status == "failed":
@@ -757,7 +785,7 @@ async def biztranspay_crypto_create(
     try:
         r = await _post("/crypto/deposits", payload, secret_key, public_key, idempotency_key=ref)
     except Exception as e:
-        log.exception("btp crypto /crypto/deposits failed ref=%s: %s", ref, e)
+        log.exception("btp crypto /crypto/deposits failed ref=%s: %s", ref, _redact(e))
         raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
     if r.status_code >= 400:
         detail = ""
@@ -765,6 +793,7 @@ async def biztranspay_crypto_create(
             detail = str(r.json())[:400]
         except Exception:
             detail = r.text[:400]
+        detail = _redact(detail)
         log.warning("btp crypto create %s ref=%s body=%s", r.status_code, ref, detail)
         raise HTTPException(400, "Biz-transPay a refusé la création du dépôt crypto.")
     jd = {}
@@ -787,7 +816,7 @@ async def biztranspay_crypto_create(
     provider_id = jd.get("id") or dep.get("id")
 
     if not address:
-        log.error("btp crypto: no address in response ref=%s body=%s", ref, str(jd)[:400])
+        log.error("btp crypto: no address in response ref=%s body=%s", ref, _redact(str(jd)[:400]))
         raise HTTPException(502, "Biz-transPay n'a pas fourni d'adresse de paiement. Réessayez.")
 
     now = datetime.now(timezone.utc)
@@ -889,12 +918,12 @@ async def biztranspay_crypto_verify(
     try:
         r = await _get(f"/crypto/deposits/{intent_id}", secret_key, public_key)
     except Exception as e:
-        log.exception("btp crypto verify GET failed ref=%s: %s", ref, e)
+        log.exception("btp crypto verify GET failed ref=%s: %s", ref, _redact(e))
         raise HTTPException(400, "Impossible de contacter la passerelle. Réessayez.")
     if r.status_code == 404:
         raise HTTPException(404, "Paiement introuvable côté passerelle.")
     if r.status_code >= 400:
-        log.error("btp crypto verify %s ref=%s: %s", r.status_code, ref, r.text[:400])
+        log.error("btp crypto verify %s ref=%s: %s", r.status_code, ref, _redact(r.text[:400]))
         raise HTTPException(400, "La passerelle a refusé la vérification. Réessayez plus tard.")
 
     remote = {}
@@ -934,7 +963,7 @@ async def biztranspay_crypto_verify(
         p = await db.payments.find_one({"reference": ref}, {"_id": 0}) or p
         await _apply_payment_success(db, p, "paid", source="biztranspay")
     except Exception as e:
-        log.exception("btp crypto activation failed ref=%s: %s", ref, e)
+        log.exception("btp crypto activation failed ref=%s: %s", ref, _redact(e))
         raise HTTPException(500, "Activation impossible. Contactez le support.")
 
     log.info("btp crypto verify OK ref=%s tx=%s user=%s", ref, tx[:16], user["id"])
@@ -988,7 +1017,7 @@ async def _poll_once(db) -> dict:
                 continue
             jd = r.json()
         except Exception as e:
-            log.debug("btp poll error ref=%s: %s", p.get("reference"), e)
+            log.debug("btp poll error ref=%s: %s", p.get("reference"), _redact(e))
             continue
         remote = str(jd.get("status") or "").lower()
         # v1: only completed/approved/paid/success/confirmed are terminal success.
@@ -998,7 +1027,7 @@ async def _poll_once(db) -> dict:
                 await _apply_payment_success(db, p, "paid", source="biztranspay")
                 activated += 1
             except Exception as e:
-                log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), e)
+                log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), _redact(e))
         elif remote in ("failed", "declined", "canceled", "expired"):
             await db.payments.update_one(
                 {"reference": p["reference"]},
@@ -1029,5 +1058,5 @@ async def polling_loop(db):
             if r.get("activated") or r.get("failed") or r.get("expired"):
                 log.info("btp polling: %s", r)
         except Exception as e:
-            log.exception("btp polling loop error: %s", e)
+            log.exception("btp polling loop error: %s", _redact(e))
         await _a.sleep(4)
