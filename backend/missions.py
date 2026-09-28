@@ -390,12 +390,18 @@ async def start_watch_session(mission_id: str, request: Request, user=Depends(ge
     today_type = _today_mission_type(cfg)
     if today_type and m.get("type") != today_type:
         raise HTTPException(403, f"Cette mission n'est pas active aujourd'hui. Catégorie du jour : {TYPE_LABEL.get(today_type, today_type)}.")
-    # Prevent starting a new session if the mission is already completed
+    # v27y (2026-02-28) — même correctif que v27x pour list_missions :
+    # l'idempotence de démarrage de session doit filtrer par period_key
+    # (date du jour) sinon une complétion de LUNDI empêche le démarrage
+    # MARDI et l'utilisateur voit "Mission déjà validée" au click sans
+    # que le compteur ne démarre jamais.
+    period_key = _current_period_key(cfg)
     existing = await db.mission_completions.find_one(
-        {"user_id": user["id"], "mission_id": mission_id}, {"_id": 1}
+        {"user_id": user["id"], "mission_id": mission_id,
+         "period_key": period_key}, {"_id": 1},
     )
     if existing:
-        raise HTTPException(409, "Mission déjà validée.")
+        raise HTTPException(409, "Mission déjà validée aujourd'hui. Revenez demain.")
     session_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     await db.mission_watch_sessions.insert_one({
