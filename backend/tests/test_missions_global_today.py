@@ -16,10 +16,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import pytest_asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db():
     mongo_url = os.environ.get("MONGO_URL")
     db_name = os.environ.get("DB_NAME")
@@ -74,13 +75,16 @@ async def test_daily_mission_is_global_and_identical(db):
         # Simulate two different users.
         userA = {"id": "user-A"}
         userB = {"id": "user-B"}
-        # Pretend user A already completed the NEW mission.
+        # Pretend user A already completed the NEW mission (v27x: include period_key).
+        from missions import _current_period_key, _load_schedule as _load_sched2
+        _period_key = _current_period_key(await _load_sched2(db))
         await db.mission_completions.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": userA["id"],
             "mission_id": newer["id"],
             "mission_type": today_type,
             "reward": 50,
+            "period_key": _period_key,
             "completed_at": now,
         })
 

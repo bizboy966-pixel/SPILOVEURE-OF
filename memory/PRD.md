@@ -21,6 +21,37 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-28 (v27x) — 🚨 BUG FIX CRITIQUE : « Mission déjà validée » à 08h00 sans action utilisateur
+
+**Rapport utilisateur** : dès l'ouverture de la fenêtre à 08h00, plusieurs utilisateurs voient « Mission déjà validée » alors qu'ils n'ont RIEN fait aujourd'hui. Empêche l'exécution de la tâche quotidienne.
+
+**Cause racine** :
+Les checks d'idempotence dans `missions.py` (v27t) filtraient uniquement par `mission_id`, sans tenir compte du jour :
+```python
+# BUG — bloque à VIE
+await db.mission_completions.find_one({"user_id": X, "mission_id": Y})
+```
+Si l'admin garde la MÊME mission active du lundi au vendredi (cas standard), une validation de LUNDI faisait apparaître « Mission déjà validée » du mardi au vendredi pour ce même utilisateur — alors qu'il n'avait rien fait ces jours-là.
+
+Le champ `period_key` (date locale en TZ configurée) était pourtant DÉJÀ stocké sur chaque `mission_completion` lors de l'insertion — mais jamais utilisé côté lecture.
+
+**Fix appliqué** (`/app/backend/missions.py`) :
+1. `list_missions` — check `completed_by_user` filtre désormais par `{user_id, mission_id, period_key}` (ligne ~332)
+2. `complete_mission` — idempotence de validation filtre par `{user_id, mission_id, period_key}` (ligne ~518) → un utilisateur peut désormais valider la même mission chaque jour de la semaine
+3. Message d'erreur clarifié : « Mission déjà validée aujourd'hui. Revenez demain pour la prochaine. »
+4. Compteur `participants_count` filtré aussi par `period_key` pour refléter uniquement les validations du jour
+
+**Effet garanti** :
+- Lundi 08h00 → validation → COMPLETED lundi
+- Mardi 08h00 → **AVAILABLE** (period_key différent) — l'utilisateur peut valider à nouveau ✅
+- Historique de lundi conservé, aucune donnée corrompue
+
+**Test de régression** — `/app/backend/tests/test_missions_daily_reset_v27x.py` (2/2 passent) :
+- `test_daily_reset_completed_by_user` — complétion hier → mission AVAILABLE aujourd'hui → validation aujourd'hui → COMPLETED
+- `test_available_when_never_completed` — nouvel utilisateur → mission AVAILABLE
+
+**Aucune modification** : récompenses, système de validation métier, historique, anti-fraude heartbeats, notifications, wallets, API existantes.
+
 ### 2026-02-24 (v27w) — 💎 Biz-transPay USDT.BEP20 crypto (activation en parallèle d'IziChange)
 
 **Demande** : ajouter une option de paiement crypto **USDT.BEP20 via Biz-transPay** sur la page d'activation, avec le MÊME flux qu'IziChange (QR + adresse à copier + input tx_hash + auto-verify). Objectif : pouvoir désactiver IziChange plus tard au profit de BTP. Aucune modification des Mobile Money existants.

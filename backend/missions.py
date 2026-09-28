@@ -328,20 +328,28 @@ async def list_missions(request: Request, user=Depends(get_current_user)):
 
     items: list = []
     if today_mission:
-        # État individuel de complétion pour cette mission unique.
+        # v27x (2026-02-28) — BUG FIX CRITIQUE :
+        # `completed_by_user` DOIT filtrer par period_key (jour courant) en
+        # plus du mission_id, sinon une complétion de LUNDI bloque MARDI
+        # quand l'admin garde la même mission active du lundi au vendredi.
+        # Résultat visible utilisateur : "Mission déjà validée" affiché dès
+        # l'ouverture de la fenêtre alors que l'utilisateur n'a rien fait.
+        period_key = _current_period_key(cfg)
         already_done = bool(await db.mission_completions.find_one(
-            {"user_id": user["id"], "mission_id": today_mission["id"]},
+            {"user_id": user["id"], "mission_id": today_mission["id"],
+             "period_key": period_key},
             {"_id": 1},
         ))
         today_mission["completed_by_user"] = already_done
         today_mission["participants_count"] = await db.mission_completions.count_documents(
-            {"mission_id": today_mission["id"]}
+            {"mission_id": today_mission["id"], "period_key": period_key}
         )
         items.append(today_mission)
         log.info(
-            "list_missions user=%s status=%s max_level=%s type=%s mission_id=%s completed=%s",
+            "list_missions user=%s status=%s max_level=%s type=%s mission_id=%s "
+            "period=%s completed=%s",
             user.get("id"), user.get("status"), user.get("max_level"),
-            today_type, today_mission["id"], already_done,
+            today_type, today_mission["id"], period_key, already_done,
         )
     else:
         log.info(
@@ -514,17 +522,21 @@ async def complete_mission(mission_id: str, body: dict, request: Request, user=D
             log.info("complete_mission %s user=%s: only %d heartbeats", mission_id, user.get("id"), len(hbs))
             raise HTTPException(400, "Trop peu de signaux de lecture. Rechargez et réessayez.")
 
-    # ONE-SHOT lifetime idempotency
+    # v27x (2026-02-28) — BUG FIX : l'idempotence de complétion doit être
+    # journalière (period_key = date locale du jour). Sans ce filtre, un
+    # utilisateur qui a validé LUNDI voit "Mission déjà validée" MARDI et
+    # ne peut plus effectuer sa tâche du jour.
+    period_key = _current_period_key(cfg)
     existing = await db.mission_completions.find_one(
-        {"user_id": user["id"], "mission_id": mission_id},
+        {"user_id": user["id"], "mission_id": mission_id,
+         "period_key": period_key},
         {"_id": 1},
     )
     if existing:
-        raise HTTPException(409, "Mission déjà validée. La prochaine sera disponible automatiquement.")
+        raise HTTPException(409, "Mission déjà validée aujourd'hui. Revenez demain pour la prochaine.")
     reward = float(m.get("reward") or 0)
     bal_field = BALANCE_FIELD[mtype]
     cnt_field = COMPLETED_FIELD[mtype]
-    period_key = _current_period_key(cfg)
     await db.mission_completions.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
