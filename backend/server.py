@@ -1424,6 +1424,8 @@ _PG_DEFAULTS = {
     "biztranspay_secret_key": "",
     "biztranspay_api_key": "",   # legacy field, kept for backward-compat
     "biztranspay_webhook_secret": "",
+    # v27w (2026-02-24) — USDT.BEP20 crypto pay-in (parallel to Mobile Money)
+    "biztranspay_crypto_enabled": True,
     # { "TG": { "tmoney_tg": bool, "moov_tg": bool }, "BJ": {...}, "BF": {...} }
     "biztranspay_countries": {},
 }
@@ -1474,6 +1476,7 @@ class PaymentGatewayUpdate(_PGBaseModel):
     biztranspay_secret_key: Optional[str] = None
     biztranspay_api_key: Optional[str] = None   # legacy alias
     biztranspay_webhook_secret: Optional[str] = None
+    biztranspay_crypto_enabled: Optional[bool] = None    # v27w
     biztranspay_countries: Optional[dict] = None
 
 
@@ -1532,6 +1535,8 @@ def _register_payment_gateway_routes(router):
                 "webhook_secret_masked": _mask_key(cfg.get("biztranspay_webhook_secret") or ""),
                 "webhook_url": (os.environ.get("PUBLIC_APP_URL") or "").rstrip("/") + "/api/webhooks/biztranspay"
                     if os.environ.get("PUBLIC_APP_URL") else "/api/webhooks/biztranspay",
+                # v27w — USDT.BEP20 crypto sub-status
+                "crypto_enabled": bool(cfg.get("biztranspay_crypto_enabled", True)),
                 "countries": cfg.get("biztranspay_countries") or {},
                 # Catalog of supported countries+operators so the admin UI
                 # renders toggles even before anything is saved.
@@ -1702,6 +1707,9 @@ def _register_payment_gateway_routes(router):
         if body.biztranspay_countries is not None:
             if isinstance(body.biztranspay_countries, dict):
                 new["biztranspay_countries"] = body.biztranspay_countries
+        # v27w — USDT.BEP20 crypto sub-toggle
+        if body.biztranspay_crypto_enabled is not None:
+            new["biztranspay_crypto_enabled"] = bool(body.biztranspay_crypto_enabled)
         # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [("soleas", new.get("soleas_enabled")),
@@ -2664,6 +2672,9 @@ class ActivateIn(_PGBaseModel):
     country: Optional[str] = None   # required for mobile
     operator: Optional[str] = None  # required for mobile — service_id (as string)
     phone: Optional[str] = None     # required for mobile
+    # v27w (2026-02-24) — optional crypto provider selector: "izichange" (default)
+    # or "biztranspay". Only read when method == "crypto".
+    provider: Optional[str] = None
 
 
 @api.post("/payments/activate")
@@ -2685,8 +2696,32 @@ async def payments_activate(
     if user.get("max_level", 0) >= 1:
         raise HTTPException(400, "Votre niveau 1 est déjà activé.")
 
-    # ── CRYPTO ── delegated to IziChangePay (the crypto activation provider).
+    # ── CRYPTO ── delegated to IziChangePay OR Biz-transPay (v27w).
+    # The user can force a specific crypto provider via `provider` in the
+    # body (frontend picks it based on the operator card tapped). If not
+    # provided, we default to izichange for backward-compat.
     if method == "crypto":
+        wanted_provider = (getattr(body, "provider", None) or "izichange").lower()
+        if wanted_provider == "biztranspay":
+            try:
+                from biztranspay import biztranspay_crypto_create, BtpCryptoCreate
+                r = await biztranspay_crypto_create(BtpCryptoCreate(level=1), request, user)
+                return {
+                    "reference": r.get("reference"),
+                    "gateway": "biztranspay", "method": "crypto",
+                    "status": "processing",
+                    "deposit_address": r.get("deposit_address"),
+                    "qr_data": r.get("qr_data") or r.get("deposit_address"),
+                    "amount": r.get("amount_to_send") or r.get("amount"),
+                    "asset_code": r.get("asset_code") or "USDT.BEP20",
+                    "network": r.get("network") or "BEP20",
+                    "memo": r.get("memo"),
+                    "expires_at": r.get("expires_at"),
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(503, f"Biz-transPay Crypto indisponible : {e}")
         try:
             from izichange import create_crypto_charge, CryptoCreate as _IziCryptoCreate
             r = await create_crypto_charge(_IziCryptoCreate(level=1), request, user)
@@ -3027,13 +3062,26 @@ async def activation_catalog(request: Request):
     except Exception:
         crypto_available = False
 
+    # v27w (2026-02-24) — Biz-transPay USDT.BEP20 sub-toggle. Independent
+    # from izichange: admin can turn OFF izichange yet keep BTP crypto on
+    # (or vice versa). We expose each active crypto gateway as a distinct
+    # operator card so the user can pick.
+    btp_crypto_available = False
+    try:
+        from biztranspay import is_crypto_enabled as _btp_crypto_on
+        btp_crypto_available = bool(await _btp_crypto_on(db))
+    except Exception:
+        btp_crypto_available = False
+
     countries_out: list = []
     # v27l (2026-02-14) — USDT BEP20 is a UNIVERSAL payment method,
     # available in every country in addition to any Mobile Money
     # operator. Each country therefore always exposes at least the
     # USDT_BEP20 entry (as long as the crypto gateway is configured).
-    crypto_row = {"code": "USDT_BEP20", "label": "USDT BEP20",
+    crypto_row = {"code": "USDT_BEP20", "label": "USDT BEP20 (IziChange)",
                   "currency": "USDT", "gateway": "izichange"}
+    btp_crypto_row = {"code": "USDT_BEP20_BTP", "label": "USDT BEP20 (Biz-transPay)",
+                      "currency": "USDT", "gateway": "biztranspay_crypto"}
     for c in COUNTRIES:
         cc = c.get("code")
         if not cc:
@@ -3041,6 +3089,8 @@ async def activation_catalog(request: Request):
         ops = list(mobile_lookup.get(cc) or [])
         if crypto_available:
             ops.append(dict(crypto_row))
+        if btp_crypto_available:
+            ops.append(dict(btp_crypto_row))
         if not ops:
             # Neither Mobile Money nor Crypto configured — hide the country
             # from the picker to avoid a dead-end.
@@ -3048,14 +3098,14 @@ async def activation_catalog(request: Request):
         # `type` reflects whether the country has at least one Mobile Money
         # operator. Kept for backward-compat, but the frontend now decides
         # from `operator.gateway` (mobile vs crypto) not from this field.
-        has_mobile = any(o.get("gateway") != "izichange" for o in ops)
+        has_mobile = any(o.get("gateway") not in ("izichange", "biztranspay_crypto") for o in ops)
         countries_out.append({
             "code": cc, "name": c.get("name") or cc,
             "flag": c.get("flag"), "dial": c.get("dial"),
             "type": "mobile" if has_mobile else "crypto",
             "operators": ops,
             "currency": (ops[0].get("currency") if has_mobile else "USDT"),
-            "crypto_available": crypto_available,
+            "crypto_available": crypto_available or btp_crypto_available,
         })
     countries_out.sort(key=lambda x: (x["type"] != "mobile", x.get("name") or ""))
     return {

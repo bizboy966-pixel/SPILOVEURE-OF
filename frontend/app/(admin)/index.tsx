@@ -4479,6 +4479,14 @@ function BizTransPayCard() {
         hintOn="Retraits Mobile Money dispatchés automatiquement via /payouts."
         hintOff="Retraits restent en attente pour validation manuelle admin."
       />
+      {/* v27w — Crypto USDT.BEP20 sub-toggle */}
+      <StatusRow
+        label="Crypto USDT.BEP20 (activation)"
+        on={!!cfg.crypto_enabled && enabled}
+        onPress={() => patch({ biztranspay_crypto_enabled: !cfg.crypto_enabled })}
+        hintOn="Les utilisateurs voient une option USDT.BEP20 via Biz-transPay sur /pay."
+        hintOff="L'option USDT.BEP20 via Biz-transPay est masquée côté /pay."
+      />
 
       {/* Webhook URL — read-only, à coller dans le dashboard BTP */}
       <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE" }}>

@@ -95,12 +95,18 @@ export default function Pay() {
   // gateway, not from the country. Any country can offer USDT BEP20
   // alongside its Mobile Money operators; the phone field only shows when
   // the picked operator is NOT the crypto one.
-  const isCryptoPick = selectedOperator?.gateway === "izichange";
+  // v27w (2026-02-24) — two crypto gateways: izichange (legacy) & biztranspay_crypto (new).
+  const isIziCrypto = selectedOperator?.gateway === "izichange";
+  const isBtpCrypto = selectedOperator?.gateway === "biztranspay_crypto";
+  const isCryptoPick = isIziCrypto || isBtpCrypto;
   const isMobilePick = !!selectedOperator && !isCryptoPick;
+  // The frontend routes verify calls to the correct endpoint based on which
+  // crypto gateway created the deposit.
+  const [currentGateway, setCurrentGateway] = useState<string>("");
   // Country picker helper — show "mixte" when a country has both a mobile
   // operator AND USDT_BEP20.
   const countryHasMobile = (c: CountryEntry) =>
-    c.operators.some((o) => o.gateway !== "izichange");
+    c.operators.some((o) => o.gateway !== "izichange" && o.gateway !== "biztranspay_crypto");
 
   // When the country changes, always clear operator + phone. Auto-select
   // USDT_BEP20 only when it is the ONLY option available (pays sans MoMo).
@@ -128,6 +134,10 @@ export default function Pay() {
     setLoading(true);
     try {
       const body: any = { method: isCryptoPick ? "crypto" : "mobile" };
+      if (isCryptoPick) {
+        // v27w — tell the backend which crypto gateway to hit.
+        body.provider = isBtpCrypto ? "biztranspay" : "izichange";
+      }
       if (!isCryptoPick) {
         body.country = selectedCountry.code;
         body.operator = operatorCode;
@@ -135,6 +145,7 @@ export default function Pay() {
       }
       const r = await api.post<any>("/payments/activate", body);
       setRef(r.reference);
+      setCurrentGateway(String(r.gateway || (isBtpCrypto ? "biztranspay" : "izichange")));
       if (r.method === "crypto") {
         setCryptoAddr({
           address: r.deposit_address, qr: r.qr_data,
@@ -359,7 +370,12 @@ export default function Pay() {
                       if (!ref) return;
                       setHashSubmitting(true); setHashErr(null);
                       try {
-                        await api.post<any>("/activations/crypto-auto/verify", {
+                        // v27w — route to the correct verify endpoint based on
+                        // which crypto gateway created the deposit.
+                        const verifyPath = currentGateway === "biztranspay"
+                          ? "/activations/biztranspay-crypto/verify"
+                          : "/activations/crypto-auto/verify";
+                        await api.post<any>(verifyPath, {
                           reference: ref, tx_hash: txHash.trim(),
                         });
                         setPhase("success");

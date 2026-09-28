@@ -21,6 +21,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-02-24 (v27w) — 💎 Biz-transPay USDT.BEP20 crypto (activation en parallèle d'IziChange)
+
+**Demande** : ajouter une option de paiement crypto **USDT.BEP20 via Biz-transPay** sur la page d'activation, avec le MÊME flux qu'IziChange (QR + adresse à copier + input tx_hash + auto-verify). Objectif : pouvoir désactiver IziChange plus tard au profit de BTP. Aucune modification des Mobile Money existants.
+
+**Backend** :
+- `biztranspay.py` : nouveau bloc `v27w` — 2 endpoints `POST /api/activations/biztranspay-crypto/create` et `/verify`, sur le modèle exact d'IziChange (dedupe fresh pending, dupe tx_hash, verify → GET /crypto/deposits/{id} → confirmed → `_apply_payment_success`)
+- Extension du webhook handler → gère `crypto_deposit.success/confirmed`, `crypto_deposit.failed`, `crypto_payout.success/failed`
+- Extension du poller → détecte automatiquement les paiements `kind=activation_crypto` et interroge `/crypto/deposits/{id}` au lieu de `/deposits/{id}`
+- `is_crypto_enabled(db)` : master switch + `biztranspay_crypto_enabled` sub-toggle
+- `server.py::ActivateIn` : nouveau champ optionnel `provider` (`"izichange"` | `"biztranspay"`) pour choisir la passerelle crypto ; défaut `izichange` (rétro-compat)
+- `server.py::activation-catalog` : expose désormais **deux** entrées crypto — `USDT_BEP20` (IziChange) et `USDT_BEP20_BTP` (Biz-transPay), indépendantes
+
+**Config admin** (`biztranspay_crypto_enabled`, défaut `True`) :
+- Bouton toggle « Crypto USDT.BEP20 (activation) » dans la carte BTP du Panel Admin, en dessous du toggle Payout
+- Le sous-toggle est GATE-D par le master switch — la crypto BTP n'est active que si `master + secret_key + public_key + crypto_enabled` sont tous `True`
+
+**Frontend** (`pay.tsx`) :
+- Deux gateways crypto reconnus : `izichange` et `biztranspay_crypto`
+- `activate()` envoie `provider: "biztranspay"` au backend quand l'utilisateur pick la carte BTP
+- Verify tx_hash routé vers `/activations/biztranspay-crypto/verify` ou `/activations/crypto-auto/verify` selon `currentGateway` retourné par la création
+- Montant fixe : 5 USDT.BEP20 (identique IziChange)
+
+**Test end-to-end (preview)** — catalog TG après activation BTP crypto :
+```
+- tmoney_tg     / biztranspay             / T-Money (TogoCom)
+- moov_tg       / biztranspay             / Moov Money
+- USDT_BEP20    / izichange               / USDT BEP20 (IziChange)
+- USDT_BEP20_BTP / biztranspay_crypto     / USDT BEP20 (Biz-transPay)
+```
+
+**Rien** n'a été modifié dans : le code Mobile Money BTP, IziChange, SoleasPay, AshtecPay, les niveaux, la matrice, les commissions, les retraits mobiles.
+
 ### 2026-02-24 (v27v) — 💰 Commissions : auto-upgrade dès réserve pleine + traçabilité fine
 
 **Contexte** : audit complet du système de commissions demandé par l'utilisateur (spec 35 sections). Après analyse, 2 fixes ciblés étaient nécessaires. **AUCUNE modification** des règles de génération, de répartition, ou du split spillover 50/50 — le code existant était déjà conforme sur ces points.

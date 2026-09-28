@@ -594,10 +594,14 @@ async def biztranspay_webhook(request: Request):
     event = (event_type_hdr or str(body.get("type") or body.get("event") or "")).lower()
 
     # v27n — Map official event types to internal PAID / FAILED buckets.
-    PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded"}
+    PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded",
+                   # v27w — crypto success events
+                   "crypto_deposit.success", "crypto_deposit.confirmed", "crypto_payout.success"}
     FAIL_EVENTS = {"payment.failed", "payment.expired",
                    "mobile_money.payment.declined", "mobile_money.payment.canceled",
-                   "push.failed"}
+                   "push.failed",
+                   # v27w — crypto failure events
+                   "crypto_deposit.failed", "crypto_payout.failed"}
     if event in PAID_EVENTS or status_raw in ("paid", "completed", "approved", "succeeded"):
         internal_status = "paid"
     elif event in FAIL_EVENTS or status_raw in ("failed", "declined", "canceled", "expired"):
@@ -658,6 +662,286 @@ async def biztranspay_webhook(request: Request):
     return {"ok": True, "status": internal_status}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# v27w (2026-02-24) — USDT.BEP20 crypto pay-in (parallel to izichange)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Endpoints (all under /api/activations/biztranspay-crypto/*) :
+#   POST /create   → creates a crypto deposit intent on BTP, returns the
+#                    payment address + QR + amount (fixed 5 USDT.BEP20).
+#   POST /verify   → user pastes the on-chain tx_hash; we GET the intent
+#                    status; if "confirmed" → activate L1 immediately.
+#
+# The webhook `crypto_deposit.success` also triggers activation (see the
+# webhook handler below). Both paths converge on _apply_payment_success.
+#
+# Nothing in this block modifies the existing Mobile Money code paths.
+
+BTP_CRYPTO_ASSET = os.environ.get("BIZTRANSPAY_CRYPTO_ASSET", "USDT.BEP20")
+BTP_CRYPTO_AMOUNT = float(os.environ.get("BIZTRANSPAY_CRYPTO_AMOUNT", "5"))
+
+
+async def is_crypto_enabled(db) -> bool:
+    """Master + crypto sub-toggle."""
+    if not await is_enabled(db):
+        return False
+    cfg = await _load_cfg(db)
+    return bool(cfg.get("biztranspay_crypto_enabled", True))
+
+
+class BtpCryptoCreate(BaseModel):
+    level: int = 1  # activation is always L1
+
+
+@api.post("/activations/biztranspay-crypto/create")
+async def biztranspay_crypto_create(
+    _data: BtpCryptoCreate, request: Request, user=Depends(get_current_user),
+):
+    """Create a fresh USDT.BEP20 deposit intent on BTP for account activation.
+
+    Mirrors izichange.create_crypto_charge, returning the same normalized
+    shape so the frontend pay.tsx can reuse its existing crypto UI.
+    """
+    db = request.app.state.db
+    from ashtec_activation import ACTIVATION_LEVEL
+
+    if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+        raise HTTPException(400, "Votre compte est déjà activé.")
+    if not await is_crypto_enabled(db):
+        raise HTTPException(503, "Biz-transPay Crypto n'est pas disponible actuellement.")
+
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        raise HTTPException(503, "Biz-transPay non configuré (clés API manquantes).")
+
+    # Dedupe : reuse a fresh pending crypto deposit (< 10 min) to avoid
+    # multiplying addresses on repeated taps.
+    from datetime import timedelta
+    fresh_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    existing = await db.payments.find_one({
+        "user_id": user["id"], "provider": "biztranspay",
+        "kind": "activation_crypto",
+        "status": {"$in": ["pending", "processing"]},
+        "activation_done": {"$ne": True},
+        "created_at": {"$gte": fresh_cutoff},
+    }, {"_id": 0})
+    if existing:
+        return {
+            "reference": existing["reference"],
+            "deposit_address": existing.get("deposit_address"),
+            "qr_data": existing.get("deposit_address"),
+            "amount": existing.get("amount_to_send") or BTP_CRYPTO_AMOUNT,
+            "amount_to_send": existing.get("amount_to_send") or BTP_CRYPTO_AMOUNT,
+            "asset_code": BTP_CRYPTO_ASSET, "coin": "USDT", "network": "BEP20",
+            "memo": existing.get("memo"),
+            "expires_at": existing.get("expires_at"),
+        }
+
+    ref = _new_ref()
+    payload = {
+        "amount": BTP_CRYPTO_AMOUNT,
+        "asset_code": BTP_CRYPTO_ASSET,
+        "full_name": (user.get("full_name") or user.get("username") or "SPILOVEURE User"),
+        "email": user.get("email") or f"{user['id']}@spiloveure.internal",
+        # BTP requires a refund_address on the same network. We don't have one
+        # for the payer, so we send a well-known burn address as a placeholder;
+        # BTP allows this because refunds are only triggered on overpayment
+        # and are a manual admin action.
+        "refund_address": os.environ.get(
+            "BIZTRANSPAY_CRYPTO_REFUND_ADDRESS",
+            "0x000000000000000000000000000000000000dEaD",
+        ),
+        "reference": ref,
+    }
+    try:
+        r = await _post("/crypto/deposits", payload, secret_key, public_key, idempotency_key=ref)
+    except Exception as e:
+        log.exception("btp crypto /crypto/deposits failed ref=%s: %s", ref, e)
+        raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            detail = str(r.json())[:400]
+        except Exception:
+            detail = r.text[:400]
+        log.warning("btp crypto create %s ref=%s body=%s", r.status_code, ref, detail)
+        raise HTTPException(400, "Biz-transPay a refusé la création du dépôt crypto.")
+    jd = {}
+    try:
+        jd = r.json()
+    except Exception:
+        pass
+    dep = jd.get("deposit") or jd
+    address = (
+        dep.get("payment_address")
+        or dep.get("deposit_address")
+        or dep.get("address")
+        or (dep.get("payment_flow") or {}).get("address")
+    )
+    amount_to_send = float(
+        dep.get("amount_to_send") or dep.get("amount") or BTP_CRYPTO_AMOUNT
+    )
+    memo = dep.get("memo") or (dep.get("payment_flow") or {}).get("memo")
+    expires_at = dep.get("pending_expires_at") or dep.get("expires_at")
+    provider_id = jd.get("id") or dep.get("id")
+
+    if not address:
+        log.error("btp crypto: no address in response ref=%s body=%s", ref, str(jd)[:400])
+        raise HTTPException(502, "Biz-transPay n'a pas fourni d'adresse de paiement. Réessayez.")
+
+    now = datetime.now(timezone.utc)
+    await db.payments.insert_one({
+        "reference": ref,
+        "provider": "biztranspay",
+        "kind": "activation_crypto",
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "amount": BTP_CRYPTO_AMOUNT,
+        "amount_to_send": amount_to_send,
+        "currency": "USDT",
+        "asset_code": BTP_CRYPTO_ASSET,
+        "network": "BEP20",
+        "deposit_address": address,
+        "memo": memo,
+        "expires_at": expires_at,
+        "provider_intent_id": provider_id,
+        "level": 1,
+        "status": "pending",
+        "activation_done": False,
+        "created_at": now,
+        "updated_at": now,
+    })
+    # Also mirror to activations table for the admin dashboard.
+    await db.activations.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "reference": ref,
+        "level": 1,
+        "amount": BTP_CRYPTO_AMOUNT,
+        "currency": "USDT",
+        "payment_method": "crypto_auto",
+        "gateway": "biztranspay",
+        "status": "pending",
+        "created_at": now,
+    })
+    return {
+        "reference": ref,
+        "deposit_address": address,
+        "qr_data": address,
+        "amount": amount_to_send,
+        "amount_to_send": amount_to_send,
+        "asset_code": BTP_CRYPTO_ASSET, "coin": "USDT", "network": "BEP20",
+        "memo": memo,
+        "expires_at": expires_at,
+    }
+
+
+class BtpCryptoVerifyIn(BaseModel):
+    reference: str
+    tx_hash: str
+
+
+@api.post("/activations/biztranspay-crypto/verify")
+async def biztranspay_crypto_verify(
+    inp: BtpCryptoVerifyIn, request: Request, user=Depends(get_current_user),
+):
+    """User pasted the on-chain tx_hash — poll BTP for confirmation.
+
+    v27w — mirrors izichange.crypto_auto_verify:
+      • ownership check
+      • tx_hash uniqueness across payments
+      • GET /crypto/deposits/{id} — accept only "confirmed"/"completed"/"success"
+      • on success → _apply_payment_success (which calls activate_level)
+    """
+    db = request.app.state.db
+    ref = (inp.reference or "").strip()
+    tx = (inp.tx_hash or "").strip()
+    if not ref or not tx:
+        raise HTTPException(400, "Référence et hash requis.")
+    if len(tx) < 10:
+        raise HTTPException(400, "Hash de transaction invalide.")
+
+    p = await db.payments.find_one({"reference": ref, "provider": "biztranspay",
+                                    "kind": "activation_crypto"})
+    if not p:
+        raise HTTPException(404, "Demande de paiement introuvable.")
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Vous ne pouvez pas vérifier cette activation.")
+    if p.get("activation_done"):
+        return {"ok": True, "already_activated": True, "message": "Compte déjà activé."}
+
+    dupe = await db.payments.find_one({"tx_hash": tx, "reference": {"$ne": ref}})
+    if dupe:
+        await db.payments.update_one(
+            {"reference": ref},
+            {"$set": {"status": "rejected", "tx_hash": tx,
+                      "activation_error": "tx_hash_reused",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise HTTPException(409, "Ce hash de transaction est déjà utilisé pour une autre activation.")
+
+    intent_id = p.get("provider_intent_id")
+    if not intent_id:
+        raise HTTPException(500, "Identifiant passerelle manquant. Contactez le support.")
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    try:
+        r = await _get(f"/crypto/deposits/{intent_id}", secret_key, public_key)
+    except Exception as e:
+        log.exception("btp crypto verify GET failed ref=%s: %s", ref, e)
+        raise HTTPException(400, "Impossible de contacter la passerelle. Réessayez.")
+    if r.status_code == 404:
+        raise HTTPException(404, "Paiement introuvable côté passerelle.")
+    if r.status_code >= 400:
+        log.error("btp crypto verify %s ref=%s: %s", r.status_code, ref, r.text[:400])
+        raise HTTPException(400, "La passerelle a refusé la vérification. Réessayez plus tard.")
+
+    remote = {}
+    try:
+        remote = r.json()
+    except Exception:
+        pass
+    remote_status = str(remote.get("status") or "").lower()
+
+    if remote_status not in ("confirmed", "completed", "success", "paid"):
+        # Still on-chain / not yet confirmed.
+        friendly = {
+            "pending": "Paiement pas encore reçu. Réessayez dans 1 à 5 minutes.",
+            "pending_manual": "Confirmation manuelle en cours. Réessayez dans quelques minutes.",
+            "confirming": "Paiement détecté, en attente de confirmation on-chain.",
+        }.get(remote_status, "Paiement pas encore confirmé. Réessayez dans 1 à 5 minutes.")
+        return {"ok": False, "status": remote_status or "pending", "message": friendly}
+
+    # Confirmed → activate.
+    upd = await db.payments.update_one(
+        {"reference": ref, "activation_done": {"$ne": True}},
+        {"$set": {"status": "paid", "activation_done": True,
+                  "paid_at": datetime.now(timezone.utc),
+                  "tx_hash": tx, "biztranspay_status": remote_status,
+                  "updated_at": datetime.now(timezone.utc)},
+         "$unset": {"activation_error": ""}},
+    )
+    if upd.modified_count == 0:
+        return {"ok": True, "already_activated": True, "message": "Compte déjà activé."}
+    await db.activations.update_one(
+        {"reference": ref, "status": "pending"},
+        {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc),
+                  "validated_by": "user_tx_hash_verify_btp", "tx_hash": tx}},
+    )
+    try:
+        from ashtec_activation import _apply_payment_success
+        p = await db.payments.find_one({"reference": ref}, {"_id": 0}) or p
+        await _apply_payment_success(db, p, "paid", source="biztranspay")
+    except Exception as e:
+        log.exception("btp crypto activation failed ref=%s: %s", ref, e)
+        raise HTTPException(500, "Activation impossible. Contactez le support.")
+
+    log.info("btp crypto verify OK ref=%s tx=%s user=%s", ref, tx[:16], user["id"])
+    return {"ok": True, "activated": True,
+            "message": "Paiement confirmé. Votre compte est activé au Niveau 1 !"}
+
+
 def register(app):
     """Mount routers on the FastAPI app."""
     app.include_router(api)
@@ -695,8 +979,11 @@ async def _poll_once(db) -> dict:
         intent_id = p.get("provider_intent_id")
         if not intent_id:
             continue
+        # v27w — crypto deposits use a different status endpoint.
+        is_crypto = (p.get("kind") == "activation_crypto")
+        status_path = f"/crypto/deposits/{intent_id}" if is_crypto else f"/deposits/{intent_id}"
         try:
-            r = await _get(f"/deposits/{intent_id}", secret_key, public_key)
+            r = await _get(status_path, secret_key, public_key)
             if r.status_code >= 400:
                 continue
             jd = r.json()
@@ -704,8 +991,8 @@ async def _poll_once(db) -> dict:
             log.debug("btp poll error ref=%s: %s", p.get("reference"), e)
             continue
         remote = str(jd.get("status") or "").lower()
-        # v1: only completed/approved/paid/success are terminal success states.
-        if remote in ("paid", "completed", "approved", "success"):
+        # v1: only completed/approved/paid/success/confirmed are terminal success.
+        if remote in ("paid", "completed", "approved", "success", "confirmed"):
             try:
                 from ashtec_activation import _apply_payment_success
                 await _apply_payment_success(db, p, "paid", source="biztranspay")
