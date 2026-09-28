@@ -21,6 +21,40 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27aa) — 🐛 Fix critique déconnexion involontaire pendant la navigation rapide
+
+**Rapport utilisateur** : après ~20 clics de navigation rapide dans le bottom-nav (Accueil → IA SPV → Tâches → Trading → Profil...), l'app affiche brutalement l'écran de login "Bienvenue de retour !" alors que le token JWT est encore valide (720 min de TTL).
+
+**Diagnostic vidéo** : la vidéo montre 22 s de navigation fluide, puis clic sur "Profil" → écran de login. Pas de balance flash à 0, pas de redirect vers Dashboard, pas de page blanche. C'est une **déconnexion silencieuse mid-session**.
+
+**Cause racine** (`/app/frontend/src/auth.tsx::refresh()`) :
+```typescript
+// Ancien catch — WIPE sur N'IMPORTE QUELLE erreur
+catch { setUser(null); setAuthToken(null); await storage.secureRemove("auth_token"); }
+```
+Sur le web Expo Router (Metro), la navigation rapide entre écrans **abort les fetch en cours** (`AbortError` / `"Failed to fetch"`). Le `refresh()` déclenché par une page à peine unmountée jetait alors une exception → catch → user vidé → `(app)/_layout.tsx` voit `!user` → `router.replace("/(auth)/login")` → écran login.
+
+De plus, la page dashboard lance parfois `setInterval(refresh, 500ms)` pendant 60s post-activation (bouton "just_activated"), ce qui multiplie les fenêtres de vulnérabilité.
+
+**Correction** (`auth.tsx::refresh`) :
+- Nouveau catch **discriminé** :
+  - `status === 401` → wipe user + token + storage (comportement JWT expiry légitime)
+  - `AbortError` / `"Failed to fetch"` → silencieux (fetch annulé par navigation, pas une erreur d'auth)
+  - Tout autre (5xx transitoire, timeout, CORS glitch...) → **on garde l'user en state**, log console pour observabilité
+- Le handler global 401 (`setUnauthorizedHandler` dans `api.ts`) reste actif pour les vraies expirations JWT — il fait déjà le sign-out + redirect propre.
+
+**Effet garanti** :
+- ✅ Navigation rapide illimitée sans déconnexion
+- ✅ Expirations JWT réelles continuent de rediriger vers login (path `_onUnauthorized`)
+- ✅ Erreurs réseau transitoires ne cassent plus la session
+
+**Test de régression** — `/app/backend/tests/test_auth_refresh_resilience_v27aa.py` (**2/2 passent**) :
+- Parseur statique : le pattern `catch { setUser(null); setAuthToken(null); ...}` ne DOIT plus exister dans `auth.tsx`
+- La nouvelle branche `if (status === 401)` + comment "keep the existing user in state" + gestion `AbortError` sont présentes
+- `setUnauthorizedHandler` reste bien la source unique du sign-out JWT réel
+
+---
+
 ### 2026-03-04 (v27z) — 🐛 Fix critique retrait BTP bloqué en `pending` (rebrand Mixx By Yas)
 
 **Rapport utilisateur** : le retrait automatique via Biz-transPay ne fonctionne pas en production. Master switch + clés BTP + payout activés côté admin, mais le retrait Mobile Money reste indéfiniment en `pending`.

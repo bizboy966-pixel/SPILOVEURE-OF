@@ -47,10 +47,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // this value and redirects to /pay when it looks pending.
       const me = await api.get<User>(`/auth/me?_t=${Date.now()}`);
       setUser(me);
-    } catch {
-      setUser(null);
-      setAuthToken(null);
-      await storage.secureRemove("auth_token");
+    } catch (e: any) {
+      // v27aa (2026-03-04) — CRITICAL fix : previous version wiped the
+      // user + token on ANY error, which meant a single aborted fetch
+      // (rapid page navigation cancels in-flight requests on web) or a
+      // transient 502 was enough to log the user out mid-session. Now
+      // we ONLY wipe on a genuine 401 JWT failure — the api.ts 401
+      // handler already routes those to signOut anyway, so this catch
+      // becomes a soft no-op for real auth expiry and a NO-OP for every
+      // other transient error.
+      const status = e?.status;
+      const isAbort =
+        e?.name === "AbortError" ||
+        e?.message === "The user aborted a request." ||
+        e?.message === "Failed to fetch";
+      if (status === 401) {
+        setUser(null);
+        setAuthToken(null);
+        await storage.secureRemove("auth_token");
+      } else if (isAbort) {
+        // silent — component unmount / navigation cancelled our request
+      } else {
+        // keep the existing user in state ; log for observability
+        // eslint-disable-next-line no-console
+        console.warn("[auth.refresh] transient error, keeping session:", e?.detail || e?.message || e);
+      }
     }
   }, []);
 
