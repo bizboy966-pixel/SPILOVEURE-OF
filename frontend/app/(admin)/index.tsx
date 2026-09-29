@@ -310,7 +310,18 @@ export default function AdminHome() {
       }
       if (tab === "users") setUsers(await api.get(`/admin/users${usersQ ? `?q=${encodeURIComponent(usersQ)}` : ""}`));
       if (tab === "activations") setActivations(await api.get(`/admin/activations?status=${actFilter}`));
-      if (tab === "withdrawals") setWithdrawals(await api.get("/admin/withdrawals"));
+      if (tab === "withdrawals") {
+        setWithdrawals(await api.get("/admin/withdrawals"));
+        // v27ag (2026-03-04) — auto-reconcile stuck BTP retraits on panel open.
+        // Fire-and-forget: don't block the UI. If any retrait was actually
+        // completed at the gateway, it flips to `completed` and appears in
+        // Validés on the next refresh.
+        api.post("/admin/withdrawals/reconcile-all").then(async (r: any) => {
+          if (r && r.updated > 0) {
+            setWithdrawals(await api.get("/admin/withdrawals"));
+          }
+        }).catch(() => {});
+      }
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
       if (tab === "challenges") {
@@ -1285,8 +1296,22 @@ export default function AdminHome() {
                     <Ionicons name="time" size={14} color="#fff" />
                     <Text style={styles.actT}>📜 Historique</Text>
                   </TouchableOpacity>
-                  {w.status === "pending" && (
+                  {(w.status === "pending" || w.status === "dispatched" || w.status === "processing") && (
                     <>
+                      {/* v27ag (2026-03-04) — for auto-dispatched retraits stuck
+                          in pending/dispatched, offer a Reconcile button that
+                          polls the gateway synchronously. Cheap way to force-move
+                          a "gateway_status: completed" retrait into Validés. */}
+                      {isAuto && w.gateway === "biztranspay" && (
+                        <TouchableOpacity
+                          style={[styles.actBtn, { backgroundColor: "#0369A1" }]}
+                          onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reconcile`))}
+                          testID={`admin-reconcile-wd-${w.id}`}
+                        >
+                          <Ionicons name="refresh" size={14} color="#fff" />
+                          <Text style={styles.actT}>🔄 Vérifier statut</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`))} testID={`admin-validate-wd-${w.id}`}>
                         <Ionicons name="checkmark" size={14} color="#fff" />
                         <Text style={styles.actT}>Valider</Text>

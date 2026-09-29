@@ -4394,8 +4394,32 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
-        if wd["status"] != "pending":
+        # v27ag (2026-03-04) — accept validate on gateway-lifecycle statuses
+        # too (dispatched / processing). Manual validation of an auto-dispatched
+        # retrait means the admin trusts the gateway succeeded even without
+        # webhook — just marks it as validated + credits total_withdrawn.
+        if wd["status"] not in ("pending", "dispatched", "processing"):
             raise HTTPException(400, "Déjà traité.")
+
+        # If the retrait was already auto-dispatched to Biz-transPay, don't
+        # re-dispatch — the admin's click is a manual override that just marks
+        # our internal doc as validated.
+        if wd.get("auto_dispatched") and wd.get("gateway") == "biztranspay":
+            await db.withdrawals.update_one(
+                {"id": wd_id},
+                {"$set": {"status": "completed",
+                          "completed_at": datetime.now(timezone.utc),
+                          "validated_at": datetime.now(timezone.utc),
+                          "validated_by": admin["id"],
+                          "validation_source": "admin_override"}},
+            )
+            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
+            await db.admin_logs.insert_one({
+                "id": str(uuid.uuid4()), "admin_id": admin["id"],
+                "action": "validate_auto_withdrawal_override",
+                "target": wd_id, "at": datetime.now(timezone.utc),
+            })
+            return {"ok": True, "auto_dispatched": True, "override": True}
 
         # Auto-payout via IziChangePay if the withdrawal is a crypto one AND
         # the admin has enabled `auto_withdrawal`. Otherwise fall through to
@@ -4480,7 +4504,10 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
     reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
-        if wd["status"] != "pending":
+        # v27ag (2026-03-04) — accept reject on gateway-lifecycle statuses
+        # too (dispatched / processing), not just pending. Otherwise stuck
+        # auto-retraits are unrejectable from the admin panel.
+        if wd["status"] not in ("pending", "dispatched", "processing"):
             raise HTTPException(400, "Déjà traité.")
         # Refund balance
         await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})

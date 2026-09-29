@@ -21,6 +21,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ag) — 🔘 Boutons Valider/Rejeter/Reconcile sur retraits stuck + auto-reconcile à l'ouverture
+
+**Rapport utilisateur (verbatim)** : « Certaines requêtes sont validées automatiquement mais toujours dans "En attente" — et pire, elles n'ont même pas de bouton Rejeter. Peu importe la manière (manuelle/auto), elles doivent respecter les mêmes règles. »
+
+**Cause** : les boutons Valider/Rejeter n'étaient affichés que si `w.status === "pending"`. Les retraits legacy en `dispatched` ou stuck en `processing` n'avaient AUCUNE action possible côté admin. Symétriquement, les endpoints backend refusaient toute action sur ces statuts.
+
+**Corrections v27ag** :
+
+1. **Frontend** (`(admin)/index.tsx`) :
+   - Boutons **Valider / Rejeter** affichés désormais pour `pending | dispatched | processing`
+   - Nouveau bouton **"🔄 Vérifier statut"** visible uniquement pour retraits `auto_dispatched=true` + `gateway=biztranspay` en statut non-terminal → appelle `POST /admin/withdrawals/{id}/reconcile` (poll BTP + màj status)
+   - **Auto-reconcile à l'ouverture** de l'onglet retraits : fire-and-forget `POST /admin/withdrawals/reconcile-all` en background, refresh de la liste si `updated > 0` (silencieux pour l'utilisateur, mais rattrape tout ce qui est validé chez BTP mais bloqué chez nous)
+
+2. **Backend** (`server.py`) :
+   - **`admin_reject_withdrawal`** : guard élargi à `pending | dispatched | processing`. Refund `balance_profit` inchangé.
+   - **`admin_validate_withdrawal`** : guard élargi à même les 3 statuts. **Nouveau cas spécial** : si `auto_dispatched=true` + `gateway=biztranspay`, override direct → `status="completed"` + `completed_at` + `validated_by=admin` + `validation_source="admin_override"` — pas de re-dispatch chez BTP (déjà envoyé), juste marquage local. Crédit `total_withdrawn` idempotent.
+
+3. **Audit** : chaque action admin log une entrée dans `admin_logs` avec `action: reject_withdrawal | validate_auto_withdrawal_override`.
+
+**Test de régression** — `/app/backend/tests/test_admin_stuck_retraits_v27ag.py` (**5/5 passent**) :
+- Reject accepte `pending/dispatched/processing`
+- Validate accepte les 3 statuts + branche BTP override
+- Frontend affiche les boutons pour les 3 statuts + reconcile button
+- Panel-open trigger `reconcile-all` en fire-and-forget
+
+**Comportement final garanti** :
+- ✅ Retrait BTP auto en `dispatched/processing` avec `gateway_status=completed` → à l'ouverture du panel, reconcile-all le passe automatiquement en Validés
+- ✅ Retrait BTP auto stuck → admin voit 3 boutons : "🔄 Vérifier statut" (poll), "Valider" (override), "Rejeter" (refund + marque rejeté)
+- ✅ Retrait manuel classique → boutons Valider/Rejeter comme avant, aucun changement
+- ✅ Aucun statut ne peut plus être stuck sans action admin possible
+
+---
+
 ### 2026-03-04 (v27af) — 🎯 Fix : retrait BTP `gateway_status=completed` mais `status=pending`
 
 **Rapport utilisateur (screenshots joints)** : carte admin affiche `AUTO-RETRAIT • BIZ-TRANSPAY`, `Statut passerelle: completed`, `ID passerelle` renseigné — MAIS le retrait reste dans l'onglet **En attente** (pill jaune) au lieu de basculer en **Validés**.
