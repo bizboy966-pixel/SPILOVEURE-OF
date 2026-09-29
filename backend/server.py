@@ -3649,7 +3649,13 @@ async def admin_stats(request: Request):
         ],
     })
     activations_pending = activations_pending_manual + activations_pending_auto
-    withdrawals_pending = await db.withdrawals.count_documents({"status": "pending"})
+    withdrawals_pending = await db.withdrawals.count_documents({
+        # v27ad (2026-03-04) — auto-dispatched withdrawals (status=dispatched)
+        # from BTP payouts still live in the "En attente" bucket until the
+        # gateway webhook confirms with push.succeeded/failed. Include them
+        # in the badge count so admins see the real pending workload.
+        "status": {"$in": ["pending", "dispatched", "processing"]},
+    })
     # Total validated activation amount includes manual + crypto (db.activations)
     # AND validated automatic payments (db.payments with activation_done=true).
     #

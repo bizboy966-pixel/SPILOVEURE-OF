@@ -630,14 +630,27 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     await db.withdrawals.update_one(
         {"id": wd_doc["id"]},
         {"$set": {
-            "status": "dispatched",
+            # v27ad (2026-03-04) — status stays "pending" until the BTP
+            # webhook confirms with push.succeeded (→ "completed") or
+            # push.failed (→ "rejected" + refund). Previously we flipped to
+            # "dispatched", which was invisible from all admin sub-tabs
+            # (they check pending / validated | completed / rejected only).
+            # `auto_dispatched=True` + `dispatched_at` + `payout_id` are
+            # already enough to identify the row as an auto-payout in
+            # progress.
+            "status": "pending",
+            "auto_dispatched": True,
             "gateway": "biztranspay",
             "payout_id": payout_id,
             "gateway_status": payout_status,
             "gateway_fee": payout_env.get("fee"),
             "gateway_total_debit": payout_env.get("total_debit"),
             "dispatched_at": datetime.now(timezone.utc),
-        }},
+            "updated_at": datetime.now(timezone.utc),
+        },
+         # Clear any prior early-abort error (retry path)
+         "$unset": {"gateway_error": "", "gateway_error_code": "",
+                    "gateway_status_code": ""}},
     )
     return {"auto_dispatched": True, "id": payout_id, "status": payout_status}
 

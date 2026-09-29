@@ -21,6 +21,50 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ad) — 🐛 Fix critique : retrait auto BTP invisible dans le panel admin
+
+**Rapport utilisateur (prod)** : un retrait a bien été auto-validé via Biz-transPay mais reste **introuvable** dans l'onglet "Retrait Validés". Impossible de le repérer dans les 3 sous-onglets.
+
+**Cause racine** :
+`dispatch_biztranspay_withdrawal` (biztranspay.py L633) faisait passer le retrait à `status="dispatched"` juste après un appel `/payouts` réussi. Or, les 3 sous-onglets admin ne matchent que :
+- **En attente** ← `pending`
+- **Validés** ← `validated | completed`
+- **Rejetés** ← `rejected`
+
+→ Le statut `"dispatched"` n'était reconnu **nulle part** → retrait **invisible** jusqu'à ce que le webhook BTP arrive. Idem pour la stat `withdrawals_pending`.
+
+**Correction v27ad** :
+
+1. **Backend** (`biztranspay.py::dispatch_biztranspay_withdrawal`) :
+   - Post-dispatch réussi : `status` reste `"pending"` (au lieu de `"dispatched"`)
+   - `auto_dispatched=True`, `payout_id`, `dispatched_at`, `gateway_status` continuent d'être écrits — c'est ce qui distingue un retrait auto d'un manuel
+   - Le webhook BTP `push.succeeded` continuera de faire passer à `"completed"` (visible dans Validés)
+   - `$unset` sur `gateway_error*` pour clean si retry après échec précoce
+
+2. **Frontend admin** (`(admin)/index.tsx`) :
+   - Sous-onglet "En attente" : filtre étendu à `pending | dispatched | processing` — rétro-compat pour tous les retraits déjà en `dispatched` sur la prod
+   - `PillStatus` : nouveau label **"Virement en cours"** (bleu) pour `dispatched`, **"En traitement"** pour `processing`, **"Validé (auto)"** pour `completed`
+   - Comptage badge sur les 3 statuts
+
+3. **Backend stats** (`server.py::admin_stats`) :
+   - `withdrawals_pending` compte désormais `pending | dispatched | processing` — le dashboard reflète la vraie charge de travail admin
+
+**Test de régression** — `/app/backend/tests/test_btp_dispatch_status_v27ad.py` (**4/4 passent**) :
+- Dispatcher ne set plus `status="dispatched"`
+- Filtres frontend contiennent `dispatched` dans count ET filter (rétro-compat prod)
+- `withdrawals_pending` count inclut dispatched + processing
+- Nouveau `PillStatus` reconnaît dispatched/completed
+
+**Comportement final garanti** :
+- Retrait BTP dispatché en cours → **En attente** avec pill bleue "Virement en cours" + badge AUTO-RETRAIT
+- Webhook `push.succeeded` → **Validés** avec pill "Validé (auto)"
+- Webhook `push.failed` → **Rejetés** + refund `balance_profit` (comportement historique préservé)
+- Total FCFA stats compte les retraits `validated` + `completed`
+
+**Migration prod** : les retraits déjà en `status="dispatched"` sur la prod restent visibles grâce au filtre rétro-compat côté frontend. Après redéploiement, les nouveaux retraits BTP naîtront directement en `pending`.
+
+---
+
 ### 2026-03-04 (v27ac) — 🏷️ Activations automatiques Biz-transPay visibles + stats consolidées
 
 **Demande utilisateur (verbatim)** : « Tu fais pareil aussi pour les dépôts automatiques. Tous les dépôts automatiques doivent être comptabilisés sur la statistique comme il le faut et aussi dans les parties activation, valider, rejeter et en attente selon son statut. »

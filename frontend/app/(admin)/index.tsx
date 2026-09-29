@@ -1133,7 +1133,7 @@ export default function AdminHome() {
             </View>
             <SubTabs
               tabs={[
-                { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending").length },
+                { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending" || w.status === "dispatched" || w.status === "processing").length },
                 { key: "validated", label: "Validés", color: theme.colors.success, count: withdrawals.filter((w) => w.status === "validated" || w.status === "completed").length },
                 { key: "rejected", label: "Rejetés", color: theme.colors.danger, count: withdrawals.filter((w) => w.status === "rejected").length },
               ]}
@@ -1145,7 +1145,7 @@ export default function AdminHome() {
               const q = wdQ.trim().toLowerCase();
               const filtered = withdrawals.filter((w) => {
                 const statusOk = wdFilter === "pending"
-                  ? w.status === "pending"
+                  ? (w.status === "pending" || w.status === "dispatched" || w.status === "processing")
                   : wdFilter === "validated"
                     ? (w.status === "validated" || w.status === "completed")
                     : w.status === "rejected";
@@ -3381,7 +3381,14 @@ function StatCard({ icon, color, label, value, small }: { icon: any; color: stri
 function PillStatus({ status }: { status: string }) {
   const cfg: any = {
     pending: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "En attente" },
+    // v27ad (2026-03-04) — surface auto-dispatched-but-not-yet-confirmed
+    // withdrawals distinctly. They live in the "En attente" tab (see filter
+    // above) but the pill label makes it obvious the money is already sent
+    // to the gateway and just needs webhook confirmation.
+    dispatched: { bg: "#DBEAFE", color: "#0369A1", label: "Virement en cours" },
+    processing: { bg: "#DBEAFE", color: "#0369A1", label: "En traitement" },
     validated: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé" },
+    completed: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé (auto)" },
     rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté" },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
