@@ -4322,9 +4322,24 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
     """Unified withdrawals list: MLM commissions + Paid Missions.
     Each item exposes a `withdrawal_type` ∈ {"commissions", "mission"} so the
     UI can render a distinguishing badge.
+
+    v27ae (2026-03-04) — status_filter is expanded so gateway-lifecycle
+    statuses land in the correct admin sub-tab :
+        pending   ← pending | dispatched | processing
+        validated ← validated | completed
+        rejected  ← rejected | failed
     """
     db = request.app.state.db
-    q = {"status": status_filter} if status_filter else {}
+    if status_filter == "pending":
+        q = {"status": {"$in": ["pending", "dispatched", "processing"]}}
+    elif status_filter == "validated":
+        q = {"status": {"$in": ["validated", "completed"]}}
+    elif status_filter == "rejected":
+        q = {"status": {"$in": ["rejected", "failed"]}}
+    elif status_filter:
+        q = {"status": status_filter}
+    else:
+        q = {}
     items = await db.withdrawals.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     for it in items:
         it.setdefault("withdrawal_type", "commissions")

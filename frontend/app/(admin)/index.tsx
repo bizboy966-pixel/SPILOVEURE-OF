@@ -906,6 +906,10 @@ export default function AdminHome() {
                   a.username, a.email, a.user_id, a.id,
                   a.payment_phone, a.transaction_ref, a.tx_hash, a.operator, a.payer_country,
                   a.reference, a.payment_method, a.easychange_transaction_id,
+                  // v27ae — search by every provider identifier so an admin
+                  // can paste a BTP transaction id and land on the row.
+                  a.provider_intent_id, a.provider, a.gateway_status,
+                  a.amount != null ? String(Math.round(Number(a.amount))) : "",
                 ].filter(Boolean).join(" ").toLowerCase();
                 return haystack.includes(q);
               });
@@ -1154,6 +1158,12 @@ export default function AdminHome() {
                 const haystack = [
                   w.username, w.user_id, w.id, w.full_name,
                   w.phone, w.wallet_address, w.operator, w.country,
+                  // v27ae (2026-03-04) — search by gateway references so an
+                  // admin can paste any provider TX id and land on the row.
+                  w.payout_id, w.transaction_id, w.reference, w.transaction_ref,
+                  w.gateway, w.gateway_status, w.gateway_error_code,
+                  w.easychange_transaction_id,
+                  w.amount != null ? String(Math.round(Number(w.amount))) : "",
                 ].filter(Boolean).join(" ").toLowerCase();
                 return haystack.includes(q);
               });
@@ -1194,6 +1204,23 @@ export default function AdminHome() {
                   <PillStatus status={w.status} />
                 </View>
                 <View style={styles.kvBox}>
+                  {/* v27ae (2026-03-04) — provider identity + auto-validation
+                      note surfaced at the TOP of the card so admins see them
+                      before scrolling. */}
+                  {isAuto ? (
+                    <>
+                      <KvRow k="Mode" v={`Automatique • ${gwLabel || "Passerelle"}`} />
+                      {(w.status === "validated" || w.status === "completed") ? (
+                        <KvRow k="Traitement" v="🟢 Validé automatiquement" />
+                      ) : (w.status === "rejected") ? (
+                        <KvRow k="Traitement" v="🔴 Rejeté par la passerelle" />
+                      ) : (
+                        <KvRow k="Traitement" v="⏳ Virement en cours (passerelle)" />
+                      )}
+                    </>
+                  ) : (
+                    <KvRow k="Mode" v="Manuel (validation admin)" />
+                  )}
                   <KvRow k="Type de retrait" v={isMission ? `🎥 Retrait Mission (${w.wallet || "—"})` : "🤝 Retrait Commissions"} />
                   <KvRow k="Montant demandé" v={formatFCFA(w.amount)} />
                   {w.fee != null ? <KvRow k="Frais de retrait" v={`${formatFCFA(w.fee)}${w.fee_percent != null ? ` (${w.fee_percent}%)` : ""}`} /> : null}

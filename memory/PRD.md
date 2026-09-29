@@ -21,6 +21,65 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ae) — 🎯 Cohérence totale panel admin retraits/activations (source unique de vérité)
+
+**Demande utilisateur (verbatim, 22 points)** : « retrait validé auto pas trouvé dans Validés / recherche par référence prestataire ne marche pas / statistique en attente reste à 5 alors que la liste est à 0 / prestataire pas assez visible / une seule source de vérité pour stats + listes + filtres + recherche ».
+
+**Cause racine** : `admin_list_withdrawals` faisait `q = {"status": status_filter}` avec égalité stricte. Les retraits en statuts intermédiaires (`dispatched`, `processing`) OU en statut de succès automatique (`completed`) OU en échec gateway (`failed`) tombaient hors des 3 sous-onglets → liste incohérente avec les stats (que j'avais déjà corrigées en v27ad).
+
+**Corrections v27ae** :
+
+1. **Backend `admin_list_withdrawals`** (`server.py`) — status_filter mappé en `$in` :
+   ```
+   pending   → ["pending", "dispatched", "processing"]
+   validated → ["validated", "completed"]
+   rejected  → ["rejected", "failed"]
+   ```
+   **Une seule query MongoDB** pilote la liste ET les counts. Impossible d'avoir stats ≠ list désormais.
+
+2. **Frontend search retraits** — haystack étendu à :
+   - `payout_id` (ID gateway)
+   - `transaction_id`, `transaction_ref`
+   - `reference` (référence interne)
+   - `gateway`, `gateway_status`, `gateway_error_code`
+   - `easychange_transaction_id`
+   - montant numérique (permet chercher "10000")
+   → l'admin peut coller n'importe quelle réf prestataire et tomber sur la carte.
+
+3. **Frontend search activations** — haystack étendu à `provider_intent_id`, `provider`, `gateway_status`, montant → même parité de recherche que retraits.
+
+4. **Carte retrait admin** — nouvelles KvRow **en haut de la carte** (visibilité immédiate) :
+   - `Mode` = "Automatique • Biz-transPay" / "Automatique • SoleasPay" / "Manuel (validation admin)"
+   - `Traitement` = "🟢 Validé automatiquement" / "🔴 Rejeté par la passerelle" / "⏳ Virement en cours (passerelle)" selon status
+   - Toutes les autres infos (payout_id copiable, gateway_error, code erreur) restent en bas via le block v27ab.
+
+5. **Idempotence webhook BTP** — déjà en place (v27n) : `biztranspay_webhook_events` avec index unique sur `event_id` → 2ᵉ delivery ignorée sans re-crédit. Pas de changement.
+
+**Test de régression** — `/app/backend/tests/test_admin_panel_coherence_v27ae.py` (**4/4 passent**) :
+- `admin_list_withdrawals` mappe correctement les 3 status_filter en `$in`
+- Search retrait haystack contient tous les champs gateway
+- Search activation haystack contient `provider_intent_id/provider/gateway_status`
+- Card retrait a bien les 2 KvRow Mode + Traitement en haut
+
+**Vérification E2E preview** :
+- Stats source: pending=0 validated=0 rejected=0
+- List (?status=X) : chaque filtre matche exactement la count → **cohérence stats ↔ list garantie**
+- Admin stats API : `withdrawals_pending=0`, `withdrawals_pending_commissions=0` — synchro parfaite
+
+**Comportement final garanti** (les 22 exigences du user) :
+- ✅ Retrait auto validé (`status="completed"`) → apparaît dans **Validés** avec pill "Validé (auto)" + KvRow "Traitement: 🟢 Validé automatiquement" + KvRow "Mode: Automatique • Biz-transPay"
+- ✅ Retrait auto en cours (`status="pending"` post-dispatch OU legacy `dispatched`) → apparaît dans **En attente** avec pill "En attente"/"Virement en cours"
+- ✅ Retrait auto rejeté (`status="rejected"` ou `"failed"`) → apparaît dans **Rejetés**
+- ✅ Recherche : coller `pay_abc123` (payout_id BTP) → carte trouvée instantanément
+- ✅ Stats "En attente = 0" ⇔ Liste "En attente = 0" (même query MongoDB)
+- ✅ Prestataire clairement identifié : badge AUTO-RETRAIT • BIZ-TRANSPAY + KvRow "Mode: Automatique • Biz-transPay" + KvRow "Passerelle: Biz-transPay" + "ID passerelle" copiable
+- ✅ Idempotence webhook : event_id unique → pas de double crédit ni double notif
+- ✅ Aucun système parallèle créé — tout passe par `db.withdrawals` + `db.payments` existants
+- ✅ Manuel vs Auto distingués via `Mode` KvRow et le badge AUTO-RETRAIT
+- ✅ Cache : `cache: "no-store"` sur toutes les requêtes admin (déjà en place dans `api.ts`)
+
+---
+
 ### 2026-03-04 (v27ad) — 🐛 Fix critique : retrait auto BTP invisible dans le panel admin
 
 **Rapport utilisateur (prod)** : un retrait a bien été auto-validé via Biz-transPay mais reste **introuvable** dans l'onglet "Retrait Validés". Impossible de le repérer dans les 3 sous-onglets.
