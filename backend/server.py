@@ -4582,6 +4582,31 @@ async def admin_logs_list(request: Request):
     return await db.admin_logs.find({}, {"_id": 0}).sort("at", -1).to_list(200)
 
 
+@admin_router.post("/withdrawals/{wd_id}/reconcile")
+async def admin_reconcile_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
+    """v27af (2026-03-04) — force-poll the payment gateway for a stuck
+    auto-dispatched withdrawal. Currently supports Biz-transPay; extendable
+    to other gateways by dispatching on `wd.gateway`."""
+    db = request.app.state.db
+    wd = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+    if not wd:
+        raise HTTPException(404, "Retrait introuvable.")
+    if wd.get("gateway") != "biztranspay":
+        raise HTTPException(400, f"Reconcile non supporté pour la passerelle '{wd.get('gateway')}'.")
+    from biztranspay import reconcile_withdrawal as _btp_recon
+    r = await _btp_recon(db, wd)
+    return r
+
+
+@admin_router.post("/withdrawals/reconcile-all")
+async def admin_reconcile_all_withdrawals(request: Request, admin=Depends(require_admin)):
+    """v27af — one-shot sweep of every stuck auto-dispatched BTP withdrawal."""
+    db = request.app.state.db
+    from biztranspay import reconcile_all_dispatched as _btp_recon_all
+    r = await _btp_recon_all(db)
+    return r
+
+
 @admin_router.get("/stats/timeseries")
 async def admin_timeseries(request: Request, days: int = 14):
     db = request.app.state.db

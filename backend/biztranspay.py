@@ -627,32 +627,56 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     payout_id = resp_json.get("id") or (payout_env.get("transaction") or {}).get("id")
     payout_status = str(resp_json.get("status") or (payout_env.get("transaction") or {}).get("status") or "").lower()
 
+    # v27af (2026-03-04) — CRITICAL fix : if BTP returns a terminal status
+    # SYNCHRONOUSLY (some operators clear the transfer instantly and BTP
+    # answers `completed` right in the /payouts response), we flip our
+    # internal status straight to `completed` / `rejected` — no need to wait
+    # for the webhook. Previous v27ad always kept `pending`, which stranded
+    # already-paid withdrawals in the "En attente" tab.
+    _TERMINAL_OK = {"completed", "succeeded", "paid", "success", "sent", "delivered"}
+    _TERMINAL_KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
+    if payout_status in _TERMINAL_OK:
+        internal_status = "completed"
+    elif payout_status in _TERMINAL_KO:
+        internal_status = "rejected"
+    else:
+        internal_status = "pending"
+
+    set_fields = {
+        "status": internal_status,
+        "auto_dispatched": True,
+        "gateway": "biztranspay",
+        "payout_id": payout_id,
+        "gateway_status": payout_status,
+        "gateway_fee": payout_env.get("fee"),
+        "gateway_total_debit": payout_env.get("total_debit"),
+        "dispatched_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if internal_status == "completed":
+        set_fields["completed_at"] = datetime.now(timezone.utc)
+    elif internal_status == "rejected":
+        set_fields["rejected_at"] = datetime.now(timezone.utc)
+        set_fields["gateway_error"] = f"Gateway returned terminal-fail status: {payout_status}"
+
     await db.withdrawals.update_one(
         {"id": wd_doc["id"]},
-        {"$set": {
-            # v27ad (2026-03-04) — status stays "pending" until the BTP
-            # webhook confirms with push.succeeded (→ "completed") or
-            # push.failed (→ "rejected" + refund). Previously we flipped to
-            # "dispatched", which was invisible from all admin sub-tabs
-            # (they check pending / validated | completed / rejected only).
-            # `auto_dispatched=True` + `dispatched_at` + `payout_id` are
-            # already enough to identify the row as an auto-payout in
-            # progress.
-            "status": "pending",
-            "auto_dispatched": True,
-            "gateway": "biztranspay",
-            "payout_id": payout_id,
-            "gateway_status": payout_status,
-            "gateway_fee": payout_env.get("fee"),
-            "gateway_total_debit": payout_env.get("total_debit"),
-            "dispatched_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        },
+        {"$set": set_fields,
          # Clear any prior early-abort error (retry path)
-         "$unset": {"gateway_error": "", "gateway_error_code": "",
-                    "gateway_status_code": ""}},
+         "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
+                    if internal_status != "rejected" else {"gateway_error_code": ""}},
     )
-    return {"auto_dispatched": True, "id": payout_id, "status": payout_status}
+    # v27af — if the gateway rejected synchronously, refund the user's
+    # balance so it doesn't stay locked. Symmetrical with the webhook path.
+    if internal_status == "rejected":
+        try:
+            await db.users.update_one(
+                {"id": wd_doc["user_id"]},
+                {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}},
+            )
+        except Exception:
+            pass
+    return {"auto_dispatched": True, "id": payout_id, "status": payout_status, "internal": internal_status}
 
 
 # ─── Webhook ─────────────────────────────────────────────────────────
@@ -1164,3 +1188,105 @@ async def polling_loop(db):
         except Exception as e:
             log.exception("btp polling loop error: %s", _redact(e))
         await _a.sleep(4)
+
+
+
+async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
+    """v27af (2026-03-04) — poll Biz-transPay for the current status of a
+    stuck auto-dispatched withdrawal and update our doc accordingly.
+
+    Called by :
+      • the admin endpoint POST /api/admin/withdrawals/{id}/reconcile
+      • a scheduled reconcile loop (future)
+
+    Returns `{ok, changed, from_status, to_status, gateway_status}`.
+    """
+    payout_id = wd_doc.get("payout_id")
+    if not payout_id:
+        return {"ok": False, "reason": "no_payout_id"}
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        return {"ok": False, "reason": "no_api_key"}
+    try:
+        r = await _get(f"/payouts/{payout_id}", secret_key, public_key)
+    except Exception as e:
+        log.exception("btp reconcile GET failed wd=%s: %s", wd_doc.get("id"), _redact(e))
+        return {"ok": False, "reason": "network_error"}
+    if r.status_code == 404:
+        return {"ok": False, "reason": "not_found_at_gateway"}
+    if r.status_code >= 400:
+        return {"ok": False, "reason": "gateway_error",
+                "detail": _redact(r.text[:200])}
+    try:
+        jd = r.json()
+    except Exception:
+        jd = {}
+    remote_status = str(jd.get("status") or (jd.get("payout") or {}).get("status") or "").lower()
+
+    _OK = {"completed", "succeeded", "paid", "success", "sent", "delivered", "approved"}
+    _KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
+    from_status = wd_doc.get("status") or "pending"
+    if remote_status in _OK:
+        to_status = "completed"
+    elif remote_status in _KO:
+        to_status = "rejected"
+    else:
+        to_status = from_status
+
+    set_fields = {
+        "gateway_status": remote_status,
+        "updated_at": datetime.now(timezone.utc),
+        "reconciled_at": datetime.now(timezone.utc),
+    }
+    changed = (to_status != from_status)
+    if changed:
+        set_fields["status"] = to_status
+        if to_status == "completed":
+            set_fields["completed_at"] = datetime.now(timezone.utc)
+        elif to_status == "rejected":
+            set_fields["rejected_at"] = datetime.now(timezone.utc)
+            set_fields["gateway_error"] = f"Gateway terminal-fail on reconcile: {remote_status}"
+            try:
+                await db.users.update_one(
+                    {"id": wd_doc["user_id"]},
+                    {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}},
+                )
+            except Exception:
+                pass
+    await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": set_fields})
+    return {"ok": True, "changed": changed, "from_status": from_status,
+            "to_status": to_status, "gateway_status": remote_status}
+
+
+async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
+    """v27af — one-shot backfill : sweep every withdrawal that is still in
+    a non-terminal state (`pending` / `dispatched` / `processing`) AND
+    already dispatched to Biz-transPay (has a `payout_id`), and refresh its
+    status from the gateway. Safe to call multiple times (idempotent — a
+    reconcile does nothing when the remote status is unchanged).
+    """
+    q = {
+        "auto_dispatched": True,
+        "gateway": "biztranspay",
+        "payout_id": {"$exists": True, "$nin": [None, ""]},
+        "status": {"$in": ["pending", "dispatched", "processing"]},
+    }
+    results = {"scanned": 0, "updated": 0, "errors": 0, "changes": []}
+    async for wd in db.withdrawals.find(q).limit(max_docs):
+        results["scanned"] += 1
+        try:
+            r = await reconcile_withdrawal(db, wd)
+            if r.get("ok") and r.get("changed"):
+                results["updated"] += 1
+                results["changes"].append({
+                    "id": wd.get("id"),
+                    "from": r["from_status"],
+                    "to": r["to_status"],
+                    "gateway": r["gateway_status"],
+                })
+            elif not r.get("ok"):
+                results["errors"] += 1
+        except Exception:
+            results["errors"] += 1
+    return results

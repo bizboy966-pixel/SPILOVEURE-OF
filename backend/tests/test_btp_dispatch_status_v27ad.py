@@ -21,22 +21,22 @@ BTP = Path(__file__).resolve().parents[1] / "biztranspay.py"
 ADMIN_UI = Path(__file__).resolve().parents[2] / "frontend" / "app" / "(admin)" / "index.tsx"
 
 
-def test_btp_dispatch_keeps_status_pending():
+def test_btp_dispatch_no_longer_hardcodes_dispatched_status():
+    """v27ad + v27af : the dispatcher must never set status='dispatched'.
+    Status now comes from _TERMINAL_OK / _TERMINAL_KO mapping (v27af) or
+    stays 'pending' if the sync response is non-terminal."""
     src = BTP.read_text()
-    # Locate the whole dispatch_biztranspay_withdrawal function body.
     m = re.search(
         r"async def dispatch_biztranspay_withdrawal\([^)]*\).*?(?=\nasync def |\n# ─── )",
         src, re.S,
     )
     assert m, "dispatch_biztranspay_withdrawal function not found"
     block = m.group(0)
-    # The old regression pattern that caused prod bug — must be gone.
     assert '"status": "dispatched"' not in block, (
-        "Regression: BTP dispatcher again sets status='dispatched', which "
-        "makes withdrawals invisible in the admin panel."
+        "Regression: BTP dispatcher again sets status='dispatched'."
     )
-    # The new success path must persist all these fields.
-    assert '"status": "pending"' in block, "status must stay 'pending' post-dispatch"
+    # New v27af logic must be present.
+    assert 'internal_status' in block
     assert '"auto_dispatched": True' in block
     assert '"payout_id"' in block
     assert '"dispatched_at"' in block

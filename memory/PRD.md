@@ -21,6 +21,36 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27af) — 🎯 Fix : retrait BTP `gateway_status=completed` mais `status=pending`
+
+**Rapport utilisateur (screenshots joints)** : carte admin affiche `AUTO-RETRAIT • BIZ-TRANSPAY`, `Statut passerelle: completed`, `ID passerelle` renseigné — MAIS le retrait reste dans l'onglet **En attente** (pill jaune) au lieu de basculer en **Validés**.
+
+**Cause racine** : BTP retourne parfois un statut **terminal synchrone** dans la réponse `/payouts` (opérateurs qui clearent instantanément). Mon fix v27ad forçait toujours `status="pending"` en attendant le webhook. Résultat : retraits déjà payés bloqués visuellement en attente.
+
+**Fix v27af** (`biztranspay.py::dispatch_biztranspay_withdrawal`) :
+- Nouveaux sets `_TERMINAL_OK = {"completed", "succeeded", "paid", "success", "sent", "delivered"}` et `_TERMINAL_KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}`
+- Post-`/payouts` : si `payout_status ∈ _TERMINAL_OK` → `status="completed"` + `completed_at` IMMÉDIATEMENT. Si `∈ _TERMINAL_KO` → `status="rejected"` + `rejected_at` + **refund automatique** (`$inc balance_profit`).
+- Si intermédiaire (`pending`/`processing`) → `status="pending"` comme avant (webhook fera le reste).
+
+**Nouveaux endpoints admin** (`server.py`) :
+- **`POST /api/admin/withdrawals/{wd_id}/reconcile`** — force poll BTP `GET /payouts/{id}` pour un retrait bloqué. Met à jour status + refund si terminal-fail. Idempotent.
+- **`POST /api/admin/withdrawals/reconcile-all`** — sweep global des retraits `auto_dispatched=true` + `gateway=biztranspay` + `status ∈ {pending, dispatched, processing}` avec `payout_id` non-null. Retourne `{scanned, updated, errors, changes}`.
+
+**Nouvelles fonctions helpers** (`biztranspay.py`) :
+- `reconcile_withdrawal(db, wd)` — poll unique du gateway, mise à jour atomique.
+- `reconcile_all_dispatched(db)` — orchestrateur du sweep.
+
+**Test de régression** — `/app/backend/tests/test_btp_sync_terminal_status_v27af.py` (**5/5 passent**) :
+- `_TERMINAL_OK` et `_TERMINAL_KO` contiennent tous les libellés attendus
+- `reconcile_withdrawal` + `reconcile_all_dispatched` existent
+- Endpoints admin enregistrés dans server.py
+- Sync-rejection déclenche le refund `balance_profit`
+- Test unitaire de `reconcile_withdrawal` avec DB mockée : status "failed" → to_status="rejected" + refund 5000 FCFA appelé
+
+**Migration prod** : après redéploiement, l'admin peut cliquer **"Reconcile all"** dans un bouton dédié (ou hitter directement `POST /api/admin/withdrawals/reconcile-all`) pour rattraper tous les retraits déjà dispatchés dont le status ne matche pas BTP. Ensuite les nouveaux retraits seront directement en `completed` si BTP répond synchronement.
+
+---
+
 ### 2026-03-04 (v27ae) — 🎯 Cohérence totale panel admin retraits/activations (source unique de vérité)
 
 **Demande utilisateur (verbatim, 22 points)** : « retrait validé auto pas trouvé dans Validés / recherche par référence prestataire ne marche pas / statistique en attente reste à 5 alors que la liste est à 0 / prestataire pas assez visible / une seule source de vérité pour stats + listes + filtres + recherche ».
