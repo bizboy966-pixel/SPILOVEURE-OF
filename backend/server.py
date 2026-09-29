@@ -3680,7 +3680,12 @@ async def admin_stats(request: Request):
     total_activations_auto = total_auto_agg[0]["total"] if total_auto_agg else 0
     total_activations = (total_activations_manual or 0) + (total_activations_auto or 0)
     total_wd_agg = await db.withdrawals.aggregate([
-        {"$match": {"status": "validated"}},
+        # v27ab (2026-03-04) — include auto-dispatched withdrawals that were
+        # confirmed by the payment gateway (BTP / SoleasPay webhook sets
+        # status="completed"). Previously they were invisible from the
+        # aggregate total because only "validated" (manual admin action) was
+        # counted.
+        {"$match": {"status": {"$in": ["validated", "completed"]}}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
     total_withdrawals = total_wd_agg[0]["total"] if total_wd_agg else 0

@@ -1155,10 +1155,16 @@ export default function AdminHome() {
               }
               return filtered.map((w) => {
                 const isMission = w.withdrawal_type === "mission";
+                // v27ab (2026-03-04) — expose "Auto-retrait" badge when the
+                // gateway (BTP / SoleasPay) auto-dispatched this withdrawal.
+                const isAuto = !!w.auto_dispatched;
+                const gwLabel = w.gateway === "biztranspay" ? "Biz-transPay"
+                              : w.gateway === "soleaspay"   ? "SoleasPay"
+                              : (w.gateway || "");
                 return (
-                <Card key={w.id} style={{ marginBottom: 8, ...(isMission ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : {}) }}>
+                <Card key={w.id} style={{ marginBottom: 8, ...(isMission ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : isAuto ? { borderLeftWidth: 4, borderLeftColor: "#0EA5E9" } : {}) }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
                     <Text style={styles.userName}>{w.username}</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: isMission ? "#FEF3C7" : "#D1FAE5" }}>
                       <Ionicons name={isMission ? "trophy" : "cash"} size={11} color={isMission ? "#92400E" : "#065F46"} />
@@ -1166,6 +1172,17 @@ export default function AdminHome() {
                         {isMission ? "MISSION" : "COMMISSIONS"}
                       </Text>
                     </View>
+                    {isAuto && (
+                      <View
+                        testID={`admin-wd-auto-badge-${w.id}`}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: "#DBEAFE" }}
+                      >
+                        <Ionicons name="flash" size={11} color="#0369A1" />
+                        <Text style={{ color: "#0369A1", fontWeight: "800", fontSize: 10, letterSpacing: 0.5 }}>
+                          AUTO-RETRAIT{gwLabel ? ` • ${gwLabel.toUpperCase()}` : ""}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   <PillStatus status={w.status} />
                 </View>
@@ -1208,6 +1225,22 @@ export default function AdminHome() {
                   {w.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(w.rejected_at)} /> : null}
                   {w.decided_at && !w.validated_at && !w.rejected_at ? <KvRow k="Traité le" v={formatDateTime(w.decided_at)} /> : null}
                   {w.reject_reason ? <KvRow k="Motif de rejet" v={w.reject_reason} /> : null}
+                  {/* v27ab — gateway details when auto-dispatched */}
+                  {isAuto ? (
+                    <>
+                      <KvRow k="Passerelle" v={gwLabel || "—"} />
+                      {w.payout_id ? <KvRow k="ID passerelle" v={w.payout_id} copyable testID={`admin-copy-payoutid-${w.id}`} /> : null}
+                      {w.gateway_status ? <KvRow k="Statut passerelle" v={w.gateway_status} /> : null}
+                      {w.gateway_error ? <KvRow k="Erreur passerelle" v={String(w.gateway_error).slice(0, 200)} /> : null}
+                      {w.gateway_error_code ? <KvRow k="Code erreur" v={w.gateway_error_code} /> : null}
+                    </>
+                  ) : (w.gateway_error || w.gateway_error_code) ? (
+                    /* auto_dispatched=false BUT dispatcher tried & recorded an error */
+                    <>
+                      {w.gateway_error_code ? <KvRow k="Auto-dispatch échec" v={w.gateway_error_code} /> : null}
+                      {w.gateway_error ? <KvRow k="Détail" v={String(w.gateway_error).slice(0, 200)} /> : null}
+                    </>
+                  ) : null}
                 </View>
                 <View style={styles.actRow}>
                   <TouchableOpacity

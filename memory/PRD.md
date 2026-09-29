@@ -21,6 +21,41 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ab) — 🏷️ Badge "Auto-retrait" panel admin + stats consolidées
+
+**Demande utilisateur (verbatim)** : « Pour les retraits qui vont se valider automatiquement, ça doit s'afficher dans la même panel comme si c'est validé manuellement. Avec un badge "Validé automatiquement" ou "Auto-retrait". Dans Validé, Rejeté ou En attente — tu vas le trouver. Ça va comptabiliser au niveau de la statistique aussi. »
+
+**Backend** (`server.py::admin_stats`) :
+- `total_wd_agg` aggregate étendu à `status ∈ ["validated", "completed"]` — les retraits auto-dispatchés confirmés par le webhook BTP (`status="completed"`) sont désormais comptabilisés dans `total_withdrawals_amount` en plus des retraits validés manuellement (`status="validated"`). Avant, ils étaient invisibles dans la statistique globale.
+- `admin_list_withdrawals` renvoie déjà tous les champs nécessaires (`auto_dispatched`, `gateway`, `payout_id`, `gateway_status`, `gateway_error`, `gateway_error_code`) — aucun changement requis.
+
+**Frontend admin** (`(admin)/index.tsx`) :
+- Nouveau badge bleu **"⚡ AUTO-RETRAIT • BIZ-TRANSPAY"** (ou SoleasPay) à côté du badge COMMISSIONS/MISSION quand `w.auto_dispatched === true`.
+- Bordure gauche bleue (`#0EA5E9`) sur les cartes auto-dispatchées pour repérage rapide dans la liste.
+- Nouveaux KvRow visibles quand `auto_dispatched=true` :
+  - **Passerelle** : Biz-transPay / SoleasPay
+  - **ID passerelle** : payout_id copiable
+  - **Statut passerelle** : `paid`, `pending`, `succeeded`, etc.
+  - **Erreur passerelle** : détail complet si échec côté gateway
+  - **Code erreur** : `INVALID_API_KEY`, `INSUFFICIENT_BALANCE`, etc.
+- Cas `auto_dispatched=false` mais erreur enregistrée (opérateur non mappé…) → affichage **"Auto-dispatch échec"** + détail (grâce au fix v27z de persistance systématique).
+- Les 3 sous-onglets **En attente / Validés / Rejetés** filtraient déjà correctement (`Validés` inclut `completed` → statut retourné par le webhook BTP après succès).
+- Nouveau testID : `admin-wd-auto-badge-{id}` pour QA.
+
+**Test de régression** — `/app/backend/tests/test_auto_withdrawal_admin_panel_v27ab.py` (**3/3 passent**) :
+- `admin_stats.total_withdrawals_amount` matche `["validated", "completed"]`
+- Badge `AUTO-RETRAIT` + testID + champs gateway présents dans l'UI admin
+- Sous-onglet `Validés` continue d'inclure `w.status === "completed"` (garde-fou contre régression)
+
+**Comportement final garanti** :
+- ✅ Retrait auto-validé par BTP → apparaît dans **Validés** avec badge "AUTO-RETRAIT • BIZ-TRANSPAY" + `payout_id` cliquable
+- ✅ Retrait auto-rejeté par BTP → apparaît dans **Rejetés** avec badge + code erreur (ex: `INSUFFICIENT_BALANCE`)
+- ✅ Retrait auto-dispatché en cours → apparaît dans **En attente** avec badge + statut passerelle
+- ✅ Retrait manuel classique → aucun badge (comportement historique préservé)
+- ✅ Total FCFA de la stat compte les retraits validés manuellement ET les auto-complétés
+
+---
+
 ### 2026-03-04 (v27aa) — 🐛 Fix critique déconnexion involontaire pendant la navigation rapide
 
 **Rapport utilisateur** : après ~20 clics de navigation rapide dans le bottom-nav (Accueil → IA SPV → Tâches → Trading → Profil...), l'app affiche brutalement l'écran de login "Bienvenue de retour !" alors que le token JWT est encore valide (720 min de TTL).
