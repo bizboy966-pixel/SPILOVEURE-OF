@@ -21,6 +21,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ac) — 🏷️ Activations automatiques Biz-transPay visibles + stats consolidées
+
+**Demande utilisateur (verbatim)** : « Tu fais pareil aussi pour les dépôts automatiques. Tous les dépôts automatiques doivent être comptabilisés sur la statistique comme il le faut et aussi dans les parties activation, valider, rejeter et en attente selon son statut. »
+
+**Cause racine** : `admin_list_activations` et `admin_stats` filtraient uniquement `provider ∈ ["soleaspay", "ashtecpay"]`. Toutes les activations Biz-transPay (Mobile Money `kind=activation` + Crypto USDT.BEP20 `kind=activation_crypto`) étaient **invisibles côté admin** ET **absentes du total FCFA activations**.
+
+**Backend** (`server.py`) :
+1. `admin_stats.activations_pending_auto` — compte étendu à `["soleaspay", "ashtecpay", "biztranspay"]`.
+2. `admin_stats.total_auto_agg` — aggregate FCFA étendu à `biztranspay` (avec `activation_done=True`).
+3. `admin_list_activations` — merge query `provider ∈ ["soleaspay", "ashtecpay", "biztranspay"]`.
+4. Mapping `status="expired"` → bucket **rejected** (BTP marque `expired` après 10 min sans confirmation). Auparavant `expired` restait invisible.
+5. Le sweep 12h existant continue de marquer les stuck en `failed` (converti aussi en `rejected` côté panel).
+
+**Frontend admin** (`(admin)/index.tsx`) :
+- `MethodBadge` enrichi d'un param `provider` — le badge affiche désormais **AUTO • BTP**, **AUTO • SOLEAS**, **AUTO • ASHTEC** ou **AUTO • IZI** selon la passerelle. Idem pour `CRYPTO • BTP` / `CRYPTO • IZI` pour les activations crypto automatiques.
+- KvRow "Mode de paiement" enrichi : "Automatique (Biz-transPay)", "Automatique (AshtecPay)", "Automatique (SoleasPay)", "Automatique (BTP Crypto USDT.BEP20)".
+- Le panel filtre en amont via `?status=…` — les 3 sous-onglets **En attente / Activées / Rejetées** fonctionnent identiquement pour toutes les passerelles.
+
+**Test de régression** — `/app/backend/tests/test_admin_activations_auto_v27ac.py` (**4/4 passent**) :
+- `admin_list_activations` merge query contient les 3 providers
+- `activations_pending_auto` + `total_auto_agg` incluent biztranspay
+- Le filtre `rejected` matche `failed` ET `expired`
+- Badge frontend accepte `provider` + affiche "AUTO • BTP" + labels français corrects
+
+**Comportement final garanti** :
+- ✅ Activation BTP Mobile Money en cours → **En attente** avec badge "AUTO • BTP"
+- ✅ Activation BTP Crypto USDT.BEP20 confirmée → **Activées** avec badge "CRYPTO • BTP"
+- ✅ Activation BTP échouée (401 provider, opérateur down, timeout 10 min) → **Rejetées** avec `activation_error`
+- ✅ Dashboard `activations_pending` + `total_activations_amount` reflètent tous les providers auto (BTP inclus)
+- ✅ Aucune régression sur SoleasPay/AshtecPay/IziChange — badges et compteurs identiques
+
+---
+
 ### 2026-03-04 (v27ab) — 🏷️ Badge "Auto-retrait" panel admin + stats consolidées
 
 **Demande utilisateur (verbatim)** : « Pour les retraits qui vont se valider automatiquement, ça doit s'afficher dans la même panel comme si c'est validé manuellement. Avec un badge "Validé automatiquement" ou "Auto-retrait". Dans Validé, Rejeté ou En attente — tu vas le trouver. Ça va comptabiliser au niveau de la statistique aussi. »

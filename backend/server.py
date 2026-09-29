@@ -3639,7 +3639,10 @@ async def admin_stats(request: Request):
     # activation_done is false (stuck — needs admin attention).
     activations_pending_manual = await db.activations.count_documents({"status": "pending"})
     activations_pending_auto = await db.payments.count_documents({
-        "provider": {"$in": ["soleaspay", "ashtecpay"]},
+        # v27ac (2026-03-04) — include biztranspay (mobile + crypto)
+        # in the automatic pending count so the dashboard reflects
+        # every gateway, not just SoleasPay / AshtecPay.
+        "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]},
         "$or": [
             {"status": "pending"},
             {"status": "paid", "activation_done": {"$ne": True}},
@@ -3672,7 +3675,9 @@ async def admin_stats(request: Request):
     # provider dispatched to. All amounts are in FCFA (XOF/XAF).
     total_auto_agg = await db.payments.aggregate([
         {"$match": {
-            "provider": {"$in": ["soleaspay", "ashtecpay"]},
+            # v27ac — biztranspay activations (mobile money + crypto USDT.BEP20)
+            # must be aggregated too.
+            "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]},
             "activation_done": True,
         }},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
@@ -4066,15 +4071,19 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
             if not it.get("email") and it.get("user_id"):
                 it["email"] = user_map.get(it["user_id"])
 
-    # Merge automatic payments (SoleasPay legacy + AshtecPay current).
-    # Both providers store their payment docs in `db.payments` with the same
-    # basic shape, so we can iterate them uniformly.
+    # Merge automatic payments (SoleasPay legacy + AshtecPay current + Biz-transPay).
+    # All three providers store their payment docs in `db.payments` with the
+    # same basic shape, so we can iterate them uniformly.
     #
     # When the caller asks for a specific status we push the equivalent
     # filter into the MongoDB query so `.limit(500)` doesn't silently
     # truncate the result — this was the root cause of the "dashboard
     # says 108 pending, list only shows 4" discrepancy in prod.
-    payment_query: dict = {"provider": {"$in": ["soleaspay", "ashtecpay"]}}
+    #
+    # v27ac (2026-03-04) — biztranspay added so mobile-money AND crypto
+    # USDT.BEP20 activations dispatched through BTP land in the admin panel
+    # with the same buckets (pending / validated / rejected) as SoleasPay.
+    payment_query: dict = {"provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]}}
     if status_filter == "pending":
         payment_query["$or"] = [
             {"status": "pending"},
@@ -4084,13 +4093,13 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
         payment_query["status"] = "paid"
         payment_query["activation_done"] = True
     elif status_filter == "rejected":
-        payment_query["status"] = "failed"
+        payment_query["status"] = {"$in": ["failed", "expired"]}
     auto_cursor = db.payments.find(payment_query, {"_id": 0}).sort("created_at", -1).limit(500)
     async for p in auto_cursor:
         raw_status = p.get("status") or "pending"
         if raw_status == "paid":
             mapped_status = "validated" if p.get("activation_done") else "pending"
-        elif raw_status == "failed":
+        elif raw_status in ("failed", "expired"):
             mapped_status = "rejected"
         else:
             mapped_status = "pending"

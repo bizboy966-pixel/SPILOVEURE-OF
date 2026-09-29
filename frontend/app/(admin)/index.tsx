@@ -920,7 +920,7 @@ export default function AdminHome() {
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
                     <Text style={styles.userName}>{a.username}</Text>
-                    <MethodBadge method={a.payment_method} stuck={isStuck} />
+                    <MethodBadge method={a.payment_method} stuck={isStuck} provider={a.provider} />
                   </View>
                   <PillStatus status={a.status} />
                 </View>
@@ -928,8 +928,15 @@ export default function AdminHome() {
                   <KvRow k="Niveau" v={`Niveau ${a.level}`} />
                   {a.email ? <KvRow k="E-mail" v={a.email} /> : null}
                   <KvRow k="Mode de paiement" v={
-                    isAuto ? "Automatique (SoleasPay)" :
-                    a.payment_method === "crypto_auto" ? "Automatique (Crypto USDT BEP20)" :
+                    isAuto ? (
+                      a.provider === "biztranspay" ? "Automatique (Biz-transPay)" :
+                      a.provider === "ashtecpay"   ? "Automatique (AshtecPay)" :
+                                                     "Automatique (SoleasPay)"
+                    ) :
+                    a.payment_method === "crypto_auto" ? (
+                      a.provider === "biztranspay" ? "Automatique (BTP Crypto USDT.BEP20)"
+                                                    : "Automatique (Crypto USDT BEP20)"
+                    ) :
                     (a.payment_method?.replace("_", " ") || "—")
                   } />
                   {a.payer_country ? <KvRow k="Pays" v={a.payer_country} /> : null}
@@ -3384,12 +3391,20 @@ function PillStatus({ status }: { status: string }) {
   );
 }
 
-function MethodBadge({ method, stuck }: { method?: string; stuck?: boolean }) {
+function MethodBadge({ method, stuck, provider }: { method?: string; stuck?: boolean; provider?: string }) {
+  // v27ac (2026-03-04) — show provider suffix on AUTO badge so admins can
+  // instantly distinguish Biz-transPay from SoleasPay / AshtecPay activations.
+  const providerLabel = provider === "biztranspay" ? "BTP"
+                      : provider === "soleaspay"   ? "SOLEAS"
+                      : provider === "ashtecpay"   ? "ASHTEC"
+                      : provider === "izichange"   ? "IZI"
+                      : "";
+  const autoLabel = providerLabel ? `AUTO • ${providerLabel}` : "AUTO";
   const cfg: any = ({
-    automatic: { bg: "#DBEAFE", color: "#1E40AF", icon: "flash", label: "AUTO" },
+    automatic: { bg: "#DBEAFE", color: "#1E40AF", icon: "flash", label: autoLabel },
     manual: { bg: "#D1FAE5", color: "#065F46", icon: "card", label: "MANUEL" },
     crypto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO" },
-    crypto_auto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: "CRYPTO AUTO" },
+    crypto_auto: { bg: "#FEF3C7", color: "#92400E", icon: "logo-bitcoin", label: providerLabel ? `CRYPTO • ${providerLabel}` : "CRYPTO AUTO" },
   } as any)[method || "manual"] || { bg: "#E5E7EB", color: "#374151", icon: "help-circle", label: (method || "—").toUpperCase() };
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: cfg.bg }}>
