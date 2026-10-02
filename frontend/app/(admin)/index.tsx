@@ -444,6 +444,18 @@ export default function AdminHome() {
 
   useEffect(() => { load(); }, [load]);
 
+  // v27ai (2026-03-04) — soft auto-refresh for live admin visibility :
+  // when the admin is parked on the withdrawals or activations tab, poll
+  // every 20s. Catches webhook-driven status flips (BTP push.succeeded)
+  // without the admin needing to switch tabs or reload. Cheap — the API
+  // route is cache: "no-store" and MongoDB queries are indexed on `status`
+  // + `created_at`.
+  useEffect(() => {
+    if (tab !== "withdrawals" && tab !== "activations") return;
+    const t = setInterval(() => { load().catch(() => {}); }, 20000);
+    return () => clearInterval(t);
+  }, [tab, load]);
+
   const fetchServerIp = useCallback(async () => {
     setIpLoading(true);
     setIpError(null);
@@ -473,15 +485,20 @@ export default function AdminHome() {
     }
   }, [serverIp]);
 
-  const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie") => {
+  const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie", opts?: { autoSwitchTo?: "validated" | "rejected" | "pending" }) => {
     try {
       await fn();
       notify("Succès", ok);
       await load();
+      // v27ai (2026-03-04) — after validate / reject, auto-switch the admin
+      // to the destination sub-tab so he visually sees the retrait moved.
+      // Avoids the "I clicked Valider but the retrait is still in En attente"
+      // confusion (actual root cause of the user bug report).
+      if (opts?.autoSwitchTo) {
+        setWdFilter(opts.autoSwitchTo);
+      }
     } catch (e: any) {
       const msg = e?.detail || e?.message || "Une erreur est survenue.";
-      // Log the raw error for diagnostics — spec §3 requires visible admin
-      // errors AND server logs.
       console.error("[admin action] failed:", e);
       notify("Erreur", msg);
     }
@@ -1312,11 +1329,11 @@ export default function AdminHome() {
                           <Text style={styles.actT}>🔄 Vérifier statut</Text>
                         </TouchableOpacity>
                       )}
-                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`))} testID={`admin-validate-wd-${w.id}`}>
+                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Retrait validé", { autoSwitchTo: "validated" })} testID={`admin-validate-wd-${w.id}`}>
                         <Ionicons name="checkmark" size={14} color="#fff" />
                         <Text style={styles.actT}>Valider</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`))} testID={`admin-reject-wd-${w.id}`}>
+                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`), "✅ Retrait rejeté", { autoSwitchTo: "rejected" })} testID={`admin-reject-wd-${w.id}`}>
                         <Ionicons name="close" size={14} color="#fff" />
                         <Text style={styles.actT}>Rejeter</Text>
                       </TouchableOpacity>

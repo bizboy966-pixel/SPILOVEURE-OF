@@ -21,6 +21,45 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ai) — ✅ Auto-switch sub-tab après action + polling live 20s
+
+**Rapport utilisateur** : « Le retrait auto fonctionne, mais dès que c'est validé dans l'admin panel, ça reste toujours en attente là-bas. Or c'est validé. »
+
+**Vraie cause (UX, pas data)** : après clic sur "Valider", le backend bascule bien `status="completed"` et le frontend refetch les données. MAIS l'admin reste sur l'onglet "En attente" où le retrait n'apparaît plus (il est passé en Validés) → sensation que "ça n'a pas marché". Le retrait est bien dans **Validés**, mais l'admin ne le voit pas car il n'a pas cliqué sur ce sub-tab.
+
+**Fixes v27ai** (`(admin)/index.tsx`) :
+
+1. **`action()` enrichi** avec paramètre optionnel `opts.autoSwitchTo` :
+   ```typescript
+   action(() => api.post(`/validate`), "✅ Retrait validé", { autoSwitchTo: "validated" })
+   action(() => api.post(`/reject`), "✅ Retrait rejeté", { autoSwitchTo: "rejected" })
+   ```
+   Après succès de l'appel + refresh, `setWdFilter("validated")` bascule automatiquement l'admin sur l'onglet où le retrait est maintenant → l'admin VOIT instantanément la bascule.
+
+2. **Polling live 20s** sur les onglets Retraits + Activations :
+   ```typescript
+   useEffect(() => {
+     if (tab !== "withdrawals" && tab !== "activations") return;
+     const t = setInterval(() => load().catch(() => {}), 20000);
+     return () => clearInterval(t);
+   }, [tab]);
+   ```
+   Capte les flips de statut déclenchés par le webhook BTP (push.succeeded) sans que l'admin ait à recharger la page. 20s = compromis latence vs charge (API routes `cache: no-store`, requêtes indexées).
+
+**Test de régression** — `/app/backend/tests/test_admin_live_refresh_v27ai.py` (**4/4 passent**) :
+- `action()` supporte `opts.autoSwitchTo`
+- Bouton Valider pointe sur `"validated"`
+- Bouton Rejeter pointe sur `"rejected"`
+- Polling 20s configuré avec cleanup clearInterval sur unmount
+
+**Comportement final** :
+- ✅ Admin clique Valider → notification "✅ Retrait validé" → bascule auto sur sub-tab "Validés" → retrait visible dans sa nouvelle position
+- ✅ Admin clique Rejeter → bascule auto sur "Rejetés" (voit refund + raison)
+- ✅ Admin parqué sur l'onglet Retraits/Activations → webhook BTP arrive → 20s après, UI reflète le nouveau statut automatiquement
+- ✅ Fermeture propre du setInterval sur changement d'onglet (pas de leak)
+
+---
+
 ### 2026-03-04 (v27ah) — 🇨🇮 Ajout Côte d'Ivoire (MTN + Orange + Moov + Wave) sur Biz-transPay
 
 **Demande utilisateur** : « Ajouter MTN Côte d'Ivoire sur Biztrans. Actuellement il y a Bénin, Burkina et Togo. »
