@@ -129,6 +129,30 @@ OPERATORS: dict[str, dict] = {
              "aliases": ["coris", "coris money", "coris bank"]},
         ],
     },
+    "CI": {
+        "name": "Côte d'Ivoire",
+        "currency": "XOF",
+        "dial": "225",
+        "operators": [
+            # v27ah (2026-03-04) — added at user request.
+            # MTN Mobile Money Côte d'Ivoire (MoMo). Aliases couvrent les
+            # libellés que l'admin ou l'UI frontend pourraient envoyer.
+            {"code": "mtn_ci",    "label": "MTN Mobile Money",
+             "default_active": True,
+             "aliases": ["mtn", "mtn ci", "mtn momo", "mtn mobile money",
+                         "momo", "mtn côte d'ivoire", "mtn cote d'ivoire",
+                         "mtn cote divoire"]},
+            {"code": "orange_ci", "label": "Orange Money",
+             "default_active": True,
+             "aliases": ["orange", "orange money", "om", "orange ci"]},
+            {"code": "moov_ci",   "label": "Moov Money",
+             "default_active": True,
+             "aliases": ["moov", "moov money", "moov africa", "moov ci"]},
+            {"code": "wave_ci",   "label": "Wave",
+             "default_active": True,
+             "aliases": ["wave", "wave ci"]},
+        ],
+    },
 }
 
 

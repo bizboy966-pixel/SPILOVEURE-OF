@@ -21,6 +21,33 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ah) — 🇨🇮 Ajout Côte d'Ivoire (MTN + Orange + Moov + Wave) sur Biz-transPay
+
+**Demande utilisateur** : « Ajouter MTN Côte d'Ivoire sur Biztrans. Actuellement il y a Bénin, Burkina et Togo. »
+
+**Fix** (`biztranspay.py`) :
+- Nouveau pays **CI** (Côte d'Ivoire, XOF, dial 225) dans `OPERATORS` avec 4 opérateurs tous activés par défaut :
+  - `mtn_ci` — **MTN Mobile Money** (aliases : mtn, mtn ci, mtn momo, mtn mobile money, momo, mtn côte d'ivoire)
+  - `orange_ci` — Orange Money (orange, orange money, om, orange ci)
+  - `moov_ci` — Moov Money (moov, moov money, moov africa, moov ci)
+  - `wave_ci` — Wave (wave, wave ci)
+- `sync_providers` picks them up automatiquement au redémarrage backend → preview DB passe de 25 pays × 59 ops → **26 pays × 63 ops**.
+- Admin toggle BTP Côte d'Ivoire + ses opérateurs apparaissent instantanément dans l'UI admin (aucun hardcode côté frontend admin).
+- Frontend user `activation.tsx` connaît déjà CI (mapping prefix 225) → auto-détection pays depuis le numéro de tél fonctionne.
+
+**Test de régression** — `/app/backend/tests/test_biztranspay_ci_v27ah.py` (**4/4 passent**) :
+- Country CI registered (name/currency/dial)
+- MTN variants map to `mtn_ci` (y compris "MoMo", "MTN Côte d'Ivoire")
+- Orange/Moov/Wave CI mappés
+- TG/BJ/BF toujours intacts (zéro régression)
+
+**Comportement final** :
+- ✅ Admin voit CI dans Panel Admin → Prestataires → Biz-transPay → toggle pays
+- ✅ Utilisateur ivoirien avec numéro +225 → BTP s'affiche automatiquement comme option paiement
+- ✅ Retrait avec `operator="MTN"` + `country="CI"` → résolu à `mtn_ci` → dispatch BTP /payouts avec le bon code opérateur
+
+---
+
 ### 2026-03-04 (v27ag) — 🔘 Boutons Valider/Rejeter/Reconcile sur retraits stuck + auto-reconcile à l'ouverture
 
 **Rapport utilisateur (verbatim)** : « Certaines requêtes sont validées automatiquement mais toujours dans "En attente" — et pire, elles n'ont même pas de bouton Rejeter. Peu importe la manière (manuelle/auto), elles doivent respecter les mêmes règles. »
