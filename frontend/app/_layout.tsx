@@ -10,18 +10,37 @@ import { FeaturesProvider } from "@/src/features";
 import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 import { GlobalFonts } from "@/src/components/GlobalFonts";
-import { registerServiceWorker } from "@/src/pwaInstall";
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
 
-  // v27an (2026-03-04) — register the PWA service worker as soon as the
-  // app boots so SPILOVEURE becomes installable + offline-capable on
-  // Android, iOS and PC. No admin configuration required.
+  // v27as (2026-03-04) — SPILOVEURE Service Worker + UpdateGate retirés
+  // à la demande utilisateur. On nettoie proactivement toute installation
+  // SW et tous les caches shell laissés par les versions v27an/v27aq afin
+  // que les clients existants ne soient plus bloqués par un ancien
+  // bundle en cache et que Chrome arrête d'afficher « Impossible
+  // d'installer cette appli ». Zéro impact fonctionnel sur les utilisateurs
+  // nouveaux.
   useEffect(() => {
-    registerServiceWorker().catch(() => {});
+    if (typeof window === "undefined") return;
+    (async () => {
+      try {
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+        }
+        if (typeof caches !== "undefined") {
+          const keys = await caches.keys();
+          await Promise.all(
+            keys
+              .filter((k) => k.startsWith("spiloveure-"))
+              .map((k) => caches.delete(k).catch(() => false)),
+          );
+        }
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   useEffect(() => {

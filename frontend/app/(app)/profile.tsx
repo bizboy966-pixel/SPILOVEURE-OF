@@ -14,7 +14,6 @@ import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/fireba
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
 import { CLIENT_VERSION } from "@/src/version";
-import { InstallAppCard } from "@/src/components/InstallAppCard";
 
 export default function Profile() {
   const router = useRouter();
@@ -157,8 +156,9 @@ export default function Profile() {
           </View>
         </Card>
 
-        {/* v27aj (2026-03-04) — Application SPILOVEURE : version + info plateforme */}
-        <InstallAppCard />
+        {/* v27as (2026-03-04) — carte InstallAppCard et UpdateGate
+            retirées : conservation uniquement de la version du client
+            affichée dans le footer de la carte Profil. */}
       </ScrollView>
 
       <BottomNav />
