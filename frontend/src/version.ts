@@ -12,4 +12,4 @@
 //      → clicks "Publier la nouvelle version"
 //   5. All older clients see the blocking "Mise à jour requise" modal
 //      and reload (which pulls the new frontend bundle from the CDN).
-export const CLIENT_VERSION = "1.0.0";
+export const CLIENT_VERSION = "1.1.0";

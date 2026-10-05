@@ -29,6 +29,14 @@ log = logging.getLogger("app_versions")
 public_router = APIRouter(prefix="/api/app", tags=["app-version"])
 admin_router = APIRouter(prefix="/api/admin/versions", tags=["app-version-admin"])
 
+# v27an (2026-03-04) — path to the frontend's app.json. Used by
+# `auto_sync_from_frontend_version()` to detect new releases without any
+# admin intervention : bump `app.json → expo.version`, redeploy, done.
+import os as _os
+_FRONTEND_APP_JSON = _os.environ.get(
+    "FRONTEND_APP_JSON", "/app/frontend/app.json"
+)
+
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$")
 
@@ -298,6 +306,57 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
         "at": datetime.now(timezone.utc),
     })
     return {"ok": True, "settings": s}
+
+
+async def auto_sync_from_frontend_version(db) -> dict:
+    """v27an — zero-admin auto-publish.
+
+    Reads `/app/frontend/app.json` on backend startup and, if `expo.version`
+    is strictly greater than the stored `current_version`, publishes it
+    automatically (sets `current_version`, `minimum_supported_version`,
+    `mandatory=True`). This is the trigger the user asked for: the version
+    IS the deployment, no admin button, no APK upload.
+
+    Idempotent — re-running with the same version does nothing.
+    """
+    try:
+        import json as _json
+        with open(_FRONTEND_APP_JSON, "r", encoding="utf-8") as f:
+            cfg = _json.load(f)
+        version = str(((cfg or {}).get("expo") or {}).get("version") or "").strip()
+    except Exception as e:  # noqa: BLE001
+        log.warning("auto_sync_from_frontend_version: cannot read %s : %s", _FRONTEND_APP_JSON, e)
+        return {"ok": False, "reason": "cannot-read-app-json"}
+    if not version or not _is_valid_semver(version):
+        return {"ok": False, "reason": f"invalid-version:{version!r}"}
+    cur = await _get_settings(db)
+    if _cmp(version, cur["current_version"]) <= 0:
+        return {"ok": True, "changed": False, "version": version}
+    now = datetime.now(timezone.utc)
+    existing = await db.app_versions.find_one({"version": version})
+    if existing:
+        await db.app_versions.update_one(
+            {"version": version},
+            {"$set": {"status": "published", "mandatory": True,
+                      "published_at": now, "updated_at": now,
+                      "notes": existing.get("notes") or "Publication automatique (app.json)"}},
+        )
+        vid = existing.get("id") or str(uuid.uuid4())
+    else:
+        vid = str(uuid.uuid4())
+        await db.app_versions.insert_one({
+            "id": vid, "version": version, "status": "published",
+            "mandatory": True, "notes": "Publication automatique (app.json)",
+            "published_by": "system-auto", "created_at": now,
+            "published_at": now, "updated_at": now,
+        })
+    new_settings = await _save_settings(db, {
+        "current_version": version,
+        "minimum_supported_version": version,
+        "mandatory": True,
+    })
+    log.info("auto_sync: published app version %s (previous %s)", version, cur["current_version"])
+    return {"ok": True, "changed": True, "version": version, "settings": new_settings}
 
 
 def register(app):

@@ -21,6 +21,30 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27an) — ✅ PWA Installable + Mise à jour automatique sans APK
+
+**User spec** : installation + auto-update sans intervention admin, sans upload d'APK. L'utilisateur veut une expérience native sur Android/iPhone/PC avec téléchargement, progression réelle, « Installer maintenant », et détection automatique de nouvelles versions publiées depuis l'environnement de dev.
+
+**Implementation (approche PWA)** :
+- Service Worker (`/public/sw.js`) : cache intelligent du shell SPILOVEURE + pre-cache streaming avec progression réelle (bytes transférés).
+- `InstallAppCard` dans Profil → bouton « Télécharger » déclenche le pre-cache du shell PWA via Service Worker avec progression réelle 0→100 %, affiche « ✅ Mise à jour téléchargée » puis « Installer maintenant » qui déclenche `beforeinstallprompt` (Android/Desktop) ou l'overlay d'instructions iOS « Partager → Sur l'écran d'accueil ».
+- `UpdateGate` : modal bloquant avec le même flux « Mettre à jour → progression → Installer maintenant ».
+- Backend `auto_sync_from_frontend_version()` lit `app.json` au boot et bump `current_version` + `minimum_supported_version` + `mandatory=true` automatiquement si la version a changé → tous les clients plus anciens voient l'écran bloquant.
+- Admin Panel : plus de champ APK URL / taille (le code auto-sync remplace l'intervention manuelle). La carte Versions reste disponible pour publier manuellement une version intermédiaire si besoin.
+- Tests : 11/11 (`test_app_versions_v27aj.py` + `test_app_versions_autosync_v27an.py`).
+
+### 2026-03-04 (v27ao) — ✅ Anneau WhatsApp status Marketplace
+
+**User spec** : indicateur de contenus non consultés sur la carte Marketplace du dashboard, type statuts WhatsApp. Anneau vert segmenté (1 segment par article non lu), badge rouge avec compteur, 9+ pour > 9, progression segment vert → gris lorsque consulté, persistance backend par utilisateur.
+
+**Implementation** :
+- Backend `/api/marketplace/unread-ring` renvoie `{unread_count, segments: [{id, seen}], has_more}`. Collection `marketplace_views` avec index unique `(user_id, listing_id)`.
+- `/api/marketplace/{id}/mark-seen` → marque UN listing précis comme consulté par cet utilisateur, idempotent.
+- Composant `UnreadRing` (SVG + Animated) : variantes 1-9 segments, 0 (anneau gris idle), 9+ (anneau continu compact). Réutilisable pour futurs services.
+- Dashboard : wrap de l'icône Marketplace avec `UnreadRing` + badge rouge inchangé.
+- Marketplace feed : `FlatList.onViewableItemsChanged` déclenche automatiquement `POST /marketplace/{id}/mark-seen` dès qu'une carte reste 500 ms visible à ≥50 %.
+- Tests : 5/5 (`test_marketplace_ring_v27ao.py`) — segments, has_more 9+, isolation par utilisateur, idempotence, exclusion du propriétaire.
+
 ### 2026-03-04 (v27am) — ✅ Re-ajout bouton download APK dans Profil + 1 champ URL admin
 
 **Clarification définitive** : l'utilisateur confirme vouloir :

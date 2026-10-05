@@ -14,6 +14,7 @@ import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/fireba
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
 import { CLIENT_VERSION } from "@/src/version";
+import { InstallAppCard } from "@/src/components/InstallAppCard";
 
 export default function Profile() {
   const router = useRouter();
@@ -157,7 +158,7 @@ export default function Profile() {
         </Card>
 
         {/* v27aj (2026-03-04) — Application SPILOVEURE : version + info plateforme */}
-        <AppVersionCard />
+        <InstallAppCard />
       </ScrollView>
 
       <BottomNav />
@@ -175,18 +176,15 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
   );
 }
 
-// v27am (2026-03-04) — AppVersionCard : affiche version web + bouton
-// "Télécharger l'APK Android" si l'admin a configuré apk_url.
-function AppVersionCard() {
-  const [v, setV] = React.useState<{
-    current_version?: string;
-    mandatory?: boolean;
-    apk_url?: string;
-    apk_size_mb?: number | null;
-  } | null>(null);
-  React.useEffect(() => {
-    api.get("/app/version").then((r: any) => setV(r)).catch(() => {});
-  }, []);
+// v27an (2026-03-04) — AppVersionCard retirée au profit de InstallAppCard
+// (voir /src/components/InstallAppCard.tsx). Flux complet : Télécharger →
+// progression réelle → ✅ Mise à jour téléchargée → Installer maintenant,
+// avec installation native PWA (Android WebAPK / iOS Add-to-Home / Chrome
+// Desktop) et détection auto des nouvelles versions publiées depuis app.json.
+// @ts-ignore
+function _AppVersionCard_legacy() {
+  // @ts-ignore
+  const v: any = null;
   const current = v?.current_version || "—";
   const installed = CLIENT_VERSION;
   const isOutdated = v?.current_version && v.current_version !== installed;
@@ -199,20 +197,8 @@ function AppVersionCard() {
         <Text style={styles.section}>📱 Application SPILOVEURE</Text>
       </View>
       <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
-        Application mobile officielle SPILOVEURE. Téléchargez l'APK Android pour l'installer sur votre téléphone.
+        (Legacy — rendu via InstallAppCard désormais.)
       </Text>
-      <View style={styles.itemRow}>
-        <View style={styles.itemIcon}><Ionicons name="rocket" size={16} color={theme.colors.primary} /></View>
-        <Text style={styles.itemLbl}>Version publiée</Text>
-        <Text style={styles.itemVal} testID="profile-current-version">{current}</Text>
-      </View>
-      <View style={styles.itemRow}>
-        <View style={styles.itemIcon}><Ionicons name="pricetag" size={16} color={theme.colors.primary} /></View>
-        <Text style={styles.itemLbl}>Votre version</Text>
-        <Text style={[styles.itemVal, isOutdated && { color: theme.colors.warning }]} testID="profile-installed-version">
-          {installed}{isOutdated ? " ⚠️" : " ✅"}
-        </Text>
-      </View>
       {apkUrl ? (
         <>
           <TouchableOpacity

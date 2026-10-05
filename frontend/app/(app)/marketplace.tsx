@@ -29,12 +29,38 @@ function MarketplaceScreenInner() {
     try {
       const r = await api.get<{ items: Listing[] }>("/marketplace");
       setItems(r.items || []);
-      // Clear the bottom-nav "new items" badge — mirrors what /(app)/ads does.
+      // Legacy bottom-nav clearing (kept for backward compat with the old
+      // timestamp badge). The v27ao per-item ring is now the source of
+      // truth and is updated by `markListingSeen()` below as each card
+      // scrolls into view.
       api.post("/marketplace/mark-seen").catch(() => {});
     }
     catch {} finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // v27ao (2026-03-04) — individual per-listing seen tracking.
+  // When a card becomes visible in the feed, we mark that specific
+  // listing as seen for the current user, which decrements the ring
+  // segment on the dashboard Marketplace card. Idempotent, debounced
+  // by a client-side set so we never retrigger for the same id.
+  const markedSeenRef = useRef<Set<string>>(new Set());
+  const markListingSeen = useCallback(async (id: string) => {
+    if (markedSeenRef.current.has(id)) return;
+    markedSeenRef.current.add(id);
+    try { await api.post(`/marketplace/${id}/mark-seen`, {}); }
+    catch { markedSeenRef.current.delete(id); }
+  }, []);
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    for (const vi of viewableItems || []) {
+      const id = vi?.item?.id;
+      if (id) markListingSeen(id);
+    }
+  }).current;
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 500,
+  }).current;
 
   const openWhatsapp = (num: string) => {
     const cleaned = num.replace(/[^0-9+]/g, "");
@@ -230,6 +256,8 @@ function MarketplaceScreenInner() {
           renderItem={renderItem}
           contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
           ListEmptyComponent={
             <View style={{ alignItems: "center", padding: 40 }}>
               <Ionicons name="cart-outline" size={48} color={theme.colors.textSecondary} />

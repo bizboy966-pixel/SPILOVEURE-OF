@@ -125,43 +125,182 @@ async def public_feed(request: Request, user=Depends(get_current_user)):
     return {"items": items}
 
 
-# ---------- "Nouveauté" badge for the bottom-nav Marketplace icon ----------
+# ---------- "Nouveauté" badge + WhatsApp-style ring (v27ao) ----------
 # NOTE: these static routes MUST come before `/marketplace/{listing_id}` so
-# that FastAPI doesn't interpret "unread-count" / "mark-seen" as a listing id.
+# that FastAPI doesn't interpret "unread-count" / "mark-seen" / "unread-ring"
+# as a listing id.
+#
+# v27ao (2026-03-04) — per-listing seen tracking (WhatsApp status style).
+# Each (user_id, listing_id) pair that the user has consulted is stored in
+# `marketplace_views` with `seen_at`. A listing counts as "unread" for a
+# user when :
+#   • It is `status=approved` AND
+#   • `seller_id != user.id` AND
+#   • No `marketplace_views` row exists for (user, listing)
+# The classic `/unread-count` + `/mark-seen` endpoints are kept for backward
+# compat (bottom-nav badge). The new ring UI uses `/unread-ring` which
+# returns the segmented list of recent items.
+
+# How many recent items to materialise in the ring (max). More than this
+# collapses to a compact "9+" indicator on the frontend.
+_RING_MAX = 9
+# How many additional "already-seen" items we include so the ring also
+# shows the WhatsApp-style gray tail (consumed items). Keep this small
+# so the ring never looks cluttered.
+_RING_SEEN_TAIL = 0  # we show ONLY unread + the current view transitions
+
+
 @public.get("/marketplace/unread-count")
 async def marketplace_unread_count(request: Request, user=Depends(get_current_user)):
-    """Return how many approved listings the user hasn't seen yet.
+    """Return how many approved listings the user hasn't individually
+    consulted yet (v27ao — per-item tracking, not just a timestamp).
 
-    Same semantics as /api/ads/unread-count: an item counts as "new" when its
-    `approved_at` is strictly greater than `users.last_marketplace_seen_at`.
-    Listings owned by the caller are excluded (seller doesn't get a badge
-    for their own newly-approved article) and expired items are ignored.
+    Owned listings are excluded. Expired items are excluded.
     """
     db = request.app.state.db
     if not await feature_enabled(db, "marketplace"):
         return {"unread": 0}
-    u = await db.users.find_one({"id": user["id"]}, {"last_marketplace_seen_at": 1}) or {}
-    seen = u.get("last_marketplace_seen_at")
-    q: dict = {
-        "status": "approved",
-        "seller_id": {"$ne": user["id"]},
-    }
-    if seen:
-        q["approved_at"] = {"$gt": seen}
-    unread = await db.marketplace_listings.count_documents(q)
+    # Collect all approved listings not owned by caller.
+    cursor = db.marketplace_listings.find(
+        {"status": "approved", "seller_id": {"$ne": user["id"]}},
+        {"id": 1},
+    )
+    ids = [doc["id"] async for doc in cursor]
+    if not ids:
+        return {"unread": 0}
+    # Collect the listings this user has already consulted individually.
+    seen_cur = db.marketplace_views.find(
+        {"user_id": user["id"], "listing_id": {"$in": ids}},
+        {"listing_id": 1},
+    )
+    seen_set = {d["listing_id"] async for d in seen_cur}
+    unread = sum(1 for i in ids if i not in seen_set)
     return {"unread": int(unread)}
+
+
+@public.get("/marketplace/unread-ring")
+async def marketplace_unread_ring(request: Request, user=Depends(get_current_user)):
+    """v27ao — per-item seen status for the WhatsApp-style ring on the
+    dashboard Marketplace card.
+
+    Response :
+        unread_count : total number of unread approved listings
+        segments     : up to `_RING_MAX` recent items, each
+                       {"id": str, "seen": bool, "approved_at": iso}
+                       ordered by `approved_at` desc. The frontend uses
+                       these to render the segmented ring.
+        has_more     : true when `unread_count > _RING_MAX` → frontend
+                       shows the compact "9+" ring variant.
+    """
+    db = request.app.state.db
+    if not await feature_enabled(db, "marketplace"):
+        return {"unread_count": 0, "segments": [], "has_more": False}
+    # Fetch the latest approved listings not owned by caller.
+    recent_cur = db.marketplace_listings.find(
+        {"status": "approved", "seller_id": {"$ne": user["id"]}},
+        {"id": 1, "approved_at": 1},
+    ).sort("approved_at", -1).limit(_RING_MAX + 1)
+    recent = [d async for d in recent_cur]
+    if not recent:
+        return {"unread_count": 0, "segments": [], "has_more": False}
+    # Fetch which of these the user has already consulted.
+    rec_ids = [d["id"] for d in recent]
+    seen_cur = db.marketplace_views.find(
+        {"user_id": user["id"], "listing_id": {"$in": rec_ids}},
+        {"listing_id": 1},
+    )
+    seen_set = {d["listing_id"] async for d in seen_cur}
+
+    # Also compute global unread count across all approved listings.
+    all_ids_cur = db.marketplace_listings.find(
+        {"status": "approved", "seller_id": {"$ne": user["id"]}}, {"id": 1},
+    )
+    all_ids = [d["id"] async for d in all_ids_cur]
+    all_seen_cur = db.marketplace_views.find(
+        {"user_id": user["id"], "listing_id": {"$in": all_ids}}, {"listing_id": 1},
+    )
+    all_seen = {d["listing_id"] async for d in all_seen_cur}
+    unread_total = sum(1 for i in all_ids if i not in all_seen)
+
+    has_more = unread_total > _RING_MAX
+    segments = []
+    for d in recent[:_RING_MAX]:
+        ts = d.get("approved_at")
+        segments.append({
+            "id": d["id"],
+            "seen": d["id"] in seen_set,
+            "approved_at": ts.astimezone(timezone.utc).isoformat() if isinstance(ts, datetime) else None,
+        })
+    return {
+        "unread_count": int(unread_total),
+        "segments": segments,
+        "has_more": bool(has_more),
+    }
 
 
 @public.post("/marketplace/mark-seen")
 async def marketplace_mark_seen(request: Request, user=Depends(get_current_user)):
-    """Reset the unread-marketplace badge (fires when the user opens /marketplace)."""
+    """v27ao — kept for backward compat with the bottom-nav badge.
+
+    Marks EVERY currently-approved listing as individually seen by the
+    caller (idempotent upsert). After this call `/unread-count` and
+    `/unread-ring` both return 0.
+    """
     db = request.app.state.db
     now = datetime.now(timezone.utc)
+    # Keep the legacy timestamp for anyone still reading it.
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {"last_marketplace_seen_at": now}},
     )
+    # Upsert a view row for every approved listing not owned by the user.
+    cur = db.marketplace_listings.find(
+        {"status": "approved", "seller_id": {"$ne": user["id"]}}, {"id": 1},
+    )
+    async for doc in cur:
+        await db.marketplace_views.update_one(
+            {"user_id": user["id"], "listing_id": doc["id"]},
+            {"$setOnInsert": {"user_id": user["id"], "listing_id": doc["id"], "seen_at": now}},
+            upsert=True,
+        )
     return {"ok": True, "at": now.isoformat()}
+
+
+@public.post("/marketplace/{listing_id}/mark-seen")
+async def marketplace_mark_listing_seen(
+    listing_id: str, request: Request, user=Depends(get_current_user),
+):
+    """v27ao — mark ONE specific listing as consulted by this user.
+
+    Fires when the user actually views the listing (card impression in the
+    feed, open-detail, etc.). Idempotent — repeated calls update nothing.
+    Returns the refreshed unread count so the UI can decrement its badge
+    in a single round-trip.
+    """
+    db = request.app.state.db
+    l = await db.marketplace_listings.find_one({"id": listing_id}, {"id": 1, "seller_id": 1})
+    if not l:
+        raise HTTPException(404, "Annonce introuvable.")
+    # Owner viewing their own listing : no-op (not counted anyway).
+    if l.get("seller_id") == user["id"]:
+        return {"ok": True, "unread": 0, "owned": True}
+    now = datetime.now(timezone.utc)
+    await db.marketplace_views.update_one(
+        {"user_id": user["id"], "listing_id": listing_id},
+        {"$setOnInsert": {"user_id": user["id"], "listing_id": listing_id, "seen_at": now}},
+        upsert=True,
+    )
+    # Recompute unread count (cheap — a few hundred listings max).
+    cursor = db.marketplace_listings.find(
+        {"status": "approved", "seller_id": {"$ne": user["id"]}}, {"id": 1},
+    )
+    ids = [d["id"] async for d in cursor]
+    seen_cur = db.marketplace_views.find(
+        {"user_id": user["id"], "listing_id": {"$in": ids}}, {"listing_id": 1},
+    )
+    seen_set = {d["listing_id"] async for d in seen_cur}
+    unread = sum(1 for i in ids if i not in seen_set)
+    return {"ok": True, "unread": int(unread), "listing_id": listing_id}
 
 
 @public.get("/marketplace/mine")

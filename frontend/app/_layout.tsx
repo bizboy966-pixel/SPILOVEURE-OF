@@ -10,11 +10,19 @@ import { FeaturesProvider } from "@/src/features";
 import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 import { GlobalFonts } from "@/src/components/GlobalFonts";
+import { registerServiceWorker } from "@/src/pwaInstall";
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
+
+  // v27an (2026-03-04) — register the PWA service worker as soon as the
+  // app boots so SPILOVEURE becomes installable + offline-capable on
+  // Android, iOS and PC. No admin configuration required.
+  useEffect(() => {
+    registerServiceWorker().catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (loaded || error) {

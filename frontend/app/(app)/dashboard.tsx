@@ -14,6 +14,7 @@ import { BottomNav } from "@/src/components/BottomNav";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import { DashboardHero } from "@/src/components/DashboardHero";
 import { TradingCard } from "@/src/components/TradingCard";
+import { UnreadRing } from "@/src/components/UnreadRing";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -225,6 +226,13 @@ export default function Dashboard() {
               s.key === "ads"         ? badges.ads :
               s.key === "emploi"      ? badges.jobs :
               0;
+            // v27ao (2026-03-04) — WhatsApp-status-style ring for Marketplace.
+            const ringData = s.key === "marketplace" ? badges.marketplaceRing : null;
+            const iconNode = (
+              <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
+                <Ionicons name={s.icon} size={22} color={s.color} />
+              </View>
+            );
             return (
               <TouchableOpacity
                 key={s.key}
@@ -234,9 +242,20 @@ export default function Dashboard() {
                 testID={`service-${s.key}`}
               >
                 <View style={styles.serviceIconWrap}>
-                  <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
-                    <Ionicons name={s.icon} size={22} color={s.color} />
-                  </View>
+                  {ringData ? (
+                    <UnreadRing
+                      segments={ringData.has_more
+                        ? Array.from({ length: 10 }, () => ({ seen: false }))
+                        : ringData.segments.map((seg) => ({ seen: !!seg.seen }))}
+                      size={60}
+                      thickness={3}
+                      testID={`service-${s.key}-ring`}
+                    >
+                      {iconNode}
+                    </UnreadRing>
+                  ) : (
+                    iconNode
+                  )}
                   {unread > 0 ? (
                     <View style={styles.serviceBadge} testID={`service-${s.key}-badge`}>
                       <Text style={styles.serviceBadgeTxt}>{unread > 9 ? "9+" : unread}</Text>

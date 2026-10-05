@@ -79,12 +79,27 @@ async def lifespan(app: FastAPI):
         _biztranspay_bind_db(db)
     except Exception:
         pass
-    # indexes
-    await db.users.create_index("id", unique=True)
+    # v27aj — minimalist app versioning: ensure defaults exist.
+    try:
+        from app_versions import auto_sync_from_frontend_version  # noqa: WPS433
+        res = await auto_sync_from_frontend_version(db)
+        log.info("app_version auto-sync result: %s", res)
+    except Exception as _e:
+        log.warning("app_version auto-sync skipped: %s", _e)
     await db.users.create_index("email", unique=True)
     await db.users.create_index("username", unique=True)
     await db.users.create_index("sponsor_id")
     await db.users.create_index("status")
+    # v27ao (2026-03-04) — per-user per-listing seen tracking for the
+    # WhatsApp-style Marketplace ring. Unique on (user_id, listing_id)
+    # so repeated POSTs are naturally idempotent.
+    try:
+        await db.marketplace_views.create_index(
+            [("user_id", 1), ("listing_id", 1)], unique=True,
+            name="mk_views_user_listing_unique",
+        )
+    except Exception as _e:
+        log.warning("marketplace_views index skipped: %s", _e)
     await db.matrix_placements.create_index([("level", 1), ("parent_id", 1)])
     await db.matrix_placements.create_index([("user_id", 1), ("level", 1)], unique=True)
     await db.matrix_placements.create_index([("parent_id", 1), ("is_spillover", 1)])
