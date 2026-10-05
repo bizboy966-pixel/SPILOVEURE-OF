@@ -21,6 +21,49 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27at) — ✅ PWA installable restaurée + logo officiel SPILOVEURE + fix boucle de reload
+
+**User report (verbatim, voix)** : « Dès qu'on veut ajouter le truc à l'écran d'accueil, il y a deux possibilités. On a installé un raccourci, ou on a directement installé. Actuellement, la partie installée dit "Impossible d'installer cette application". Or, ça fonctionnait. Rends-la fonctionnelle. Et ajoute le logo officiel SPILOVEURE : dès qu'on installe ou qu'on crée un raccourci, c'est ça qui va afficher. » + bug séparé : « dès qu'on veut rentrer dans quelque chose, la page ne se charge même pas, premièrement. Dès qu'il veut se charger, ça redémarre. »
+
+**Cause racine Chrome « Impossible d'installer »** : v27as avait neutralisé `/public/sw.js` (auto-unregister + `clients.navigate` au moment de l'activate). Résultat : plus aucun service worker actif → critère PWA Chromium non satisfait → menu Chrome affiche « Impossible d'installer » au lieu de « Installer l'application ». Combiné à l'ancien bundle en cache sur les clients déjà installés (v27an) qui ré-enregistrait `/sw.js` au boot, l'activate de la version self-destruct déclenchait `c.navigate(c.url)` sur toutes les fenêtres → **boucle de reload** à chaque navigation.
+
+**Cause racine liens manifest/icons absents** : Expo Router en mode `output: "single"` NE rend PAS `+html.tsx` à la racine du bundle web — Metro sert son propre `index.html` minimal qui n'inclut que `favicon` + `theme-color` depuis `app.json`. Donc même avec un SW correct, le navigateur ne trouvait aucun `<link rel="manifest">` et refusait l'installation.
+
+**Fix v27at** :
+
+1. **Service Worker stable** (`/app/frontend/public/sw.js`) :
+   - Passthrough réseau pur : fetch handler qui fait un simple `fetch(req)` (aucun cache offline). La seule présence du fetch handler suffit à satisfaire le critère PWA Chromium.
+   - Activate idempotent : purge une seule fois les anciens caches `spiloveure-*` laissés par v27an, puis `self.clients.claim()`. **Plus jamais de `self.registration.unregister()` ni de `c.navigate(c.url)`** → fin de la boucle de reload.
+   - `install` → `self.skipWaiting()` pour que les clients existants prennent la nouvelle version sans attendre.
+   - Message handler `SKIP_WAITING` conservé pour les futurs upgrades sans reload forcé.
+
+2. **Injection PWA au boot** (`/app/frontend/app/_layout.tsx`) :
+   - `useEffect` initial injecte dynamiquement dans `document.head` : `<link rel="manifest" href="/manifest.webmanifest">`, `<link rel="icon" sizes="192x192" href="/icon-192.png">`, `<link rel="icon" sizes="512x512" href="/icon-512.png">`, `<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">`, `<meta name="theme-color" content="#0B2D6F">`, `<meta name="apple-mobile-web-app-capable">`, `<meta name="apple-mobile-web-app-title" content="SPILOVEURE">`, `<meta name="application-name" content="SPILOVEURE">`.
+   - Puis `navigator.serviceWorker.register("/sw.js", { scope: "/" })` — toute erreur avalée (installabilité facultative, jamais bloquante).
+   - **Code `getRegistrations().unregister()` + `caches.keys().delete()` supprimé** : c'était justement ce code qui empêchait la PWA d'être installable.
+
+3. **Logo officiel SPILOVEURE sur toutes les icônes PWA** :
+   - Script PIL régénère depuis `/app/frontend/assets/images/spiloveure-logo.png` (1024×1024, logo circulaire doré/cerulean officiel) :
+     - `icon-192.png` + `icon-512.png` (purpose=any)
+     - `icon-192-maskable.png` + `icon-512-maskable.png` (safe-zone 80 % sur fond `#0B2D6F`)
+     - `apple-touch-icon.png` (180×180, iOS Add-to-Home)
+     - `favicon.ico` (16/32/48)
+   - **Résultat** : l'icône qui apparaît sur l'écran d'accueil (Android WebAPK, iOS Add-to-Home, raccourci bureau Chrome/Edge) EST le logo officiel SPILOVEURE sur fond navy, pas une icône générique Expo.
+
+**Vérification preview (Playwright headless)** :
+- `serviceWorker.getRegistrations()` → `[{ scope: "/", active: "activated" }]` ✅
+- `link[rel=manifest]` injecté + fetch 200 avec les 4 icons déclarées ✅
+- `link[rel=apple-touch-icon]`, `link[rel=icon][sizes=192x192]`, `link[rel=icon][sizes=512x512]` tous présents ✅
+- `meta[name=theme-color]` = `#0B2D6F`, `meta[name=application-name]` = `SPILOVEURE` ✅
+- Navigation `/` → `/login` → `/register` : **aucune boucle de reload**, aucun crash ✅
+- Login page affiche le logo officiel SPILOVEURE au top ✅
+
+**Impact zéro régression** : seuls `app/_layout.tsx` (useEffect boot), `public/sw.js` (règle unique passthrough) et les 6 fichiers icônes PWA du dossier `/public` sont touchés. Aucune route backend, aucun hook d'auth, aucun composant business modifié. Les routes utilisateur (`/(app)/*`), les tâches, missions, retraits et dépôts automatiques sont intacts. Les anciens clients avec SW v27an auront une activation du nouveau SW au premier chargement puis plus jamais de reload (purge idempotente des anciens caches).
+
+**Prochain déploiement** : les utilisateurs recevront automatiquement le nouveau sw.js (Cache-Control: no-store). Chrome Android affichera à nouveau « Installer l'application » dans le menu ⋮, iOS Safari « Partager → Sur l'écran d'accueil » utilisera `apple-touch-icon.png` officiel.
+
+---
+
 ### 2026-03-04 (v27ap) — ✅ Section « ACTIVITÉ / Statistiques » sur le Dashboard
 
 **User spec** : nouvelle section sous les cartes Commissions, au-dessus de Nos services. Sélecteur 24h/7j/30j/1an, barres de gains réels (parrainage, équipe/spillover, publicités, missions, tâches), 4 KPI (total, max, min, moyenne), détail du jour sélectionné avec catégories dépliables et transactions individuelles. Les dépôts ne sont JAMAIS comptés comme gains.
