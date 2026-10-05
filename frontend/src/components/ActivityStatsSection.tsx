@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ActivityIndicator, StyleSheet,
-  ScrollView, Modal,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -149,8 +149,7 @@ export function ActivityStatsSection({ stats }: Props = {}) {
   const [day, setDay] = useState<DayDetail | null>(null);
   const [dayLoading, setDayLoading] = useState(false);
   const [openCat, setOpenCat] = useState<string | null>("parrainage");
-  const [tooltipOpen, setTooltipOpen] = useState(false);
-  const [tooltipKey, setTooltipKey] = useState<string | null>(null);
+  const [showTooltip, setShowTooltip] = useState(true);
 
   const fetchSeries = useCallback(async (p: Period) => {
     setLoading(true); setError(null);
@@ -197,14 +196,13 @@ export function ActivityStatsSection({ stats }: Props = {}) {
   const CHART_HEIGHT = 180;
 
   const tooltipBucket = useMemo(() => {
-    if (!series || !tooltipKey) return null;
-    return series.buckets.find((b) => b.key === tooltipKey) || null;
-  }, [series, tooltipKey]);
+    if (!series || !selectedKey) return null;
+    return series.buckets.find((b) => b.key === selectedKey) || null;
+  }, [series, selectedKey]);
 
-  const openTooltip = useCallback((key: string) => {
+  const onBarClick = useCallback((key: string) => {
     setSelectedKey(key);
-    setTooltipKey(key);
-    setTooltipOpen(true);
+    setShowTooltip(true);
   }, []);
 
   return (
@@ -283,7 +281,7 @@ export function ActivityStatsSection({ stats }: Props = {}) {
                     return (
                       <TouchableOpacity
                         key={b.key}
-                        onPress={() => openTooltip(b.key)}
+                        onPress={() => onBarClick(b.key)}
                         style={[styles.barCol, barWidth ? { width: barWidth } : { flex: 1 }]}
                         activeOpacity={0.85}
                         testID={`activity-bar-${b.key}`}
@@ -318,6 +316,80 @@ export function ActivityStatsSection({ stats }: Props = {}) {
                 </View>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      ) : null}
+
+      {/* ── Dark inline tooltip (v27ar) — mimics the reference popup
+          showing day total + per-category breakdown + top transactions.
+          Appears right under the chart as a floating dark card. ── */}
+      {showTooltip && tooltipBucket ? (
+        <View style={styles.tooltipInline} testID="activity-tooltip">
+          <View style={styles.tooltipHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tooltipDate}>{formatDayTitle(tooltipBucket.key, period)}</Text>
+              <View style={styles.tooltipTotalRow}>
+                <Text style={styles.tooltipTotalLbl}>Total reçu :</Text>
+                <Text style={styles.tooltipTotalVal}>{formatFCFA(tooltipBucket.total)}</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowTooltip(false)}
+              style={styles.tooltipCloseBtn}
+              testID="tooltip-close"
+            >
+              <Ionicons name="close" size={16} color="#CBD5E1" />
+            </TouchableOpacity>
+          </View>
+          {dayLoading ? (
+            <ActivityIndicator color="#60A5FA" style={{ marginVertical: 10 }} />
+          ) : day && day.grand_total === 0 ? (
+            <Text style={styles.tooltipEmpty}>Aucun gain pour cette journée.</Text>
+          ) : day ? (
+            <View style={{ gap: 10 }}>
+              {CATEGORY_META.map((c) => {
+                const t = day.totals[c.key];
+                if (!t || t <= 0) return null;
+                const txs = day.transactions[c.key];
+                return (
+                  <View key={c.key}>
+                    <View style={styles.tooltipCatHead}>
+                      <View style={[styles.tooltipCatIcon, { backgroundColor: c.color }]}>
+                        <Ionicons name={c.icon} size={13} color="#fff" />
+                      </View>
+                      <Text style={styles.tooltipCatLbl}>{c.label.split(" - ")[0]}</Text>
+                      <Text style={styles.tooltipCatVal}>{formatFCFA(t)}</Text>
+                    </View>
+                    {txs.slice(0, 4).map((tx, i) => {
+                      const name = tx.from_username || tx.platform || tx.label;
+                      const sub =
+                        c.key === "parrainage" ? "Commission directe" :
+                        c.key === "equipe" ? (tx.level ? `Commission niveau ${tx.level}` : "Commission équipe") :
+                        c.key === "ads" ? "Gain publicité" :
+                        c.key === "missions" ? "Mission validée" :
+                        "Récompense";
+                      return (
+                        <View key={i} style={styles.tooltipTxn}>
+                          <View style={styles.tooltipTxnDot} />
+                          <Text style={styles.tooltipTxnLbl} numberOfLines={1}>
+                            {sub} — {name}
+                          </Text>
+                          <Text style={styles.tooltipTxnAmt}>+{formatFCFA(tx.amount)}</Text>
+                        </View>
+                      );
+                    })}
+                    {txs.length > 4 ? (
+                      <Text style={styles.tooltipMore}>+ {txs.length - 4} autres opérations</Text>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+          <View style={styles.tooltipFootDivider} />
+          <View style={styles.tooltipFoot}>
+            <Text style={styles.tooltipFootLbl}>TOTAL</Text>
+            <Text style={styles.tooltipFootVal}>{formatFCFA(tooltipBucket.total)}</Text>
           </View>
         </View>
       ) : null}
@@ -456,15 +528,7 @@ export function ActivityStatsSection({ stats }: Props = {}) {
         </View>
       </View>
 
-      {/* ── Dark tooltip modal (triggered on bar click) ── */}
-      <TooltipModal
-        visible={tooltipOpen}
-        onClose={() => setTooltipOpen(false)}
-        bucket={tooltipBucket}
-        day={day}
-        period={period}
-        dayLoading={dayLoading}
-      />
+      {/* ── Dark tooltip (v27ar) — rendered inline above KPIs. ── */}
     </Card>
   );
 }
@@ -543,66 +607,8 @@ function SummaryCard({
   );
 }
 
-function TooltipModal({
-  visible, onClose, bucket, day, period, dayLoading,
-}: {
-  visible: boolean; onClose: () => void; bucket: Bucket | null;
-  day: DayDetail | null; period: Period; dayLoading: boolean;
-}) {
-  if (!bucket) return null;
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity activeOpacity={1} onPress={onClose} style={styles.tooltipBg}>
-        <View style={styles.tooltipCard} onStartShouldSetResponder={() => true}>
-          <View style={styles.tooltipHead}>
-            <Text style={styles.tooltipDate}>{formatDayTitle(bucket.key, period)}</Text>
-            <TouchableOpacity onPress={onClose} testID="tooltip-close">
-              <Ionicons name="close" size={18} color="#D1D5DB" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.tooltipTotalRow}>
-            <Text style={styles.tooltipTotalLbl}>Total reçu :</Text>
-            <Text style={styles.tooltipTotalVal}>{formatFCFA(bucket.total)}</Text>
-          </View>
-          {dayLoading ? (
-            <ActivityIndicator color="#60A5FA" style={{ marginVertical: 14 }} />
-          ) : day ? (
-            <View style={{ gap: 10 }}>
-              {CATEGORY_META.map((c) => {
-                const t = day.totals[c.key];
-                if (!t || t <= 0) return null;
-                const txs = day.transactions[c.key];
-                return (
-                  <View key={c.key}>
-                    <View style={styles.tooltipCatHead}>
-                      <View style={[styles.tooltipCatIcon, { backgroundColor: c.color }]}>
-                        <Ionicons name={c.icon} size={13} color="#fff" />
-                      </View>
-                      <Text style={styles.tooltipCatLbl}>{c.label.split(" - ")[0]}</Text>
-                      <Text style={styles.tooltipCatVal}>{formatFCFA(t)}</Text>
-                    </View>
-                    {txs.slice(0, 4).map((tx, i) => {
-                      const name = tx.from_username || tx.platform || tx.label;
-                      return (
-                        <View key={i} style={styles.tooltipTxn}>
-                          <Ionicons name="person" size={10} color="#9CA3AF" />
-                          <Text style={styles.tooltipTxnLbl} numberOfLines={1}>
-                            {c.key === "parrainage" ? `Commission directe (${name})` : name}
-                          </Text>
-                          <Text style={styles.tooltipTxnAmt}>{formatFCFA(tx.amount)}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
+// v27ar — TooltipModal removed in favour of inline dark panel rendered
+// directly under the chart. See `tooltipInline` block in the main render.
 
 const styles = StyleSheet.create({
   card: { marginTop: 14, padding: 14 },
@@ -738,6 +744,31 @@ const styles = StyleSheet.create({
   txnNameSub: { color: theme.colors.textSecondary, fontWeight: "500" },
   txnAmt: { fontSize: 12, color: "#059669", fontWeight: "800" },
   txnTime: { fontSize: 10, color: theme.colors.textSecondary, marginTop: 1 },
+
+  tooltipInline: {
+    backgroundColor: "#0F1A3A",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#1E3A8A",
+  },
+  tooltipCloseBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center", justifyContent: "center",
+  },
+  tooltipEmpty: { color: "#CBD5E1", fontSize: 12, textAlign: "center", paddingVertical: 10 },
+  tooltipTxnDot: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: "#60A5FA",
+  },
+  tooltipMore: { color: "#94A3B8", fontSize: 10, paddingLeft: 30, marginTop: 2, fontStyle: "italic" },
+  tooltipFootDivider: {
+    height: 1, backgroundColor: "rgba(255,255,255,0.1)", marginVertical: 10,
+  },
+  tooltipFoot: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  tooltipFootLbl: { color: "#CBD5E1", fontSize: 11, letterSpacing: 1.5, fontWeight: "800" },
+  tooltipFootVal: { color: "#FBBF24", fontSize: 18, fontWeight: "900" },
 
   summaryWrap: {
     marginTop: 6, borderTopWidth: 1,
