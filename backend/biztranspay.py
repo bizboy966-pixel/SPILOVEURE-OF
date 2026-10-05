@@ -135,21 +135,32 @@ OPERATORS: dict[str, dict] = {
         "dial": "225",
         "operators": [
             # v27ah (2026-03-04) — added at user request.
-            # MTN Mobile Money Côte d'Ivoire (MoMo). Aliases couvrent les
-            # libellés que l'admin ou l'UI frontend pourraient envoyer.
+            # v27av (2026-03-05) — MTN CI live payments were being rejected
+            # with "Opérateur non disponible pour ce pays" because the exact
+            # code configured in the user's BTP merchant console differs
+            # from our internal `mtn_ci`. BTP's integration docs do NOT list
+            # per-country operator codes — the merchant must configure them.
+            # We ship a `provider_codes` fallback list so the dispatcher
+            # tries each code until one is accepted by BTP. First match
+            # wins and is logged for future visibility.
             {"code": "mtn_ci",    "label": "MTN Mobile Money",
              "default_active": True,
+             "provider_codes": ["mtn_ci", "mtn_momo_ci", "mtn_mobile_money_ci",
+                                "mtn_mm_ci", "mtn_money_ci", "momo_ci"],
              "aliases": ["mtn", "mtn ci", "mtn momo", "mtn mobile money",
                          "momo", "mtn côte d'ivoire", "mtn cote d'ivoire",
                          "mtn cote divoire"]},
             {"code": "orange_ci", "label": "Orange Money",
              "default_active": True,
+             "provider_codes": ["orange_ci", "orange_money_ci", "om_ci"],
              "aliases": ["orange", "orange money", "om", "orange ci"]},
             {"code": "moov_ci",   "label": "Moov Money",
              "default_active": True,
+             "provider_codes": ["moov_ci", "moov_money_ci", "flooz_ci"],
              "aliases": ["moov", "moov money", "moov africa", "moov ci"]},
             {"code": "wave_ci",   "label": "Wave",
              "default_active": True,
+             "provider_codes": ["wave_ci", "wave_money_ci"],
              "aliases": ["wave", "wave ci"]},
         ],
     },
@@ -388,18 +399,31 @@ async def biztranspay_activation(
     e164_phone = _normalize_phone(data.phone, cc)
     now = datetime.now(timezone.utc)
 
-    # v27s — Integration v1 body schema (POST /deposits).
-    payload = {
-        "amount": amount,
-        "currency": currency,
-        "country": cc,
-        "operator": data.operator,
-        "phone_number": e164_phone,
-        "email": user.get("email") or "",
-        "full_name": user.get("full_name") or user.get("username") or "",
-        "reference": ref,
-        "fee_bearer": "sender",   # SPILOVEURE covers the gateway fee
-    }
+    # v27av — build the ordered list of provider_codes to try. BTP's
+    # merchant console configures operator codes per environment and the
+    # exact code is NOT published in the integration docs. If the primary
+    # code is refused with "Opérateur non disponible pour ce pays", we
+    # retry with each known alias until BTP accepts one. The first winner
+    # is remembered on `app_settings` so subsequent payments start with it
+    # directly (no more trial retries once we know the right code).
+    operator_entry = next(
+        (o for o in OPERATORS[cc]["operators"] if o["code"] == data.operator),
+        None,
+    )
+    candidate_codes: list[str] = []
+    if operator_entry:
+        # Prefer the code that was already proven to work for this operator
+        # in a previous successful call (stored under app_settings).
+        learned = await db.app_settings.find_one(
+            {"key": f"btp_learned_operator_code:{cc}:{data.operator}"},
+        )
+        if learned and isinstance(learned.get("value"), str):
+            candidate_codes.append(learned["value"])
+        for pc in (operator_entry.get("provider_codes") or [operator_entry["code"]]):
+            if pc not in candidate_codes:
+                candidate_codes.append(pc)
+    else:
+        candidate_codes.append(data.operator)
 
     # Persist BEFORE the API call so a webhook cannot arrive on an unknown ref.
     await db.payments.insert_one({
@@ -421,34 +445,119 @@ async def biztranspay_activation(
         "updated_at": now,
     })
 
-    try:
-        resp = await _post("/deposits", payload, secret_key, public_key, idempotency_key=ref)
-    except Exception as e:
-        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, _redact(e))
-        await db.payments.update_one(
-            {"reference": ref},
-            {"$set": {"status": "failed", "activation_error": _redact(str(e)[:400]),
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
-
-    if resp.status_code >= 400:
-        detail = ""
+    last_error_status = 0
+    last_error_body = ""
+    resp = None
+    accepted_code: Optional[str] = None
+    for attempt_idx, provider_code in enumerate(candidate_codes):
+        payload = {
+            "amount": amount,
+            "currency": currency,
+            "country": cc,
+            "operator": provider_code,
+            "phone_number": e164_phone,
+            "email": user.get("email") or "",
+            "full_name": user.get("full_name") or user.get("username") or "",
+            "reference": ref,
+            "fee_bearer": "sender",
+        }
         try:
-            detail = str(resp.json())[:400]
+            # Each attempt uses a DIFFERENT Idempotency-Key so BTP does not
+            # treat the fallback retry as a dup of the rejected request.
+            attempt_key = ref if attempt_idx == 0 else f"{ref}-v{attempt_idx}"
+            resp = await _post("/deposits", payload, secret_key, public_key, idempotency_key=attempt_key)
+        except Exception as e:
+            log.exception("biztranspay /deposits call failed ref=%s code=%s: %s",
+                          ref, provider_code, _redact(e))
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "failed", "activation_error": _redact(str(e)[:400]),
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
+
+        if resp.status_code < 400:
+            accepted_code = provider_code
+            break
+
+        # Capture the error. If BTP says "operator not available for this
+        # country", loop to the next candidate code; otherwise stop and
+        # surface the error immediately (invalid phone, insufficient balance…).
+        try:
+            jd = resp.json()
+            err_body = str(jd)
         except Exception:
-            detail = resp.text[:400]
-        detail = _redact(detail)
-        log.warning("biztranspay /deposits %s ref=%s body=%s",
-                    resp.status_code, ref, detail)
+            jd = {}
+            err_body = resp.text or ""
+        err_body = err_body[:600]
+        last_error_status = resp.status_code
+        last_error_body = _redact(err_body)
+        err_detail_raw = jd.get("detail") if isinstance(jd, dict) else None
+        err_detail_text = ""
+        if isinstance(err_detail_raw, str):
+            err_detail_text = err_detail_raw.lower()
+        elif isinstance(err_detail_raw, dict):
+            err_detail_text = (str(err_detail_raw.get("message") or "") + " " + str(err_detail_raw.get("code") or "")).lower()
+        is_operator_mismatch = (
+            "opérateur non disponible" in err_detail_text
+            or "operator" in err_detail_text and ("not available" in err_detail_text or "non disponible" in err_detail_text)
+            or "operator not supported" in err_detail_text
+        )
+        if is_operator_mismatch and attempt_idx + 1 < len(candidate_codes):
+            log.info("biztranspay /deposits ref=%s code=%s rejected (operator mismatch), trying next candidate",
+                     ref, provider_code)
+            continue
+        # Non-recoverable error (bad phone, invalid key, insufficient funds, …) or we exhausted candidates.
+        break
+
+    if resp is None or resp.status_code >= 400:
+        log.warning("biztranspay /deposits refused ref=%s status=%s body=%s",
+                    ref, last_error_status, last_error_body)
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "failed",
-                      "biztranspay_status_code": resp.status_code,
-                      "activation_error": detail,
+                      "biztranspay_status_code": last_error_status,
+                      "activation_error": last_error_body,
+                      "tried_operator_codes": candidate_codes,
                       "updated_at": datetime.now(timezone.utc)}},
         )
-        raise HTTPException(400, "Biz-transPay a refusé le paiement.")
+        # v27av — surface the ACTUAL BTP error to the end user so admins
+        # can diagnose config mismatches instead of staring at a generic
+        # "Biz-transPay a refusé le paiement." message.
+        human_detail = ""
+        try:
+            jd_final = resp.json() if resp is not None else {}
+            d = jd_final.get("detail") if isinstance(jd_final, dict) else None
+            if isinstance(d, str):
+                human_detail = d
+            elif isinstance(d, dict):
+                human_detail = str(d.get("message") or d.get("code") or "")[:200]
+            elif isinstance(d, list) and d:
+                first = d[0] if isinstance(d[0], dict) else {}
+                human_detail = str(first.get("msg") or "")[:200]
+        except Exception:
+            human_detail = ""
+        human_detail = _redact(human_detail or last_error_body)[:200]
+        raise HTTPException(
+            400,
+            f"Biz-transPay a refusé le paiement : {human_detail}" if human_detail
+            else "Biz-transPay a refusé le paiement.",
+        )
+
+    # Remember the code BTP accepted so next payments skip the retry loop.
+    if accepted_code and operator_entry and accepted_code != operator_entry["code"]:
+        try:
+            await db.app_settings.update_one(
+                {"key": f"btp_learned_operator_code:{cc}:{data.operator}"},
+                {"$set": {"key": f"btp_learned_operator_code:{cc}:{data.operator}",
+                          "value": accepted_code,
+                          "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            log.info("biztranspay learned operator code %s=%s for %s/%s",
+                     data.operator, accepted_code, cc, data.operator)
+        except Exception:
+            pass
 
     data_resp = {}
     try:
@@ -574,8 +683,11 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
                                         "Clés Biz-transPay manquantes.")
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
-    # v27z — Operator resolution with alias support (handles "Mixx By Yas"
-    # rebrand of Moov Money across TG/BJ/BF).
+    # v27av — Operator resolution with alias support (handles "Mixx By Yas"
+    # rebrand of Moov Money across TG/BJ/BF) + per-operator provider_codes
+    # fallback for CI (BTP merchant console configures codes per env, docs
+    # don't publish them). We try our internal code first then each
+    # provider_codes entry until BTP accepts one.
     raw_op = (wd_doc.get("operator") or "").strip()
     op_code = _resolve_operator_code(country, raw_op)
     if not op_code:
@@ -600,26 +712,74 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         )
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
+    # Build ordered list of provider codes to try.
+    operator_entry = next(
+        (o for o in OPERATORS[country]["operators"] if o["code"] == op_code),
+        None,
+    )
+    candidate_codes: list[str] = []
+    learned = await db.app_settings.find_one(
+        {"key": f"btp_learned_operator_code:{country}:{op_code}"},
+    )
+    if learned and isinstance(learned.get("value"), str):
+        candidate_codes.append(learned["value"])
+    if operator_entry:
+        for pc in (operator_entry.get("provider_codes") or [op_code]):
+            if pc not in candidate_codes:
+                candidate_codes.append(pc)
+    else:
+        candidate_codes.append(op_code)
+
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     phone = _normalize_phone(wd_doc.get("phone") or "", country)
-    body = {
-        "amount": net,
-        "currency": OPERATORS[country]["currency"],
-        "country": country,
-        "operator": op_code,
-        "recipient": phone,
-        "reference": wd_doc["id"],
-        "fee_bearer": "sender",
-    }
 
-    try:
-        r = await _post("/payouts", body, secret_key, public_key,
-                        idempotency_key=f"wd-{wd_doc['id']}")
-    except Exception as e:
-        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], _redact(e))
-        return {"auto_dispatched": False, "reason": "network_error"}
+    r = None
+    accepted_code: Optional[str] = None
+    for attempt_idx, provider_code in enumerate(candidate_codes):
+        body = {
+            "amount": net,
+            "currency": OPERATORS[country]["currency"],
+            "country": country,
+            "operator": provider_code,
+            "recipient": phone,
+            "reference": wd_doc["id"],
+            "fee_bearer": "sender",
+        }
+        try:
+            idem_key = f"wd-{wd_doc['id']}" if attempt_idx == 0 else f"wd-{wd_doc['id']}-v{attempt_idx}"
+            r = await _post("/payouts", body, secret_key, public_key, idempotency_key=idem_key)
+        except Exception as e:
+            log.exception("biztranspay /payouts failed wd=%s code=%s: %s",
+                          wd_doc["id"], provider_code, _redact(e))
+            return {"auto_dispatched": False, "reason": "network_error"}
 
-    if r.status_code >= 400:
+        if r.status_code < 400:
+            accepted_code = provider_code
+            break
+
+        # Operator mismatch → try next candidate; other errors → stop.
+        try:
+            jd_err = r.json()
+        except Exception:
+            jd_err = {}
+        err_detail_raw = jd_err.get("detail") if isinstance(jd_err, dict) else None
+        err_detail_text = ""
+        if isinstance(err_detail_raw, str):
+            err_detail_text = err_detail_raw.lower()
+        elif isinstance(err_detail_raw, dict):
+            err_detail_text = (str(err_detail_raw.get("message") or "") + " " + str(err_detail_raw.get("code") or "")).lower()
+        is_operator_mismatch = (
+            "opérateur non disponible" in err_detail_text
+            or ("operator" in err_detail_text and ("not available" in err_detail_text or "non disponible" in err_detail_text))
+            or "operator not supported" in err_detail_text
+        )
+        if is_operator_mismatch and attempt_idx + 1 < len(candidate_codes):
+            log.info("biztranspay /payouts wd=%s code=%s operator mismatch, trying next",
+                     wd_doc["id"], provider_code)
+            continue
+        break
+
+    if r is None or r.status_code >= 400:
         detail = ""
         try:
             jd = r.json()

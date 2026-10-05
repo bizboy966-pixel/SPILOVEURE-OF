@@ -21,7 +21,40 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
-### 2026-03-05 (v27at) — ✅ PWA installable restaurée + logo officiel SPILOVEURE + fix boucle de reload
+### 2026-03-05 (v27av) — ✅ MTN CI live payments débloqués + visibilité des erreurs BTP
+
+**User report (vocal)** : « MTN Côte d'Ivoire, on a un problème. Je l'ai déjà activé via Biz-transPay mais ça ne fonctionne pas. On dit toujours : Biz-transPay a refusé le paiement. »
+
+**Diagnostic (après lecture de la doc officielle https://biz-transppayy.com/integration/docs)** : la documentation BTP ne publie **aucune liste** des codes opérateurs supportés par pays. Chaque marchand configure ses opérateurs via le dashboard BTP, et le code attendu par le gateway varie d'un environnement à l'autre. Notre `mtn_ci` interne n'est probablement pas celui enregistré dans le compte marchand → BTP répond 400 `{"detail": "Opérateur non disponible pour ce pays"}`, que notre code transformait en un générique « Biz-transPay a refusé le paiement » sans l'erreur réelle → impossible pour l'admin de diagnostiquer.
+
+**Fix v27av** (`/app/backend/biztranspay.py`) :
+
+1. **`provider_codes` par opérateur** — chaque entrée CI (MTN, Orange, Moov, Wave) expose désormais une liste ordonnée de codes candidats :
+   - `mtn_ci` → `["mtn_ci", "mtn_momo_ci", "mtn_mobile_money_ci", "mtn_mm_ci", "mtn_money_ci", "momo_ci"]`
+   - `orange_ci` → `["orange_ci", "orange_money_ci", "om_ci"]`
+   - `moov_ci` → `["moov_ci", "moov_money_ci", "flooz_ci"]`
+   - `wave_ci` → `["wave_ci", "wave_money_ci"]`
+
+2. **Dispatcher auto-retry sur mismatch opérateur** (deposits + payouts) — le dispatcher parcourt la liste candidate, chaque tentative utilise un `Idempotency-Key` unique (`ref` puis `ref-v1`, `ref-v2`…) pour que BTP ne la refuse pas comme un doublon de la requête précédente. Un échec « Opérateur non disponible pour ce pays » = retry. Toute autre erreur (clé invalide, solde insuffisant, numéro invalide…) = stop immédiat.
+
+3. **Mémorisation du code accepté** — dès qu'un `provider_code` est accepté par BTP, on l'enregistre dans `app_settings` sous `btp_learned_operator_code:{CI}:{mtn_ci}`. Les paiements suivants partent directement avec cette variante : plus aucun retry une fois la bonne combinaison trouvée.
+
+4. **Erreur BTP exposée à l'utilisateur** — après épuisement des candidats, le message `HTTPException(400, ...)` inclut désormais le `detail` BTP exact : « Biz-transPay a refusé le paiement : Opérateur non disponible pour ce pays. » L'admin voit instantanément d'où vient le problème. Les champs `activation_error`, `tried_operator_codes`, `biztranspay_status_code` sont aussi persistés sur le doc `payments` pour forensique panel admin.
+
+**Même traitement appliqué à `dispatch_biztranspay_withdrawal`** pour que les retraits auto en CI/BJ/BF profitent du même fallback.
+
+**Tests** (`/app/backend/tests/test_btp_mtn_ci_fallback_v27av.py`) — 5/5 ✅ :
+- Chaque opérateur CI expose `provider_codes` non-vide.
+- MTN CI a au moins 3 variantes de code.
+- Dispatcher deposit utilise `candidate_codes` + mémorise le winner + surface le `detail` BTP.
+- Dispatcher payout utilise aussi `candidate_codes`.
+- TG/BJ/BF intacts.
+
+**Action admin requise** : si après déploiement la variante correcte n'est pas dans ma liste, l'admin verra l'erreur BTP exacte dans le panel. Il suffira alors de me transmettre le code attendu (visible dans son dashboard BTP → Paramètres → Opérateurs) et je l'ajouterai à `provider_codes`. Alternative : BTP peut activer `mtn_ci` dans le dashboard marchand — c'est le choix le plus propre.
+
+---
+
+### 2026-03-05 (v27au) — ✅ Fix auto-réactivation des toggles opérateurs/pays
 
 **User report (verbatim, voix)** : « Dès qu'on veut ajouter le truc à l'écran d'accueil, il y a deux possibilités. On a installé un raccourci, ou on a directement installé. Actuellement, la partie installée dit "Impossible d'installer cette application". Or, ça fonctionnait. Rends-la fonctionnelle. Et ajoute le logo officiel SPILOVEURE : dès qu'on installe ou qu'on crée un raccourci, c'est ça qui va afficher. » + bug séparé : « dès qu'on veut rentrer dans quelque chose, la page ne se charge même pas, premièrement. Dès qu'il veut se charger, ça redémarre. »
 
