@@ -11,6 +11,11 @@
 //                                      (Android/Desktop) or returns iOS hint
 //   • triggerUpdate(onProgress)      → pre-caches the new shell with REAL
 //                                      progress, then activates + reloads
+//   • getInstalledVersion()          → version string the user previously
+//                                      installed, or null
+//   • setInstalledVersion(v)         → persist in localStorage after a
+//                                      confirmed install (appinstalled event
+//                                      or standalone detection).
 //
 // Design notes :
 //   - We rely on `beforeinstallprompt` to detect PWA installability on
@@ -31,6 +36,26 @@ export type InstallState = {
   canPrompt: boolean;      // beforeinstallprompt was captured
   swRegistered: boolean;
 };
+
+// localStorage key — persists the version the user installed, so a page
+// refresh / re-login / new device shows the correct "Déjà installée" state
+// and a published newer version re-arms the download button.
+const INSTALLED_VERSION_KEY = "spiloveure.installed.version";
+
+export function getInstalledVersion(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem(INSTALLED_VERSION_KEY); } catch { return null; }
+}
+
+export function setInstalledVersion(v: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(INSTALLED_VERSION_KEY, v); } catch {}
+}
+
+export function clearInstalledVersion(): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(INSTALLED_VERSION_KEY); } catch {}
+}
 
 let deferredPrompt: any = null;
 let state: InstallState = {
@@ -82,6 +107,20 @@ export async function registerServiceWorker(): Promise<void> {
 
   if (typeof window === "undefined") { emit(); return; }
 
+  // v27an → publish CLIENT_VERSION on window so the appinstalled handler
+  // can persist it without a circular import.
+  try {
+    const v = require("./version").CLIENT_VERSION;
+    (window as any).__SPILOVEURE_CLIENT_VERSION__ = v;
+    // If we're already running in standalone mode and no install record
+    // exists yet, backfill the installed version — the browser didn't
+    // fire appinstalled because the install happened in a previous
+    // session.
+    if (state.isStandalone && !getInstalledVersion()) {
+      setInstalledVersion(String(v));
+    }
+  } catch {}
+
   // Capture the native install prompt as soon as the browser offers it.
   window.addEventListener("beforeinstallprompt", (ev: any) => {
     try { ev.preventDefault(); } catch {}
@@ -94,6 +133,15 @@ export async function registerServiceWorker(): Promise<void> {
     deferredPrompt = null;
     state.canPrompt = false;
     state.isStandalone = true;
+    // Persist the client version at install-time so the Profil card can
+    // decide between "✅ Déjà installée" and "Mettre à jour" after any
+    // reload / reconnexion / nouvel appareil.
+    try {
+      // CLIENT_VERSION is baked at build time; we re-read it from the
+      // module instead of importing to avoid a circular dep.
+      const v = (window as any).__SPILOVEURE_CLIENT_VERSION__;
+      if (v) setInstalledVersion(String(v));
+    } catch {}
     emit();
   });
 
@@ -259,7 +307,7 @@ export async function downloadApp(onProgress: ProgressCb, version?: string): Pro
   await cacheViaServiceWorker(urls, name, onProgress);
 }
 
-export async function installApp(): Promise<"installed" | "dismissed" | "ios-instructions" | "unsupported"> {
+export async function installApp(): Promise<"installed" | "dismissed" | "ios-instructions" | "manual-instructions" | "unsupported"> {
   const plat = getPlatform();
   if (deferredPrompt) {
     try {
@@ -273,8 +321,19 @@ export async function installApp(): Promise<"installed" | "dismissed" | "ios-ins
       return "dismissed";
     }
   }
+  if (detectStandalone()) {
+    // Already running as installed PWA — nothing to prompt.
+    state.isStandalone = true;
+    emit();
+    return "installed";
+  }
   if (plat === "ios") return "ios-instructions";
-  return "unsupported";
+  // Android/Desktop fallback : the beforeinstallprompt may not fire if the
+  // user previously dismissed it, if the manifest / SW criteria weren't
+  // met yet, or if the browser version doesn't support PWA install (e.g.
+  // Firefox mobile). We tell the UI to show the browser-menu instructions
+  // ("Chrome menu → Installer l'application / Ajouter à l'écran d'accueil").
+  return "manual-instructions";
 }
 
 export async function triggerUpdate(onProgress: ProgressCb, version?: string): Promise<void> {
