@@ -21,6 +21,22 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ap) — ✅ Section « ACTIVITÉ / Statistiques » sur le Dashboard
+
+**User spec** : nouvelle section sous les cartes Commissions, au-dessus de Nos services. Sélecteur 24h/7j/30j/1an, barres de gains réels (parrainage, équipe/spillover, publicités, missions, tâches), 4 KPI (total, max, min, moyenne), détail du jour sélectionné avec catégories dépliables et transactions individuelles. Les dépôts ne sont JAMAIS comptés comme gains.
+
+**Implementation** :
+- Backend `/app/backend/activity_stats.py` :
+  - `GET /api/stats/activity?period=24h|7d|30d|1y` → buckets agrégés (24 heures / 7-30 jours / 12 mois) par catégorie + résumé (total, max_day, min_day, average).
+  - `GET /api/stats/activity/day?date=YYYY-MM-DD` → détail per-catégorie avec transactions individuelles.
+  - Sources : `commissions` (direct / spillover_sponsor / spillover_beneficiary / lottery_win / paid_task / special_task), `ads_reactor_rewards`, `mission_completions`. Les activations et payments sont strictement exclus.
+  - Classification auto : direct level=1 → parrainage, spillover_beneficiary ou level>1 → equipe, kinds rémunérés → taches.
+- Frontend `src/components/ActivityStatsSection.tsx` :
+  - Carte montée dans `/(app)/dashboard.tsx` directement sous `dashboard-commissions-duo`, suivie de « Nos services » (ordre inchangé pour toutes les autres sections).
+  - Barres cliquables, period selector, KPI grid 2×2, détail du jour avec catégories dépliables (Parrainage / Équipe / Publicités / Missions / Tâches).
+  - Format compact Mo/K pour les barres étroites, scroll horizontal pour les périodes 30j/1 an.
+- Tests : 8/8 (`test_activity_stats_v27ap.py`) — cas 0 gain, 1 commission, 2 commissions, mix catégories, dépôts ignorés, changement de période, dates invalides.
+
 ### 2026-03-04 (v27an) — ✅ PWA Installable + Mise à jour automatique sans APK
 
 **User spec** : installation + auto-update sans intervention admin, sans upload d'APK. L'utilisateur veut une expérience native sur Android/iPhone/PC avec téléchargement, progression réelle, « Installer maintenant », et détection automatique de nouvelles versions publiées depuis l'environnement de dev.

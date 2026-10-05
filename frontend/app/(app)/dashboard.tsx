@@ -15,6 +15,7 @@ import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import { DashboardHero } from "@/src/components/DashboardHero";
 import { TradingCard } from "@/src/components/TradingCard";
 import { UnreadRing } from "@/src/components/UnreadRing";
+import { ActivityStatsSection } from "@/src/components/ActivityStatsSection";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
@@ -212,62 +213,6 @@ export default function Dashboard() {
           })}
         </View>
 
-        {/* ─── Nos services (8 raccourcis stricts) ─── */}
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Nos services</Text>
-          <TouchableOpacity onPress={() => guardedNavigate("/(app)/services-all")} testID="dashboard-services-see-all">
-            <Text style={styles.sectionLink}>Voir tout</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.servicesGrid} testID="dashboard-services-grid">
-          {SERVICE_CARDS.map((s) => {
-            const unread =
-              s.key === "marketplace" ? badges.marketplace :
-              s.key === "ads"         ? badges.ads :
-              s.key === "emploi"      ? badges.jobs :
-              0;
-            // v27ao (2026-03-04) — WhatsApp-status-style ring for Marketplace.
-            const ringData = s.key === "marketplace" ? badges.marketplaceRing : null;
-            const iconNode = (
-              <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
-                <Ionicons name={s.icon} size={22} color={s.color} />
-              </View>
-            );
-            return (
-              <TouchableOpacity
-                key={s.key}
-                style={styles.serviceCard}
-                onPress={() => guardedNavigate(s.route)}
-                activeOpacity={0.85}
-                testID={`service-${s.key}`}
-              >
-                <View style={styles.serviceIconWrap}>
-                  {ringData ? (
-                    <UnreadRing
-                      segments={ringData.has_more
-                        ? Array.from({ length: 10 }, () => ({ seen: false }))
-                        : ringData.segments.map((seg) => ({ seen: !!seg.seen }))}
-                      size={60}
-                      thickness={3}
-                      testID={`service-${s.key}-ring`}
-                    >
-                      {iconNode}
-                    </UnreadRing>
-                  ) : (
-                    iconNode
-                  )}
-                  {unread > 0 ? (
-                    <View style={styles.serviceBadge} testID={`service-${s.key}-badge`}>
-                      <Text style={styles.serviceBadgeTxt}>{unread > 9 ? "9+" : unread}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
         {/* ─── Trading card (v26) — canal Telegram configurable ─── */}
         {trading && trading.enabled !== false && trading.telegram_url ? (
           <TradingCard
@@ -335,6 +280,68 @@ export default function Dashboard() {
               <Text style={styles.commissionFootTxt}>Réseau indirect</Text>
             </View>
           </LinearGradient>
+        </View>
+
+        {/* ─── Activity / Statistics (v27ap) — mounted directly under the
+            two Commissions cards per product spec. Replaces the legacy
+            "Montants collectés" trend. Reads /api/stats/activity +
+            /api/stats/activity/day. Reads existing data only — no fake. */}
+        <ActivityStatsSection />
+
+        {/* ─── Nos services (8 raccourcis stricts) — v27ap : placés après
+            la section Activité conformément au spec produit. ─── */}
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionTitle}>Nos services</Text>
+          <TouchableOpacity onPress={() => guardedNavigate("/(app)/services-all")} testID="dashboard-services-see-all">
+            <Text style={styles.sectionLink}>Voir tout</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.servicesGrid} testID="dashboard-services-grid">
+          {SERVICE_CARDS.map((s) => {
+            const unread =
+              s.key === "marketplace" ? badges.marketplace :
+              s.key === "ads"         ? badges.ads :
+              s.key === "emploi"      ? badges.jobs :
+              0;
+            const ringData = s.key === "marketplace" ? badges.marketplaceRing : null;
+            const iconNode = (
+              <View style={[styles.serviceIcon, { backgroundColor: s.bg }]}>
+                <Ionicons name={s.icon} size={22} color={s.color} />
+              </View>
+            );
+            return (
+              <TouchableOpacity
+                key={s.key}
+                style={styles.serviceCard}
+                onPress={() => guardedNavigate(s.route)}
+                activeOpacity={0.85}
+                testID={`service-${s.key}`}
+              >
+                <View style={styles.serviceIconWrap}>
+                  {ringData ? (
+                    <UnreadRing
+                      segments={ringData.has_more
+                        ? Array.from({ length: 10 }, () => ({ seen: false }))
+                        : ringData.segments.map((seg) => ({ seen: !!seg.seen }))}
+                      size={60}
+                      thickness={3}
+                      testID={`service-${s.key}-ring`}
+                    >
+                      {iconNode}
+                    </UnreadRing>
+                  ) : (
+                    iconNode
+                  )}
+                  {unread > 0 ? (
+                    <View style={styles.serviceBadge} testID={`service-${s.key}-badge`}>
+                      <Text style={styles.serviceBadgeTxt}>{unread > 9 ? "9+" : unread}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </ScrollView>
 

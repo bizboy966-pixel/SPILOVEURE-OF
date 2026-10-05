@@ -5524,6 +5524,16 @@ from app_versions import public_router as av_public, admin_router as av_admin  #
 app.include_router(av_public)
 app.include_router(av_admin)
 
+# v27ap (2026-03-04) — Activity stats endpoints for the Dashboard.
+# Registered right after app_versions so the module exists before any
+# downstream router references it. See /app/backend/activity_stats.py.
+try:
+    from activity_stats import register as _register_activity_stats  # noqa: E402
+    _register_activity_stats(app)
+    log.info("activity_stats registered")
+except Exception as _e:  # pragma: no cover
+    log.warning("activity_stats register failed: %s", _e)
+
 # Feature Flags — central on/off switches for every recent module.
 from feature_flags import (  # noqa: E402
     public as ff_public,
