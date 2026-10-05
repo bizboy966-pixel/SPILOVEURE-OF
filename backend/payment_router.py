@@ -186,25 +186,90 @@ async def set_priority(db, provider_id: str, priority: int) -> bool:
     return r.modified_count > 0
 
 
+async def _mirror_btp_operator_to_legacy(db, country_code: str, operator_code: str, enabled: bool) -> None:
+    """Mirror a per-operator toggle into the legacy flat config
+    (`app_settings.payment_gateway.value.biztranspay_countries`) so that
+    `sync_providers()` running at next boot (or after any other admin
+    change) does NOT silently flip the operator back to its default.
+
+    Fixes the "auto-reactivation" bug: admin disabled an operator via the
+    new routeur card, then any save on another gateway triggered a sync
+    that re-read the legacy map (where the operator was still marked
+    active by default) and overwrote the admin's choice.
+    """
+    cc = (country_code or "").upper()
+    try:
+        doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+        cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
+        countries = dict(cfg.get("biztranspay_countries") or {})
+        inner = dict(countries.get(cc) or {})
+        inner[operator_code] = bool(enabled)
+        countries[cc] = inner
+        cfg["biztranspay_countries"] = countries
+        await db.app_settings.update_one(
+            {"key": "payment_gateway"},
+            {"$set": {"key": "payment_gateway", "value": cfg,
+                      "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    except Exception as e:
+        log.warning("mirror BTP toggle legacy failed: %s", e)
+
+
 async def toggle_country(db, provider_id: str, country_code: str, enabled: bool) -> bool:
+    cc = (country_code or "").upper()
     r = await db.payment_provider_countries.update_one(
-        {"provider_id": provider_id, "country_code": country_code.upper()},
+        {"provider_id": provider_id, "country_code": cc},
         {"$set": {"status": "active" if enabled else "inactive",
                   "updated_at": datetime.now(timezone.utc)}},
     )
-    return r.matched_count > 0
+    if r.matched_count == 0:
+        return False
+    # Cascade to every operator of this country so (a) the toggle is
+    # consistent (country off => no operator usable) and (b) sync won't
+    # silently re-enable them.
+    await db.payment_provider_operators.update_many(
+        {"provider_id": provider_id, "country_code": cc},
+        {"$set": {"status": "active" if enabled else "inactive",
+                  "updated_at": datetime.now(timezone.utc)}},
+    )
+    # Mirror into legacy flat config for BTP so sync_providers() is a no-op.
+    if provider_id == "biztranspay":
+        try:
+            from biztranspay import OPERATORS as BTP_OPS
+            info = BTP_OPS.get(cc) or {}
+            for op in info.get("operators") or []:
+                await _mirror_btp_operator_to_legacy(db, cc, op["code"], enabled)
+        except Exception as e:
+            log.warning("mirror BTP country toggle failed: %s", e)
+    return True
 
 
 async def toggle_operator(
     db, provider_id: str, country_code: str, operator_code: str, enabled: bool,
 ) -> bool:
+    cc = (country_code or "").upper()
     r = await db.payment_provider_operators.update_one(
-        {"provider_id": provider_id, "country_code": country_code.upper(),
+        {"provider_id": provider_id, "country_code": cc,
          "operator_code": operator_code},
         {"$set": {"status": "active" if enabled else "inactive",
                   "updated_at": datetime.now(timezone.utc)}},
     )
-    return r.matched_count > 0
+    if r.matched_count == 0:
+        return False
+    # Mirror into legacy flat config for BTP so sync_providers() keeps
+    # the admin's choice next time it runs. See _mirror_btp_operator_to_legacy.
+    if provider_id == "biztranspay":
+        await _mirror_btp_operator_to_legacy(db, cc, operator_code, enabled)
+    # If we just enabled an operator, the country can no longer be inactive
+    # (sync_providers derives country = ANY operator active).
+    if enabled:
+        await db.payment_provider_countries.update_one(
+            {"provider_id": provider_id, "country_code": cc, "status": "inactive"},
+            {"$set": {"status": "active",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    return True
 
 
 async def set_country_mode(
