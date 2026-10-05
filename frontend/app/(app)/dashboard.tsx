@@ -341,7 +341,7 @@ export default function Dashboard() {
             Dashboard, strictement après Nos services + Trading + Commissions
             per user clarification 2026-03-04. Reads /api/stats/activity +
             /api/stats/activity/day. Real data only. */}
-        <ActivityStatsSection />
+        <ActivityStatsSection stats={stats} />
       </ScrollView>
 
       <SideMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
