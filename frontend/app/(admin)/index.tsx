@@ -63,6 +63,9 @@ export default function AdminHome() {
   const [newVersionMandatory, setNewVersionMandatory] = useState(true);
   const [newVersionMakeMin, setNewVersionMakeMin] = useState(true);
   const [newVersionNotes, setNewVersionNotes] = useState("");
+  // v27ak — APK URL management (one-time config, not per-version)
+  const [apkUrl, setApkUrl] = useState("");
+  const [apkSizeMb, setApkSizeMb] = useState("");
   const [challenges, setChallenges] = useState<any[]>([]);
   // Challenge form state (create only — edits go through inline actions).
   const [chgName, setChgName] = useState("");
@@ -329,7 +332,12 @@ export default function AdminHome() {
       }
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
-      if (tab === "versions") setVersionsData(await api.get("/admin/versions"));
+      if (tab === "versions") {
+        const vd: any = await api.get("/admin/versions");
+        setVersionsData(vd);
+        setApkUrl(vd?.settings?.apk_url || "");
+        setApkSizeMb(vd?.settings?.apk_size_mb ? String(vd.settings.apk_size_mb) : "");
+      }
       if (tab === "challenges") {
         const r = await api.get<any>("/admin/challenges");
         setChallenges(r?.items || []);
@@ -2426,6 +2434,44 @@ export default function AdminHome() {
               >
                 <Ionicons name="rocket" size={18} color="#fff" />
                 <Text style={styles.copyBtnT}>Publier la nouvelle version</Text>
+              </TouchableOpacity>
+            </Card>
+
+            <Card style={{ marginBottom: 12 }} testID="admin-apk-url-card">
+              <Text style={[styles.section, { marginBottom: 6 }]}>📱 APK Android (téléchargement utilisateur)</Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 10 }}>
+                Collez ici le lien direct vers le fichier APK officiel (hébergé sur Google Drive, GitHub Release, votre propre serveur, etc.). Le bouton "Télécharger l'application" apparaîtra automatiquement dans la page Profil de tous les utilisateurs. Laissez vide pour masquer le bouton.
+              </Text>
+              <Text style={styles.lbl}>URL de téléchargement (https://...)</Text>
+              <TextInput
+                value={apkUrl}
+                onChangeText={setApkUrl}
+                placeholder="https://exemple.com/spiloveure-v1.2.0.apk"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                autoCapitalize="none"
+                testID="admin-apk-url-input"
+              />
+              <Text style={[styles.lbl, { marginTop: 8 }]}>Taille du fichier en Mo (optionnel)</Text>
+              <TextInput
+                value={apkSizeMb}
+                onChangeText={setApkSizeMb}
+                placeholder="27.5"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                keyboardType="decimal-pad"
+                testID="admin-apk-size-input"
+              />
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
+                onPress={() => action(
+                  () => api.post("/admin/versions/settings", { apk_url: apkUrl.trim(), apk_size_mb: apkSizeMb.trim() === "" ? null : apkSizeMb.trim() }),
+                  "✅ Lien APK mis à jour"
+                )}
+                testID="admin-save-apk-url-btn"
+              >
+                <Ionicons name="save" size={16} color="#fff" />
+                <Text style={styles.copyBtnT}>Enregistrer le lien APK</Text>
               </TouchableOpacity>
             </Card>
 

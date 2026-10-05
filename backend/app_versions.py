@@ -67,6 +67,8 @@ _DEFAULT_SETTINGS = {
     "current_version": "1.0.0",
     "minimum_supported_version": "1.0.0",
     "mandatory": False,
+    "apk_url": "",       # v27ak — public download URL for the Android APK
+    "apk_size_mb": None, # optional size hint shown in the profile
     "updated_at": None,
 }
 
@@ -107,6 +109,8 @@ async def get_app_version(request: Request):
         "current_version": s["current_version"],
         "minimum_supported_version": s["minimum_supported_version"],
         "mandatory": bool(s.get("mandatory")),
+        "apk_url": s.get("apk_url") or "",
+        "apk_size_mb": s.get("apk_size_mb"),
         "updated_at": s.get("updated_at"),
     }
 
@@ -266,6 +270,23 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
         patch["minimum_supported_version"] = v
     if "mandatory" in body:
         patch["mandatory"] = bool(body["mandatory"])
+    # v27ak (2026-03-04) — optional APK download URL + size hint.
+    # Not required to publish a version; configured once by admin and shown
+    # on the user profile card as "Télécharger l'APK".
+    if "apk_url" in body:
+        url = (body.get("apk_url") or "").strip()
+        if url and not (url.startswith("https://") or url.startswith("http://")):
+            raise HTTPException(400, "apk_url doit être une URL HTTP/HTTPS valide.")
+        patch["apk_url"] = url
+    if "apk_size_mb" in body:
+        val = body.get("apk_size_mb")
+        if val is None or val == "":
+            patch["apk_size_mb"] = None
+        else:
+            try:
+                patch["apk_size_mb"] = float(val)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "apk_size_mb doit être un nombre.")
     if not patch:
         raise HTTPException(400, "Aucun champ à mettre à jour.")
     s = await _save_settings(db, patch)

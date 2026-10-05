@@ -178,14 +178,23 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
 // v27aj (2026-03-04) — AppVersionCard : small banner that shows the
 // currently published SPILOVEURE version + the one installed locally.
 // Reads the public /api/app/version endpoint (no auth needed).
+// v27ak (2026-03-04) — + optional "Télécharger l'APK" button when the
+// admin has configured an apk_url in the version settings.
 function AppVersionCard() {
-  const [v, setV] = React.useState<{ current_version?: string; mandatory?: boolean } | null>(null);
+  const [v, setV] = React.useState<{
+    current_version?: string;
+    mandatory?: boolean;
+    apk_url?: string;
+    apk_size_mb?: number | null;
+  } | null>(null);
   React.useEffect(() => {
     api.get("/app/version").then((r: any) => setV(r)).catch(() => {});
   }, []);
   const current = v?.current_version || "—";
   const installed = CLIENT_VERSION;
   const isOutdated = v?.current_version && v.current_version !== installed;
+  const apkUrl = (v?.apk_url || "").trim();
+  const sizeTxt = v?.apk_size_mb ? ` (${v.apk_size_mb} Mo)` : "";
   return (
     <Card style={{ marginTop: 12 }} testID="profile-app-version-card">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -193,7 +202,7 @@ function AppVersionCard() {
         <Text style={styles.section}>📱 Application SPILOVEURE</Text>
       </View>
       <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
-        Plateforme officielle SPILOVEURE — version web (Progressive Web App). L'application s'exécute directement dans votre navigateur, aucune installation requise.
+        Application mobile officielle SPILOVEURE. Vous pouvez utiliser la plateforme directement dans votre navigateur, ou télécharger l'APK Android pour une expérience installée.
       </Text>
       <View style={styles.itemRow}>
         <View style={styles.itemIcon}><Ionicons name="rocket" size={16} color={theme.colors.primary} /></View>
@@ -207,6 +216,38 @@ function AppVersionCard() {
           {installed}{isOutdated ? " ⚠️" : " ✅"}
         </Text>
       </View>
+      {apkUrl ? (
+        <TouchableOpacity
+          onPress={() => {
+            if (typeof window !== "undefined") {
+              // Opens in a new tab — Android will intercept .apk and offer
+              // "Download" + the usual "Install from unknown source" prompt.
+              window.open(apkUrl, "_blank");
+            }
+          }}
+          testID="profile-download-apk"
+          style={{
+            marginTop: 12,
+            backgroundColor: "#059669",
+            paddingVertical: 14,
+            borderRadius: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <Ionicons name="download" size={18} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "800" }}>
+            📥 Télécharger l'application Android{sizeTxt}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+      {apkUrl ? (
+        <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 8, textAlign: "center" }}>
+          Après téléchargement, Android peut demander d'autoriser l'installation depuis cette source. Suivez les instructions à l'écran.
+        </Text>
+      ) : null}
       {isOutdated && (
         <TouchableOpacity
           onPress={() => { if (typeof window !== "undefined") window.location.reload(); }}

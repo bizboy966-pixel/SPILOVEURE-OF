@@ -21,6 +21,51 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27ak) — 📥 Téléchargement APK dans Profil (URL configurable, pas d'upload)
+
+**Clarification utilisateur** : la restriction « pas d'import APK » du v27aj concernait UNIQUEMENT le workflow admin lors de la publication d'une version. **Côté utilisateur**, il veut bien un bouton "Télécharger l'application Android" dans la page Profil.
+
+**Solution** : URL d'APK configurée **une seule fois** dans l'admin (pas à chaque release), affichée automatiquement dans Profil :
+
+1. **Backend** (`app_versions.py`) :
+   - Settings étendus : `apk_url` (string, HTTP/HTTPS) + `apk_size_mb` (float, optionnel)
+   - Validation URL : rejette si non-vide ET pas http(s)://
+   - Endpoint public `GET /api/app/version` expose désormais `apk_url` + `apk_size_mb`
+   - Endpoint admin `POST /api/admin/versions/settings` accepte ces 2 nouveaux champs (toujours idempotent, laisser vide pour cacher le bouton)
+
+2. **Frontend admin** (`(admin)/index.tsx` onglet Versions) :
+   - Nouvelle carte **"📱 APK Android (téléchargement utilisateur)"** entre "Publier une nouvelle version" et "Historique"
+   - 2 champs : URL + Taille en Mo
+   - 1 bouton **"Enregistrer le lien APK"**
+   - Pré-rempli depuis `/admin/versions.settings` au chargement
+   - Message explicatif : « Collez le lien direct vers l'APK (Google Drive, GitHub Release, votre propre serveur). Laissez vide pour masquer le bouton. »
+
+3. **Frontend profil utilisateur** (`AppVersionCard` dans profile.tsx) :
+   - Bouton vert **"📥 Télécharger l'application Android (27.5 Mo)"** visible uniquement si `apk_url` renseigné
+   - Taille affichée automatiquement si `apk_size_mb` configuré
+   - Note Android : « Après téléchargement, Android peut demander d'autoriser l'installation depuis cette source. »
+   - `window.open(apkUrl, "_blank")` → Android intercepte le `.apk` et affiche l'installer natif
+
+**Vérification E2E preview** (admin kossikotokou4) :
+- `POST /admin/versions/settings` `{apk_url, apk_size_mb}` → settings mis à jour
+- `GET /api/app/version` public expose bien l'URL + taille → bouton apparaît dans Profil
+- `POST` avec `apk_url=""` → clear → bouton disparaît
+
+**Workflow final** :
+```
+Admin  : Panel Admin → Versions → carte "📱 APK Android"
+         colle URL (ex: Google Drive public link) + taille 27.5
+         clic "Enregistrer le lien APK"
+         ↓
+Users  : Page Profil → carte "📱 Application SPILOVEURE"
+         bouton vert "📥 Télécharger l'application Android (27.5 Mo)"
+         clic → nouvel onglet → Android télécharge APK → prompt install natif
+```
+
+**Zéro contrainte** : si tu veux changer l'APK, tu uploades la nouvelle version où tu veux (Google Drive, GitHub, S3, serveur perso) et tu colles la nouvelle URL dans l'admin. Pas d'upload serveur, pas de limite de taille, pas de maintenance.
+
+---
+
 ### 2026-03-04 (v27aj) — 🚀 Système de versionnement minimaliste SPILOVEURE
 
 **Demande utilisateur** : système de publication de versions avec un simple numéro + bouton "Publier la nouvelle version". **PAS d'APK**, pas d'upload fichier, pas de description obligatoire. Juste un gate pour forcer le reload des utilisateurs sur une version plus ancienne.
