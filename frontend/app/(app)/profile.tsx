@@ -175,11 +175,8 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
   );
 }
 
-// v27aj (2026-03-04) — AppVersionCard : small banner that shows the
-// currently published SPILOVEURE version + the one installed locally.
-// Reads the public /api/app/version endpoint (no auth needed).
-// v27ak (2026-03-04) — + optional "Télécharger l'APK" button when the
-// admin has configured an apk_url in the version settings.
+// v27am (2026-03-04) — AppVersionCard : affiche version web + bouton
+// "Télécharger l'APK Android" si l'admin a configuré apk_url.
 function AppVersionCard() {
   const [v, setV] = React.useState<{
     current_version?: string;
@@ -202,7 +199,7 @@ function AppVersionCard() {
         <Text style={styles.section}>📱 Application SPILOVEURE</Text>
       </View>
       <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
-        Application mobile officielle SPILOVEURE. Vous pouvez utiliser la plateforme directement dans votre navigateur, ou télécharger l'APK Android pour une expérience installée.
+        Application mobile officielle SPILOVEURE. Téléchargez l'APK Android pour l'installer sur votre téléphone.
       </Text>
       <View style={styles.itemRow}>
         <View style={styles.itemIcon}><Ionicons name="rocket" size={16} color={theme.colors.primary} /></View>
@@ -217,36 +214,30 @@ function AppVersionCard() {
         </Text>
       </View>
       {apkUrl ? (
-        <TouchableOpacity
-          onPress={() => {
-            if (typeof window !== "undefined") {
-              // Opens in a new tab — Android will intercept .apk and offer
-              // "Download" + the usual "Install from unknown source" prompt.
-              window.open(apkUrl, "_blank");
-            }
-          }}
-          testID="profile-download-apk"
-          style={{
-            marginTop: 12,
-            backgroundColor: "#059669",
-            paddingVertical: 14,
-            borderRadius: 12,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-          }}
-        >
-          <Ionicons name="download" size={18} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "800" }}>
-            📥 Télécharger l'application Android{sizeTxt}
+        <>
+          <TouchableOpacity
+            onPress={() => { if (typeof window !== "undefined") window.open(apkUrl, "_blank"); }}
+            testID="profile-download-apk"
+            style={{
+              marginTop: 12,
+              backgroundColor: "#059669",
+              paddingVertical: 14,
+              borderRadius: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            <Ionicons name="download" size={18} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "800" }}>
+              📥 Télécharger l'application Android{sizeTxt}
+            </Text>
+          </TouchableOpacity>
+          <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 8, textAlign: "center" }}>
+            Après téléchargement, Android peut demander d'autoriser l'installation depuis cette source. Suivez les instructions à l'écran.
           </Text>
-        </TouchableOpacity>
-      ) : null}
-      {apkUrl ? (
-        <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 8, textAlign: "center" }}>
-          Après téléchargement, Android peut demander d'autoriser l'installation depuis cette source. Suivez les instructions à l'écran.
-        </Text>
+        </>
       ) : null}
       {isOutdated && (
         <TouchableOpacity

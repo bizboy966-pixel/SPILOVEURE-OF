@@ -63,7 +63,7 @@ export default function AdminHome() {
   const [newVersionMandatory, setNewVersionMandatory] = useState(true);
   const [newVersionMakeMin, setNewVersionMakeMin] = useState(true);
   const [newVersionNotes, setNewVersionNotes] = useState("");
-  // v27ak — APK URL management (one-time config, not per-version)
+  // v27am — URL de l'APK Android (config unique, pas liée aux releases)
   const [apkUrl, setApkUrl] = useState("");
   const [apkSizeMb, setApkSizeMb] = useState("");
   const [challenges, setChallenges] = useState<any[]>([]);
@@ -2379,9 +2379,46 @@ export default function AdminHome() {
               </Text>
             </Card>
 
-            <Card style={{ marginBottom: 12 }} testID="admin-version-publish-card">
-              <Text style={[styles.section, { marginBottom: 10 }]}>🚀 Publier une nouvelle version</Text>
-              <Text style={styles.lbl}>Numéro de version (ex: 1.2.0)</Text>
+            <Card style={{ marginBottom: 12 }} testID="admin-apk-url-card">
+              <Text style={[styles.section, { marginBottom: 6 }]}>📱 APK Android (téléchargement utilisateur)</Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 10 }}>
+                Collez ici le lien direct vers le fichier APK officiel (Google Drive public, GitHub Release, votre serveur). Le bouton "Télécharger l'application" apparaîtra automatiquement dans la page Profil de tous les utilisateurs. Configuration unique — pas besoin de modifier à chaque release.
+              </Text>
+              <Text style={styles.lbl}>URL de téléchargement (https://...)</Text>
+              <TextInput
+                value={apkUrl}
+                onChangeText={setApkUrl}
+                placeholder="https://exemple.com/spiloveure-v1.2.0.apk"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                autoCapitalize="none"
+                testID="admin-apk-url-input"
+              />
+              <Text style={[styles.lbl, { marginTop: 8 }]}>Taille du fichier en Mo (optionnel)</Text>
+              <TextInput
+                value={apkSizeMb}
+                onChangeText={setApkSizeMb}
+                placeholder="27.5"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                keyboardType="decimal-pad"
+                testID="admin-apk-size-input"
+              />
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
+                onPress={() => action(
+                  () => api.post("/admin/versions/settings", { apk_url: apkUrl.trim(), apk_size_mb: apkSizeMb.trim() === "" ? null : apkSizeMb.trim() }),
+                  "✅ Lien APK mis à jour"
+                )}
+                testID="admin-save-apk-url-btn"
+              >
+                <Ionicons name="save" size={16} color="#fff" />
+                <Text style={styles.copyBtnT}>Enregistrer le lien APK</Text>
+              </TouchableOpacity>
+            </Card>
+
+            <Card testID="admin-version-history-card">
+              <Text style={[styles.section, { marginBottom: 10 }]}>📜 Historique des versions</Text>
               <TextInput
                 value={newVersion}
                 onChangeText={setNewVersion}
@@ -2437,46 +2474,9 @@ export default function AdminHome() {
               </TouchableOpacity>
             </Card>
 
-            <Card style={{ marginBottom: 12 }} testID="admin-apk-url-card">
-              <Text style={[styles.section, { marginBottom: 6 }]}>📱 APK Android (téléchargement utilisateur)</Text>
-              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 10 }}>
-                Collez ici le lien direct vers le fichier APK officiel (hébergé sur Google Drive, GitHub Release, votre propre serveur, etc.). Le bouton "Télécharger l'application" apparaîtra automatiquement dans la page Profil de tous les utilisateurs. Laissez vide pour masquer le bouton.
-              </Text>
-              <Text style={styles.lbl}>URL de téléchargement (https://...)</Text>
-              <TextInput
-                value={apkUrl}
-                onChangeText={setApkUrl}
-                placeholder="https://exemple.com/spiloveure-v1.2.0.apk"
-                placeholderTextColor={theme.colors.textSecondary}
-                style={styles.input}
-                autoCapitalize="none"
-                testID="admin-apk-url-input"
-              />
-              <Text style={[styles.lbl, { marginTop: 8 }]}>Taille du fichier en Mo (optionnel)</Text>
-              <TextInput
-                value={apkSizeMb}
-                onChangeText={setApkSizeMb}
-                placeholder="27.5"
-                placeholderTextColor={theme.colors.textSecondary}
-                style={styles.input}
-                keyboardType="decimal-pad"
-                testID="admin-apk-size-input"
-              />
-              <TouchableOpacity
-                style={{ marginTop: 12, backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
-                onPress={() => action(
-                  () => api.post("/admin/versions/settings", { apk_url: apkUrl.trim(), apk_size_mb: apkSizeMb.trim() === "" ? null : apkSizeMb.trim() }),
-                  "✅ Lien APK mis à jour"
-                )}
-                testID="admin-save-apk-url-btn"
-              >
-                <Ionicons name="save" size={16} color="#fff" />
-                <Text style={styles.copyBtnT}>Enregistrer le lien APK</Text>
-              </TouchableOpacity>
-            </Card>
-
-            <Card testID="admin-version-history-card">
-              <Text style={[styles.section, { marginBottom: 10 }]}>📜 Historique des versions</Text>
+            <Card style={{ marginBottom: 12 }} testID="admin-version-publish-card">
+              <Text style={[styles.section, { marginBottom: 10 }]}>🚀 Publier une nouvelle version</Text>
+              <Text style={styles.lbl}>Numéro de version (ex: 1.2.0)</Text>
               {(versionsData?.versions || []).length === 0 ? (
                 <Text style={styles.empty}>Aucune version publiée pour le moment.</Text>
               ) : (

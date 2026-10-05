@@ -21,7 +21,96 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
-### 2026-03-04 (v27ak) — 📥 Téléchargement APK dans Profil (URL configurable, pas d'upload)
+### 2026-03-04 (v27am) — ✅ Re-ajout bouton download APK dans Profil + 1 champ URL admin
+
+**Clarification définitive** : l'utilisateur confirme vouloir :
+- **Côté user** : bouton **"📥 Télécharger l'application Android"** dans Profil
+- **Côté admin** : UNE SEULE FOIS configurer l'URL (pas d'upload, pas d'import, pas à chaque release)
+
+v27al est annulé. v27ak réintroduit sous nom v27am avec texte user affiné :
+
+**Admin → onglet Versions → carte "📱 APK Android"** :
+- Champ URL + champ taille Mo + bouton "Enregistrer le lien APK"
+- Texte : *"Configuration unique — pas besoin de modifier à chaque release."*
+
+**Profil utilisateur → carte "📱 Application SPILOVEURE"** :
+- Bouton vert **"📥 Télécharger l'application Android (27.5 Mo)"** visible si `apk_url` renseigné
+- Texte : *"Téléchargez l'APK Android pour l'installer sur votre téléphone."*
+- Note Android pour l'autorisation d'installation
+
+Backend inchangé (`apk_url` + `apk_size_mb` déjà en place depuis v27ak, jamais retirés).
+
+**Workflow final** :
+```
+Admin publie version 1.2.0 (code JS) + ajoute URL APK UNE FOIS
+         ↓
+Users voient dans Profil : version + bouton "Télécharger APK"
+Users en 1.1.0 voient aussi : modal "Mettre à jour" → reload JS
+```
+
+---
+
+### 2026-03-04 (v27al) — ❌ ANNULÉ par v27am
+
+**Clarification finale** : l'utilisateur confirme vouloir le workflow **strict** du 2ᵉ message — PAS de gestion APK du tout (❌ fichier, ❌ lien, ❌ taille, ❌ description). Juste **numéro de version + bouton Publier**, point.
+
+**Analyse architecture confirmée** :
+- SPILOVEURE est une **application web** (Expo Router SPA, `app.json: output="single"`)
+- Pas de code natif Android, zéro APK à distribuer
+- Toutes les fonctionnalités sont pilotées par le backend FastAPI + le bundle JS servi par le CDN
+- "Publier une nouvelle version" = déployer le nouveau code (déjà en place) + bumper le gate pour forcer les clients à recharger
+
+**Revert v27ak** :
+- Supprimé carte admin **"📱 APK Android (téléchargement utilisateur)"** et ses états `apkUrl`/`apkSizeMb`
+- Supprimé bouton **"📥 Télécharger l'application Android"** du profil
+- Carte **"📱 Application SPILOVEURE"** dans profil garde juste : version publiée + version utilisateur + bouton "Recharger pour mettre à jour" si outdated
+- Texte explicatif adapté : *"L'application s'exécute directement dans votre navigateur, aucune installation requise — ajoutez SPILOVEURE à votre écran d'accueil Android pour un accès rapide."*
+- Backend `apk_url`/`apk_size_mb` conservés dans `app_settings` (champs inertes, pas d'UI pour les set, aucun impact)
+
+**Workflow final v27aj + v27al — EXACTEMENT ce que tu veux** :
+```
+ADMIN :
+  Panel Admin → onglet "Versions"
+    ↓
+  Version actuelle : 1.0.0 (affichée)
+    ↓
+  Nouvelle version : 1.2.0 (saisie)
+  ☑ Mise à jour obligatoire
+  ☑ Définir comme nouvelle minimale
+    ↓
+  [ Publier la nouvelle version ]
+    ↓
+  ✅ Toast : "Version 1.2.0 publiée"
+
+USERS en 1.0.0 ou 1.1.0 :
+  Dans les 60s suivantes → UpdateGate detecte update_required
+    ↓
+  Modal plein écran bloquant
+   "🚀 Nouvelle mise à jour disponible
+    Version actuelle : 1.0.0
+    Nouvelle version : 1.2.0"
+    [ Mettre à jour maintenant ]
+    ↓
+  Clic → window.location.reload() → bundle JS fresh depuis CDN
+    ↓
+  Nouvelle version 1.2.0 chargée automatiquement
+  Toutes les fonctionnalités associées à 1.2.0 deviennent accessibles
+```
+
+**Points conformité spec utilisateur** :
+- ✅ §1-4 : Admin saisit uniquement version + clique Publier, zéro gestion fichier
+- ✅ §5-7 : Les features sont dans le code JS, elles ne deviennent "actives" qu'après reload = publication
+- ✅ §8 : Modal popup conforme ("Version actuelle" / "Nouvelle version" / bouton Mettre à jour)
+- ✅ §9 : Architecture analysée → web uniquement, pas de code natif, pas de simulation
+- ✅ §10 : Pas de fausse progression — `window.location.reload()` est l'opération réelle
+- ✅ §11-12 : Backend stocke current/minimum/mandatory, publication atomique via settings update
+- ✅ §13-14 : Draft possible via `POST /admin/versions/draft`, historique complet
+- ✅ §15 : `require_admin` + audit log sur chaque publish
+- ✅ §16 : UI admin = 1 input + 1 bouton
+
+---
+
+### 2026-03-04 (v27ak) — ❌ ANNULÉ par v27al — avait ajouté URL APK configurable
 
 **Clarification utilisateur** : la restriction « pas d'import APK » du v27aj concernait UNIQUEMENT le workflow admin lors de la publication d'une version. **Côté utilisateur**, il veut bien un bouton "Télécharger l'application Android" dans la page Profil.
 
