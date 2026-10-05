@@ -36,7 +36,7 @@ import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
 import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -58,6 +58,11 @@ export default function AdminHome() {
   const [wdQ, setWdQ] = useState("");
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [channels, setChannels] = useState<any[]>([]);
+  const [versionsData, setVersionsData] = useState<{ settings?: any; versions?: any[] } | null>(null);
+  const [newVersion, setNewVersion] = useState("");
+  const [newVersionMandatory, setNewVersionMandatory] = useState(true);
+  const [newVersionMakeMin, setNewVersionMakeMin] = useState(true);
+  const [newVersionNotes, setNewVersionNotes] = useState("");
   const [challenges, setChallenges] = useState<any[]>([]);
   // Challenge form state (create only — edits go through inline actions).
   const [chgName, setChgName] = useState("");
@@ -324,6 +329,7 @@ export default function AdminHome() {
       }
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "channels") setChannels(await api.get("/admin/channels"));
+      if (tab === "versions") setVersionsData(await api.get("/admin/versions"));
       if (tab === "challenges") {
         const r = await api.get<any>("/admin/challenges");
         setChallenges(r?.items || []);
@@ -520,6 +526,7 @@ export default function AdminHome() {
     { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
     { key: "support", label: "Support 💬", icon: "chatbubbles" },
     { key: "providers", label: "Prestataires paiement", icon: "card" },
+    { key: "versions", label: "Versions", icon: "git-branch" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
 
@@ -2334,6 +2341,124 @@ export default function AdminHome() {
           <>
             <SupportAgentsCard />
             <AdminSupportTab />
+          </>
+        )}
+
+        {tab === "versions" && (
+          <>
+            <View style={{ padding: 12, borderRadius: 14, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE", marginBottom: 12 }}>
+              <Text style={{ fontSize: 15, fontWeight: "900", color: "#1E1B4B" }}>🚀 Gestion des versions</Text>
+              <Text style={{ fontSize: 11, color: "#312E81", marginTop: 4, lineHeight: 15 }}>
+                Publiez une nouvelle version de SPILOVEURE. Tous les utilisateurs encore sur une version plus ancienne que le "minimum requis" verront un popup bloquant leur demandant de recharger pour mettre à jour.
+              </Text>
+            </View>
+
+            <Card style={{ marginBottom: 12 }} testID="admin-version-settings-card">
+              <Text style={styles.lbl}>Version actuellement publiée</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: "#D1FAE5" }}>
+                  <Text style={{ fontSize: 20, fontWeight: "900", color: "#065F46" }} testID="admin-current-version">
+                    {versionsData?.settings?.current_version || "—"}
+                  </Text>
+                </View>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                  minimum requis : <Text style={{ fontWeight: "800", color: theme.colors.textPrimary }}>{versionsData?.settings?.minimum_supported_version || "—"}</Text>
+                </Text>
+              </View>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                {versionsData?.settings?.mandatory ? "⚠️ Mise à jour marquée OBLIGATOIRE" : "Mise à jour marquée optionnelle"}
+                {versionsData?.settings?.updated_at ? ` • dernière publication : ${new Date(versionsData.settings.updated_at).toLocaleString("fr-FR")}` : ""}
+              </Text>
+            </Card>
+
+            <Card style={{ marginBottom: 12 }} testID="admin-version-publish-card">
+              <Text style={[styles.section, { marginBottom: 10 }]}>🚀 Publier une nouvelle version</Text>
+              <Text style={styles.lbl}>Numéro de version (ex: 1.2.0)</Text>
+              <TextInput
+                value={newVersion}
+                onChangeText={setNewVersion}
+                placeholder="1.2.0"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                testID="admin-new-version-input"
+                autoCapitalize="none"
+              />
+              <Text style={[styles.lbl, { marginTop: 10 }]}>Notes de version (optionnel)</Text>
+              <TextInput
+                value={newVersionNotes}
+                onChangeText={setNewVersionNotes}
+                placeholder="Nouveautés / corrections apportées"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={[styles.input, { minHeight: 60 }]}
+                multiline
+                testID="admin-new-version-notes"
+              />
+              <TouchableOpacity
+                onPress={() => setNewVersionMandatory(!newVersionMandatory)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 }}
+                testID="admin-new-version-mandatory"
+              >
+                <Ionicons name={newVersionMandatory ? "checkbox" : "square-outline"} size={20} color={newVersionMandatory ? theme.colors.primary : theme.colors.textSecondary} />
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 13 }}>
+                  Mise à jour obligatoire (bloque les anciennes versions)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setNewVersionMakeMin(!newVersionMakeMin)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}
+                testID="admin-new-version-make-min"
+              >
+                <Ionicons name={newVersionMakeMin ? "checkbox" : "square-outline"} size={20} color={newVersionMakeMin ? theme.colors.primary : theme.colors.textSecondary} />
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 13 }}>
+                  Définir comme nouvelle version minimale
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ marginTop: 16, backgroundColor: "#059669", paddingVertical: 14, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}
+                onPress={() => {
+                  if (!newVersion.trim()) { notify("Erreur", "Entrez un numéro de version."); return; }
+                  action(
+                    () => api.post("/admin/versions/publish", { version: newVersion.trim(), notes: newVersionNotes, mandatory: newVersionMandatory, make_minimum: newVersionMakeMin }),
+                    `✅ Version ${newVersion.trim()} publiée`
+                  ).then(() => { setNewVersion(""); setNewVersionNotes(""); });
+                }}
+                testID="admin-publish-version-btn"
+              >
+                <Ionicons name="rocket" size={18} color="#fff" />
+                <Text style={styles.copyBtnT}>Publier la nouvelle version</Text>
+              </TouchableOpacity>
+            </Card>
+
+            <Card testID="admin-version-history-card">
+              <Text style={[styles.section, { marginBottom: 10 }]}>📜 Historique des versions</Text>
+              {(versionsData?.versions || []).length === 0 ? (
+                <Text style={styles.empty}>Aucune version publiée pour le moment.</Text>
+              ) : (
+                (versionsData?.versions || []).map((v: any) => (
+                  <View key={v.id} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{ fontWeight: "900", color: theme.colors.textPrimary, fontSize: 15 }}>{v.version}</Text>
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, backgroundColor: v.status === "published" ? "#D1FAE5" : "#FEF3C7" }}>
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: v.status === "published" ? "#065F46" : "#92400E" }}>
+                            {v.status === "published" ? "PUBLIÉE" : "BROUILLON"}
+                          </Text>
+                        </View>
+                        {v.mandatory && (
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, backgroundColor: "#FEE2E2" }}>
+                            <Text style={{ fontSize: 9, fontWeight: "800", color: "#991B1B" }}>OBLIGATOIRE</Text>
+                          </View>
+                        )}
+                      </View>
+                      {v.notes ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>{v.notes}</Text> : null}
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>
+                        {v.published_at ? `Publiée le ${new Date(v.published_at).toLocaleString("fr-FR")}` : v.created_at ? `Créée le ${new Date(v.created_at).toLocaleString("fr-FR")}` : ""}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </Card>
           </>
         )}
 

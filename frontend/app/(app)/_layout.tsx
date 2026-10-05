@@ -8,6 +8,7 @@ import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
 import TelegramFab from "@/src/components/TelegramFab";
 import { ActivationProvider } from "@/src/components/ActivationGuard";
+import { UpdateGate } from "@/src/components/UpdateGate";
 
 /**
  * v27c (2026-02-14) — activation flow rétabli.
@@ -87,17 +88,19 @@ export default function AppLayout() {
 
   return (
     <ActivationProvider>
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }} />
-        {user && (
-          <>
-            {isActivated && <CommunityPopup userId={user.id} />}
-            <NotificationToaster />
-            <PushBootstrap />
-            {isActivated && <TelegramFab />}
-          </>
-        )}
-      </View>
+      <UpdateGate>
+        <View style={{ flex: 1 }}>
+          <Stack screenOptions={{ headerShown: false }} />
+          {user && (
+            <>
+              {isActivated && <CommunityPopup userId={user.id} />}
+              <NotificationToaster />
+              <PushBootstrap />
+              {isActivated && <TelegramFab />}
+            </>
+          )}
+        </View>
+      </UpdateGate>
     </ActivationProvider>
   );
 }

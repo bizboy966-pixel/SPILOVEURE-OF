@@ -5504,6 +5504,11 @@ app.include_router(mk_admin)
 from notifications_api import router as notifications_router  # noqa: E402
 app.include_router(notifications_router)
 
+# v27aj (2026-03-04) — minimalist app version management (publish-only, no APK).
+from app_versions import public_router as av_public, admin_router as av_admin  # noqa: E402
+app.include_router(av_public)
+app.include_router(av_admin)
+
 # Feature Flags — central on/off switches for every recent module.
 from feature_flags import (  # noqa: E402
     public as ff_public,

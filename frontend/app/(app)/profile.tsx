@@ -13,6 +13,7 @@ import { formatFCFA, formatDate } from "@/src/utils/format";
 import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/firebase";
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
+import { CLIENT_VERSION } from "@/src/version";
 
 export default function Profile() {
   const router = useRouter();
@@ -154,6 +155,9 @@ export default function Profile() {
             )}
           </View>
         </Card>
+
+        {/* v27aj (2026-03-04) — Application SPILOVEURE : version + info plateforme */}
+        <AppVersionCard />
       </ScrollView>
 
       <BottomNav />
@@ -168,6 +172,61 @@ function Item({ icon, label, value }: { icon: any; label: string; value: string 
       <Text style={styles.itemLbl}>{label}</Text>
       <Text style={styles.itemVal}>{value}</Text>
     </View>
+  );
+}
+
+// v27aj (2026-03-04) — AppVersionCard : small banner that shows the
+// currently published SPILOVEURE version + the one installed locally.
+// Reads the public /api/app/version endpoint (no auth needed).
+function AppVersionCard() {
+  const [v, setV] = React.useState<{ current_version?: string; mandatory?: boolean } | null>(null);
+  React.useEffect(() => {
+    api.get("/app/version").then((r: any) => setV(r)).catch(() => {});
+  }, []);
+  const current = v?.current_version || "—";
+  const installed = CLIENT_VERSION;
+  const isOutdated = v?.current_version && v.current_version !== installed;
+  return (
+    <Card style={{ marginTop: 12 }} testID="profile-app-version-card">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Ionicons name="phone-portrait" size={18} color={theme.colors.secondary} />
+        <Text style={styles.section}>📱 Application SPILOVEURE</Text>
+      </View>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
+        Plateforme officielle SPILOVEURE — version web (Progressive Web App). L'application s'exécute directement dans votre navigateur, aucune installation requise.
+      </Text>
+      <View style={styles.itemRow}>
+        <View style={styles.itemIcon}><Ionicons name="rocket" size={16} color={theme.colors.primary} /></View>
+        <Text style={styles.itemLbl}>Version publiée</Text>
+        <Text style={styles.itemVal} testID="profile-current-version">{current}</Text>
+      </View>
+      <View style={styles.itemRow}>
+        <View style={styles.itemIcon}><Ionicons name="pricetag" size={16} color={theme.colors.primary} /></View>
+        <Text style={styles.itemLbl}>Votre version</Text>
+        <Text style={[styles.itemVal, isOutdated && { color: theme.colors.warning }]} testID="profile-installed-version">
+          {installed}{isOutdated ? " ⚠️" : " ✅"}
+        </Text>
+      </View>
+      {isOutdated && (
+        <TouchableOpacity
+          onPress={() => { if (typeof window !== "undefined") window.location.reload(); }}
+          testID="profile-reload-update"
+          style={{
+            marginTop: 10,
+            backgroundColor: theme.colors.primary,
+            paddingVertical: 12,
+            borderRadius: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <Ionicons name="refresh" size={16} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "800" }}>Recharger pour mettre à jour</Text>
+        </TouchableOpacity>
+      )}
+    </Card>
   );
 }
 

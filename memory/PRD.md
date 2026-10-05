@@ -21,6 +21,76 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-04 (v27aj) — 🚀 Système de versionnement minimaliste SPILOVEURE
+
+**Demande utilisateur** : système de publication de versions avec un simple numéro + bouton "Publier la nouvelle version". **PAS d'APK**, pas d'upload fichier, pas de description obligatoire. Juste un gate pour forcer le reload des utilisateurs sur une version plus ancienne.
+
+**Architecture** :
+
+1. **Backend** (`/app/backend/app_versions.py`) :
+   - Collection `app_versions` : `{id, version, status: "draft|published", mandatory, notes, published_by, created_at, published_at}`
+   - Settings `app_settings.app_version = {current_version, minimum_supported_version, mandatory, updated_at}`
+   - Endpoints publics :
+     - `GET /api/app/version` → `{current_version, minimum_supported_version, mandatory, updated_at}` (public, pas d'auth)
+     - `GET /api/app/version/check?client_version=X.Y.Z` → `{update_available, update_required}` (compare côté serveur)
+   - Endpoints admin :
+     - `GET /api/admin/versions` → liste + settings
+     - `POST /api/admin/versions/publish` `{version, notes?, mandatory, make_minimum}` → publication atomique
+     - `POST /api/admin/versions/draft` → sauver brouillon
+     - `POST /api/admin/versions/settings` → ajuster minimum sans publier
+   - Validation semver stricte (X.Y.Z + pré-release optionnel). Comparaison côté serveur empêche bypass frontend.
+   - Audit log auto sur chaque publish/update.
+
+2. **Frontend user** :
+   - `/app/frontend/src/version.ts` → `export const CLIENT_VERSION = "1.0.0"` (bumpé en même temps que les releases features)
+   - `/app/frontend/src/components/UpdateGate.tsx` → modal plein écran non-dismissible monté dans `(app)/_layout.tsx`. Poll `/api/app/version/check` toutes les 60s. Si `update_required=true` → modal blocking → bouton "Mettre à jour maintenant" → `window.location.reload()` (hard reload pour pull le nouveau bundle depuis le CDN).
+   - **Section profil "📱 Application SPILOVEURE"** : affiche version publiée + version installée + bouton "Recharger pour mettre à jour" si outdated.
+
+3. **Frontend admin** :
+   - Nouvel onglet **"Versions"** (icon git-branch) entre "Prestataires paiement" et "Réglages".
+   - Carte "Version actuellement publiée" (badge vert) + minimum requis + flag obligatoire + date dernière publication.
+   - Carte "🚀 Publier une nouvelle version" : input `1.2.0` + notes optionnelles + 2 cases à cocher (`Mise à jour obligatoire` par défaut ✓, `Définir comme nouvelle minimale` par défaut ✓) + bouton vert "Publier la nouvelle version".
+   - Carte "📜 Historique" : chaque release avec badges `PUBLIÉE | BROUILLON | OBLIGATOIRE` + date + notes.
+   - Auto-switch à l'historique après publish (via `action()` qui recharge).
+
+**Workflow utilisateur** :
+```
+Admin  : saisit "1.2.0" → clic Publier → success toast
+         ↓
+Backend : app_settings.current_version = "1.2.0"
+         app_versions insert {status: published, mandatory: true}
+         admin_logs insert audit row
+         ↓
+Users  : UpdateGate poll /api/app/version/check toutes les 60s
+         CLIENT_VERSION ("1.0.0") < minimum_supported_version ("1.2.0")
+         → mandatory=true → modal blocking affichée
+         → clic "Mettre à jour maintenant" → window.location.reload()
+         → nouveau bundle fetched → CLIENT_VERSION rebumped → check passes
+```
+
+**Sécurité** :
+- Comparaison semver **côté serveur** → un user ne peut PAS bypass en modifiant `CLIENT_VERSION` dans son JS (le backend sait quelle version il réclame)
+- `require_admin` sur toutes les routes `/api/admin/versions/*`
+- Audit log traçant qui a publié quelle version et quand
+- Impossible de publier une version antérieure à la courante (400)
+
+**Test de régression** — `/app/backend/tests/test_app_versions_v27aj.py` (**6/6 passent**) :
+- Validation semver (accepte `1.2.0`, `1.0.0-beta` / rejette `1.0`, `v1.0.0`, `abc`)
+- Comparaison versions (`1.2.0 > 1.1.9`, `2.0.0 > 1.99.99`)
+- Publish refuse semver invalide
+- Publish refuse régression (0.9.0 quand current=1.0.0)
+- Publish met à jour settings + crée audit log
+- `/check` renvoie correctement `update_required=true` pour client < min + mandatory
+
+**Vérification E2E preview** :
+- `curl GET /api/app/version` → `{"current_version":"1.0.0","minimum_supported_version":"1.0.0","mandatory":false}`
+- `curl POST /api/admin/versions/publish` avec `1.1.0, mandatory=true` → settings updated
+- `curl GET /api/app/version/check?client_version=1.0.0` → `update_required=true` ✅
+
+**Impact zéro régression** : UpdateGate wrappe `(app)/_layout.tsx` → aucune autre page touchée. Composant `AppVersionCard` isolé dans profile.tsx. Nouvel onglet admin sans modifier les existants.
+
+---
+
 ### 2026-03-04 (v27ai) — ✅ Auto-switch sub-tab après action + polling live 20s
 
 **Rapport utilisateur** : « Le retrait auto fonctionne, mais dès que c'est validé dans l'admin panel, ça reste toujours en attente là-bas. Or c'est validé. »
