@@ -98,7 +98,14 @@ OPERATORS: dict[str, dict] = {
                          "yas t-money", "yas tmoney"]},
             {"code": "moov_tg",   "label": "Moov Money (Flooz)",
              "default_active": True,
-             "provider_codes": ["moov_tg", "flooz_tg", "moov_money_tg"],
+             # v27ax (2026-03-05) — Moov TG retrait auto refusé par BTP.
+             # On essaie toutes les variantes connues de nommage BTP :
+             # suffixé `_tg`, bare, tirets, et "flooz" seul.
+             "provider_codes": [
+                 "moov_tg", "flooz_tg", "moov_money_tg",
+                 "flooz", "moov", "moov_money",
+                 "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
+             ],
              "aliases": ["moov", "moov money", "flooz", "moov africa"]},
         ],
     },
@@ -801,17 +808,42 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
             detail = r.text[:400]
             code = ""
         detail = _redact(detail)
-        log.warning("biztranspay /payouts %s wd=%s code=%s body=%s",
-                    r.status_code, wd_doc["id"], code, detail)
+        # v27ax — log the full list of codes we tried + persist it so admin
+        # can forward it to BTP support (« BTP a refusé moov_tg, flooz_tg,
+        # moov_money_tg,… — quel est le code exact de ma config ? »).
+        log.warning("biztranspay /payouts %s wd=%s code=%s tried=%s body=%s",
+                    r.status_code, wd_doc["id"], code, candidate_codes, detail)
+        err_detail_text_low = detail.lower()
+        is_final_operator_mismatch = (
+            "opérateur non disponible" in err_detail_text_low
+            or ("operator" in err_detail_text_low and
+                ("not available" in err_detail_text_low or "non disponible" in err_detail_text_low))
+        )
+        final_code = code or (
+            "operator_not_configured_in_btp_console"
+            if is_final_operator_mismatch else "gateway_error"
+        )
+        final_error = detail[:400]
+        if is_final_operator_mismatch:
+            final_error = (
+                f"BTP a refusé tous les codes opérateur essayés "
+                f"({', '.join(candidate_codes)}). Configurez l'un de ces "
+                f"codes dans votre console marchand BTP → Paramètres → "
+                f"Opérateurs, OU demandez à BTP le code exact et "
+                f"communiquez-le au support pour qu'il soit ajouté. "
+                f"Détail BTP : {detail[:200]}"
+            )[:400]
         await db.withdrawals.update_one(
             {"id": wd_doc["id"]},
-            {"$set": {"gateway_error": detail[:400],
-                      "gateway_error_code": code,
+            {"$set": {"gateway_error": final_error,
+                      "gateway_error_code": final_code,
                       "gateway_status_code": r.status_code,
+                      "tried_operator_codes": candidate_codes,
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {"auto_dispatched": False, "reason": "gateway_error",
-                "detail": detail, "code": code}
+                "detail": final_error, "code": final_code,
+                "tried": candidate_codes}
 
     resp_json = {}
     try:

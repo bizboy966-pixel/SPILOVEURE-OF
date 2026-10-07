@@ -21,6 +21,39 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27ax) — ✅ Moov TG retrait auto : fallback étendu + erreur actionnable
+
+**User report (vocal)** : « Le retrait automatique Moov Money ne fonctionne pas pour le Togo. Moov Money, encore appelé Flooz, mais ça ne fonctionne pas. J'ai lancé, c'est en attente. La dame doit valider manuellement. »
+
+**Cause probable** : BTP merchant console configure les codes opérateurs par environnement et notre dispatcher payout avait seulement 3 variantes pour Moov TG (`moov_tg`, `flooz_tg`, `moov_money_tg`). Si BTP attend un code différent (`flooz`, `moov`, tiret au lieu d'underscore, etc.), les 3 tentatives échouaient toutes et le retrait restait silencieusement en `pending` avec un `gateway_error` générique qui ne disait pas à l'admin quoi faire.
+
+**Fix v27ax** (`/app/backend/biztranspay.py`) :
+
+1. **10 variantes pour Moov TG** :
+   ```python
+   "provider_codes": [
+     "moov_tg", "flooz_tg", "moov_money_tg",
+     "flooz", "moov", "moov_money",
+     "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
+   ]
+   ```
+   Le dispatcher essaie chaque code avec un `Idempotency-Key` unique (`wd-{id}-v{N}`) et mémorise le gagnant dans `app_settings`.
+
+2. **Erreur `gateway_error` actionnable** quand BTP refuse TOUS les codes :
+   - `tried_operator_codes` persisté sur `withdrawals` (liste complète pour forensique).
+   - `gateway_error_code = "operator_not_configured_in_btp_console"` (nouveau code dédié).
+   - `gateway_error` = « BTP a refusé tous les codes opérateur essayés (moov_tg, flooz_tg, moov_money_tg, flooz, moov, moov_money, …). Configurez l'un de ces codes dans votre console marchand BTP → Paramètres → Opérateurs, OU demandez à BTP le code exact et communiquez-le au support pour qu'il soit ajouté. Détail BTP : {raw} »
+
+   L'admin peut maintenant copier la liste et aller soit activer l'un des codes dans son dashboard BTP, soit nous transmettre le vrai code.
+
+3. **Log serveur enrichi** : `log.warning("biztranspay /payouts %s wd=%s code=%s tried=%s body=%s", ...)` → traçabilité complète côté backend logs.
+
+**Tests** (`/app/backend/tests/test_moov_tg_fallback_v27ax.py`) — 3/3 ✅ + 13 régressions ✅ (v27au/av/aw conservées).
+
+**Action admin requise** : lancer un retrait test Moov TG. Si ça marche → BTP a l'un des 10 codes dans sa config, le dispatcher auto-apprend et toutes les futures retraits iront direct en completed sous 4 s. Si ça refuse encore → le panel admin affichera la liste des codes essayés + l'erreur BTP exacte, qu'il faudra transmettre au support BTP pour obtenir le vrai code.
+
+---
+
 ### 2026-03-05 (v27aw) — ✅ Retraits auto BTP se valident dans les 4 s + fallback codes TG/BJ/BF
 
 **User report (vocal, 3 points)** :
