@@ -21,6 +21,23 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27ay) — ✅ Moov Money Togo (Flooz) : code BTP officiel confirmé
+
+**User confirmation** : « Pour Moov Money / Flooz au Togo, j'ai vérifié le backend de Biz-transPay : le code attendu dans le champ `operator` de la route de retrait est **`moov-togo`** » (kebab-case + nom pays en toutes lettres, pas de underscore).
+
+**Fix v27ay** :
+1. **`moov-togo` placé en tête de `provider_codes`** pour Moov TG → c'est maintenant la 1ère tentative du dispatcher. Les 10 variantes historiques (v27ax) restent en fallback au cas où BTP change de convention plus tard.
+2. **Pré-seed de la cache `app_settings`** avec `key = btp_learned_operator_code:TG:moov_tg → moov-togo`. Résultat : dès le prochain retrait Moov TG, le dispatcher saute directement sur `moov-togo` sans essayer les 10 autres (0 retry, 0 latence).
+
+**Tests** (`/app/backend/tests/test_moov_togo_official_v27ay.py`) — 3/3 ✅ :
+- `moov-togo` est bien le 1er code dans `provider_codes`.
+- Les variantes historiques sont conservées en fallback.
+- La seed `app_settings` est présente et pointe sur `moov-togo`.
+
+**Résultat attendu en production** : prochain retrait Moov TG → BTP accepte immédiatement avec le code `moov-togo` → auto-dispatch + bascule `completed` dans les 4 s (polling_loop v27aw).
+
+---
+
 ### 2026-03-05 (v27ax) — ✅ Moov TG retrait auto : fallback étendu + erreur actionnable
 
 **User report (vocal)** : « Le retrait automatique Moov Money ne fonctionne pas pour le Togo. Moov Money, encore appelé Flooz, mais ça ne fonctionne pas. J'ai lancé, c'est en attente. La dame doit valider manuellement. »

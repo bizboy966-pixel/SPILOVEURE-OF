@@ -98,10 +98,12 @@ OPERATORS: dict[str, dict] = {
                          "yas t-money", "yas tmoney"]},
             {"code": "moov_tg",   "label": "Moov Money (Flooz)",
              "default_active": True,
-             # v27ax (2026-03-05) — Moov TG retrait auto refusé par BTP.
-             # On essaie toutes les variantes connues de nommage BTP :
-             # suffixé `_tg`, bare, tirets, et "flooz" seul.
+             # v27ay (2026-03-05) — code BTP OFFICIEL confirmé par user :
+             # `moov-togo` (format kebab-case avec nom pays complet). Placé
+             # en tête pour être essayé en 1er. Les autres variantes
+             # restent en fallback au cas où BTP changerait sa convention.
              "provider_codes": [
+                 "moov-togo",
                  "moov_tg", "flooz_tg", "moov_money_tg",
                  "flooz", "moov", "moov_money",
                  "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
