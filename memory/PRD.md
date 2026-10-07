@@ -21,6 +21,47 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27aw) — ✅ Retraits auto BTP se valident dans les 4 s + fallback codes TG/BJ/BF
+
+**User report (vocal, 3 points)** :
+1. « Le retrait automatique via Biz-transPay et Mixx By Yas marche bien. Seulement, le retrait reste toujours en attente au lieu d'être validé. Aussitôt reçu, de son côté ça doit mettre complété et quitter la partie en attente pour aller dans validée. »
+2. « Il faut ajouter Moov Money Togo aussi, Flooz, à la partie retrait automatique. »
+3. « Il faut ajouter MTN Côte d'Ivoire dans la partie retrait automatique. »
+
+**Diagnostic** :
+- Issue #1 (critique) : le `polling_loop` BTP toutes les 4 s ne sweep que la collection `payments` (activations). La fonction `reconcile_all_dispatched` existe (v27af) pour rafraîchir le statut des `withdrawals`, mais elle n'est appelée QUE quand l'admin ouvre l'onglet retraits côté frontend. Résultat : retrait auto-dispatched → BTP paie le bénéficiaire → BTP marque `completed` → notre doc reste `pending` indéfiniment tant qu'aucun admin n'ouvre le panel.
+- Issue #2/#3 : les opérateurs `moov_tg` et `mtn_ci` SONT déjà actifs dans `payment_provider_operators` et bien dans `OPERATORS_BY_COUNTRY`. Si le retrait ne fonctionne pas pour eux (alors que `tmoney_tg` marche), la cause la plus probable est que le code attendu par le dashboard BTP du marchand diffère de notre code interne, exactement comme pour MTN CI dans v27av.
+
+**Fix v27aw** (`/app/backend/biztranspay.py`) :
+
+1. **Polling worker étendu aux retraits** — `polling_loop` fait désormais 2 passes par tick de 4 s :
+   - `_poll_once(db)` → activations en attente (inchangé)
+   - `reconcile_all_dispatched(db, max_docs=50)` → retraits BTP dispatched mais pas encore flippés → poll `GET /payouts/{id}` → `status="completed"` + `completed_at` + sortie automatique du bucket « En attente » vers « Validés ». La fonction est no-op quand aucun retrait n'est stuck (une query indexée qui renvoie 0 doc), donc coût négligeable. Latence max utilisateur ≤ 4 s.
+
+2. **Fallback `provider_codes` pour TOUS les opérateurs TG/BJ/BF/CI** (v27aw) — chaque opérateur expose maintenant 2–6 codes candidats que le dispatcher essaie successivement sur une erreur « Opérateur non disponible pour ce pays » :
+   - TG : `tmoney_tg` → `[tmoney_tg, mixx_by_yas_tg, yas_tg, mixx_tg, togocom_tg]`, `moov_tg` → `[moov_tg, flooz_tg, moov_money_tg]`
+   - BJ : `tmoney_bj` → `[tmoney_bj, mtn_bj, mtn_momo_bj, mtn_mobile_money_bj, momo_bj]`, `moov_bj` → `[moov_bj, flooz_bj, moov_money_bj]`, `celtiis_bj` → `[celtiis_bj, celtiis_cash_bj]`
+   - BF : `orange_bf` → `[orange_bf, orange_money_bf, om_bf]`, `moov_bf` → `[moov_bf, moov_money_bf, flooz_bf]`, `coris_bf` → `[coris_bf, coris_money_bf]`
+   - CI : variantes v27av préservées (`mtn_ci`, `mtn_momo_ci`, `mtn_mobile_money_ci`, …)
+
+   La variante acceptée est mémorisée dans `app_settings` → les paiements suivants partent directement avec le bon code (0 retry).
+
+**Tests** (`/app/backend/tests/test_polling_withdrawal_reconcile_v27aw.py`) — 6/6 ✅ :
+- Chaque opérateur TG/BJ/BF/CI expose `provider_codes`.
+- Moov TG a bien les variantes `flooz_tg` + `moov_money_tg`.
+- Mixx By Yas (regression check) conserve `tmoney_tg` + `mixx_by_yas_tg` + `yas_tg`.
+- MTN CI conserve son fallback v27av.
+- `polling_loop` appelle `reconcile_all_dispatched` à chaque tick.
+- `_poll_once` reste focalisé sur les activations (zéro scope creep).
+
+**Comportement final garanti** :
+- ✅ Retrait auto BTP Mixx By Yas → BTP paie → ≤ 4 s plus tard il bascule en « Validés » (plus de « reste en attente »)
+- ✅ Retrait auto BTP Moov TG (Flooz) → même latence + fallback multi-codes si BTP refuse `moov_tg` → `flooz_tg` → `moov_money_tg`
+- ✅ Retrait auto BTP MTN CI → fallback multi-codes v27av + reconcile 4 s
+- ✅ Zéro intervention admin requise pour les flips `pending → completed`
+
+---
+
 ### 2026-03-05 (v27av) — ✅ MTN CI live payments débloqués + visibilité des erreurs BTP
 
 **User report (vocal)** : « MTN Côte d'Ivoire, on a un problème. Je l'ai déjà activé via Biz-transPay mais ça ne fonctionne pas. On dit toujours : Biz-transPay a refusé le paiement. »

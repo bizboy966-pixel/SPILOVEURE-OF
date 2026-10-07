@@ -87,13 +87,18 @@ OPERATORS: dict[str, dict] = {
             # T-Money (TogoCom) est désormais commercialisé sous "Mixx By Yas"
             # au Togo (Togocom fait partie du groupe Yas). Moov Money est en
             # cours de rebrand global mais reste "Moov Money" au Togo.
+            # v27aw (2026-03-05) — provider_codes fallback pour que le
+            # dispatcher BTP retry sur mismatch opérateur (TG rebrands).
             {"code": "tmoney_tg", "label": "Mixx By Yas (T-Money)",
              "default_active": True,
+             "provider_codes": ["tmoney_tg", "mixx_by_yas_tg", "yas_tg",
+                                "mixx_tg", "togocom_tg"],
              "aliases": ["t-money", "tmoney", "togocom",
                          "mixx", "mixx by yas", "mixx yas", "yas",
                          "yas t-money", "yas tmoney"]},
             {"code": "moov_tg",   "label": "Moov Money (Flooz)",
              "default_active": True,
+             "provider_codes": ["moov_tg", "flooz_tg", "moov_money_tg"],
              "aliases": ["moov", "moov money", "flooz", "moov africa"]},
         ],
     },
@@ -104,12 +109,16 @@ OPERATORS: dict[str, dict] = {
         "operators": [
             {"code": "tmoney_bj",  "label": "MTN Mobile Money",
              "default_active": True,
+             "provider_codes": ["tmoney_bj", "mtn_bj", "mtn_momo_bj",
+                                "mtn_mobile_money_bj", "momo_bj"],
              "aliases": ["mtn", "mtn momo", "momo", "tmoney bj"]},
             {"code": "moov_bj",    "label": "Moov Money (Flooz)",
              "default_active": True,
+             "provider_codes": ["moov_bj", "flooz_bj", "moov_money_bj"],
              "aliases": ["moov", "moov money", "flooz", "moov africa"]},
             {"code": "celtiis_bj", "label": "Celtiis Cash",
              "default_active": True,
+             "provider_codes": ["celtiis_bj", "celtiis_cash_bj"],
              "aliases": ["celtiis", "celtiis cash"]},
         ],
     },
@@ -120,12 +129,15 @@ OPERATORS: dict[str, dict] = {
         "operators": [
             {"code": "orange_bf", "label": "Orange Money",
              "default_active": True,
+             "provider_codes": ["orange_bf", "orange_money_bf", "om_bf"],
              "aliases": ["orange", "orange money", "om"]},
             {"code": "moov_bf",   "label": "Moov Money",
              "default_active": True,
+             "provider_codes": ["moov_bf", "moov_money_bf", "flooz_bf"],
              "aliases": ["moov", "moov money", "moov africa"]},
             {"code": "coris_bf",  "label": "Coris Money",
              "default_active": True,
+             "provider_codes": ["coris_bf", "coris_money_bf"],
              "aliases": ["coris", "coris money", "coris bank"]},
         ],
     },
@@ -1362,15 +1374,32 @@ async def _poll_once(db) -> dict:
 
 
 async def polling_loop(db):
-    """Background task: sweeps every 4 seconds. Started from server.lifespan."""
+    """Background task: sweeps every 4 seconds. Started from server.lifespan.
+
+    v27aw (2026-03-05) — now ALSO reconciles stuck withdrawals via
+    `reconcile_all_dispatched` so BTP payouts that already completed on
+    the gateway side flip from `pending` to `completed` within 4 s
+    instead of waiting for an admin to open the retraits panel.
+    """
     import asyncio as _a
+    tick = 0
     while True:
         try:
             r = await _poll_once(db)
             if r.get("activated") or r.get("failed") or r.get("expired"):
-                log.info("btp polling: %s", r)
+                log.info("btp polling activations: %s", r)
         except Exception as e:
-            log.exception("btp polling loop error: %s", _redact(e))
+            log.exception("btp polling loop error (activations): %s", _redact(e))
+        # Reconcile stuck withdrawals on every tick. The function is cheap
+        # when nothing is pending (one indexed query returning 0 docs) and
+        # ensures user-visible status matches gateway reality quickly.
+        try:
+            wd_r = await reconcile_all_dispatched(db, max_docs=50)
+            if wd_r.get("updated"):
+                log.info("btp polling withdrawals: %s", wd_r)
+        except Exception as e:
+            log.exception("btp polling loop error (withdrawals): %s", _redact(e))
+        tick += 1
         await _a.sleep(4)
 
 
