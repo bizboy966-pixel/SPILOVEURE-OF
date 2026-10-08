@@ -179,6 +179,18 @@ async def _ashtec_enabled(db) -> bool:
     return bool(cfg.get("ashtec_enabled"))
 
 
+async def _get_user_id(db) -> str:
+    """v27bc (2026-03-05) — AshTech Pay Direct API v1 REQUIRES a `user_id`
+    on every /v1/collect body and /v1/transaction query. The merchant
+    profile identifier is visible in the AshTech dashboard, pasted in the
+    admin panel. DB first, env `ASHTECH_USER_ID` as bootstrap."""
+    cfg = await _load_gateway_cfg(db)
+    db_uid = (cfg.get("ashtec_user_id") or "").strip()
+    if db_uid:
+        return db_uid
+    return (os.environ.get("ASHTECH_USER_ID") or "").strip()
+
+
 async def _get_webhook_secret(db) -> str:
     """Resolve the HMAC-SHA256 webhook secret — DB (admin panel) FIRST,
     env var as bootstrap fallback. Set on the Ashtech merchant dashboard,
@@ -375,6 +387,7 @@ async def create_ashtec_payment(
 
     resp = await ashtecpay.initiate_payment(
         api_key=api_key,
+        user_id=await _get_user_id(db),   # v27bc — mandatory per skill
         amount=float(amount),
         currency=info["currency"],
         phone=e164_phone,
@@ -385,10 +398,14 @@ async def create_ashtec_payment(
     )
 
     if not resp.get("success") and resp.get("error") == "otp_required":
+        # v27bc — persist the AshTech session reference (otp_required 400
+        # body) so the OTP confirmation re-uses it instead of our own ref.
+        session_ref = resp.get("session_reference") or ref
         await db.payments.update_one(
             {"reference": ref},
             {"$set": {"status": "otp_required",
                       "ashtecpay_ussd_code": resp.get("ussd_code"),
+                      "ashtecpay_session_reference": session_ref,
                       "updated_at": datetime.now(timezone.utc)}},
         )
         return {
@@ -397,6 +414,7 @@ async def create_ashtec_payment(
             "operator": operator, "country_code": cc,
             "expires_at": expires_at.isoformat(),
             "ussd_code": resp.get("ussd_code"),
+            "session_reference": session_ref,
             "message": resp.get("message")
                 or "Un code OTP a été envoyé sur votre téléphone.",
         }
@@ -577,22 +595,30 @@ async def ashtec_submit_otp(
         await _mark_expired(db, data.reference)
         raise HTTPException(400, "Délai de 10 minutes dépassé — recommencez.")
 
-    resp = await ashtecpay.initiate_payment(
+    # v27bc — use the AshTech-returned session reference (not our own).
+    session_ref = p.get("ashtecpay_session_reference") or data.reference
+    resp = await ashtecpay.confirm_otp(
         api_key=api_key,
+        user_id=await _get_user_id(db),
         amount=float(p["amount"]),
         currency=p["currency"],
         phone=p["phone"],
         operator=p["operator"],
         country_code=p["country_code"],
-        reference=data.reference,
+        session_reference=session_ref,
         otp=data.otp.strip(),
     )
     if not resp.get("success"):
-        return {
-            "status": "otp_error",
-            "error": resp.get("error"),
-            "message": resp.get("message") or "Code OTP invalide ou expiré.",
-        }
+        # Specific messages for the OTP flow errors documented in the skill.
+        err = (resp.get("error") or "").strip()
+        msg = resp.get("message") or "Code OTP invalide ou expiré."
+        if err == "otp_expired":
+            msg = "Session OTP expirée. Relancez un nouveau paiement."
+        elif err == "invalid_otp":
+            msg = "Code OTP invalide. Vérifiez et réessayez."
+        elif err == "otp_confirmation_in_progress":
+            msg = "Une confirmation est déjà en cours. Veuillez patienter."
+        return {"status": "otp_error", "error": err, "message": msg}
     txid = resp.get("transaction_id")
     await db.payments.update_one(
         {"reference": data.reference},
@@ -682,7 +708,10 @@ async def ashtec_status(
         and (datetime.now(timezone.utc) - created_at).total_seconds() < 30
     )
     if api_key and txid and not within_grace:
-        resp = await ashtecpay.verify_payment(api_key=api_key, transaction_id=txid)
+        resp = await ashtecpay.verify_payment(
+            api_key=api_key, transaction_id=txid,
+            user_id=await _get_user_id(db),
+        )
         sp_status = resp.get("status") or ""
         new_status = ashtecpay.normalize_status(sp_status)
         if new_status == "paid" and not p.get("activation_done"):
@@ -1019,7 +1048,9 @@ async def ashtec_webhook(request: Request):
     live_status: Optional[str] = None
     if api_key and (p.get("transaction_id") or txid):
         resp = await ashtecpay.verify_payment(
-            api_key=api_key, transaction_id=(p.get("transaction_id") or txid),
+            api_key=api_key,
+            transaction_id=(p.get("transaction_id") or txid),
+            user_id=await _get_user_id(db),
         )
         live_status = resp.get("status") or ""
         norm = ashtecpay.normalize_status(live_status)

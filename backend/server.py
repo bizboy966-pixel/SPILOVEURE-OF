@@ -1430,6 +1430,12 @@ _PG_DEFAULTS = {
     "soleas_enabled": True,
     "ashtec_enabled": False,
     "ashtec_api_key": "",
+    # v27bc (2026-03-05) — AshTech Pay Direct API v1 requires a `user_id`
+    # on every /v1/collect body and /v1/transaction query. It's the
+    # merchant profile identifier associated with the Bearer key, visible
+    # in the AshTech dashboard. Without it, every call returns 400
+    # user_id_required. Loaded here with env fallback.
+    "ashtec_user_id": "",
     # Ashtech Pay Direct v1.2 webhook — HMAC-SHA256 shared secret set on the
     # Ashtech merchant dashboard. Required to authenticate incoming webhooks.
     "ashtec_webhook_secret": "",
@@ -1503,6 +1509,9 @@ class PaymentGatewayUpdate(_PGBaseModel):
     soleas_enabled: Optional[bool] = None
     ashtec_enabled: Optional[bool] = None
     ashtec_api_key: Optional[str] = None      # new key, or "" to keep, "DELETE" to clear
+    # v27bc — AshTech Pay merchant user_id (mandatory for /v1/collect body
+    # and /v1/transaction query). Admin pastes it from AshTech dashboard.
+    ashtec_user_id: Optional[str] = None
     ashtec_webhook_secret: Optional[str] = None  # "" to keep, "DELETE" to clear
     # SoleasPay P-Out
     soleaspay_pout_enabled: Optional[bool] = None
@@ -1543,6 +1552,9 @@ def _register_payment_gateway_routes(router):
                 "enabled": bool(cfg["ashtec_enabled"]),
                 "configured": bool((cfg.get("ashtec_api_key") or "").strip()),
                 "api_key_masked": _mask_secret_strict(cfg.get("ashtec_api_key") or ""),
+                "user_id_set": bool((cfg.get("ashtec_user_id") or "").strip()
+                                    or (os.environ.get("ASHTECH_USER_ID") or "").strip()),
+                "user_id": _mask_secret_strict(cfg.get("ashtec_user_id") or ""),
                 "webhook_secret_set": bool(
                     (os.environ.get("ASHTECPAY_WEBHOOK_SECRET") or "").strip()
                     or (cfg.get("ashtec_webhook_secret") or "").strip()
@@ -1678,6 +1690,12 @@ def _register_payment_gateway_routes(router):
                 new["ashtec_api_key"] = ""
             elif key:
                 new["ashtec_api_key"] = key
+        if body.ashtec_user_id is not None:
+            uid = body.ashtec_user_id.strip()
+            if uid == "DELETE":
+                new["ashtec_user_id"] = ""
+            elif uid:
+                new["ashtec_user_id"] = uid
         if body.ashtec_webhook_secret is not None:
             sec = body.ashtec_webhook_secret.strip()
             if sec == "DELETE":

@@ -21,7 +21,64 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
-### 2026-03-05 (v27bb) — ✅ OTP Orange BF visible PROACTIVEMENT (code USSD + input dès la sélection)
+### 2026-03-05 (v27bc) — ✅ AshTech Pay Direct API v1 : conformité totale au skill officiel
+
+**User request** : « Installe le skill officiel AshTech Pay et mets à jour l'intégration en respectant strictement toute sa documentation (USSD, Wave, OTP, Payin, Webhooks, vérification des statuts, signature et sécurité des webhooks, gestion des erreurs, toutes les méthodes de paiement disponibles). »
+
+**Documentation officielle lue intégralement** (https://doc.ashtechpay.com) : index via `/llms.txt`, puis `/docs/authentication`, `/docs/direct-api/mobile-money`, `/docs/direct-api/payment-flows`, `/docs/direct-api/webhooks`, `/docs/reference/transaction`, `/docs/errors`.
+
+**Écarts critiques détectés et corrigés** :
+
+1. **`user_id` était MANQUANT partout** — le skill le rend obligatoire sur :
+   - Le body `POST /v1/collect` → sans ça, 400 `user_id_required`
+   - La query `GET /v1/transaction/:id?user_id=...` → sans ça, 400 `user_id_required`
+   - Si l'id ne correspond pas au propriétaire de la clé Bearer → 403 `user_id_mismatch`
+   
+   Correction : nouveau champ `app_settings.payment_gateway.ashtec_user_id` + env `ASHTECH_USER_ID`, admin panel permet de le saisir, résolveur `_get_user_id(db)` partagé par toute l'intégration, injecté dans tous les appels AshTech.
+
+2. **Référence de session OTP mal gérée** — le skill §4 est explicite :
+   > « Ne remplacez pas la référence de session OTP par votre référence de commande. »
+   
+   Correction : quand AshTech répond `400 otp_required` avec un `reference`, on persiste cette valeur dans `payments.ashtecpay_session_reference`. L'endpoint de confirmation OTP envoie ensuite CETTE référence (pas notre ref marchand). Nouveau helper `ashtecpay.confirm_otp()` dédié.
+
+3. **Gestion des erreurs OTP spécifiques** — le skill distingue :
+   - `otp_required` → afficher USSD + input OTP (déjà géré)
+   - `otp_expired` → relancer une nouvelle collecte (message dédié)
+   - `invalid_otp` → même session, user retape (message dédié)
+   - `otp_confirmation_in_progress` → attendre, poll (message dédié)
+   
+   Correction : branches `elif err == "..."` avec messages FR appropriés dans l'endpoint confirm.
+
+4. **Flux `wave_url` exposé** — pour la Côte d'Ivoire et le Sénégal, AshTech peut répondre `202 flow: "wave"` avec un `wave_url` que le marchand doit ouvrir. Correction : le client Python expose maintenant `flow` + `wave_url` + `ussd_code` dans la réponse d'`initiate_payment`.
+
+5. **Base URL + headers** validés contre le skill : `https://www.ashtechpay.com`, `Authorization: Bearer ak_...`, pas d'exposition frontend.
+
+6. **Signature webhook** `HMAC-SHA256(secret, timestamp + "." + raw_body)` avec headers `X-Ashtech-Signature: sha256=<hex>`, `X-Ashtech-Timestamp`, `X-Ashtech-Event-Id` : code existant déjà conforme, tests ajoutés pour verrouillage.
+
+**Fichiers modifiés** :
+- `/app/backend/ashtecpay.py` : réécrit intégralement (compliant client).
+- `/app/backend/ashtec_activation.py` : `_get_user_id` + propagation `user_id` dans 3 appels + session_reference pour OTP.
+- `/app/backend/server.py` : nouveau champ `ashtec_user_id` dans config, exposé dans l'admin panel (`user_id_set`, `user_id` masqué), ajouté à `PaymentGatewayUpdate` et à l'endpoint PATCH.
+
+**Tests** (`/app/backend/tests/test_ashtec_skill_compliance_v27bc.py`) — 12/12 ✅ :
+- Base URL = `https://www.ashtechpay.com`.
+- `initiate_payment` signature inclut `user_id`.
+- `initiate_payment(user_id="")` renvoie `user_id_required` (fail fast).
+- `verify_payment` signature inclut `user_id`.
+- Nouvel helper `confirm_otp` avec `api_key`, `user_id`, `session_reference`, `otp`.
+- Signature webhook HMAC-SHA256 validée (secret correct, wrong secret, body tamper, missing secret).
+- `normalize_status("success") == "paid"`.
+- `_get_user_id` priorise DB sur env.
+- Config `ashtec_user_id` persistée + éditable via admin panel.
+- Flow activation passe `user_id` à `initiate_payment`.
+- OTP confirm réutilise `ashtecpay_session_reference`.
+- ≥ 3 appels AshTech avec `user_id` (collect + 2 verify).
+
+**Action admin requise** : ouvrir le dashboard AshTech Pay → Clé API → Direct API → copier le `user_id` affiché → coller dans l'admin panel SPILOVEURE → **Routeur Prestataires → AshTech Pay → User ID**. Sans ça, tout appel AshTech renvoie `user_id_required` avec un message explicite.
+
+---
+
+### 2026-03-05 (v27bb) — ✅ OTP Orange BF visible PROACTIVEMENT
 
 **User correction (capture)** : « Ce n'est pas fait comme je l'ai demandé. Explique sur la page de paiement. Ajoute le champ permettant de saisir le code OTP et aussi le code à saisir AVANT de pouvoir gérer le code OTP, avec la possibilité de le copier. »
 
