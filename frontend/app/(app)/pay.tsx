@@ -62,6 +62,18 @@ export default function Pay() {
   } | null>(null);
   const [countryPicker, setCountryPicker] = useState(false);
   const [operatorPicker, setOperatorPicker] = useState(false);
+  // v27az (2026-03-05) — Orange BF (et autres opérateurs à OTP) renvoient
+  // HTTP 400 { code: "OTP_REQUIRED", ussd, message, payment_flow } tant
+  // que l'OTP n'est pas fourni. On capture ce payload pour afficher :
+  //   • Le code USSD exact à composer (ex. *144*4*6*2650#) — copiable
+  //   • Un champ pour saisir l'OTP reçu
+  //   • Un bouton « Valider le paiement » qui re-soumet avec l'OTP.
+  const [otpFlow, setOtpFlow] = useState<null | {
+    ussd: string; message: string; label?: string; steps?: string[];
+    actionLabel?: string;
+  }>(null);
+  const [otp, setOtp] = useState<string>("");
+  const [copied, setCopied] = useState<boolean>(false);
   // v27i (2026-02-20) — Restore the "Hash de transaction" field on the
   // crypto pending screen. After sending USDT the user pastes the on-chain
   // hash and hits "Valider le paiement". Backend
@@ -142,6 +154,9 @@ export default function Pay() {
         body.country = selectedCountry.code;
         body.operator = operatorCode;
         body.phone = phone;
+        // v27az — forward the OTP (if the user typed one). Backend ignores
+        // for operators that don't need it (e.g. T-Money, Moov).
+        if (otp.trim()) body.otp = otp.trim();
       }
       const r = await api.post<any>("/payments/activate", body);
       setRef(r.reference);
@@ -152,9 +167,37 @@ export default function Pay() {
           amount: r.amount, asset: r.asset_code, network: r.network,
         });
       }
+      // v27az — on success clear any leftover OTP flow state.
+      setOtpFlow(null);
+      setOtp("");
       setPhase("pending");
     } catch (e: any) {
-      setErr(e?.detail || e?.message || "Erreur lors du lancement du paiement.");
+      // v27az — detect OTP_REQUIRED backend contract and render a proper
+      // UI instead of dumping the raw JSON object as the error message.
+      const detail = e?.detail;
+      const isOtp =
+        detail && typeof detail === "object" && detail.code === "OTP_REQUIRED";
+      if (isOtp) {
+        const flow = (detail && detail.payment_flow) || {};
+        setOtpFlow({
+          ussd: String(detail.ussd || flow.ussd_code || ""),
+          message: String(detail.message || "Composez le code USSD puis saisissez l'OTP."),
+          label: flow.otp_label || "Code OTP",
+          steps: Array.isArray(flow.steps) ? flow.steps : undefined,
+          actionLabel: flow.action_label || "J'ai mon code, lancer le paiement",
+        });
+        setErr(null);
+      } else {
+        // Fall back to the usual string message (never render raw JSON).
+        let msg =
+          (detail && typeof detail === "object" ? detail.message : detail) ||
+          e?.message ||
+          "Erreur lors du lancement du paiement.";
+        if (typeof msg !== "string") {
+          try { msg = JSON.stringify(msg); } catch { msg = "Erreur inconnue."; }
+        }
+        setErr(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -297,23 +340,124 @@ export default function Pay() {
               </>
             )}
 
+            {/* v27az — Orange BF (OTP flow). Rendered when the backend
+                replied HTTP 400 { code: "OTP_REQUIRED" }. Shows the USSD
+                code to dial (big, bold, copyable) + numbered steps +
+                OTP input + the CTA re-submits the activation with `otp`
+                in the body. The main "ACTIVER MON COMPTE" button below
+                is hidden to avoid confusion. */}
+            {otpFlow && selectedCountry && isMobilePick && (
+              <View style={styles.otpCard} testID="pay-otp-flow">
+                <View style={styles.otpHeader}>
+                  <Ionicons name="shield-checkmark" size={22} color="#F59E0B" />
+                  <Text style={styles.otpTitle}>Code de confirmation requis</Text>
+                </View>
+
+                {/* Step 1 — USSD code (copyable). This is THE central part. */}
+                <Text style={styles.otpStep}>
+                  1️⃣ Composez ce code sur votre téléphone :
+                </Text>
+                <View style={styles.ussdBox}>
+                  <Text selectable style={styles.ussdCode} testID="pay-otp-ussd">
+                    {otpFlow.ussd || "—"}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!otpFlow.ussd) return;
+                      copy(otpFlow.ussd);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    }}
+                    style={styles.ussdCopyBtn}
+                    testID="pay-otp-copy"
+                  >
+                    <Ionicons name={copied ? "checkmark" : "copy"} size={14} color="#fff" />
+                    <Text style={styles.copyTxt}>{copied ? "Copié" : "Copier"}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Optional explicit steps from the backend */}
+                {Array.isArray(otpFlow.steps) && otpFlow.steps.length > 0 ? (
+                  <View style={{ marginTop: 10, gap: 4 }}>
+                    {otpFlow.steps.map((s, i) => (
+                      <Text key={i} style={styles.otpStepLine}>
+                        {i + 2}️⃣ {s}
+                      </Text>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.otpStepLine}>
+                    2️⃣ Suivez le menu pour générer votre code OTP.
+                  </Text>
+                )}
+
+                {/* Step N — OTP input */}
+                <Text style={[styles.otpStep, { marginTop: 14 }]}>
+                  🔐 Saisissez votre code OTP ci-dessous :
+                </Text>
+                <TextInput
+                  style={styles.otpInput}
+                  value={otp}
+                  onChangeText={setOtp}
+                  placeholder="Ex: 123456"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  testID="pay-otp-input"
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.cta,
+                    (!otp.trim() || loading) && styles.ctaDisabled,
+                    { marginTop: 14, backgroundColor: "#F59E0B" },
+                  ]}
+                  disabled={!otp.trim() || loading}
+                  onPress={activate}
+                  testID="pay-otp-submit"
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-done" size={18} color="#fff" />
+                      <Text style={styles.ctaTxt}>
+                        {(otpFlow.actionLabel || "VALIDER LE PAIEMENT").toUpperCase()}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.otpCancel}
+                  onPress={() => { setOtpFlow(null); setOtp(""); setErr(null); }}
+                  testID="pay-otp-cancel"
+                >
+                  <Text style={styles.otpCancelTxt}>Annuler</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {err && <Text style={styles.err}>❌ {err}</Text>}
 
-            <TouchableOpacity
-              style={[styles.cta, !canActivate && styles.ctaDisabled]}
-              disabled={!canActivate || loading}
-              onPress={activate}
-              testID="pay-activate"
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.ctaTxt}>ACTIVER MON COMPTE</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </>
-              )}
-            </TouchableOpacity>
+            {/* Hide the main CTA while the OTP flow is active. */}
+            {!otpFlow && (
+              <TouchableOpacity
+                style={[styles.cta, !canActivate && styles.ctaDisabled]}
+                disabled={!canActivate || loading}
+                onPress={activate}
+                testID="pay-activate"
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.ctaTxt}>ACTIVER MON COMPTE</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#fff" />
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
 
@@ -592,4 +736,79 @@ const styles = StyleSheet.create({
   modalRowFlag: { fontSize: 22 },
   modalRowT: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 14 },
   modalRowSub: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
+
+  // v27az — OTP flow UI (Orange BF / any operator with requires_otp)
+  otpCard: {
+    marginTop: 18,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 2,
+    borderColor: "#F59E0B",
+    gap: 6,
+  },
+  otpHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  otpTitle: {
+    color: "#92400E", fontWeight: "900", fontSize: 14, letterSpacing: 0.3,
+  },
+  otpStep: {
+    color: "#78350F", fontWeight: "800", fontSize: 12.5, marginTop: 10,
+  },
+  otpStepLine: { color: "#92400E", fontSize: 12.5, lineHeight: 18 },
+  ussdBox: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+  },
+  ussdCode: {
+    flex: 1,
+    color: "#78350F",
+    fontWeight: "900",
+    fontSize: 20,
+    letterSpacing: 1,
+    fontFamily: "monospace" as any,
+  },
+  ussdCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F59E0B",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  otpInput: {
+    marginTop: 6,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#F59E0B",
+    color: "#78350F",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 4,
+    textAlign: "center",
+  },
+  otpCancel: {
+    marginTop: 10,
+    alignSelf: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  otpCancelTxt: {
+    color: "#92400E",
+    fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
 });

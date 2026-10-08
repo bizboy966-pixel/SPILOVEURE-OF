@@ -21,6 +21,38 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27ba) — ✅ Page de paiement : UI OTP Orange BF (code USSD copiable + input OTP)
+
+**User report** : capture d'écran montrant le flow Orange BF cassé — après « ACTIVER MON COMPTE », l'app affichait le JSON brut `{"code":"OTP_REQUIRED", "message":"...", "ussd":"*144*4*6*2650#", ...}` en texte rouge, inutilisable pour un utilisateur final.
+
+**Fix v27ba** (`/app/frontend/app/(app)/pay.tsx` + `/app/backend/server.py`) :
+
+1. **Backend** — `ActivateIn` accepte désormais un champ optionnel `otp` propagé vers `biztranspay_activation` (` `BtpActivationIn.otp`). Si l'opérateur n'exige pas d'OTP, BTP l'ignore.
+
+2. **Frontend** — nouveau state `otpFlow` qui capture le payload `{code, message, ussd, payment_flow}` renvoyé par le backend. Le `catch` du handler `activate()` :
+   - détecte `detail.code === "OTP_REQUIRED"` et bascule en mode OTP
+   - sinon, extrait proprement `detail.message` ou `detail` string (plus jamais de JSON brut)
+
+3. **UI OTP flow** (en orange/ambre pour différencier du flow normal) :
+   - 🛡️ Titre « Code de confirmation requis »
+   - 1️⃣ **Code USSD en gros, monospace, copiable** → bouton `Copier` avec feedback « Copié ✓ » 1.5 s
+   - 2️⃣ Étapes dynamiques depuis `payment_flow.steps` (ex. « Suivez le menu pour générer votre code OTP », « Copiez le code généré dans le champ OTP, puis lancez le paiement »)
+   - 🔐 Champ **OTP centré, grande taille, lettres espacées** pour une saisie confortable
+   - CTA orange « VALIDER LE PAIEMENT » qui re-soumet avec `otp` → BTP accepte → retour polling normal
+   - Lien « Annuler » discret en bas pour revenir à l'écran précédent
+   - Le CTA principal « ACTIVER MON COMPTE » est masqué pendant le flow OTP (évite confusion)
+
+**Comportement final garanti pour l'utilisateur Orange BF** :
+1. User choisit BF → Orange Money → saisit son numéro
+2. Tape « ACTIVER MON COMPTE »
+3. Carte orange apparaît : « Composez `*144*4*6*2650#` » avec bouton Copier
+4. User compose l'USSD sur son téléphone → reçoit son code OTP
+5. Saisit l'OTP dans l'input
+6. Tape « VALIDER LE PAIEMENT »
+7. BTP accepte, activation en cours, polling automatique → dashboard
+
+---
+
 ### 2026-03-05 (v27az) — ✅ Burkina Faso complet : pay-in Moov + Orange (avec OTP) + pay-out codes officiels
 
 **User context** : « On va faire une petite correction concernant pay-in et pay-out de Orange et Moov Burkina Faso. Je pense que tu as déjà intégré ça. On va faire une correction si nécessaire. Je t'envoie la documentation. » → doc officielle BTP analysée en détail (https://biz-transppayy.com/integration/docs sections « Moov Money Burkina — dépôt », « Orange Money Burkina — dépôt avec OTP », « Moov et Orange Burkina — retrait »).
