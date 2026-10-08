@@ -21,6 +21,44 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27bb) — ✅ OTP Orange BF visible PROACTIVEMENT (code USSD + input dès la sélection)
+
+**User correction (capture)** : « Ce n'est pas fait comme je l'ai demandé. Explique sur la page de paiement. Ajoute le champ permettant de saisir le code OTP et aussi le code à saisir AVANT de pouvoir gérer le code OTP, avec la possibilité de le copier. »
+
+**Interprétation** : la v27ba affichait la carte OTP uniquement APRÈS une tentative échouée (une HTTP 400 OTP_REQUIRED). L'utilisateur veut voir le code USSD à composer + le champ OTP **avant** même de cliquer « ACTIVER MON COMPTE » — pour qu'il puisse composer, récupérer son OTP, saisir, et un seul clic valide tout.
+
+**Fix v27bb** (`server.py` + `pay.tsx`) :
+
+1. **Backend `/payments/activation-catalog`** annote désormais chaque opérateur BTP avec :
+   - `requires_otp: boolean` (vient de `OPERATORS[cc].operators[i].requires_otp`)
+   - `otp_ussd_template: string` (ex. `*144*4*6*{amount}#` pour Orange BF)
+   Les autres opérateurs (sans OTP) ne reçoivent ni l'un ni l'autre.
+
+2. **Frontend `pay.tsx`** :
+   - Nouveau `operatorRequiresOtp` + `operatorUssd` dérivés du `selectedOperator` au moment de la sélection.
+   - La carte OTP (ambre) s'affiche désormais **dès que l'opérateur sélectionné a `requires_otp=true`**, pas uniquement après une erreur.
+   - Le code USSD a `{amount}` substitué par le vrai montant (ex. `*144*4*6*2650#`).
+   - Le bouton « Copier » du code USSD donne un feedback « Copié ✓ » 1.5 s.
+   - 5 étapes numérotées : (1) Composez `*144*4*6*2650#` (2) Suivez le menu Orange Money (3) Copiez le code reçu (4) Saisissez-le ici (5) Tapez « ACTIVER MON COMPTE ».
+   - Le CTA principal « ACTIVER MON COMPTE » reste visible mais est **désactivé tant que l'OTP n'est pas rempli** (`canActivate` inclut maintenant `otp.trim().length >= 4` pour les opérateurs à OTP).
+   - L'activation envoie `otp` dès la première requête → BTP accepte au premier essai, aucun bounce HTTP 400.
+   - Le mode réactif (otpFlow depuis erreur serveur) reste en place en filet de sécurité.
+
+**Flux utilisateur Orange BF v27bb** :
+1. Choisit BF → Orange Money (depuis le picker)
+2. **Immédiatement**, la carte ambre apparaît avec `*144*4*6*2650#` en gros + bouton Copier
+3. Copie le code → le compose sur son téléphone → récupère son OTP
+4. Saisit numéro de téléphone (si pas déjà saisi) + saisit l'OTP
+5. Tape « ACTIVER MON COMPTE » → BTP accepte directement → polling → dashboard
+
+**Tests** (`/app/backend/tests/test_catalog_otp_v27bb.py`) — 4/4 ✅ :
+- BF Orange a `requires_otp=True` + USSD template.
+- BF Moov n'a PAS `requires_otp`.
+- `activation_catalog` propage les 2 champs.
+- `pay.tsx` consomme `requires_otp` + calcule `operatorUssd` dérivé.
+
+---
+
 ### 2026-03-05 (v27ba) — ✅ Page de paiement : UI OTP Orange BF (code USSD copiable + input OTP)
 
 **User report** : capture d'écran montrant le flow Orange BF cassé — après « ACTIVER MON COMPTE », l'app affichait le JSON brut `{"code":"OTP_REQUIRED", "message":"...", "ussd":"*144*4*6*2650#", ...}` en texte rouge, inutilisable pour un utilisateur final.

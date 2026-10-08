@@ -3079,6 +3079,10 @@ async def activation_catalog(request: Request):
     # v27h — Biz-transPay overrides any existing Togo entry when its
     # pay-in switch is on (product owner wants BizTransPay to take over
     # activations for TG when configured).
+    # v27bb (2026-03-05) — annotate each operator with `requires_otp` +
+    # `otp_ussd_template` so the frontend can PROACTIVELY render the OTP
+    # card (USSD code + input) as soon as Orange BF (or any op needing an
+    # OTP) is selected — no need to wait for the first failed submission.
     if cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payin_enabled", True):
         api_key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
                           or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
@@ -3097,6 +3101,8 @@ async def activation_catalog(request: Request):
                             "code": op["code"], "label": op["label"],
                             "currency": info.get("currency", "XOF"),
                             "gateway": "biztranspay",
+                            "requires_otp": bool(op.get("requires_otp")),
+                            "otp_ussd_template": op.get("otp_ussd_template") or "",
                         })
                 if enabled_ops:
                     mobile_lookup[cc] = enabled_ops
