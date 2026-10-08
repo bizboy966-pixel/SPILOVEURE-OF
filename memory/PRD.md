@@ -21,6 +21,75 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27az) — ✅ Burkina Faso complet : pay-in Moov + Orange (avec OTP) + pay-out codes officiels
+
+**User context** : « On va faire une petite correction concernant pay-in et pay-out de Orange et Moov Burkina Faso. Je pense que tu as déjà intégré ça. On va faire une correction si nécessaire. Je t'envoie la documentation. » → doc officielle BTP analysée en détail (https://biz-transppayy.com/integration/docs sections « Moov Money Burkina — dépôt », « Orange Money Burkina — dépôt avec OTP », « Moov et Orange Burkina — retrait »).
+
+**Révélations critiques de la doc** :
+
+1. **Les codes de retrait DIFFÈRENT des codes de dépôt** :
+   - Dépôt BF Moov  : `moov_bf`                       → retrait BF Moov  : `moov-burkina-faso`
+   - Dépôt BF Orange : `orange_bf`                    → retrait BF Orange : `orange-money-burkina`
+   - (TG Moov pareil : dépôt `moov_tg` → retrait `moov-togo`)
+   Notre v27ay poussait `moov-togo` dans l'unique liste `provider_codes` → l'OK pour retrait mais 1 attempt de perdu sur chaque dépôt TG.
+2. **Orange BF dépôt exige un OTP** généré par le client via `*144*4*6*{amount}#`. Soumettre sans OTP = `HTTP 400 { code: OTP_REQUIRED, payment_flow: { ussd_template: "*144*4*6*{amount}#" } }`. Il faut ensuite re-soumettre avec le même `Idempotency-Key` + le champ `otp`.
+3. **Moov BF dépôt** : pas d'OTP ; après initiation, le client doit composer `*555*6#` sur son téléphone pour confirmer le prompt USSD (déjà géré par BTP, nous n'avons rien à ajouter côté backend).
+
+**Fix v27az** (`/app/backend/biztranspay.py` + migration DB) :
+
+1. **Nouveau champ opérateur `provider_codes_payout`** pour BF Moov, BF Orange et TG Moov. Il prend le pas sur `provider_codes` quand le dispatcher est appelé en direction `payout`. Autres opérateurs non impactés.
+2. **Nouveau helper `_build_candidate_codes(operator_entry, fallback, direction)`** utilisé par les deux dispatchers (dépôt + retrait) → source unique de vérité, direction-aware, de-duplication automatique.
+3. **Cache apprentissage découplé par direction** via `_learned_code_key(direction, cc, op_code)` → clé `btp_learned_operator_code:{deposit|payout}:{CC}:{op}`. Un dépôt réussi n'écrase plus le cache retrait, et vice versa (bug latent de v27av).
+4. **Champ `otp` sur `BtpActivationIn`** (optionnel). Si présent, transmis tel quel à BTP dans le body `/deposits`. Pour les opérateurs sans OTP, il est simplement ignoré par BTP.
+5. **Bubble-up structuré de l'erreur `OTP_REQUIRED`** vers le frontend :
+   ```json
+   HTTP 400 {
+     "code": "OTP_REQUIRED",
+     "message": "Composez *144*4*6*2650# sur votre téléphone, puis saisissez le code OTP affiché.",
+     "ussd": "*144*4*6*2650#",
+     "payment_flow": { ... },
+     "reference": "ref-xxxx"
+   }
+   ```
+   Le frontend (Orange BF activation page) peut maintenant détecter ce code et afficher l'écran OTP sans deviner.
+6. **Pré-seed DB** des 3 codes payout officiellement confirmés par la doc :
+   - `btp_learned_operator_code:payout:BF:moov_bf   = moov-burkina-faso`
+   - `btp_learned_operator_code:payout:BF:orange_bf = orange-money-burkina`
+   - `btp_learned_operator_code:payout:TG:moov_tg   = moov-togo`
+   Résultat : dès le prochain retrait BF/TG, BTP accepte au premier essai → 0 retry, 0 latence.
+7. **Nettoyage** de la clé legacy `btp_learned_operator_code:TG:moov_tg` (v27ay).
+
+**Flux Orange BF dépôt côté frontend (à implémenter plus tard P1)** :
+   1. User choisit Orange BF → amount → phone
+   2. Frontend POST `/payments/biztranspay/activation` SANS otp
+   3. Backend relaye à BTP → BTP répond 400 OTP_REQUIRED
+   4. Backend bubble-up avec `code: OTP_REQUIRED` + `ussd: *144*4*6*2650#`
+   5. Frontend affiche : « Composez *144*4*6*2650# sur votre téléphone, générez le code puis saisissez-le »
+   6. User tape l'OTP → Frontend POST à nouveau AVEC otp + MÊME Idempotency-Key
+   7. BTP accepte → activation en cours.
+   Pour l'instant, le backend est prêt ; le frontend affiche le message mais l'écran OTP dédié n'est pas encore créé. User-side, l'erreur reste parlante : « Composez *144*4*6*2650# puis saisissez le code OTP ».
+
+**Tests** (`/app/backend/tests/test_bf_integration_v27az.py`) — 10/10 ✅ :
+- Codes payout officiels BF (Moov + Orange) en tête de liste.
+- Orange BF `requires_otp=True` + `otp_ussd_template=*144*4*6*{amount}#`.
+- `_build_candidate_codes` est direction-aware (deposit ≠ payout).
+- TG Moov garde `moov_tg` en dépôt et `moov-togo` en retrait.
+- Cache keys deposit ≠ payout.
+- Dispatcher payout appelle bien `direction="payout"` + `_learned_code_key("payout",...)`.
+- Dispatcher deposit appelle bien `direction="deposit"` + forward `data.otp` + bubble up OTP_REQUIRED.
+- `BtpActivationIn` accepte un `otp` optionnel.
+- Les 3 seeds DB (BF Moov, BF Orange, TG Moov) sont présents et bons.
+- La clé legacy est supprimée.
+
+**Comportement final garanti BF** :
+- ✅ Dépôt Moov BF → `moov_bf` → BTP accepte → user compose `*555*6#` pour confirmer → polling 4 s bascule en `completed`
+- ✅ Dépôt Orange BF SANS OTP → backend bubble-up `OTP_REQUIRED` + USSD rendue → frontend affiche instructions
+- ✅ Dépôt Orange BF AVEC OTP → BTP accepte → activation en cours
+- ✅ Retrait Moov BF → BTP reçoit `moov-burkina-faso` dès attempt #1 → auto-dispatch + flip `completed` sous 4 s
+- ✅ Retrait Orange BF → BTP reçoit `orange-money-burkina` dès attempt #1 → auto-dispatch + flip `completed` sous 4 s
+
+---
+
 ### 2026-03-05 (v27ay) — ✅ Moov Money Togo (Flooz) : code BTP officiel confirmé
 
 **User confirmation** : « Pour Moov Money / Flooz au Togo, j'ai vérifié le backend de Biz-transPay : le code attendu dans le champ `operator` de la route de retrait est **`moov-togo`** » (kebab-case + nom pays en toutes lettres, pas de underscore).

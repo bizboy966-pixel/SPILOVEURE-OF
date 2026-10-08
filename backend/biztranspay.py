@@ -98,11 +98,16 @@ OPERATORS: dict[str, dict] = {
                          "yas t-money", "yas tmoney"]},
             {"code": "moov_tg",   "label": "Moov Money (Flooz)",
              "default_active": True,
-             # v27ay (2026-03-05) — code BTP OFFICIEL confirmé par user :
-             # `moov-togo` (format kebab-case avec nom pays complet). Placé
-             # en tête pour être essayé en 1er. Les autres variantes
-             # restent en fallback au cas où BTP changerait sa convention.
-             "provider_codes": [
+             # v27ay/v27az (2026-03-05) — code OFFICIEL de retrait confirmé
+             # par doc BTP : `moov-togo`. Pour le dépôt, les codes historiques
+             # (`moov_tg`, `flooz_tg`, `moov_money_tg`) restent utilisés car
+             # la doc n'identifie pas d'alias déposit officiel.
+             "provider_codes":        [
+                 "moov_tg", "flooz_tg", "moov_money_tg",
+                 "flooz", "moov", "moov_money",
+                 "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
+             ],
+             "provider_codes_payout": [
                  "moov-togo",
                  "moov_tg", "flooz_tg", "moov_money_tg",
                  "flooz", "moov", "moov_money",
@@ -136,13 +141,27 @@ OPERATORS: dict[str, dict] = {
         "currency": "XOF",
         "dial": "226",
         "operators": [
+            # v27az (2026-03-05) — codes BF confirmés par la doc BTP officielle.
+            # Dépôt vs retrait utilisent des codes DIFFÉRENTS :
+            #   • dépôt    : `orange_bf` / `moov_bf`         (snake_case)
+            #   • retrait  : `orange-money-burkina` /
+            #                `moov-burkina-faso`             (kebab-case)
+            # `provider_codes_payout` prend le pas sur `provider_codes` quand
+            # le dispatcher est appelé en direction payout.
+            # Orange BF exige en plus un OTP avant toute soumission de dépôt.
             {"code": "orange_bf", "label": "Orange Money",
              "default_active": True,
-             "provider_codes": ["orange_bf", "orange_money_bf", "om_bf"],
+             "requires_otp": True,
+             "otp_ussd_template": "*144*4*6*{amount}#",
+             "provider_codes":        ["orange_bf", "orange_money_bf", "om_bf"],
+             "provider_codes_payout": ["orange-money-burkina",
+                                       "orange_bf", "orange_money_bf", "om_bf"],
              "aliases": ["orange", "orange money", "om"]},
             {"code": "moov_bf",   "label": "Moov Money",
              "default_active": True,
-             "provider_codes": ["moov_bf", "moov_money_bf", "flooz_bf"],
+             "provider_codes":        ["moov_bf", "moov_money_bf", "flooz_bf"],
+             "provider_codes_payout": ["moov-burkina-faso",
+                                       "moov_bf", "moov_money_bf", "flooz_bf"],
              "aliases": ["moov", "moov money", "moov africa"]},
             {"code": "coris_bf",  "label": "Coris Money",
              "default_active": True,
@@ -376,10 +395,53 @@ def _timestamp_fresh(ts_header: str, max_age_seconds: int = 300) -> bool:
 
 
 # ─── Public endpoints ────────────────────────────────────────────────
+def _build_candidate_codes(
+    operator_entry: Optional[dict],
+    fallback_code: str,
+    *,
+    direction: str,
+) -> list[str]:
+    """Return the ordered list of BTP operator codes to try for a given
+    direction (`deposit` or `payout`).
+
+    Deposit and payout codes DIFFER in BTP's merchant console. Example :
+      • Moov BF dépôt   → `moov_bf`
+      • Moov BF retrait → `moov-burkina-faso`
+
+    When `operator_entry` has a dedicated `provider_codes_payout` list and
+    we are called for payouts, we use it; otherwise we fall back to
+    `provider_codes`.
+    """
+    if not operator_entry:
+        return [fallback_code]
+    if direction == "payout" and operator_entry.get("provider_codes_payout"):
+        codes = list(operator_entry["provider_codes_payout"])
+    else:
+        codes = list(operator_entry.get("provider_codes") or [operator_entry["code"]])
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in codes:
+        if c not in seen:
+            seen.add(c); out.append(c)
+    return out
+
+
+def _learned_code_key(direction: str, cc: str, op_code: str) -> str:
+    """Direction-scoped cache key — deposit and payout can learn different
+    codes for the same (country, operator)."""
+    return f"btp_learned_operator_code:{direction}:{cc}:{op_code}"
+
+
 class BtpActivationIn(BaseModel):
     country_code: str = Field(..., min_length=2, max_length=2)
     operator: str = Field(..., min_length=1)         # e.g. "tmoney_tg"
     phone: str = Field(..., min_length=6)
+    # v27az (2026-03-05) — Orange BF (et autres opérateurs à OTP) : le
+    # client doit composer `*144*4*6*{amount}#` AVANT de soumettre, puis
+    # saisir le code OTP affiché. Si l'opérateur n'exige pas d'OTP, ce
+    # champ est ignoré ; sinon il est transmis tel quel à BTP.
+    otp: Optional[str] = None
 
 
 @api.post("/payments/biztranspay/activation")
@@ -420,31 +482,28 @@ async def biztranspay_activation(
     e164_phone = _normalize_phone(data.phone, cc)
     now = datetime.now(timezone.utc)
 
-    # v27av — build the ordered list of provider_codes to try. BTP's
-    # merchant console configures operator codes per environment and the
-    # exact code is NOT published in the integration docs. If the primary
-    # code is refused with "Opérateur non disponible pour ce pays", we
-    # retry with each known alias until BTP accepts one. The first winner
-    # is remembered on `app_settings` so subsequent payments start with it
-    # directly (no more trial retries once we know the right code).
+    # v27av/v27az — build the ordered list of provider_codes to try. BTP's
+    # merchant console configures operator codes per environment, deposit
+    # and payout codes can differ, and the exact code is NOT fully
+    # published. If the primary code is refused with "Opérateur non
+    # disponible pour ce pays", we retry each known alias until BTP
+    # accepts one. The first winner is remembered on `app_settings` keyed
+    # by DIRECTION so deposit and payout don't overwrite each other.
     operator_entry = next(
         (o for o in OPERATORS[cc]["operators"] if o["code"] == data.operator),
         None,
     )
     candidate_codes: list[str] = []
     if operator_entry:
-        # Prefer the code that was already proven to work for this operator
-        # in a previous successful call (stored under app_settings).
         learned = await db.app_settings.find_one(
-            {"key": f"btp_learned_operator_code:{cc}:{data.operator}"},
+            {"key": _learned_code_key("deposit", cc, data.operator)},
         )
         if learned and isinstance(learned.get("value"), str):
             candidate_codes.append(learned["value"])
-        for pc in (operator_entry.get("provider_codes") or [operator_entry["code"]]):
-            if pc not in candidate_codes:
-                candidate_codes.append(pc)
-    else:
-        candidate_codes.append(data.operator)
+    base_codes = _build_candidate_codes(operator_entry, data.operator, direction="deposit")
+    for pc in base_codes:
+        if pc not in candidate_codes:
+            candidate_codes.append(pc)
 
     # Persist BEFORE the API call so a webhook cannot arrive on an unknown ref.
     await db.payments.insert_one({
@@ -470,6 +529,7 @@ async def biztranspay_activation(
     last_error_body = ""
     resp = None
     accepted_code: Optional[str] = None
+    otp_required_flow: Optional[dict] = None  # populated if BTP returns OTP_REQUIRED
     for attempt_idx, provider_code in enumerate(candidate_codes):
         payload = {
             "amount": amount,
@@ -482,6 +542,9 @@ async def biztranspay_activation(
             "reference": ref,
             "fee_bearer": "sender",
         }
+        # v27az — forward the OTP the client generated (Orange BF flow).
+        if data.otp:
+            payload["otp"] = str(data.otp).strip()
         try:
             # Each attempt uses a DIFFERENT Idempotency-Key so BTP does not
             # treat the fallback retry as a dup of the rejected request.
@@ -524,6 +587,12 @@ async def biztranspay_activation(
             or "operator" in err_detail_text and ("not available" in err_detail_text or "non disponible" in err_detail_text)
             or "operator not supported" in err_detail_text
         )
+        # v27az — Orange BF renvoie HTTP 400 OTP_REQUIRED tant que l'OTP
+        # n'est pas fourni. On capture le payment_flow pour pouvoir le
+        # renvoyer au frontend avec les instructions USSD exactes.
+        if isinstance(err_detail_raw, dict) and err_detail_raw.get("code") == "OTP_REQUIRED":
+            otp_required_flow = err_detail_raw.get("payment_flow") or {}
+            break
         if is_operator_mismatch and attempt_idx + 1 < len(candidate_codes):
             log.info("biztranspay /deposits ref=%s code=%s rejected (operator mismatch), trying next candidate",
                      ref, provider_code)
@@ -542,6 +611,24 @@ async def biztranspay_activation(
                       "tried_operator_codes": candidate_codes,
                       "updated_at": datetime.now(timezone.utc)}},
         )
+        # v27az — bubble up OTP_REQUIRED as a structured 400 so the
+        # frontend can render the USSD prompt + OTP input (Orange BF).
+        if otp_required_flow is not None:
+            ussd = otp_required_flow.get("ussd_template") or ""
+            try:
+                ussd_rendered = ussd.replace("{amount}", str(amount)) if ussd else ""
+            except Exception:
+                ussd_rendered = ussd
+            raise HTTPException(400, {
+                "code": "OTP_REQUIRED",
+                "message": (
+                    "Composez " + (ussd_rendered or "le code USSD de votre opérateur") +
+                    " sur votre téléphone, puis saisissez le code OTP affiché."
+                ),
+                "ussd": ussd_rendered,
+                "payment_flow": otp_required_flow,
+                "reference": ref,
+            })
         # v27av — surface the ACTUAL BTP error to the end user so admins
         # can diagnose config mismatches instead of staring at a generic
         # "Biz-transPay a refusé le paiement." message.
@@ -568,14 +655,14 @@ async def biztranspay_activation(
     # Remember the code BTP accepted so next payments skip the retry loop.
     if accepted_code and operator_entry and accepted_code != operator_entry["code"]:
         try:
+            k = _learned_code_key("deposit", cc, data.operator)
             await db.app_settings.update_one(
-                {"key": f"btp_learned_operator_code:{cc}:{data.operator}"},
-                {"$set": {"key": f"btp_learned_operator_code:{cc}:{data.operator}",
-                          "value": accepted_code,
+                {"key": k},
+                {"$set": {"key": k, "value": accepted_code,
                           "updated_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
-            log.info("biztranspay learned operator code %s=%s for %s/%s",
+            log.info("biztranspay learned deposit code %s=%s for %s/%s",
                      data.operator, accepted_code, cc, data.operator)
         except Exception:
             pass
@@ -733,23 +820,22 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         )
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
-    # Build ordered list of provider codes to try.
+    # v27av/v27az — Build ordered candidate codes using the PAYOUT-specific
+    # list (differs from deposit codes in BF/TG). Cache key is scoped per
+    # direction so the deposit learned-code never corrupts the payout one.
     operator_entry = next(
         (o for o in OPERATORS[country]["operators"] if o["code"] == op_code),
         None,
     )
     candidate_codes: list[str] = []
     learned = await db.app_settings.find_one(
-        {"key": f"btp_learned_operator_code:{country}:{op_code}"},
+        {"key": _learned_code_key("payout", country, op_code)},
     )
     if learned and isinstance(learned.get("value"), str):
         candidate_codes.append(learned["value"])
-    if operator_entry:
-        for pc in (operator_entry.get("provider_codes") or [op_code]):
-            if pc not in candidate_codes:
-                candidate_codes.append(pc)
-    else:
-        candidate_codes.append(op_code)
+    for pc in _build_candidate_codes(operator_entry, op_code, direction="payout"):
+        if pc not in candidate_codes:
+            candidate_codes.append(pc)
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     phone = _normalize_phone(wd_doc.get("phone") or "", country)
@@ -896,6 +982,22 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
          "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
                     if internal_status != "rejected" else {"gateway_error_code": ""}},
     )
+    # v27az — remember the exact BTP payout code accepted so the next
+    # retrait for the same (country, operator) hits BTP with the winner on
+    # the first attempt (no retry loop). Direction-scoped key.
+    if accepted_code and operator_entry and accepted_code != op_code:
+        try:
+            k = _learned_code_key("payout", country, op_code)
+            await db.app_settings.update_one(
+                {"key": k},
+                {"$set": {"key": k, "value": accepted_code,
+                          "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            log.info("biztranspay learned payout code %s=%s for %s/%s",
+                     op_code, accepted_code, country, op_code)
+        except Exception:
+            pass
     # v27af — if the gateway rejected synchronously, refund the user's
     # balance so it doesn't stay locked. Symmetrical with the webhook path.
     if internal_status == "rejected":
