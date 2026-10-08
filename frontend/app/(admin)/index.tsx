@@ -4053,6 +4053,7 @@ function PaymentGatewaysCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [keyInput, setKeyInput] = useState("");
+  const [userIdInput, setUserIdInput] = useState("");
   const [secretInput, setSecretInput] = useState("");
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(false);
@@ -4208,6 +4209,54 @@ function PaymentGatewaysCard() {
                 <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>💾 Enregistrer la clé</Text>
               </TouchableOpacity>
             ) : null}
+
+            {/* v27bc — AshTech Pay Direct API v1 : `user_id` OBLIGATOIRE
+                sur /v1/collect et /v1/transaction. Sans ça, 400
+                `user_id_required`. Visible dans le dashboard AshTech
+                Pay → Clé API → Direct API. */}
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 4 }}>
+                User ID AshTech (obligatoire) : <Text style={{ fontFamily: "monospace", color: meta.user_id_set ? theme.colors.textPrimary : "#DC2626" }}>
+                  {meta.user_id_set ? (meta.user_id || "•••• configuré ••••") : "— manquant —"}
+                </Text>
+              </Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: meta.user_id_set ? theme.colors.border : "#DC2626", borderRadius: 10, padding: 8, color: theme.colors.textPrimary, fontSize: 12 }}
+                placeholder="Collez votre user_id AshTech ici (visible dans votre dashboard)"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={userIdInput}
+                onChangeText={setUserIdInput}
+                autoCapitalize="none"
+                testID="ashtec-user-id-input"
+              />
+              <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
+                {userIdInput ? (
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center" }}
+                    onPress={() => { save({ ashtec_user_id: userIdInput }); setUserIdInput(""); }}
+                    disabled={saving}
+                    testID="ashtec-user-id-save"
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>💾 Enregistrer le User ID</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {meta.user_id_set ? (
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 8, borderRadius: 10, backgroundColor: theme.colors.danger, alignItems: "center" }}
+                    onPress={() => save({ ashtec_user_id: "DELETE" })}
+                    disabled={saving}
+                    testID="ashtec-user-id-clear"
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>🗑️ Supprimer</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Text style={{ color: !meta.user_id_set ? "#DC2626" : theme.colors.textSecondary, fontSize: 10, marginTop: 4, fontStyle: "italic" }}>
+                {!meta.user_id_set
+                  ? "⚠️ Obligatoire — sans ça, tous les paiements AshTech sont refusés (user_id_required)."
+                  : "Trouvez votre user_id dans AshTech Pay → Clé API → Direct API."}
+              </Text>
+            </View>
 
             {/* Ashtech Pay Direct v1.2 — HMAC-SHA256 webhook secret */}
             <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border }}>

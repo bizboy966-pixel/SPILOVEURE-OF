@@ -21,6 +21,20 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27bd) — ✅ Admin AshTech Pay : champ User ID visible et éditable
+
+**User** : « Dans l'admin SPILOVEURE → Routeur Prestataires → AshTech Pay → User ID — il n'y a pas cette option. Il faut l'ajouter de manière à ce que je puisse voir où coller le user_id. »
+
+**Fix v27bd** (`/app/frontend/app/(admin)/index.tsx`) : nouveau bloc dédié dans la carte AshTech Pay, inséré entre « Clé API » et « Secret webhook » :
+- Label dynamique : « User ID AshTech (obligatoire) : `•••• configuré ••••` » ou « — manquant — » en rouge
+- Input visible avec placeholder clair : « Collez votre user_id AshTech ici »
+- Bordure rouge quand pas encore configuré pour signaler l'urgence
+- Bouton « 💾 Enregistrer le User ID » → `PUT /admin/payment-gateways { ashtec_user_id: <valeur> }`
+- Bouton « 🗑️ Supprimer » apparaît si déjà configuré
+- Note bas de champ : si pas configuré → « ⚠️ Obligatoire — sans ça, tous les paiements AshTech sont refusés (user_id_required) » en rouge ; sinon → astuce « Trouvez votre user_id dans AshTech Pay → Clé API → Direct API »
+
+---
+
 ### 2026-03-05 (v27bc) — ✅ AshTech Pay Direct API v1 : conformité totale au skill officiel
 
 **User request** : « Installe le skill officiel AshTech Pay et mets à jour l'intégration en respectant strictement toute sa documentation (USSD, Wave, OTP, Payin, Webhooks, vérification des statuts, signature et sécurité des webhooks, gestion des erreurs, toutes les méthodes de paiement disponibles). »
