@@ -21,6 +21,46 @@ Plateforme MLM matrice binaire 12 niveaux, paiements mobile money (AshTechPay), 
 - Guards §10 : si l'ancêtre destinataire n'est pas au niveau N (max_level < N), la commission est ignorée (pas rétroactive).
 - Chaque crédit est split entre `balance_profit` (retirable) et `balance_upgrade` (réserve mise à niveau) — ratio 50/50 avec cap `next_level_price`, sauf pour `spillover_sponsor` qui va 100 % en profit.
 
+### 2026-03-05 (v27be) — ✅ Auto-activation stuck : sweep de récupération toutes les 4 s
+
+**User report** : « Les paiements se passent, ça passe, ça marche correctement. Seulement après le paiement, le compte doit s'activer automatiquement, mais actuellement ça ne se fait plus. Je sais pas pourquoi. C'est pareil pour tous les prestataires : AshTech Pay, Biz-transPay. »
+
+**Diagnostic** : `_apply_payment_success` fait un 2-step update : (1) `status=paid`, (2) `activate_level`. Si le processus crash / timeout / restart entre les 2 étapes, OU si `activate_level` lève une exception transitoire (matrix guard, DB réseau, …), le paiement reste bloqué en `status=paid` avec `activation_done=False` indéfiniment. AUCUN worker ne les reprenait :
+  - `_poll_once` sweep seulement `status: pending|processing`
+  - Webhook ne se re-déclenche pas
+  - Pas de retry côté frontend
+  → L'utilisateur a payé, le gateway a confirmé, mais `max_level` reste à 0 pour toujours.
+
+**Fix v27be** (`/app/backend/ashtec_activation.py` + `/app/backend/biztranspay.py`) :
+
+1. **Nouveau worker `_reconcile_stuck_activations(db)`** dans `ashtec_activation.py` :
+   - Scan `payments.find({ kind: "activation", status: {$in: [paid, validated]}, activation_done: {$ne: true}, updated_at: {$gte: now - 24h} })` max 50 docs par sweep
+   - Pour chacun :
+     - Si l'utilisateur est DÉJÀ à `max_level >= p.level` (activé via admin_validate ou un autre chemin) → juste flipper `activation_done=True` sur la ligne (self-heal)
+     - Sinon → relancer `_apply_payment_success(db, p, source=p.provider)` (idempotent)
+   - Log `ACTIVATION_RECOVERED` pour chaque succès → traçabilité admin
+   - Portée : 24h glissantes pour ne pas ressusciter des flows vraiment abandonnés
+   - Fonctionne pour **tous les prestataires** : biztranspay, ashtecpay, soleaspay, izichange, sendavapay
+
+2. **Branché dans `polling_loop` BTP** (déjà actif, tick 4 s) : nouvelle try-except ajoutée après `reconcile_all_dispatched`. Zéro impact perf (query indexée qui renvoie 0 doc 99 % du temps).
+
+**Comportement final garanti** :
+- ✅ Paiement BTP mobile confirmé → polling 4 s → activation
+- ✅ Paiement AshTech webhook confirmé → activate_level
+- ✅ Si l'un des 2 ci-dessus échoue (crash, timeout) → sweep v27be re-tente dans les 4 s suivantes
+- ✅ Si admin valide manuellement un payment → `activation_done=True` posée automatiquement par le sweep au prochain tick
+- ✅ User max_level=0 malgré paiement → auto-corrigé < 4 s après restart du backend
+
+**Tests** (`/app/backend/tests/test_stuck_activation_recovery_v27be.py`) — 4/4 ✅ :
+- Un payment stuck est bien repris et l'utilisateur monte à level 1
+- Un payment avec user déjà activé via autre chemin → `activation_done=True` posé sans re-activate_level
+- Un payment > 24h ancien → ignoré (pas de résurrection d'abandon)
+- `polling_loop` appelle bien `_reconcile_stuck_activations` à chaque tick
+
+**Action côté admin après déploiement** : rien à faire. Les paiements historiquement bloqués en `status=paid, activation_done=False` dans les 24h précédentes se débloqueront automatiquement dans les 4 s suivant le déploiement. Pour les paiements plus anciens, utiliser le bouton « Valider » du panel admin (reconnaissance manuelle).
+
+---
+
 ### 2026-03-05 (v27bd) — ✅ Admin AshTech Pay : champ User ID visible et éditable
 
 **User** : « Dans l'admin SPILOVEURE → Routeur Prestataires → AshTech Pay → User ID — il n'y a pas cette option. Il faut l'ajouter de manière à ce que je puisse voir où coller le user_id. »

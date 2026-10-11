@@ -1516,6 +1516,11 @@ async def polling_loop(db):
     `reconcile_all_dispatched` so BTP payouts that already completed on
     the gateway side flip from `pending` to `completed` within 4 s
     instead of waiting for an admin to open the retraits panel.
+
+    v27be (2026-03-05) — ALSO sweeps `payments` that are `status: paid`
+    but `activation_done != True` to retry activation. Fixes the stuck-
+    state bug where the user paid but max_level never advanced because
+    `activate_level` crashed/timed out after the gateway acknowledgment.
     """
     import asyncio as _a
     tick = 0
@@ -1526,15 +1531,21 @@ async def polling_loop(db):
                 log.info("btp polling activations: %s", r)
         except Exception as e:
             log.exception("btp polling loop error (activations): %s", _redact(e))
-        # Reconcile stuck withdrawals on every tick. The function is cheap
-        # when nothing is pending (one indexed query returning 0 docs) and
-        # ensures user-visible status matches gateway reality quickly.
         try:
             wd_r = await reconcile_all_dispatched(db, max_docs=50)
             if wd_r.get("updated"):
                 log.info("btp polling withdrawals: %s", wd_r)
         except Exception as e:
             log.exception("btp polling loop error (withdrawals): %s", _redact(e))
+        # v27be — recover stuck activations (any provider).
+        try:
+            from ashtec_activation import _reconcile_stuck_activations
+            act_r = await _reconcile_stuck_activations(db)
+            if act_r.get("recovered") or act_r.get("failed"):
+                log.info("btp polling stuck activations: %s", act_r)
+        except Exception as e:
+            log.exception("btp polling loop error (stuck activations): %s",
+                          _redact(e))
         tick += 1
         await _a.sleep(4)
 

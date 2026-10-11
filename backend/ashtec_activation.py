@@ -747,6 +747,91 @@ async def ashtec_status(
     }
 
 
+async def _reconcile_stuck_activations(db) -> dict:
+    """v27be (2026-03-05) — Safety net : find payments that are already
+    marked `status: paid` or `status: validated` but have `activation_done
+    != True`, and re-run the activation dispatcher.
+
+    This happens when :
+      • `_apply_payment_success` set status=paid then crashed before
+        `activate_level` completed (process restart, OOM, transient DB
+        error, matrix guard transient fail).
+      • A webhook fired but `activate_level` raised and the error was
+        logged in `activation_error` without ever retrying.
+      • An admin manually set status=paid on a payment but the activation
+        side never fired.
+
+    All of these result in "the user paid but his account is still at
+    max_level=0". This worker retries the activation on every tick (4 s)
+    so stuck accounts self-heal within seconds, for ALL providers
+    (biztranspay, ashtecpay, soleaspay, izichange, sendavapay).
+
+    Scope : `kind == "activation"` only (ads/task/recharge have their own
+    idempotent dispatch inside `_apply_payment_success`).
+    """
+    from datetime import timedelta
+    checked = recovered = failed = 0
+    now = datetime.now(timezone.utc)
+    # Look at the last 24h so we don't retry truly abandoned payments
+    # from months ago (max_level drifted, user deleted, etc.).
+    day_ago = now - timedelta(hours=24)
+
+    cursor = db.payments.find({
+        "kind": "activation",
+        "status": {"$in": ["paid", "validated"]},
+        "activation_done": {"$ne": True},
+        "updated_at": {"$gte": day_ago},
+    }).limit(50)
+
+    async for p in cursor:
+        checked += 1
+        # Skip if user is already at level (dangling activation_done=False
+        # on a payment that was reconciled via another path).
+        try:
+            u = await db.users.find_one(
+                {"id": p.get("user_id")},
+                {"_id": 0, "max_level": 1},
+            )
+            if u and int(u.get("max_level") or 0) >= int(p.get("level") or 1):
+                await db.payments.update_one(
+                    {"reference": p["reference"]},
+                    {"$set": {"activation_done": True,
+                              "activation_reconciled_at": now,
+                              "updated_at": now},
+                     "$unset": {"activation_error": ""}},
+                )
+                recovered += 1
+                continue
+        except Exception:
+            pass
+        # Retry the activation. `_apply_payment_success` is idempotent and
+        # will either activate or re-set `activation_error`.
+        source = p.get("provider") or "manual_reprocess"
+        if source not in ("biztranspay", "ashtecpay", "soleaspay",
+                          "izichange", "sendavapay", "manual_reprocess"):
+            source = "manual_reprocess"
+        try:
+            await _apply_payment_success(
+                db, p, p.get("ashtecpay_status") or "paid", source=source,
+            )
+            p2 = await db.payments.find_one(
+                {"reference": p["reference"]},
+                {"_id": 0, "activation_done": 1},
+            ) or {}
+            if p2.get("activation_done"):
+                recovered += 1
+                log.info("ACTIVATION_RECOVERED ref=%s user=%s source=%s",
+                         p.get("reference"), p.get("user_id"), source)
+            else:
+                failed += 1
+        except Exception as exc:
+            log.warning("ACTIVATION_RECOVERY_FAILED ref=%s: %s",
+                        p.get("reference"), exc)
+            failed += 1
+
+    return {"checked": checked, "recovered": recovered, "failed": failed}
+
+
 async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
     """Idempotent payment-success dispatcher — called by both polling and webhook.
 
