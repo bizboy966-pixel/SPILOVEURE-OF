@@ -37,7 +37,7 @@ const MAIN_CARDS = [
     icon: "megaphone",
     color: "#EC4899",
     bg: "#FCE7F3",
-    route: "/(app)/reactor-rewards",
+    route: "/(app)/ads",
   },
 ];
 

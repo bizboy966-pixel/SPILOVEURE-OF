@@ -5433,3 +5433,6 @@ total_profit = commission_direct
 ## 2026-06 — Tableau de bord : Réserve à niveau + Retrait total
 - Cartes Activation et Total profit : courbe remontée (compacte), puis « Réserve à niveau » (= users.balance_upgrade) et « Retrait total » (= somme `amount` des withdrawals status completed|validated, champ `total_withdrawn_confirmed` de GET /api/dashboard). Carte Solde dispo inchangée. Masquage œil respecté.
 - ⚠️ Metro ne recharge pas toujours à chaud : `sudo supervisorctl restart frontend` si l'aperçu montre l'ancienne version.
+
+## 2026-06 — Tâches → « Publicités rémunérées » redirige vers /ads
+- `tasks.tsx` : route de la carte ads-rewards changée de /reactor-rewards vers /(app)/ads (fil publicitaire existant : like, commentaire, partage). Page reactor-rewards conservée (toujours utilisée depuis Espace publicitaire). Aucune logique de rémunération modifiée.
