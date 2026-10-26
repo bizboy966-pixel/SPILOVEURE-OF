@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useNotificationsFeed, AppNotification } from "@/src/hooks/useNotificationsFeed";
 
@@ -17,6 +18,7 @@ type Displayed = AppNotification & { _fade: Animated.Value };
 const ICON_BY_KIND: Record<string, keyof typeof Ionicons.glyphMap> = {
   reactor_reward: "gift",
   special_task_reward: "flash",
+  special_task_new: "flash",
   payment_confirmed: "checkmark-circle",
   ad_approved: "megaphone",
   ad_rejected: "close-circle",
@@ -25,6 +27,7 @@ const ICON_BY_KIND: Record<string, keyof typeof Ionicons.glyphMap> = {
 const COLOR_BY_KIND: Record<string, string> = {
   reactor_reward: "#F59E0B",
   special_task_reward: "#7B61FF",
+  special_task_new: "#7B61FF",
   payment_confirmed: "#10B981",
   ad_approved: "#3B82F6",
   ad_rejected: "#EF4444",
@@ -34,6 +37,7 @@ const MAX_STACK = 2;
 const AUTO_DISMISS_MS = 5000;
 
 export function NotificationToaster() {
+  const router = useRouter();
   const { latest, unread } = useNotificationsFeed(10000);
   const [stack, setStack] = useState<Displayed[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -82,10 +86,15 @@ export function NotificationToaster() {
             <View style={[styles.iconBox, { backgroundColor: color }]}>
               <Ionicons name={icon} size={18} color="#fff" />
             </View>
-            <View style={{ flex: 1 }}>
+            <Pressable
+              style={{ flex: 1 }}
+              disabled={!(n as any).link}
+              onPress={() => { setStack((prev) => prev.filter((p) => p.id !== n.id)); router.push((n as any).link); }}
+              testID={`notif-toast-open-${n.id}`}
+            >
               <Text style={styles.title} numberOfLines={1}>{title}</Text>
               {!!body && <Text style={styles.body} numberOfLines={2}>{body}</Text>}
-            </View>
+            </Pressable>
             <Pressable
               onPress={() => setStack((prev) => prev.filter((p) => p.id !== n.id))}
               hitSlop={8}

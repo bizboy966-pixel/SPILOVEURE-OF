@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { api, resolveMediaUrl } from "@/src/api";
 import { useFeatures } from "@/src/features";
@@ -24,6 +24,8 @@ import { ChallengeCard, CurrentChallenge } from "@/src/components/tasks/Challeng
  */
 export default function TasksMoreScreen() {
   const router = useRouter();
+  const { task: focusTaskId } = useLocalSearchParams<{ task?: string }>();
+  const [focus, setFocus] = useState<{ available: boolean; message: string } | null>(null);
   const { features } = useFeatures();
   const [tasks, setTasks] = useState<any[]>([]);
   const [challenge, setChallenge] = useState<CurrentChallenge | null>(null);
@@ -50,6 +52,12 @@ export default function TasksMoreScreen() {
     load();
     (async () => { try { await api.post("/special-tasks/mark-seen", {}); } catch {} })();
   }, [load]);
+
+  useEffect(() => {
+    if (!focusTaskId) { setFocus(null); return; }
+    api.get<{ available: boolean; message: string }>(`/special-tasks/${focusTaskId}/availability`)
+      .then(setFocus).catch(() => setFocus(null));
+  }, [focusTaskId]);
 
   const openTaskLink = (t: any) => {
     if (typeof window !== "undefined") window.open(t.link, "_blank");
@@ -118,6 +126,15 @@ export default function TasksMoreScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, width: "100%", maxWidth: 760, alignSelf: "center" }}>
         {loading ? <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 24 }} testID="tasks-more-loading" /> : null}
 
+        {focus ? (
+          <View style={[styles.focusBanner, focus.available ? styles.focusOk : styles.focusKo]} testID={`task-focus-${focus.available ? "available" : "unavailable"}`}>
+            <Ionicons name={focus.available ? "checkmark-circle" : "alert-circle"} size={18} color={focus.available ? "#047857" : "#B91C1C"} />
+            <Text style={[styles.focusTxt, { color: focus.available ? "#047857" : "#B91C1C" }]}>
+              {focus.available ? "Cette tâche est disponible : retrouvez-la en surbrillance ci-dessous." : focus.message}
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={styles.sectionTitle}>Tâches spéciales disponibles{loading ? "" : ` (${tasks.length})`}</Text>
         {!loading && tasks.length === 0 ? (
           <View style={styles.empty} testID="special-tasks-empty">
@@ -128,7 +145,7 @@ export default function TasksMoreScreen() {
         {tasks.length > 0 ? (
           <>
             {tasks.map((t) => (
-              <View key={t.id} style={styles.taskCard} testID={`st-card-${t.id}`}>
+              <View key={t.id} style={[styles.taskCard, t.id === focusTaskId && styles.taskFocused]} testID={`st-card-${t.id}`}>
                 <View style={styles.taskIcon}>
                   <Ionicons name={ACTION_ICONS[t.action_type]} size={22} color="#fff" />
                 </View>
@@ -267,6 +284,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderStyle: "dashed",
   },
   emptyTxt: { flex: 1, color: theme.colors.textSecondary, fontSize: 12.5 },
+  focusBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, marginBottom: 12, borderWidth: 1 },
+  focusOk: { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" },
+  focusKo: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  focusTxt: { flex: 1, fontSize: 12.5, fontWeight: "700" },
+  taskFocused: { borderColor: "#7B61FF", borderWidth: 2 },
   doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
   doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
 

@@ -72,6 +72,7 @@ export default function NotificationsScreen() {
     if (!n.read) {
       try { await api.post(`/me/notifications/${n.id}/read`, {}); load(); } catch {}
     }
+    if ((n as any).link) router.push((n as any).link);
   };
 
   return (

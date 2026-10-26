@@ -224,6 +224,12 @@ async def lifespan(app: FastAPI):
             log.info("Mission window watcher scheduled (60-sec interval)")
         except Exception as _mw_e:
             log.warning(f"Mission window watcher failed to start: {_mw_e}")
+        try:
+            from special_tasks import special_task_notify_watcher as _st_watch
+            asyncio.create_task(_st_watch(db))
+            log.info("Special task notification watcher scheduled (20-sec interval)")
+        except Exception as _st_e:
+            log.warning(f"Special task watcher failed to start: {_st_e}")
         log.info("Chat retention worker scheduled")
     except Exception as _e:
         log.warning(f"Chat retention worker failed to start: {_e}")

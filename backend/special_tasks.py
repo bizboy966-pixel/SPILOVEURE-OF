@@ -340,6 +340,7 @@ async def admin_force_activate_task(task_id: str, request: Request):
     )
     if r.modified_count == 0:
         raise HTTPException(400, "Tâche introuvable ou déjà activée.")
+    await notify_new_special_task(db, task_id)
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
 
 
@@ -720,3 +721,89 @@ async def mark_seen(request: Request, user=Depends(get_current_user)):
         {"$set": {"last_special_tasks_seen_at": now}},
     )
     return {"ok": True, "at": now.isoformat()}
+
+
+# ─── Notifications « nouvelle tâche spéciale » ─────────────────────────
+_NOTIF_ACTION = {"video": "Regarder une vidéo", "subscribe": "S'abonner", "share": "Partager",
+                 "like": "Aimer", "comment": "Commenter", "group": "Rejoindre un groupe"}
+_NOTIF_NET = {"tiktok": "TikTok", "facebook": "Facebook", "instagram": "Instagram",
+              "youtube": "YouTube", "whatsapp": "WhatsApp", "telegram": "Telegram"}
+
+
+async def notify_new_special_task(db, task_id: str) -> int:
+    """One in-app + push notification per user per task, claimed atomically via `notified_at`."""
+    import logging as _l
+    now = datetime.now(timezone.utc)
+    t = await db.special_tasks.find_one_and_update(
+        {"id": task_id, "status": "active", "notified_at": {"$exists": False}},
+        {"$set": {"notified_at": now}},
+    )
+    if not t:
+        return 0
+    if not await feature_enabled(db, "special_tasks"):
+        await db.special_tasks.update_one({"id": task_id}, {"$set": {"notified_skipped": "feature_off"}})
+        return 0
+    title = "⚡ Nouvelle tâche spéciale disponible"
+    body = (f"{_NOTIF_ACTION.get(t.get('action_type'), 'Tâche')} sur {_NOTIF_NET.get(t.get('network'), t.get('network') or '')} "
+            f"· {float(t.get('reward_per_action') or 0):g} FCFA à gagner. Touchez pour voir les conditions.")
+    link = f"/tasks-more?task={task_id}"
+    inserted, docs = 0, []
+    async for u in db.users.find({"id": {"$ne": t.get("user_id")}, "status": {"$ne": "banned"}}, {"_id": 0, "id": 1}):
+        docs.append({"id": str(uuid.uuid4()), "user_id": u["id"], "kind": "special_task_new",
+                     "type": "special_task_new", "title": title, "body": body, "link": link,
+                     "meta": {"task_id": task_id}, "read": False, "created_at": now})
+        if len(docs) >= 500:
+            await db.notifications.insert_many(docs)
+            inserted += len(docs)
+            docs = []
+    if docs:
+        await db.notifications.insert_many(docs)
+        inserted += len(docs)
+    try:
+        from push_helper import push_to_all_registered
+        await push_to_all_registered(db, title=title, body=body, link=link,
+                                     data={"kind": "special_task_new", "task_id": task_id},
+                                     tag=f"special-task-{task_id}", exclude_user_id=t.get("user_id"))
+    except Exception as e:
+        _l.getLogger("special_tasks").exception("special task push failed: %s", e)
+    return inserted
+
+
+async def special_task_notify_watcher(db):
+    """Every 20 s, notify each task that became `active` (any payment path) exactly once."""
+    import asyncio as _a, logging as _l
+    log = _l.getLogger("special_tasks")
+    marker = await db.app_settings.find_one({"key": "special_task_notif_backfill"})
+    if not marker:
+        await db.special_tasks.update_many(
+            {"status": "active", "notified_at": {"$exists": False}},
+            {"$set": {"notified_at": datetime.now(timezone.utc), "notified_skipped": "backfill"}})
+        await db.app_settings.update_one({"key": "special_task_notif_backfill"},
+                                         {"$set": {"done_at": datetime.now(timezone.utc)}}, upsert=True)
+    while True:
+        try:
+            async for t in db.special_tasks.find({"status": "active", "notified_at": {"$exists": False}}, {"_id": 0, "id": 1}):
+                n = await notify_new_special_task(db, t["id"])
+                log.info("special task %s published → %d notifications", t["id"], n)
+        except Exception as e:
+            log.exception("special_task_notify_watcher error: %s", e)
+        await _a.sleep(20)
+
+
+@public.get("/special-tasks/{task_id}/availability")
+async def task_availability(task_id: str, request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    t = await db.special_tasks.find_one({"id": task_id}, {"_id": 0, "status": 1, "user_id": 1,
+                                                          "quantity_completed": 1, "quantity_target": 1})
+    if not t or t.get("status") in ("draft", "pending_payment"):
+        return {"available": False, "status": "unavailable", "message": "Cette tâche n'existe plus ou n'est plus disponible."}
+    done = await db.special_task_completions.find_one({"task_id": task_id, "user_id": user["id"], "status": {"$ne": "rejected"}})
+    if done:
+        return {"available": False, "status": "done", "message": "Vous avez déjà réalisé cette tâche."}
+    if t.get("user_id") == user["id"]:
+        return {"available": False, "status": "own", "message": "Il s'agit de votre propre campagne."}
+    if t.get("status") == "completed" or (t.get("quantity_completed") or 0) >= (t.get("quantity_target") or 0):
+        return {"available": False, "status": "completed", "message": "Toutes les places de cette tâche ont été prises."}
+    if t.get("status") != "active":
+        return {"available": False, "status": t.get("status"), "message": "Cette tâche a été désactivée."}
+    return {"available": True, "status": "active", "message": "Cette tâche est disponible."}
