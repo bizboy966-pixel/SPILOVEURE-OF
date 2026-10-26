@@ -5443,3 +5443,6 @@ total_profit = commission_direct
 
 ## 2026-06 — « Publier un article » remplacé par « Jackpot »
 - Grille « Nos services » du dashboard : carte publish → lottery (/(app)/lottery). Page « Voir tout » : « Publier un article » supprimé, Jackpot déplacé à sa place (plus de doublon). La publication reste accessible via le bouton + de la Marketplace (marketplace-create).
+
+## 2026-06 — Carte « Mes récompenses réacteur » retirée de l'Espace publicitaire
+- `advertising.tsx` : carte adv-reactor-rewards supprimée. Page/route /reactor-rewards et backend conservés (plus aucun point d'entrée dans l'UI).
