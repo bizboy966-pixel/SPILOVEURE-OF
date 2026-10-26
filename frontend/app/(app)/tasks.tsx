@@ -39,6 +39,15 @@ const MAIN_CARDS = [
     bg: "#FCE7F3",
     route: "/(app)/ads",
   },
+  {
+    key: "special-tasks",
+    title: "Tâches spéciales",
+    subtitle: "Accédez aux tâches spéciales et aux challenges actifs du moment.",
+    icon: "flash",
+    color: "#7B61FF",
+    bg: "#EDE9FE",
+    route: "/(app)/tasks-more",
+  },
 ];
 
 export default function TasksScreen() {
@@ -66,7 +75,7 @@ export default function TasksScreen() {
           <TouchableOpacity
             key={c.key}
             style={styles.card}
-            onPress={() => router.push(c.route as any)}
+            onPress={() => (c.key === "special-tasks" && isPending) ? showModal() : router.push(c.route as any)}
             activeOpacity={0.85}
             testID={`tasks-card-${c.key}`}
           >
@@ -80,16 +89,6 @@ export default function TasksScreen() {
             <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         ))}
-
-        <TouchableOpacity
-          onPress={() => isPending ? showModal() : router.push("/(app)/tasks-more" as any)}
-          style={styles.seeMoreBtn}
-          activeOpacity={0.85}
-          testID="tasks-see-more"
-        >
-          <Text style={styles.seeMoreTxt}>Voir plus</Text>
-          <Ionicons name="chevron-down" size={16} color={theme.colors.primary} />
-        </TouchableOpacity>
       </ScrollView>
 
       <BottomNav />

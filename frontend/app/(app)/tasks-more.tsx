@@ -11,6 +11,7 @@ import { theme } from "@/src/theme";
 import { api, resolveMediaUrl } from "@/src/api";
 import { useFeatures } from "@/src/features";
 import { BottomNav } from "@/src/components/BottomNav";
+import { ChallengeCard, CurrentChallenge } from "@/src/components/tasks/ChallengeCard";
 
 /**
  * TÂCHES → Voir plus (v17 — 2026-02-14).
@@ -25,6 +26,8 @@ export default function TasksMoreScreen() {
   const router = useRouter();
   const { features } = useFeatures();
   const [tasks, setTasks] = useState<any[]>([]);
+  const [challenge, setChallenge] = useState<CurrentChallenge | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // ── Screenshot-proof modal state (same as the historical tasks.tsx) ──
   const [proofTask, setProofTask] = useState<any | null>(null);
@@ -35,10 +38,13 @@ export default function TasksMoreScreen() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const r = await api.get<{ items: any[] }>("/special-tasks");
-      setTasks(r.items || []);
-    } catch {}
+    const [st, ch] = await Promise.all([
+      api.get<{ items: any[] }>("/special-tasks").catch(() => ({ items: [] })),
+      api.get<CurrentChallenge>("/challenges/current").catch(() => null),
+    ]);
+    setTasks(st.items || []);
+    setChallenge(ch);
+    setLoading(false);
   }, []);
   useEffect(() => {
     load();
@@ -83,17 +89,11 @@ export default function TasksMoreScreen() {
 
   const EXTRA_CARDS = [
     {
-      key: "special", title: "Tâches spéciales",
+      key: "special", title: "Créer ma campagne",
       subtitle: "Créez votre campagne de likes, abonnements, vues, partages ou groupes.",
-      icon: "flash", color: "#7B61FF", bg: "#EDE9FE",
+      icon: "add-circle", color: "#7B61FF", bg: "#EDE9FE",
       route: "/(app)/special-task-create",
       hidden: !features.special_tasks,
-    },
-    {
-      key: "challenges", title: "Challenges actifs",
-      subtitle: "Objectifs d'invitations avec grosse récompense — voir le dashboard.",
-      icon: "trophy", color: "#F59E0B", bg: "#FEF3C7",
-      route: "/(app)/dashboard",
     },
   ];
 
@@ -108,17 +108,25 @@ export default function TasksMoreScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <View>
-              <Text style={styles.title}>Plus de tâches</Text>
-              <Text style={styles.subtitle}>Toutes les autres opportunités</Text>
+              <Text style={styles.title}>Tâches spéciales</Text>
+              <Text style={styles.subtitle}>Tâches et challenges actifs</Text>
             </View>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, width: "100%", maxWidth: 760, alignSelf: "center" }}>
+        {loading ? <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 24 }} testID="tasks-more-loading" /> : null}
+
+        <Text style={styles.sectionTitle}>Tâches spéciales disponibles ({tasks.length})</Text>
+        {!loading && tasks.length === 0 ? (
+          <View style={styles.empty} testID="special-tasks-empty">
+            <Ionicons name="flash-outline" size={22} color={theme.colors.textMuted} />
+            <Text style={styles.emptyTxt}>Aucune tâche spéciale disponible pour le moment. Revenez bientôt !</Text>
+          </View>
+        ) : null}
         {tasks.length > 0 ? (
           <>
-            <Text style={styles.sectionTitle}>Tâches actives ({tasks.length})</Text>
             {tasks.map((t) => (
               <View key={t.id} style={styles.taskCard} testID={`st-card-${t.id}`}>
                 <View style={styles.taskIcon}>
@@ -127,27 +135,38 @@ export default function TasksMoreScreen() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <Text style={styles.taskTitle}>{ACTION_BTN[t.action_type]} · {NET_LABELS[t.network]}</Text>
+                    <View style={styles.liveBadge}><Text style={styles.liveBadgeTxt}>Disponible</Text></View>
                     {t.is_new ? (
                       <View style={styles.newBadge} testID={`st-new-${t.id}`}>
                         <Text style={styles.newBadgeTxt}>NOUVEAU</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={styles.taskSub} numberOfLines={2}>{t.description || "Aucune description"}</Text>
-                  <Text style={styles.reward}>
-                    {t.reward_per_action} FCFA · {t.quantity_completed}/{t.quantity_target}
+                  <Text style={styles.taskSub} numberOfLines={3}>{t.description || "Aucune description"}</Text>
+                  <Text style={styles.taskRule}>Effectuez l'action puis envoyez une capture d'écran comme preuve. Une seule validation par tâche.</Text>
+                  <Text style={styles.reward} testID={`st-reward-${t.id}`}>
+                    {t.reward_per_action} FCFA · {t.quantity_completed}/{t.quantity_target} places prises
                   </Text>
                 </View>
                 <TouchableOpacity onPress={() => openTaskLink(t)} style={styles.doBtn} testID={`st-do-${t.id}`}>
-                  <Text style={styles.doT}>Faire</Text>
+                  <Text style={styles.doT}>Commencer</Text>
                 </TouchableOpacity>
               </View>
             ))}
-            <View style={{ height: 16 }} />
           </>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Catégories</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Challenge actif</Text>
+        {challenge?.challenge ? (
+          <ChallengeCard data={challenge} />
+        ) : !loading ? (
+          <View style={styles.empty} testID="challenge-empty">
+            <Ionicons name="trophy-outline" size={22} color={theme.colors.textMuted} />
+            <Text style={styles.emptyTxt}>Aucun challenge actif en ce moment.</Text>
+          </View>
+        ) : null}
+
+        {features.special_tasks ? <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Votre campagne</Text> : null}
         {EXTRA_CARDS.filter((c) => !c.hidden).map((c) => (
           <TouchableOpacity
             key={c.key}
@@ -240,6 +259,14 @@ const styles = StyleSheet.create({
   reward: { fontSize: 11, color: theme.colors.success, fontWeight: "800", marginTop: 4 },
   newBadge: { backgroundColor: "#EF4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   newBadgeTxt: { color: "#fff", fontWeight: "900", fontSize: 9, letterSpacing: 0.5 },
+  liveBadge: { backgroundColor: "#D1FAE5", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  liveBadgeTxt: { color: "#047857", fontWeight: "900", fontSize: 9 },
+  taskRule: { color: theme.colors.textMuted, fontSize: 10.5, marginTop: 3, lineHeight: 14 },
+  empty: {
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 16, marginBottom: 12,
+    backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderStyle: "dashed",
+  },
+  emptyTxt: { flex: 1, color: theme.colors.textSecondary, fontSize: 12.5 },
   doBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
   doT: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
