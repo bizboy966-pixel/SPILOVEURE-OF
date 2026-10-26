@@ -44,21 +44,25 @@ function markSeen() {
   } catch {}
 }
 
-export const CommunityPopup: React.FC<{ userId: string | null | undefined }> = ({ userId }) => {
+export const CommunityPopup: React.FC<{ userId: string | null | undefined; onDone?: () => void }> = ({ userId, onDone }) => {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [visible, setVisible] = useState(false);
   const [remaining, setRemaining] = useState(0);
   const scale = useRef(new Animated.Value(0.85)).current;
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const done = () => { onDoneRef.current?.(); };
 
   // Fetch config & decide whether to show
   useEffect(() => {
     let cancelled = false;
     if (!userId) return;
-    if (hasSeen()) return;
+    if (hasSeen()) { done(); return; }
     (async () => {
       try {
         const data = await api.get<Cfg>("/settings/community-popup", { auth: false });
-        if (cancelled || !data || !data.enabled) return;
+        if (cancelled) return;
+        if (!data || !data.enabled) { done(); return; }
         setCfg(data);
         setVisible(true);
         setRemaining(Math.max(0, Math.floor(data.auto_close_seconds || 0)));
@@ -70,7 +74,7 @@ export const CommunityPopup: React.FC<{ userId: string | null | undefined }> = (
           useNativeDriver: true,
         }).start();
       } catch {
-        // silent
+        if (!cancelled) done();
       }
     })();
     return () => { cancelled = true; };
@@ -80,14 +84,14 @@ export const CommunityPopup: React.FC<{ userId: string | null | undefined }> = (
   useEffect(() => {
     if (!visible || !cfg || cfg.auto_close_seconds <= 0) return;
     if (remaining <= 0) {
-      setVisible(false);
+      close();
       return;
     }
     const t = setTimeout(() => setRemaining((r) => r - 1), 1000);
     return () => clearTimeout(t);
   }, [remaining, visible, cfg]);
 
-  const close = () => setVisible(false);
+  const close = () => { setVisible(false); done(); };
 
   const openTelegram = async () => {
     if (!cfg?.telegram_url) {

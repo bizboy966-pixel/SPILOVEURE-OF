@@ -1,9 +1,10 @@
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
+import { SupportGroupPopup } from "@/src/components/SupportGroupPopup";
 import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
 import TelegramFab from "@/src/components/TelegramFab";
@@ -36,6 +37,7 @@ export default function AppLayout() {
   const { lang, setLang } = useI18n();
   const router = useRouter();
   const segments = useSegments() as string[];
+  const [communityDone, setCommunityDone] = useState(false);
 
   const isPending = useMemo(() => {
     if (!user) return false;
@@ -91,7 +93,8 @@ export default function AppLayout() {
         <Stack screenOptions={{ headerShown: false }} />
         {user && (
           <>
-            {isActivated && <CommunityPopup userId={user.id} />}
+            {isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
+            {isActivated && <SupportGroupPopup enabled={communityDone} />}
             <NotificationToaster />
             <PushBootstrap />
             {isActivated && <TelegramFab />}

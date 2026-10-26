@@ -5540,6 +5540,10 @@ from special_tasks import public as st_public, admin as st_admin  # noqa: E402
 app.include_router(st_public)
 app.include_router(st_admin)
 
+# Groupe d'accompagnement — per-leader group link shown to direct referrals.
+from support_group import public as sg_public  # noqa: E402
+app.include_router(sg_public)
+
 # Marketplace — free listings, admin review, WhatsApp contact.
 from marketplace import public as mk_public, admin as mk_admin  # noqa: E402
 app.include_router(mk_public)

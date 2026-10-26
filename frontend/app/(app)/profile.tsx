@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert, Share } from "react-native";
+import { ScrollView, StyleSheet, Text, View, TouchableOpacity, Share } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,17 +9,22 @@ import * as Clipboard from "expo-clipboard";
 import { Card } from "@/src/components/Card";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
-import { formatFCFA, formatDate } from "@/src/utils/format";
+import { formatFCFA } from "@/src/utils/format";
 import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/firebase";
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
-import { CLIENT_VERSION } from "@/src/version";
+import { ProfileHeaderCard } from "@/src/components/profile/ProfileHeaderCard";
+import { SupportGroupCard } from "@/src/components/profile/SupportGroupCard";
+
+type Country = { code: string; name: string; flag?: string };
 
 export default function Profile() {
   const router = useRouter();
   const { user } = useAuth();
   const link = `https://spiloveure.com/u/${user?.username || "admin"}`;
   const [notifState, setNotifState] = React.useState<"unknown" | "granted" | "default" | "denied" | "unsupported">("unknown");
+  const [copied, setCopied] = React.useState(false);
+  const [countries, setCountries] = React.useState<Country[]>([]);
 
   React.useEffect(() => {
     (async () => {
@@ -27,7 +32,11 @@ export default function Profile() {
       const p = currentPermission();
       setNotifState(p as any);
     })();
+    api.get<{ countries: Country[] }>("/config", { auth: false }).then((c) => setCountries(c?.countries || [])).catch(() => {});
   }, []);
+
+  const country = countries.find((c) => c.code === user?.country);
+  const countryLabel = country ? `${country.flag ? country.flag + " " : ""}${country.name}` : (user?.country || "—");
 
   const enableNotifications = async () => {
     const token = await setupWebPush((title, body) => {
@@ -53,47 +62,52 @@ export default function Profile() {
 
   const copy = async () => {
     await Clipboard.setStringAsync(link);
-    Alert.alert("Copié ✅", "Lien d'invitation copié.");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const share = async () => {
     try {
       await Share.share({ message: `Rejoignez Spiloveure : ${link}` });
-    } catch {}
+    } catch {
+      await copy();
+    }
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
         <SafeAreaView edges={["top"]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.back} testID="profile-back">
-            <Ionicons name="chevron-back" size={22} color="#fff" />
-          </TouchableOpacity>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={42} color="#fff" />
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.headBtn} testID="profile-back">
+              <Ionicons name="arrow-back" size={22} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Profil</Text>
+            <TouchableOpacity onPress={() => router.push("/(app)/settings")} style={styles.headBtn} testID="profile-settings">
+              <Ionicons name="settings" size={21} color="#fff" />
+            </TouchableOpacity>
           </View>
-          <Text style={styles.username}>{user?.username}</Text>
-          <Text style={styles.email}>{user?.email}</Text>
         </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
-        {/* ─── PRIORITÉ 1 : Lien d'inscription ─────────────────── */}
-        <Card testID="profile-invite-card">
-          <View style={styles.inviteHead}>
-            <Ionicons name="link" size={18} color={theme.colors.secondary} />
-            <Text style={styles.section}>Lien d'inscription</Text>
+      <ScrollView style={{ marginTop: -36 }} contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 140 }}>
+        <ProfileHeaderCard user={user} />
+
+        <Card testID="profile-invite-card" style={{ marginTop: 12 }}>
+          <View style={styles.cardHead}>
+            <View style={styles.headIcon}><Ionicons name="link" size={19} color={theme.colors.primary} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.section}>Lien d'inscription</Text>
+              <Text style={styles.hint}>Partagez ce lien pour inviter de nouveaux membres et développer votre réseau.</Text>
+            </View>
           </View>
-          <Text style={styles.inviteHint}>
-            Partagez ce lien pour inviter de nouveaux membres et développer votre réseau.
-          </Text>
           <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={2}>{link}</Text>
+            <Text style={styles.linkText} numberOfLines={2} testID="profile-invite-link">{link}</Text>
           </View>
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
             <TouchableOpacity style={[styles.copyBtn, { flex: 1 }]} onPress={copy} testID="profile-copy">
-              <Ionicons name="copy" size={16} color="#fff" />
-              <Text style={styles.copyBtnT}>Copier</Text>
+              <Ionicons name={copied ? "checkmark" : "copy"} size={16} color="#fff" />
+              <Text style={styles.copyBtnT}>{copied ? "Copié" : "Copier"}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]}
@@ -106,27 +120,28 @@ export default function Profile() {
           </View>
         </Card>
 
-        {/* ─── Informations personnelles ──────────────────────── */}
-        <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Informations</Text>
+        <SupportGroupCard />
+
+        <Card style={{ marginTop: 12 }} testID="profile-info-card">
+          <View style={[styles.cardHead, { alignItems: "center" }]}>
+            <View style={styles.headIcon}><Ionicons name="person" size={19} color={theme.colors.primary} /></View>
+            <Text style={styles.section}>Informations personnelles</Text>
+          </View>
           <Item icon="person" label="Nom d'utilisateur" value={user?.username || "—"} />
           <Item icon="mail" label="E-mail" value={user?.email || "—"} />
           <Item icon="call" label="Téléphone" value={user?.phone || "—"} />
-          <Item icon="globe" label="Pays" value={user?.country || "—"} />
-          <Item icon="ribbon" label="Niveau actuel" value={`Niveau ${user?.max_level ?? 0}`} />
-          <Item icon="calendar" label="Date d'inscription" value={formatDate(user?.created_at)} />
+          <Item icon="globe" label="Pays" value={countryLabel} />
+          <Item icon="stats-chart" label="Niveau actuel" value={`Niveau ${user?.max_level ?? 0}`} last />
         </Card>
 
-        {/* ─── Statistiques financières ───────────────────────── */}
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Statistiques</Text>
           <Item icon="cash" label="Solde profit" value={formatFCFA(user?.balance_profit)} />
           <Item icon="lock-closed" label="Réserve mise à niveau" value={formatFCFA(user?.balance_upgrade)} />
           <Item icon="trending-up" label="Total gagné" value={formatFCFA(user?.total_earned)} />
-          <Item icon="arrow-down-circle" label="Total retiré" value={formatFCFA(user?.total_withdrawn)} />
+          <Item icon="arrow-down-circle" label="Total retiré" value={formatFCFA(user?.total_withdrawn)} last />
         </Card>
 
-        {/* ─── Notifications push ─────────────────────────────── */}
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.section}>Notifications Push</Text>
           <View style={{ paddingVertical: 6 }}>
@@ -155,10 +170,6 @@ export default function Profile() {
             )}
           </View>
         </Card>
-
-        {/* v27as (2026-03-04) — carte InstallAppCard et UpdateGate
-            retirées : conservation uniquement de la version du client
-            affichée dans le footer de la carte Profil. */}
       </ScrollView>
 
       <BottomNav />
@@ -166,103 +177,32 @@ export default function Profile() {
   );
 }
 
-function Item({ icon, label, value }: { icon: any; label: string; value: string }) {
+function Item({ icon, label, value, last }: { icon: any; label: string; value: string; last?: boolean }) {
   return (
-    <View style={styles.itemRow}>
-      <View style={styles.itemIcon}><Ionicons name={icon} size={16} color={theme.colors.primary} /></View>
+    <View style={[styles.itemRow, !last && styles.itemDivider]}>
+      <View style={styles.itemIcon}><Ionicons name={icon} size={15} color={theme.colors.primary} /></View>
       <Text style={styles.itemLbl}>{label}</Text>
-      <Text style={styles.itemVal}>{value}</Text>
+      <Text style={styles.itemVal} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
 
-// v27an (2026-03-04) — AppVersionCard retirée au profit de InstallAppCard
-// (voir /src/components/InstallAppCard.tsx). Flux complet : Télécharger →
-// progression réelle → ✅ Mise à jour téléchargée → Installer maintenant,
-// avec installation native PWA (Android WebAPK / iOS Add-to-Home / Chrome
-// Desktop) et détection auto des nouvelles versions publiées depuis app.json.
-// @ts-ignore
-function _AppVersionCard_legacy() {
-  // @ts-ignore
-  const v: any = null;
-  const current = v?.current_version || "—";
-  const installed = CLIENT_VERSION;
-  const isOutdated = v?.current_version && v.current_version !== installed;
-  const apkUrl = (v?.apk_url || "").trim();
-  const sizeTxt = v?.apk_size_mb ? ` (${v.apk_size_mb} Mo)` : "";
-  return (
-    <Card style={{ marginTop: 12 }} testID="profile-app-version-card">
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <Ionicons name="phone-portrait" size={18} color={theme.colors.secondary} />
-        <Text style={styles.section}>📱 Application SPILOVEURE</Text>
-      </View>
-      <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
-        (Legacy — rendu via InstallAppCard désormais.)
-      </Text>
-      {apkUrl ? (
-        <>
-          <TouchableOpacity
-            onPress={() => { if (typeof window !== "undefined") window.open(apkUrl, "_blank"); }}
-            testID="profile-download-apk"
-            style={{
-              marginTop: 12,
-              backgroundColor: "#059669",
-              paddingVertical: 14,
-              borderRadius: 12,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-            }}
-          >
-            <Ionicons name="download" size={18} color="#fff" />
-            <Text style={{ color: "#fff", fontWeight: "800" }}>
-              📥 Télécharger l'application Android{sizeTxt}
-            </Text>
-          </TouchableOpacity>
-          <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 8, textAlign: "center" }}>
-            Après téléchargement, Android peut demander d'autoriser l'installation depuis cette source. Suivez les instructions à l'écran.
-          </Text>
-        </>
-      ) : null}
-      {isOutdated && (
-        <TouchableOpacity
-          onPress={() => { if (typeof window !== "undefined") window.location.reload(); }}
-          testID="profile-reload-update"
-          style={{
-            marginTop: 10,
-            backgroundColor: theme.colors.primary,
-            paddingVertical: 12,
-            borderRadius: 12,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-          }}
-        >
-          <Ionicons name="refresh" size={16} color="#fff" />
-          <Text style={{ color: "#fff", fontWeight: "800" }}>Recharger pour mettre à jour</Text>
-        </TouchableOpacity>
-      )}
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
-  header: { padding: 16, paddingTop: 24, alignItems: "center" },
-  back: { position: "absolute", top: 24, left: 16, width: 36, height: 36, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", zIndex: 2 },
-  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.secondary, alignItems: "center", justifyContent: "center", marginTop: 12, alignSelf: "center" },
-  username: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 12, textAlign: "center" },
-  email: { color: "#C7D9FF", textAlign: "center" },
-  section: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 15, letterSpacing: -0.2 },
-  inviteHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  inviteHint: { color: theme.colors.textSecondary, fontSize: 12, marginBottom: 10 },
-  itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, gap: 10 },
+  header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 52 },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: "#fff", fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
+  section: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 15.5, letterSpacing: -0.2 },
+  cardHead: { flexDirection: "row", gap: 12, marginBottom: 12 },
+  headIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: theme.colors.primaryBg, alignItems: "center", justifyContent: "center" },
+  hint: { color: theme.colors.textSecondary, fontSize: 12.5, marginTop: 3, lineHeight: 17 },
+  itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, gap: 10 },
+  itemDivider: { borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   itemIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: "#DBEAFE", alignItems: "center", justifyContent: "center" },
   itemLbl: { flex: 1, color: theme.colors.textSecondary, fontSize: 13 },
-  itemVal: { color: theme.colors.textPrimary, fontWeight: "700" },
+  itemVal: { color: theme.colors.textPrimary, fontWeight: "700", flexShrink: 1, maxWidth: "60%", textAlign: "right" },
   linkBox: { backgroundColor: theme.colors.surfaceSecondary, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
-  linkText: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "500" },
+  linkText: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "600" },
   copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.secondary },
   copyBtnT: { color: "#fff", fontWeight: "800" },
 });
