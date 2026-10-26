@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { useNotificationsFeed, AppNotification } from "@/src/hooks/useNotificationsFeed";
 
@@ -89,7 +90,11 @@ export function NotificationToaster() {
             <Pressable
               style={{ flex: 1 }}
               disabled={!(n as any).link}
-              onPress={() => { setStack((prev) => prev.filter((p) => p.id !== n.id)); router.push((n as any).link); }}
+              onPress={() => {
+                setStack((prev) => prev.filter((p) => p.id !== n.id));
+                api.post(`/me/notifications/${n.id}/read`, {}).catch(() => {});
+                router.push((n as any).link);
+              }}
               testID={`notif-toast-open-${n.id}`}
             >
               <Text style={styles.title} numberOfLines={1}>{title}</Text>

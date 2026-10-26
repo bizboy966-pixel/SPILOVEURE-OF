@@ -1,0 +1,40 @@
+{
+  "summary": "Tested special-task 'new task' notifications end-to-end. Backend 12/12 pytest pass (one initial failure was a test-filter bug: special_task_reward notifs share meta.task_id; fixed in the test). Force-activate -> exactly 1337 special_task_new notifs (= all users minus creator, banned TEST user excluded, no per-user duplicates), second call 400 and no duplicates after a watcher tick; DB flip pending_payment->active picked up by the watcher within ~20s with 1337 notifs, never duplicated; backfilled tasks have 0 special_task_new notifs. Availability endpoint verified for active/draft/pending_payment/unknown/completed/full/paused/own/done/no-auth. Frontend (mobile 390x844): testactif /notifications list shows the notifs; tapping goes to /tasks-more?task=<id> with task-focus-available and the st-card border at 2px #7B61FF; a task set to completed in DB shows task-focus-unavailable 'Toutes les places de cette tâche ont été prises.' and is not listed; /tasks-more without ?task shows no banner; a notification without a link marks read on tap and stays on /notifications; a live toast appeared ~4s after a force-activate on the dashboard, and tapping notif-toast-open-<id> navigated to the focused task; the pending user filleul.attente is redirected to /pay for /notifications and for the deep link.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "POST /api/admin/special-tasks/{id}/force-activate", "issue": "Inserting ~1.3k notifications plus push_to_all_registered runs inside the request. Fast now (no push tokens), but it will get slow once there are many FCM tokens. Consider asyncio.create_task or leaving it to the watcher."},
+    {"endpoint": "GET /api/special-tasks/{id}/availability", "issue": "An active task with quantity_target 0 or missing is reported as 'completed' (0 >= 0). Edge case only."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "NotificationToaster / useNotificationsFeed", "issue": "Pre-existing: when the unread count grows, the toaster shows the top unread items (MAX_STACK=2), not just the new one. An older unread special_task_new notif was toasted again next to the fresh one (2 identical-looking toasts).", "selector": "[data-testid^=notif-toast-open-]", "priority": "LOW"},
+      {"component": "NotificationToaster", "issue": "Tapping a toast navigates but does not mark the notification read; the bell badge stays.", "selector": "notif-toast-open-<id>", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [{"screen": "/tasks-more?task=<id>", "issues": ["The highlighted card is not scrolled into view or moved to the top. With 35 tasks the focused card sits far below, even though the banner says 'retrouvez-la en surbrillance ci-dessous'. Suggest sorting the focused task first or scrollTo on its layout."]}]
+  },
+  "test_report_links": ["/app/backend/tests/test_special_task_notifications_v62.py", "/app/test_reports/pytest/pytest_results_v62.xml"],
+  "action_items": [
+    "Optional: put the focused task first, or auto-scroll to it, on /tasks-more?task=<id>",
+    "Optional: toast only notification ids that were not in the previous list; mark read when a toast is tapped",
+    "Restore the tasks activated during testing if needed (see other.activated_task_ids)"
+  ],
+  "critical_code_review_comments": [
+    "notify_new_special_task: the atomic claim via notified_at is correct and prevents duplicates across force-activate and the watcher.",
+    "If insert_many fails partway after the claim, the task is never retried (notified_at already set). Acceptable, but consider logging or storing notified_count.",
+    "useNotificationsFeed shows 'latest' = unread list, not a diff (see ui_bugs)."
+  ],
+  "updated_files": ["/app/backend/tests/test_special_task_notifications_v62.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created and then deleted a temporary banned user TEST_banned_* and a notification TEST_nolink_v62 for testactif. Inserted and deleted a temporary TEST_ completion in special_task_completions.",
+  "other": {
+    "activated_task_ids": {
+      "56cc47b9-5cfb-4587-9a2e-616502300c71": "pending_payment -> active via force-activate (1337 notifs)",
+      "2f831f4b-04d9-4afa-b135-1c31df1bcee0": "pending_payment -> active via DB+watcher (1337 notifs), then set to status 'completed' for the UI test (still completed)",
+      "ba13bc2f-44aa-4589-b287-b9b91cb5b6b1": "pending_payment -> active via force-activate from the browser for the toast test (1337 notifs)"
+    },
+    "previously_activated_by_main_agent": ["ba94308a-5a62-40f8-9da4-c1cb74e5c542", "dffb50b1-6aa4-4a9b-94e6-504be1ddfcac"]
+  },
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_special_task_notifications_v62.py hardcodes pending_payment task ids 56cc47b9 and 2f831f4b (now consumed). To re-run TestForceActivate/TestWatcher, reset those tasks to pending_payment, $unset notified_at and delete their special_task_new notifications, or pick other pending_payment ids. TestAvailability and the backfill test can be re-run as is. No task completions were submitted."
+}

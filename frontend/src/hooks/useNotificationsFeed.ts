@@ -48,7 +48,7 @@ export function useNotificationsFeed(pollMs: number = 10000) {
         // the first tick) — avoids pulling the full list on every poll
         // and prevents the "toast on refresh" spam.
         const list = await api.get<{ items: AppNotification[] }>(
-          "/me/notifications?unread_only=true&limit=10",
+          `/me/notifications?unread_only=true&limit=${Math.min(10, nextUnread - lastUnreadRef.current)}`,
         );
         if (!cancelledRef.current) {
           setState({ unread: nextUnread, latest: list.items || [], isReady: true });

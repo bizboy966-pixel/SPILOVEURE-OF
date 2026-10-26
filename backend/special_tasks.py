@@ -340,7 +340,8 @@ async def admin_force_activate_task(task_id: str, request: Request):
     )
     if r.modified_count == 0:
         raise HTTPException(400, "Tâche introuvable ou déjà activée.")
-    await notify_new_special_task(db, task_id)
+    import asyncio as _a
+    _a.create_task(notify_new_special_task(db, task_id))
     return _serialize(await db.special_tasks.find_one({"id": task_id}))
 
 
@@ -802,7 +803,8 @@ async def task_availability(task_id: str, request: Request, user=Depends(get_cur
         return {"available": False, "status": "done", "message": "Vous avez déjà réalisé cette tâche."}
     if t.get("user_id") == user["id"]:
         return {"available": False, "status": "own", "message": "Il s'agit de votre propre campagne."}
-    if t.get("status") == "completed" or (t.get("quantity_completed") or 0) >= (t.get("quantity_target") or 0):
+    if t.get("status") == "completed" or (
+            (t.get("quantity_target") or 0) > 0 and (t.get("quantity_completed") or 0) >= t["quantity_target"]):
         return {"available": False, "status": "completed", "message": "Toutes les places de cette tâche ont été prises."}
     if t.get("status") != "active":
         return {"available": False, "status": t.get("status"), "message": "Cette tâche a été désactivée."}

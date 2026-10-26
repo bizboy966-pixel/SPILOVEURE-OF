@@ -5446,3 +5446,8 @@ total_profit = commission_direct
 
 ## 2026-06 — Carte « Mes récompenses réacteur » retirée de l'Espace publicitaire
 - `advertising.tsx` : carte adv-reactor-rewards supprimée. Page/route /reactor-rewards et backend conservés (plus aucun point d'entrée dans l'UI).
+
+## 2026-06 — Notifications automatiques des nouvelles tâches spéciales
+- `special_tasks.py` : `notify_new_special_task` (claim atomique `notified_at` → 1 seule notif par tâche et par utilisateur ; cible = tous les inscrits non bannis sauf le créateur ; in-app kind `special_task_new` + push `push_to_all_registered` tag par tâche ; lien `/tasks-more?task=<id>`), `special_task_notify_watcher` (toutes les 20 s, couvre tous les chemins de paiement ; backfill initial des tâches déjà actives marqué `notified_skipped=backfill`), `GET /special-tasks/{id}/availability` (statut réel). Force-activate admin déclenche la notif en tâche de fond.
+- Front : clic notification (centre + toast) → lien ; toast marque comme lu ; hook n'affiche que les nouvelles notifs ; tasks-more affiche bannière statut réel + tâche ciblée en tête et surlignée.
+- Tests iteration_62 : 100 % ; données de test restaurées.

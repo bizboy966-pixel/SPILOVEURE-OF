@@ -144,7 +144,7 @@ export default function TasksMoreScreen() {
         ) : null}
         {tasks.length > 0 ? (
           <>
-            {tasks.map((t) => (
+            {[...tasks].sort((a, b) => Number(b.id === focusTaskId) - Number(a.id === focusTaskId)).map((t) => (
               <View key={t.id} style={[styles.taskCard, t.id === focusTaskId && styles.taskFocused]} testID={`st-card-${t.id}`}>
                 <View style={styles.taskIcon}>
                   <Ionicons name={ACTION_ICONS[t.action_type]} size={22} color="#fff" />
