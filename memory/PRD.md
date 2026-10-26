@@ -5419,3 +5419,7 @@ total_profit = commission_direct
 - ✅ Dashboard : carte Trading affichée entre services et commissions, texte "TRADING • Telegram • description • Accéder au canal Telegram".
 - ✅ Clic : `window.open("https://t.me/spiloveure_trading", "_blank")` — l'utilisateur reste sur `/dashboard`.
 - ✅ Admin panel `/Réglages` : carte affichée en bas, URL pré-chargée, sauvegarde persistée.
+
+
+## 2026-06 — Compte de test pré-activé
+- Créé `testactif@spilovere.com` (niveau 1, status active, hors matrice). Login + accès dashboard vérifiés.
