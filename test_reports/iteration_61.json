@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend E2E test of the Tâches hub redesign (/tasks 3 cards) and the /tasks-more 'Tâches spéciales' page, run at 390x844 and 1920x800 as testactif. Everything requested passed. /tasks shows exactly 3 cards with the same style (358x94, radius 20, white). The cards are missions, ads-rewards and special-tasks. There is no tasks-see-more element and no 'Voir plus' text. Each card goes to the right page: /missions, /ads and /tasks-more. /tasks-more lists 'Tâches spéciales disponibles (31)', and this matches the DB exactly (31 tasks with status=active, not owned by the user, not completed). The other 82 tasks (draft and pending_payment) are not shown. Each card has a 'Disponible' badge, a description, the rule text, a st-reward and a 'Commencer' button. 'Commencer' opens proof-modal with the submit button disabled, and proof-cancel-btn closes it. No proof was submitted. Challenge checks: when the only challenge was inactive, challenge-empty was shown. An active challenge spanning now was shown with its name, status 'En cours', reward '2 500 FCFA', deadline '5 novembre 2026' and progress '1 / 5 filleuls activés'. An active challenge with end_at in the past was NOT shown (the empty state appeared). The tasks-more-special card goes to /special-task-create. No horizontal overflow on either viewport.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/tasks desktop 1920", "issues": ["Cards stretch to the full width (~1540px), while /tasks-more limits its content to 760px. The width is inconsistent between the two pages. Consider adding maxWidth 760 + alignSelf center to the /tasks ScrollView content."]},
+      {"screen": "/tasks-more", "issues": ["While loading, the section title shows 'Tâches spéciales disponibles (0)' before the data arrives.", "Special task cards show no deadline: the special_tasks documents have no deadline field. This is a data limitation, not a bug."]}
+    ]
+  },
+  "test_report_links": ["/app/tests/tasks_more_setup.py"],
+  "action_items": [
+    "Optional: limit the /tasks card width on desktop (maxWidth 760) to match /tasks-more.",
+    "Optional: remove the unused seeMoreBtn/seeMoreTxt styles from tasks.tsx, and update the old doc comments in tasks.tsx and tasks-more.tsx that still mention 'Voir plus'."
+  ],
+  "critical_code_review_comments": [
+    "tasks-more.tsx load(): failed API calls are silently replaced by empty results, so the user sees 'Aucune tâche' instead of an error or retry state.",
+    "The activation guard (isPending → showModal) only runs on the /tasks card. Going straight to /tasks-more skips it. The backend complete endpoint should still enforce activation; please verify.",
+    "mark-seen is called on mount, so the NOUVEAU badges are cleared for the next visit. This is the existing behaviour and was kept."
+  ],
+  "updated_files": ["/app/tests/tasks_more_setup.py (new helper: snapshot/create/cleanup challenges)"],
+  "success_rate": {"backend": "N/A (not requested)", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_Challenge_now and TEST_Challenge_expired through POST /api/admin/challenges. Both were deleted through DELETE /api/admin/challenges/{id} (200). 'Challenge 100 invites' is unchanged (active=false, updated_at unchanged). No special task completions were created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run 'python3 /app/tests/tasks_more_setup.py snapshot|create now|create expired|cleanup' to compare the DB with the feed and to set up challenge data. Set sessionStorage spilo_community_popup_seen=1 after login to skip the popup."
+}

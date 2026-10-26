@@ -5436,3 +5436,7 @@ total_profit = commission_direct
 
 ## 2026-06 — Tâches → « Publicités rémunérées » redirige vers /ads
 - `tasks.tsx` : route de la carte ads-rewards changée de /reactor-rewards vers /(app)/ads (fil publicitaire existant : like, commentaire, partage). Page reactor-rewards conservée (toujours utilisée depuis Espace publicitaire). Aucune logique de rémunération modifiée.
+
+## 2026-06 — Tâches : « Voir plus » remplacé par la carte « Tâches spéciales »
+- `tasks.tsx` : 3 cartes (Missions, Publicités → /ads, Tâches spéciales → /tasks-more). Bouton Voir plus supprimé.
+- `tasks-more.tsx` (titre « Tâches spéciales ») : tâches actives (GET /special-tasks existant) avec badge Disponible, règle, récompense, bouton Commencer (flux preuve existant) ; challenge actif (GET /challenges/current) via `src/components/tasks/ChallengeCard.tsx` (conditions, récompense, date limite, progression, statut) ; états vides ; carte « Créer ma campagne ». Aucune logique backend modifiée. Tests iteration_61 : 100 %.

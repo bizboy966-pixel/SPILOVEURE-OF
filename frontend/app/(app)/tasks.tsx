@@ -70,7 +70,7 @@ export default function TasksScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, width: "100%", maxWidth: 760, alignSelf: "center" }} showsVerticalScrollIndicator={false}>
         {MAIN_CARDS.map((c) => (
           <TouchableOpacity
             key={c.key}

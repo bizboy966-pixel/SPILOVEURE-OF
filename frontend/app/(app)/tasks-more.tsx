@@ -118,7 +118,7 @@ export default function TasksMoreScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, width: "100%", maxWidth: 760, alignSelf: "center" }}>
         {loading ? <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 24 }} testID="tasks-more-loading" /> : null}
 
-        <Text style={styles.sectionTitle}>Tâches spéciales disponibles ({tasks.length})</Text>
+        <Text style={styles.sectionTitle}>Tâches spéciales disponibles{loading ? "" : ` (${tasks.length})`}</Text>
         {!loading && tasks.length === 0 ? (
           <View style={styles.empty} testID="special-tasks-empty">
             <Ionicons name="flash-outline" size={22} color={theme.colors.textMuted} />
