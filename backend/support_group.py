@@ -135,8 +135,11 @@ async def _record(request: Request, user: dict, version: str, status: str, ts_fi
     if not g or g["version"] != version:
         raise HTTPException(404, "Ce groupe n'est plus disponible.")
     now = datetime.now(timezone.utc)
+    key = {"user_id": user["id"], "leader_id": g["leader_id"], "version": version}
+    if status == "postponed" and await db.support_group_invites.find_one({**key, "status": "link_opened"}):
+        return
     await db.support_group_invites.update_one(
-        {"user_id": user["id"], "leader_id": g["leader_id"], "version": version},
+        key,
         {"$set": {"status": status, ts_field: now, "url": g["url"], "updated_at": now}, "$setOnInsert": {"created_at": now}},
         upsert=True,
     )

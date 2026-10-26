@@ -5423,3 +5423,9 @@ total_profit = commission_direct
 
 ## 2026-06 — Compte de test pré-activé
 - Créé `testactif@spilovere.com` (niveau 1, status active, hors matrice). Login + accès dashboard vérifiés.
+
+## 2026-06 — Refonte page Profil + Groupe d'accompagnement
+- Profil réorganisé : carte en-tête (photo, pseudo, niveau, date d'inscription), lien d'inscription, groupe d'accompagnement, infos personnelles (pays avec drapeau), stats, notifications.
+- Backend `support_group.py` : GET/PUT/DELETE `/api/me/support-group` (https uniquement, validation stricte), `/api/me/support-group/invite` (+ `/opened`, `/later`). Collections `support_groups` (leader_id, url, version) et `support_group_invites` (user_id, leader_id, version, status link_opened|postponed).
+- Popup filleul direct activé, affiché APRÈS la CommunityPopup officielle ; « Plus tard » → rappel 24 h ; « Rejoindre » → plus jamais pour ce lien ; nouveau lien → nouvelle invitation.
+- Tests : iteration_60 (backend 20/20, frontend 100%).

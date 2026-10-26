@@ -1,0 +1,32 @@
+{
+  "summary": "I tested the Profile reorganisation and the Groupe d'accompagnement feature on the backend and the frontend (mobile 390px). Backend: 20/20 pytest pass. They cover the auth guard, URL validation (12 bad inputs), CRUD plus isolation per user, who sees the invite (activated direct referral = true; pending, admin and a leader whose sponsor has no group = false), later/24h reminder, opened is permanent, a new URL creates a new version, and a wrong version returns 404. Frontend: the card order on /profile is correct (header, invite, support group, info, stats, notifications). The header shows 'Niveau 1' and 'Inscrit le 26 octobre 2026'. Pays shows the Togo flag and 'Togo'. No horizontal overflow (scrollWidth 390). Invalid links show a red error and a valid link shows a green success message. The saved link is still there after reload, and Supprimer removes it, also after reload. Copier changes to Copié. The photo sheet opens, and an uploaded PNG is saved (avatar image present after reload). For filleul.actif, the CommunityPopup appears first and the group popup is never shown at the same time. After closing it, the group popup appears with 'Proposé par votre parrain testactif'. Plus tard is stored server-side and the popup does not come back on reload or on a new login. Rejoindre maintenant opens https://t.me/+NouveauGroupe in a new tab and the popup does not come back. The pending user is sent to /pay with no popup. Regression: dashboard, equipe and settings load.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/me/support-group/invite/later", "issue": "Calling 'later' after 'opened' for the same version overwrites status link_opened with postponed, so the invite would show again after 24h. The current UI cannot trigger this. Hardening: skip the update when status is already link_opened."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Profile (mobile)", "issues": ["The floating Support FAB covers the right edge of the cards while scrolling (for example the 'Informations personnelles' header). This is an existing global FAB, cosmetic only."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_support_group_v27bf.py", "/app/test_reports/pytest/pytest_support_group.xml"],
+  "action_items": [
+    "Optional: in _record(), do not downgrade link_opened to postponed for the same version.",
+    "Optional: SupportGroupPopup checks only once per mount (checked ref). If a leader changes the link during a referral's session, the new invite appears only after the app is reloaded or the user logs in again. This is acceptable."
+  ],
+  "critical_code_review_comments": [
+    "support_group.py is clean: Pydantic models, _id excluded, server-side URL validation (scheme, IP, localhost, userinfo, whitespace, length, domain regex), the version is kept when the URL is unchanged, and timestamps are timezone-aware.",
+    "The client-side check in SupportGroupCard gives the same generic message for localhost and javascript: (the server message is more specific, but the client check runs first). This is fine.",
+    "leader_username comes from user.sponsor_username, which is denormalised. If the sponsor renames their account, the popup shows the old name."
+  ],
+  "updated_files": ["/app/backend/tests/test_support_group_v27bf.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Uploaded a red 200x200 PNG as the profile photo for testactif. The final group for testactif is https://t.me/+NouveauGroupe; the URL is unchanged but its version was regenerated during the tests. support_group_invites holds one link_opened doc for filleul.actif.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To reset popup state, run db.support_group_invites.deleteMany({}) in DB spilivere. CommunityPopup is enabled and auto-closes after a countdown. Set sessionStorage spilo_community_popup_seen=1 to skip it. Test file test_support_group_v27bf.py restores the leader's group at teardown."
+}
