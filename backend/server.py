@@ -990,6 +990,12 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     except Exception:
         pass
 
+    _wd_agg = await db.withdrawals.aggregate([
+        {"$match": {"user_id": user["id"], "status": {"$in": ["completed", "validated"]}}},
+        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    total_withdrawn_confirmed = float(_wd_agg[0]["sum"]) if _wd_agg else 0.0
+
     return {
         "user": user,
         "balance_total": user.get("balance_profit", 0) + user.get("balance_upgrade", 0),
@@ -1008,6 +1014,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "task_earnings": task_earnings,
         "total_profit": total_profit,
         "total_withdrawn": float(user.get("total_withdrawn", 0) or 0),
+        "total_withdrawn_confirmed": total_withdrawn_confirmed,
         "direct_count": direct_count,
         "direct_active": direct_active,
         "direct_inactive": direct_count - direct_active,

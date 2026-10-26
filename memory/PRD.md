@@ -5429,3 +5429,7 @@ total_profit = commission_direct
 - Backend `support_group.py` : GET/PUT/DELETE `/api/me/support-group` (https uniquement, validation stricte), `/api/me/support-group/invite` (+ `/opened`, `/later`). Collections `support_groups` (leader_id, url, version) et `support_group_invites` (user_id, leader_id, version, status link_opened|postponed).
 - Popup filleul direct activé, affiché APRÈS la CommunityPopup officielle ; « Plus tard » → rappel 24 h ; « Rejoindre » → plus jamais pour ce lien ; nouveau lien → nouvelle invitation.
 - Tests : iteration_60 (backend 20/20, frontend 100%).
+
+## 2026-06 — Tableau de bord : Réserve à niveau + Retrait total
+- Cartes Activation et Total profit : courbe remontée (compacte), puis « Réserve à niveau » (= users.balance_upgrade) et « Retrait total » (= somme `amount` des withdrawals status completed|validated, champ `total_withdrawn_confirmed` de GET /api/dashboard). Carte Solde dispo inchangée. Masquage œil respecté.
+- ⚠️ Metro ne recharge pas toujours à chaud : `sudo supervisorctl restart frontend` si l'aperçu montre l'ancienne version.

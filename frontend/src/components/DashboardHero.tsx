@@ -77,10 +77,9 @@ function Wallet3D({ size = 96 }: { size?: number }) {
  * the 3 stat cards.
  * ============================================================ */
 function MiniSparkline({
-  data, color, id,
-}: { data: number[]; color: string; id: string }) {
+  data, color, id, H = 26,
+}: { data: number[]; color: string; id: string; H?: number }) {
   const W = 68;
-  const H = 26;
   const safe = data && data.length ? data : [0, 0, 0, 0, 0, 0, 0];
   const max = Math.max(...safe, 1);
   const min = Math.min(...safe, 0);
@@ -128,11 +127,14 @@ type MiniStatProps = {
   seriesId: string;
   testID?: string;
   onPress?: () => void;
+  subLabel?: string;
+  subValue?: string;
+  subTestID?: string;
 };
 
 function MiniStat({
   icon, iconColor, accent, bg, border,
-  label, value, hint, trendPct, series, seriesId, testID, onPress,
+  label, value, hint, trendPct, series, seriesId, testID, onPress, subLabel, subValue, subTestID,
 }: MiniStatProps) {
   const up = trendPct >= 0;
   const Wrapper: any = onPress ? TouchableOpacity : View;
@@ -161,10 +163,22 @@ function MiniStat({
       <Text style={styles.miniStatValue} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
-      <View style={styles.sparkRow}>
-        <MiniSparkline data={series} color={accent} id={seriesId} />
-      </View>
-      <Text style={styles.miniStatHint}>{hint}</Text>
+      {subLabel ? (
+        <>
+          <View style={styles.sparkRowCompact}>
+            <MiniSparkline data={series} color={accent} id={seriesId} H={12} />
+          </View>
+          <Text style={styles.miniStatSubLabel} numberOfLines={1}>{subLabel}</Text>
+          <Text style={styles.miniStatSubValue} numberOfLines={1} adjustsFontSizeToFit testID={subTestID}>{subValue}</Text>
+        </>
+      ) : (
+        <>
+          <View style={styles.sparkRow}>
+            <MiniSparkline data={series} color={accent} id={seriesId} />
+          </View>
+          <Text style={styles.miniStatHint}>{hint}</Text>
+        </>
+      )}
     </Wrapper>
   );
 }
@@ -298,6 +312,9 @@ export const DashboardHero: React.FC<Props> = ({
           label="Activation"
           value={balanceHidden ? "•••" : "2 650 FCFA"}
           hint={level >= 1 ? `Niveau ${level} activé` : "Non activé"}
+          subLabel="Réserve à niveau"
+          subValue={balanceHidden ? "•••" : formatFCFA(stats?.balance_upgrade || 0)}
+          subTestID="dashboard-upgrade-reserve"
           trendPct={trend.activation_pct ?? 0}
           series={trend.activation_series || [0, 0, 0, 0, 0, 0, 0]}
           seriesId="act"
@@ -312,6 +329,9 @@ export const DashboardHero: React.FC<Props> = ({
           label="Profit Total"
           value={balanceHidden ? "•••" : formatFCFA(total_profit)}
           hint="Cumul historique"
+          subLabel="Retrait total"
+          subValue={balanceHidden ? "•••" : formatFCFA(stats?.total_withdrawn_confirmed || 0)}
+          subTestID="dashboard-total-withdrawn"
           trendPct={trend.profit_pct ?? 0}
           series={trend.profit_series || [0, 0, 0, 0, 0, 0, 0]}
           seriesId="prf"
@@ -479,6 +499,9 @@ const styles = StyleSheet.create({
   miniStatValue: { color: "#fff", fontSize: 12, fontWeight: "900", marginTop: 2, letterSpacing: -0.4 },
   sparkRow: { marginTop: 4, height: 22, alignSelf: "stretch" },
   miniStatHint: { color: "rgba(255,255,255,0.7)", fontSize: 8, marginTop: 2 },
+  sparkRowCompact: { marginTop: 2, height: 12, alignSelf: "stretch" },
+  miniStatSubLabel: { color: "rgba(255,255,255,0.7)", fontSize: 8, lineHeight: 10, marginTop: 2 },
+  miniStatSubValue: { color: "#fff", fontSize: 10, lineHeight: 12, fontWeight: "800", letterSpacing: -0.3 },
 
   /* v22 — currency selector modal */
   currencyBackdrop: {
