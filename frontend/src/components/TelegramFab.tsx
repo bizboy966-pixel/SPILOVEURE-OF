@@ -60,7 +60,7 @@ const TelegramFab: React.FC = () => {
       testID="telegram-fab"
       accessibilityLabel="Contacter le service client sur Telegram"
     >
-      <Ionicons name="paper-plane" size={22} color="#fff" />
+      <Ionicons name="paper-plane" size={17} color="#fff" />
       <Text style={styles.label}>Support</Text>
     </TouchableOpacity>
   );
@@ -69,11 +69,11 @@ const TelegramFab: React.FC = () => {
 const styles = StyleSheet.create({
   fab: {
     position: "absolute",
-    right: 16,
+    right: 14,
     bottom: 100,   // sits above the floating bottom nav (12px margin + 84px nav)
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#229ED9", // Telegram brand blue
     alignItems: "center",
     justifyContent: "center",
@@ -86,10 +86,10 @@ const styles = StyleSheet.create({
   },
   label: {
     color: "#fff",
-    fontSize: 8,
+    fontSize: 6.5,
     fontWeight: "900",
-    marginTop: 2,
-    letterSpacing: 0.4,
+    marginTop: 1,
+    letterSpacing: 0.2,
   },
 });
 
