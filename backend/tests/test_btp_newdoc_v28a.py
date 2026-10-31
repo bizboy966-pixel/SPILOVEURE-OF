@@ -228,3 +228,32 @@ def test_webhook_deposit_failed_by_intent_id(env):
     raw, h = _signed(body)
     loop.run_until_complete(b.biztranspay_webhook(FakeReq(db, raw, h)))
     assert loop.run_until_complete(db.payments.find_one({"reference": "SPV-1"}))["status"] == "failed"
+
+
+def test_crypto_asset_from_catalog_and_admin_refund(env, monkeypatch):
+    db, loop = env
+
+    async def get2(path, sk, pk):
+        CALLS.append(("GET", path, None))
+        if path.startswith("/crypto/assets"):
+            return R(200, {"assets": [{"code": "BTC", "network": "BTC"},
+                                      {"code": "usdt-bsc", "symbol": "USDT", "network": "BEP20"}]})
+        return await fake_get(path, sk, pk)
+
+    async def post2(path, body, sk, pk, *, idempotency_key):
+        CALLS.append(("POST", path, body, idempotency_key))
+        return R(200, {"id": "cd-1", "status": "pending",
+                       "deposit": {"id": "cd-1", "instructions": {"address": "0xabc", "amount": 5.01}}})
+    monkeypatch.setattr(b, "_get", get2)
+    monkeypatch.setattr(b, "_post", post2)
+    with pytest.raises(HTTPException) as ei:
+        loop.run_until_complete(b.biztranspay_crypto_create(b.BtpCryptoCreate(level=1), _req(db), USER))
+    assert ei.value.status_code == 503
+    assert loop.run_until_complete(b.is_crypto_enabled(db)) is False
+    loop.run_until_complete(db.app_settings.update_one(
+        {"key": "payment_gateway"}, {"$set": {"value.biztranspay_crypto_refund_address": "0x" + "1" * 40}}))
+    assert loop.run_until_complete(b.is_crypto_enabled(db)) is True
+    r = loop.run_until_complete(b.biztranspay_crypto_create(b.BtpCryptoCreate(level=1), _req(db), USER))
+    body = [c for c in CALLS if c[1] == "/crypto/deposits"][0][2]
+    assert body["asset_code"] == "usdt-bsc" and body["refund_address"] == "0x" + "1" * 40
+    assert r["deposit_address"] == "0xabc" and float(r["amount"]) == 5.01

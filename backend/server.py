@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import os
+import re
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -1475,6 +1476,7 @@ _PG_DEFAULTS = {
     "biztranspay_webhook_secret": "",
     # v27w (2026-02-24) — USDT.BEP20 crypto pay-in (parallel to Mobile Money)
     "biztranspay_crypto_enabled": True,
+    "biztranspay_crypto_refund_address": "",
     # { "TG": { "tmoney_tg": bool, "moov_tg": bool }, "BJ": {...}, "BF": {...} }
     "biztranspay_countries": {},
 }
@@ -1542,6 +1544,7 @@ class PaymentGatewayUpdate(_PGBaseModel):
     biztranspay_api_key: Optional[str] = None   # legacy alias
     biztranspay_webhook_secret: Optional[str] = None
     biztranspay_crypto_enabled: Optional[bool] = None    # v27w
+    biztranspay_crypto_refund_address: Optional[str] = None
     biztranspay_countries: Optional[dict] = None
 
 
@@ -1605,6 +1608,7 @@ def _register_payment_gateway_routes(router):
                     if os.environ.get("PUBLIC_APP_URL") else "/api/webhooks/biztranspay",
                 # v27w — USDT.BEP20 crypto sub-status
                 "crypto_enabled": bool(cfg.get("biztranspay_crypto_enabled", True)),
+                "crypto_refund_address": cfg.get("biztranspay_crypto_refund_address") or "",
                 "countries": cfg.get("biztranspay_countries") or {},
                 # Catalog of supported countries+operators so the admin UI
                 # renders toggles even before anything is saved.
@@ -1778,6 +1782,11 @@ def _register_payment_gateway_routes(router):
                 new["biztranspay_webhook_secret"] = ""
             elif s:
                 new["biztranspay_webhook_secret"] = s
+        if body.biztranspay_crypto_refund_address is not None:
+            a = body.biztranspay_crypto_refund_address.strip()
+            if a and not re.fullmatch(r"0x[0-9a-fA-F]{40}", a):
+                raise HTTPException(400, "Adresse USDT BEP20 invalide (format 0x… de 42 caractères).")
+            new["biztranspay_crypto_refund_address"] = a
         if body.biztranspay_countries is not None:
             if isinstance(body.biztranspay_countries, dict):
                 new["biztranspay_countries"] = body.biztranspay_countries

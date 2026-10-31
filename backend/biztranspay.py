@@ -973,7 +973,42 @@ async def is_crypto_enabled(db) -> bool:
     if not await is_enabled(db):
         return False
     cfg = await _load_cfg(db)
-    return bool(cfg.get("biztranspay_crypto_enabled", True))
+    return bool(cfg.get("biztranspay_crypto_enabled", True)) \
+        and bool((cfg.get("biztranspay_crypto_refund_address") or "").strip())
+
+
+async def _resolve_crypto_asset(db) -> str:
+    """USDT on BEP20/BSC from the live crypto catalog (GET /crypto/assets?direction=deposit)."""
+    from btp_catalog import _CATALOG
+    import time as _t
+    hit = _CATALOG.get("crypto_deposit")
+    if hit and _t.time() - hit[0] < 300 and hit[1]:
+        return hit[1]
+    code = ""
+    try:
+        r = await _get("/crypto/assets?direction=deposit", await _get_secret_key(db), await _get_public_key(db))
+        if r.status_code < 400:
+            jd = r.json()
+            items = jd if isinstance(jd, list) else next(
+                (jd[k] for k in ("assets", "data", "items", "results") if isinstance(jd.get(k), list)), [])
+            for a in items:
+                if not isinstance(a, dict):
+                    continue
+                blob = " ".join(str(a.get(k) or "") for k in
+                                ("code", "asset_code", "symbol", "name", "network", "network_code", "chain")).upper()
+                if "USDT" in blob and ("BEP20" in blob or "BSC" in blob or "BNB" in blob):
+                    code = str(a.get("code") or a.get("asset_code") or "")
+                    break
+            await db.app_settings.update_one({"key": "btp_catalog:crypto_deposit"},
+                                             {"$set": {"raw_sample": r.text[:4000], "resolved": code,
+                                                       "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+        else:
+            log.warning("btp crypto assets HTTP %s: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        log.warning("btp crypto assets error: %s", _redact(e))
+    code = code or BTP_CRYPTO_ASSET
+    _CATALOG["crypto_deposit"] = (_t.time(), code)
+    return code
 
 
 class BtpCryptoCreate(BaseModel):
@@ -1026,19 +1061,16 @@ async def biztranspay_crypto_create(
         }
 
     ref = _new_ref()
+    refund_address = ((await _load_cfg(db)).get("biztranspay_crypto_refund_address") or "").strip()
+    if not refund_address:
+        raise HTTPException(503, "Paiement crypto indisponible : adresse de remboursement non configurée par l'administrateur.")
+    asset_code = await _resolve_crypto_asset(db)
     payload = {
         "amount": BTP_CRYPTO_AMOUNT,
-        "asset_code": BTP_CRYPTO_ASSET,
-        "full_name": (user.get("full_name") or user.get("username") or "SPILOVEURE User"),
+        "asset_code": asset_code,
+        "full_name": (user.get("full_name") or user.get("username") or "SPILOVEURE User")[:160].ljust(2, "."),
         "email": user.get("email") or f"{user['id']}@spiloveure.internal",
-        # BTP requires a refund_address on the same network. We don't have one
-        # for the payer, so we send a well-known burn address as a placeholder;
-        # BTP allows this because refunds are only triggered on overpayment
-        # and are a manual admin action.
-        "refund_address": os.environ.get(
-            "BIZTRANSPAY_CRYPTO_REFUND_ADDRESS",
-            "0x000000000000000000000000000000000000dEaD",
-        ),
+        "refund_address": refund_address,
         "reference": ref,
     }
     try:
@@ -1054,23 +1086,25 @@ async def biztranspay_crypto_create(
             detail = r.text[:400]
         detail = _redact(detail)
         log.warning("btp crypto create %s ref=%s body=%s", r.status_code, ref, detail)
-        raise HTTPException(400, "Biz-transPay a refusé la création du dépôt crypto.")
+        raise HTTPException(400, f"Biz-transPay a refusé la création du dépôt crypto : {_btp_error_detail(r)[0]}")
     jd = {}
     try:
         jd = r.json()
     except Exception:
         pass
     dep = jd.get("deposit") or jd
+    instr = dep.get("instructions") if isinstance(dep.get("instructions"), dict) else {}
+    pf = dep.get("payment_flow") if isinstance(dep.get("payment_flow"), dict) else {}
     address = (
-        dep.get("payment_address")
-        or dep.get("deposit_address")
-        or dep.get("address")
-        or (dep.get("payment_flow") or {}).get("address")
+        dep.get("payment_address") or dep.get("deposit_address") or dep.get("address")
+        or dep.get("wallet_address") or dep.get("pay_address")
+        or instr.get("address") or instr.get("deposit_address") or instr.get("wallet_address")
+        or pf.get("address") or pf.get("deposit_address")
     )
     amount_to_send = float(
-        dep.get("amount_to_send") or dep.get("amount") or BTP_CRYPTO_AMOUNT
+        dep.get("amount_to_send") or instr.get("amount") or dep.get("amount") or BTP_CRYPTO_AMOUNT
     )
-    memo = dep.get("memo") or (dep.get("payment_flow") or {}).get("memo")
+    memo = dep.get("memo") or instr.get("memo") or pf.get("memo")
     expires_at = dep.get("pending_expires_at") or dep.get("expires_at")
     provider_id = jd.get("id") or dep.get("id")
 
@@ -1088,7 +1122,7 @@ async def biztranspay_crypto_create(
         "amount": BTP_CRYPTO_AMOUNT,
         "amount_to_send": amount_to_send,
         "currency": "USDT",
-        "asset_code": BTP_CRYPTO_ASSET,
+        "asset_code": asset_code,
         "network": "BEP20",
         "deposit_address": address,
         "memo": memo,
@@ -1119,7 +1153,7 @@ async def biztranspay_crypto_create(
         "qr_data": address,
         "amount": amount_to_send,
         "amount_to_send": amount_to_send,
-        "asset_code": BTP_CRYPTO_ASSET, "coin": "USDT", "network": "BEP20",
+        "asset_code": asset_code, "coin": "USDT", "network": "BEP20",
         "memo": memo,
         "expires_at": expires_at,
     }

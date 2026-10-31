@@ -4675,6 +4675,7 @@ function BizTransPayCard() {
   const [publicKeyInput, setPublicKeyInput] = useState("");
   const [secretKeyInput, setSecretKeyInput] = useState("");
   const [webhookInput, setWebhookInput] = useState("");
+  const [refundInput, setRefundInput] = useState("");
 
   const load = async () => {
     try {
@@ -4689,7 +4690,7 @@ function BizTransPayCard() {
     try {
       await api.put<any>("/admin/payment-gateways", body);
       await load();
-      setPublicKeyInput(""); setSecretKeyInput(""); setWebhookInput("");
+      setPublicKeyInput(""); setSecretKeyInput(""); setWebhookInput(""); setRefundInput("");
       if (typeof window !== "undefined") window.alert("✅ Enregistré");
     } catch (e: any) {
       const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
@@ -4911,6 +4912,28 @@ function BizTransPayCard() {
                 </TouchableOpacity>
                 <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ biztranspay_webhook_secret: "DELETE" })} disabled={saving}>
                   <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Crypto refund wallet */}
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 4 }}>4️⃣ Portefeuille de remboursement crypto (USDT BEP20)</Text>
+              <Text style={{ fontSize: 10.5, color: theme.colors.textSecondary, marginBottom: 4 }} testID="btp-refund-current">
+                Actuel : {cfg.crypto_refund_address || "— non configuré (paiement crypto Biz-transPay masqué) —"}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <TextInput
+                  value={refundInput}
+                  onChangeText={setRefundInput}
+                  placeholder="0x…"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={[styles.input, { flex: 1 }]}
+                  testID="btp-input-refund"
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ biztranspay_crypto_refund_address: refundInput })} disabled={saving || !refundInput.trim()} testID="btp-save-refund">
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
                 </TouchableOpacity>
               </View>
             </View>

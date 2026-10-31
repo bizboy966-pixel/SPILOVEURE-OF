@@ -5461,3 +5461,9 @@ total_profit = commission_direct
 - Admin : GET /api/admin/biztranspay/catalog?direction=deposit|payout (diagnostic, raw_sample).
 - pay.tsx : montant dans la devise locale, carte « Comment payer avec X » (étapes), OTP générique (USSD ou SMS).
 - Tests : tests/test_btp_newdoc_v28a.py (11/11). Anciens tests de la boucle de codes déplacés dans tests/_obsolete.
+
+## 2026-06 — Biz-transPay crypto conforme à la nouvelle doc
+- asset_code résolu via GET /crypto/assets?direction=deposit (USDT + BEP20/BSC, cache 5 min, secours env BIZTRANSPAY_CRYPTO_ASSET).
+- refund_address = portefeuille admin `biztranspay_crypto_refund_address` (validé 0x+40 hex, champ « 4️⃣ » dans Admin → Biz-transPay). Adresse poubelle supprimée ; sans adresse, le crypto BTP est masqué (is_crypto_enabled) et /create renvoie 503.
+- Adresse de dépôt lue aussi dans deposit.instructions / wallet_address ; message d'erreur BTP remonté.
+- Test : test_btp_newdoc_v28a.py 12/12.
