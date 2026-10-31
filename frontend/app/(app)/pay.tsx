@@ -32,6 +32,10 @@ type Operator = {
   // the first submission.
   requires_otp?: boolean;
   otp_ussd_template?: string;
+  amount?: number;
+  amount_label?: string;
+  steps?: string[];
+  flow?: { kind?: string; otp_required?: boolean; otp_request_before_submit?: boolean; ussd_template?: string };
 };
 type CountryEntry = {
   code: string;
@@ -122,7 +126,10 @@ export default function Pay() {
   // the selected operator so we can render the OTP card BEFORE the user
   // hits "ACTIVER MON COMPTE". The amount placeholder `{amount}` is
   // substituted with the real activation amount (2 650).
-  const amountInt = catalog?.amount_fcfa ?? 2650;
+  const amountInt = selectedOperator?.amount ?? catalog?.amount_fcfa ?? 2650;
+  const amountLabel = (isMobilePick && selectedOperator?.amount_label)
+    || `${(catalog?.amount_fcfa ?? 2650).toLocaleString("fr-FR").replace(/,/g, "\u202f")} FCFA`;
+  const [pendingMsg, setPendingMsg] = useState<string>("");
   const operatorRequiresOtp = !!selectedOperator?.requires_otp;
   const operatorUssd = useMemo(() => {
     const tpl = selectedOperator?.otp_ussd_template || "";
@@ -159,9 +166,9 @@ export default function Pay() {
     // v27bb — require the OTP input to be filled when the operator
     // explicitly demands it (Orange BF). The CTA stays disabled until
     // the user has composed the USSD on their phone AND typed the OTP.
-    if (operatorRequiresOtp && otp.trim().length < 4) return false;
+    if ((operatorRequiresOtp || otpFlow) && otp.trim().length < 4) return false;
     return true;
-  }, [selectedCountry, selectedOperator, isCryptoPick, phone, operatorRequiresOtp, otp]);
+  }, [selectedCountry, selectedOperator, isCryptoPick, phone, operatorRequiresOtp, otp, otpFlow]);
 
   const activate = async () => {
     if (!selectedCountry || !selectedOperator) return;
@@ -193,13 +200,14 @@ export default function Pay() {
       // v27az — on success clear any leftover OTP flow state.
       setOtpFlow(null);
       setOtp("");
+      setPendingMsg(String(r.message || ""));
       setPhase("pending");
     } catch (e: any) {
       // v27az — detect OTP_REQUIRED backend contract and render a proper
       // UI instead of dumping the raw JSON object as the error message.
       const detail = e?.detail;
       const isOtp =
-        detail && typeof detail === "object" && detail.code === "OTP_REQUIRED";
+        detail && typeof detail === "object" && (detail.code === "OTP_REQUIRED" || detail.code === "OTP_SENT");
       if (isOtp) {
         const flow = (detail && detail.payment_flow) || {};
         setOtpFlow({
@@ -274,9 +282,9 @@ export default function Pay() {
         <View style={styles.amountCard}>
           <Text style={styles.amountLabel}>ACTIVATION DU COMPTE</Text>
           <Text style={styles.amountValue} testID="pay-amount">
-            {(catalog?.amount_fcfa ?? 2650).toLocaleString("fr-FR").replace(/,/g, "\u202f")} FCFA
+            {amountLabel}
           </Text>
-          <Text style={styles.amountSub}>Montant fixe · non modifiable</Text>
+          <Text style={styles.amountSub}>Montant fixe · frais inclus · non modifiable</Text>
         </View>
 
         {catalogErr && <Text style={styles.err}>❌ {catalogErr}</Text>}
@@ -373,6 +381,18 @@ export default function Pay() {
                   4. Clicks "ACTIVER MON COMPTE" (now enabled)
                 The activation request includes `otp` from the start, so
                 Biz-transPay accepts it on the first try (no 400 bounce). */}
+            {selectedCountry && isMobilePick && !!selectedOperator?.steps?.length && (
+              <View style={styles.stepsCard} testID="pay-flow-steps">
+                <Text style={styles.stepsTitle}>Comment payer avec {selectedOperator.label}</Text>
+                {selectedOperator.steps!.map((s, i) => (
+                  <View key={i} style={styles.stepRow}>
+                    <View style={styles.stepNum}><Text style={styles.stepNumTxt}>{i + 1}</Text></View>
+                    <Text style={styles.stepTxt} testID={`pay-flow-step-${i}`}>{s}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {selectedCountry && isMobilePick && (operatorRequiresOtp || otpFlow) && (
               <View style={styles.otpCard} testID="pay-otp-flow">
                 <View style={styles.otpHeader}>
@@ -380,10 +400,12 @@ export default function Pay() {
                   <Text style={styles.otpTitle}>Code de confirmation requis</Text>
                 </View>
                 <Text style={styles.otpSubtitle}>
-                  Pour Orange Money Burkina, générez votre code OTP avant de valider.
+                  {otpFlow && !(operatorUssd || otpFlow.ussd)
+                    ? otpFlow.message
+                    : `Pour ${selectedOperator?.label || "cet opérateur"}, générez votre code avant de valider.`}
                 </Text>
 
-                {/* Step 1 — USSD code (big, bold, copyable). */}
+                {!!(operatorUssd || otpFlow?.ussd) && (<>
                 <Text style={styles.otpStep}>
                   1️⃣ Composez ce code sur votre téléphone :
                 </Text>
@@ -408,15 +430,16 @@ export default function Pay() {
                 </View>
 
                 <Text style={styles.otpStepLine}>
-                  2️⃣ Suivez le menu Orange Money pour générer votre code OTP.
+                  2️⃣ Suivez le menu de votre opérateur pour générer votre code.
                 </Text>
                 <Text style={styles.otpStepLine}>
                   3️⃣ Copiez le code reçu dans le champ ci-dessous.
                 </Text>
+                </>)}
 
                 {/* Step 4 — OTP input */}
                 <Text style={[styles.otpStep, { marginTop: 14 }]}>
-                  🔐 4️⃣ Saisissez votre code OTP :
+                  🔐 Saisissez votre code :
                 </Text>
                 <TextInput
                   style={styles.otpInput}
@@ -429,7 +452,7 @@ export default function Pay() {
                   testID="pay-otp-input"
                 />
                 <Text style={styles.otpFooter}>
-                  5️⃣ Tapez ensuite « ACTIVER MON COMPTE » ci-dessous.
+                  Tapez ensuite « ACTIVER MON COMPTE » ci-dessous.
                 </Text>
               </View>
             )}
@@ -542,8 +565,8 @@ export default function Pay() {
                 </View>
               </>
             ) : (
-              <Text style={styles.pendingSub}>
-                Validez la demande sur votre téléphone. L'activation se fait automatiquement.
+              <Text style={styles.pendingSub} testID="pay-pending-msg">
+                {pendingMsg || "Validez la demande sur votre téléphone."} L'activation se fait automatiquement.
               </Text>
             )}
           </View>
@@ -626,7 +649,7 @@ export default function Pay() {
               <TouchableOpacity
                 key={op.code}
                 style={styles.modalRow}
-                onPress={() => { setOperatorCode(op.code); setOperatorPicker(false); }}
+                onPress={() => { setOperatorCode(op.code); setOperatorPicker(false); setOtpFlow(null); setOtp(""); setErr(null); }}
                 testID={`pay-operator-${op.code}`}
               >
                 <Ionicons name="phone-portrait" size={22} color={theme.colors.primary} />
@@ -701,6 +724,12 @@ const styles = StyleSheet.create({
   },
   pendingTitle: { color: theme.colors.textPrimary, fontWeight: "900", fontSize: 16, marginTop: 6 },
   pendingSub: { color: theme.colors.textSecondary, fontSize: 12.5, textAlign: "center", lineHeight: 18 },
+  stepsCard: { marginTop: 14, padding: 14, borderRadius: 16, backgroundColor: "#EFF6FF", borderWidth: 1, borderColor: "#BFDBFE", gap: 8 },
+  stepsTitle: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13.5, marginBottom: 2 },
+  stepRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  stepNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" },
+  stepNumTxt: { color: "#fff", fontWeight: "800", fontSize: 11.5 },
+  stepTxt: { flex: 1, color: theme.colors.textPrimary, fontSize: 12.5, lineHeight: 18 },
   pendingHint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 8, textAlign: "center", fontStyle: "italic" },
   addrBox: {
     marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1,

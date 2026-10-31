@@ -1,6 +1,6 @@
 """Biz-transPay (SoftPay) integration — Integration API v1 (2026-02-24).
 
-Documentation: https://biz-transppayy.com/integration/docs
+Documentation: https://biz-transpay.com/integration/docs
 Scope: TG / BJ / BF (XOF), Mobile Money.
 
 Endpoints (Integration v1):
@@ -69,7 +69,7 @@ def _redact(s) -> str:
 api = APIRouter(prefix="/api", tags=["biztranspay"])
 webhook = APIRouter(prefix="/api/webhooks", tags=["biztranspay-webhook"])
 
-BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transppayy.com/api/integration/v1")
+BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transpay.com/api/integration/v1")
 HTTP_TIMEOUT = 30.0
 
 # Operator catalog for the admin toggles + user-facing /pay.
@@ -372,25 +372,29 @@ def _verify_signature(secret: str, timestamp: str, raw_body: bytes, received: st
     if not secret or not received:
         return False
     try:
-        body_str = raw_body.decode("utf-8", errors="replace")
-        signed_payload = f"{timestamp}.{body_str}".encode("utf-8")
+        signed_payload = str(timestamp).encode("utf-8") + b"." + raw_body
         expected = hmac.new(
             secret.encode("utf-8"), signed_payload, hashlib.sha256,
         ).hexdigest()
     except Exception:
         return False
     got = received.split("=", 1)[1] if "=" in received else received
-    return hmac.compare_digest(expected, got)
+    return hmac.compare_digest(expected, got.strip())
 
 
-def _timestamp_fresh(ts_header: str, max_age_seconds: int = 300) -> bool:
-    """Reject webhooks whose timestamp is older than 5 minutes (replay
-    protection). Accepts unix seconds (int as string)."""
+def _timestamp_fresh(ts_header: str, max_age_seconds: int = 600) -> bool:
+    """Replay protection; accepts unix seconds, milliseconds or ISO-8601."""
+    raw = str(ts_header or "").strip()
     try:
-        ts = int(str(ts_header).strip())
-    except Exception:
-        return False
-    now = int(datetime.now(timezone.utc).timestamp())
+        ts = float(raw)
+        if ts > 1e12:
+            ts /= 1000.0
+    except ValueError:
+        try:
+            ts = datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return False
+    now = datetime.now(timezone.utc).timestamp()
     return abs(now - ts) <= max_age_seconds
 
 
@@ -435,268 +439,183 @@ def _learned_code_key(direction: str, cc: str, op_code: str) -> str:
 
 class BtpActivationIn(BaseModel):
     country_code: str = Field(..., min_length=2, max_length=2)
-    operator: str = Field(..., min_length=1)         # e.g. "tmoney_tg"
+    operator: str = Field(..., min_length=1)
     phone: str = Field(..., min_length=6)
-    # v27az (2026-03-05) — Orange BF (et autres opérateurs à OTP) : le
-    # client doit composer `*144*4*6*{amount}#` AVANT de soumettre, puis
-    # saisir le code OTP affiché. Si l'opérateur n'exige pas d'OTP, ce
-    # champ est ignoré ; sinon il est transmis tel quel à BTP.
     otp: Optional[str] = None
+
+
+def _btp_error_detail(resp) -> tuple[str, dict]:
+    try:
+        jd = resp.json()
+    except Exception:
+        return _redact((resp.text or "")[:300]), {}
+    d = jd.get("detail") if isinstance(jd, dict) else None
+    if isinstance(d, str):
+        return _redact(d[:300]), jd
+    if isinstance(d, dict):
+        return _redact(str(d.get("message") or d.get("code") or d)[:300]), jd
+    if isinstance(d, list) and d:
+        first = d[0] if isinstance(d[0], dict) else {}
+        return _redact(str(first.get("msg") or d)[:300]), jd
+    return _redact(str(jd)[:300]), jd
+
+
+def _toggle_on(cfg: dict, cc: str, entry: dict) -> bool:
+    toggles = ((cfg.get("biztranspay_countries") or {}).get(cc)) or {}
+    internal = _resolve_operator_code(cc, entry["code"]) or _resolve_operator_code(cc, entry["label"])
+    return bool(toggles.get(internal or entry["code"], True))
 
 
 @api.post("/payments/biztranspay/activation")
 async def biztranspay_activation(
     data: BtpActivationIn, request: Request, user=Depends(get_current_user),
 ):
-    """Kick off a Level-1 activation payment via Biz-transPay Integration v1.
-
-    v27s (2026-02-24) — migrated to Integration API v1 (/deposits) with the
-    dual-key auth (Bearer secret + X-Public-Key).
-    """
+    """Level-1 activation via Biz-transPay (new doc): catalog → quote → (OTP) → deposit.
+    fee_bearer=receiver : the user pays exactly the activation price."""
+    from ashtec_activation import ACTIVATION_LEVEL
+    from btp_catalog import (activation_amount_for, currency_label, e164, find_entry, flow_steps,
+                             idem, render_ussd)
     db = request.app.state.db
-    from ashtec_activation import (
-        ACTIVATION_LEVEL, ACTIVATION_AMOUNT_BY_CURRENCY, ACTIVATION_AMOUNT,
-    )
     if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
         raise HTTPException(400, "Votre compte est déjà activé.")
-
     cc = data.country_code.upper()
-    if cc not in OPERATORS:
-        raise HTTPException(400, "Biz-transPay n'est pas disponible pour ce pays.")
     if not await is_payin_enabled(db):
         raise HTTPException(503, "Biz-transPay n'est pas disponible.")
-    secret_key = await _get_secret_key(db)
-    public_key = await _get_public_key(db)
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
     if not secret_key or not public_key:
         raise HTTPException(503, "Biz-transPay non configuré (clés publique/secrète manquantes).")
 
-    ops = await enabled_operators(db, cc)
-    op_codes = {o["code"] for o in ops}
-    if data.operator not in op_codes:
-        raise HTTPException(400, f"Opérateur '{data.operator}' indisponible.")
+    entry = await find_entry(db, "deposit", cc, data.operator)
+    if not entry or not _toggle_on(await _load_cfg(db), cc, entry):
+        raise HTTPException(400, "Cet opérateur n'est pas disponible pour ce pays.")
+    currency = entry["currency"]
+    amount = await activation_amount_for(db, currency)
+    if not amount:
+        raise HTTPException(400, f"Prix d'activation indisponible en {currency} pour le moment.")
+    phone = e164(data.phone, cc)
+    base_body = {"amount": amount, "country": cc, "operator": entry["code"],
+                 "currency": currency, "fee_bearer": "receiver"}
 
-    currency = OPERATORS[cc]["currency"]
-    amount = int(ACTIVATION_AMOUNT_BY_CURRENCY.get(currency, ACTIVATION_AMOUNT))
+    # 1) Quote — exact code_to_enter + up-to-date payment_flow (no transaction created).
+    flow = dict(entry["flow"])
+    code_to_enter = ""
+    charged = amount
+    try:
+        q = await _post("/deposits/quote", base_body, secret_key, public_key, idempotency_key=idem())
+        if q.status_code < 400:
+            qj = q.json()
+            flow.update({k: v for k, v in (qj.get("payment_flow") or {}).items() if v is not None})
+            code_to_enter = qj.get("code_to_enter") or (qj.get("payment_flow") or {}).get("ussd_code") or ""
+            charged = int(qj.get("charged_amount") or amount)
+        else:
+            log.warning("btp quote %s: %s", q.status_code, _btp_error_detail(q)[0])
+    except Exception as e:
+        log.warning("btp quote error: %s", _redact(e))
+    ussd = code_to_enter or render_ussd(flow, charged)
+    amount_label = f"{charged:,}".replace(",", " ") + " " + currency_label(currency)
+    otp = (data.otp or "").strip()
+    payer = {"phone_number": phone,
+             "full_name": (user.get("full_name") or user.get("username") or "Client SPILOVEURE")[:160].ljust(2, "."),
+             "email": user.get("email") or ""}
+    if flow.get("address_required"):
+        payer["address"] = user.get("city") or user.get("country_name") or cc
+
+    # 2) OTP sent by SMS before submit.
+    if flow.get("otp_request_before_submit") and not otp:
+        r = await _post("/deposits", {**base_body, **payer, "request_otp": True},
+                        secret_key, public_key, idempotency_key=f"otp-{user['id']}-{idem()[:12]}")
+        if r.status_code >= 400:
+            raise HTTPException(400, f"Biz-transPay : {_btp_error_detail(r)[0]}")
+        raise HTTPException(400, {
+            "code": "OTP_SENT",
+            "message": (r.json() or {}).get("message") or "Un code vous a été envoyé par SMS. Saisissez-le pour continuer.",
+            "ussd": "", "steps": flow_steps(flow, amount_label, ussd)})
+    # 3) OTP generated by the user via USSD.
+    if flow.get("otp_required") and not flow.get("otp_request_before_submit") and not otp:
+        raise HTTPException(400, {
+            "code": "OTP_REQUIRED",
+            "message": f"Composez {ussd or 'le code USSD de votre opérateur'} puis saisissez le code obtenu.",
+            "ussd": ussd, "payment_flow": flow, "steps": flow_steps(flow, amount_label, ussd)})
 
     ref = _new_ref()
-    e164_phone = _normalize_phone(data.phone, cc)
     now = datetime.now(timezone.utc)
-
-    # v27av/v27az — build the ordered list of provider_codes to try. BTP's
-    # merchant console configures operator codes per environment, deposit
-    # and payout codes can differ, and the exact code is NOT fully
-    # published. If the primary code is refused with "Opérateur non
-    # disponible pour ce pays", we retry each known alias until BTP
-    # accepts one. The first winner is remembered on `app_settings` keyed
-    # by DIRECTION so deposit and payout don't overwrite each other.
-    operator_entry = next(
-        (o for o in OPERATORS[cc]["operators"] if o["code"] == data.operator),
-        None,
-    )
-    candidate_codes: list[str] = []
-    if operator_entry:
-        learned = await db.app_settings.find_one(
-            {"key": _learned_code_key("deposit", cc, data.operator)},
-        )
-        if learned and isinstance(learned.get("value"), str):
-            candidate_codes.append(learned["value"])
-    base_codes = _build_candidate_codes(operator_entry, data.operator, direction="deposit")
-    for pc in base_codes:
-        if pc not in candidate_codes:
-            candidate_codes.append(pc)
-
-    # Persist BEFORE the API call so a webhook cannot arrive on an unknown ref.
     await db.payments.insert_one({
-        "reference": ref,
-        "provider": "biztranspay",
-        "kind": "activation",
-        "user_id": user["id"],
-        "username": user.get("username"),
-        "amount": amount,
-        "currency": currency,
-        "phone": e164_phone,
-        "phone_original": data.phone.strip(),
-        "country_code": cc,
-        "operator": data.operator,
-        "level": ACTIVATION_LEVEL,
-        "status": "pending",
-        "activation_done": False,
-        "created_at": now,
-        "updated_at": now,
+        "reference": ref, "provider": "biztranspay", "kind": "activation",
+        "user_id": user["id"], "username": user.get("username"),
+        "amount": amount, "charged_amount": charged, "currency": currency,
+        "phone": phone, "phone_original": data.phone.strip(), "country_code": cc,
+        "operator": entry["code"], "level": ACTIVATION_LEVEL, "payment_flow": flow,
+        "status": "pending", "activation_done": False, "created_at": now, "updated_at": now,
     })
-
-    last_error_status = 0
-    last_error_body = ""
-    resp = None
-    accepted_code: Optional[str] = None
-    otp_required_flow: Optional[dict] = None  # populated if BTP returns OTP_REQUIRED
-    for attempt_idx, provider_code in enumerate(candidate_codes):
-        payload = {
-            "amount": amount,
-            "currency": currency,
-            "country": cc,
-            "operator": provider_code,
-            "phone_number": e164_phone,
-            "email": user.get("email") or "",
-            "full_name": user.get("full_name") or user.get("username") or "",
-            "reference": ref,
-            "fee_bearer": "sender",
-        }
-        # v27az — forward the OTP the client generated (Orange BF flow).
-        if data.otp:
-            payload["otp"] = str(data.otp).strip()
-        try:
-            # Each attempt uses a DIFFERENT Idempotency-Key so BTP does not
-            # treat the fallback retry as a dup of the rejected request.
-            attempt_key = ref if attempt_idx == 0 else f"{ref}-v{attempt_idx}"
-            resp = await _post("/deposits", payload, secret_key, public_key, idempotency_key=attempt_key)
-        except Exception as e:
-            log.exception("biztranspay /deposits call failed ref=%s code=%s: %s",
-                          ref, provider_code, _redact(e))
-            await db.payments.update_one(
-                {"reference": ref},
-                {"$set": {"status": "failed", "activation_error": _redact(str(e)[:400]),
-                          "updated_at": datetime.now(timezone.utc)}},
-            )
-            raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
-
-        if resp.status_code < 400:
-            accepted_code = provider_code
-            break
-
-        # Capture the error. If BTP says "operator not available for this
-        # country", loop to the next candidate code; otherwise stop and
-        # surface the error immediately (invalid phone, insufficient balance…).
-        try:
-            jd = resp.json()
-            err_body = str(jd)
-        except Exception:
-            jd = {}
-            err_body = resp.text or ""
-        err_body = err_body[:600]
-        last_error_status = resp.status_code
-        last_error_body = _redact(err_body)
-        err_detail_raw = jd.get("detail") if isinstance(jd, dict) else None
-        err_detail_text = ""
-        if isinstance(err_detail_raw, str):
-            err_detail_text = err_detail_raw.lower()
-        elif isinstance(err_detail_raw, dict):
-            err_detail_text = (str(err_detail_raw.get("message") or "") + " " + str(err_detail_raw.get("code") or "")).lower()
-        is_operator_mismatch = (
-            "opérateur non disponible" in err_detail_text
-            or "operator" in err_detail_text and ("not available" in err_detail_text or "non disponible" in err_detail_text)
-            or "operator not supported" in err_detail_text
-        )
-        # v27az — Orange BF renvoie HTTP 400 OTP_REQUIRED tant que l'OTP
-        # n'est pas fourni. On capture le payment_flow pour pouvoir le
-        # renvoyer au frontend avec les instructions USSD exactes.
-        if isinstance(err_detail_raw, dict) and err_detail_raw.get("code") == "OTP_REQUIRED":
-            otp_required_flow = err_detail_raw.get("payment_flow") or {}
-            break
-        if is_operator_mismatch and attempt_idx + 1 < len(candidate_codes):
-            log.info("biztranspay /deposits ref=%s code=%s rejected (operator mismatch), trying next candidate",
-                     ref, provider_code)
-            continue
-        # Non-recoverable error (bad phone, invalid key, insufficient funds, …) or we exhausted candidates.
-        break
-
-    if resp is None or resp.status_code >= 400:
-        log.warning("biztranspay /deposits refused ref=%s status=%s body=%s",
-                    ref, last_error_status, last_error_body)
-        await db.payments.update_one(
-            {"reference": ref},
-            {"$set": {"status": "failed",
-                      "biztranspay_status_code": last_error_status,
-                      "activation_error": last_error_body,
-                      "tried_operator_codes": candidate_codes,
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        # v27az — bubble up OTP_REQUIRED as a structured 400 so the
-        # frontend can render the USSD prompt + OTP input (Orange BF).
-        if otp_required_flow is not None:
-            ussd = otp_required_flow.get("ussd_template") or ""
-            try:
-                ussd_rendered = ussd.replace("{amount}", str(amount)) if ussd else ""
-            except Exception:
-                ussd_rendered = ussd
-            raise HTTPException(400, {
-                "code": "OTP_REQUIRED",
-                "message": (
-                    "Composez " + (ussd_rendered or "le code USSD de votre opérateur") +
-                    " sur votre téléphone, puis saisissez le code OTP affiché."
-                ),
-                "ussd": ussd_rendered,
-                "payment_flow": otp_required_flow,
-                "reference": ref,
-            })
-        # v27av — surface the ACTUAL BTP error to the end user so admins
-        # can diagnose config mismatches instead of staring at a generic
-        # "Biz-transPay a refusé le paiement." message.
-        human_detail = ""
-        try:
-            jd_final = resp.json() if resp is not None else {}
-            d = jd_final.get("detail") if isinstance(jd_final, dict) else None
-            if isinstance(d, str):
-                human_detail = d
-            elif isinstance(d, dict):
-                human_detail = str(d.get("message") or d.get("code") or "")[:200]
-            elif isinstance(d, list) and d:
-                first = d[0] if isinstance(d[0], dict) else {}
-                human_detail = str(first.get("msg") or "")[:200]
-        except Exception:
-            human_detail = ""
-        human_detail = _redact(human_detail or last_error_body)[:200]
-        raise HTTPException(
-            400,
-            f"Biz-transPay a refusé le paiement : {human_detail}" if human_detail
-            else "Biz-transPay a refusé le paiement.",
-        )
-
-    # Remember the code BTP accepted so next payments skip the retry loop.
-    if accepted_code and operator_entry and accepted_code != operator_entry["code"]:
-        try:
-            k = _learned_code_key("deposit", cc, data.operator)
-            await db.app_settings.update_one(
-                {"key": k},
-                {"$set": {"key": k, "value": accepted_code,
-                          "updated_at": datetime.now(timezone.utc)}},
-                upsert=True,
-            )
-            log.info("biztranspay learned deposit code %s=%s for %s/%s",
-                     data.operator, accepted_code, cc, data.operator)
-        except Exception:
-            pass
-
-    data_resp = {}
+    body = {**base_body, **payer, "reference": ref}
+    if otp:
+        body["otp"] = otp
     try:
-        data_resp = resp.json()
+        resp = await _post("/deposits", body, secret_key, public_key, idempotency_key=ref)
+    except Exception as e:
+        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, _redact(e))
+        await db.payments.update_one({"reference": ref}, {"$set": {
+            "status": "failed", "activation_error": "network_error", "updated_at": datetime.now(timezone.utc)}})
+        raise HTTPException(502, "Impossible de contacter Biz-transPay. Vérifiez votre téléphone avant de réessayer.")
+
+    if resp.status_code >= 400:
+        detail, jd = _btp_error_detail(resp)
+        await db.payments.update_one({"reference": ref}, {"$set": {
+            "status": "failed", "biztranspay_status_code": resp.status_code,
+            "activation_error": detail, "updated_at": datetime.now(timezone.utc)}})
+        d = jd.get("detail") if isinstance(jd, dict) else None
+        if isinstance(d, dict) and d.get("code") == "OTP_REQUIRED":
+            pf = d.get("payment_flow") or flow
+            u = render_ussd(pf, charged) or ussd
+            raise HTTPException(400, {"code": "OTP_REQUIRED", "ussd": u, "payment_flow": pf,
+                                      "message": f"Composez {u or 'le code USSD'} puis saisissez le code obtenu.",
+                                      "steps": flow_steps(pf, amount_label, u)})
+        if resp.status_code == 502:
+            raise HTTPException(502, "Biz-transPay n'a pas confirmé le démarrage. Vérifiez votre téléphone avant de réessayer.")
+        raise HTTPException(400, f"Biz-transPay a refusé le paiement : {detail}" if detail
+                            else "Biz-transPay a refusé le paiement.")
+
+    jd = {}
+    try:
+        jd = resp.json()
     except Exception:
         pass
-    # v1 envelope: {"id": "...", "status": "...", "deposit": {...}}
-    provider_id = data_resp.get("id") or (data_resp.get("deposit") or {}).get("id")
-    provider_status = str(
-        data_resp.get("status") or (data_resp.get("deposit") or {}).get("status") or "pending"
-    ).lower()
-
-    await db.payments.update_one(
-        {"reference": ref},
-        {"$set": {
-            "provider_intent_id": provider_id,
-            "biztranspay_status": provider_status,
-            "updated_at": datetime.now(timezone.utc),
-        }},
-    )
-
+    dep = jd.get("deposit") or {}
+    provider_id = jd.get("id") or dep.get("id")
+    provider_status = str(jd.get("status") or dep.get("status") or "pending").lower()
+    pf = dep.get("payment_flow") or {}
+    if pf:
+        flow.update({k: v for k, v in pf.items() if v is not None})
+        ussd = render_ussd(flow, dep.get("charged_amount") or charged) or ussd
+    await db.payments.update_one({"reference": ref}, {"$set": {
+        "provider_intent_id": provider_id, "biztranspay_status": provider_status,
+        "charged_amount": dep.get("charged_amount") or charged, "payment_flow": flow,
+        "updated_at": datetime.now(timezone.utc)}})
+    if provider_status in ("completed", "paid", "success", "approved"):
+        from ashtec_activation import _apply_payment_success
+        p = await db.payments.find_one({"reference": ref}, {"_id": 0})
+        await _apply_payment_success(db, p, "paid", source="biztranspay")
+    show_ussd = ussd if (flow.get("kind") == "ussd" and not flow.get("otp_required")) else ""
     return {
-        "reference": ref,
-        "status": provider_status,
-        "amount": amount,
-        "currency": currency,
-        "operator": data.operator,
-        "country_code": cc,
-        "provider": "biztranspay",
-        "message": "Confirmez le paiement sur votre téléphone.",
+        "reference": ref, "status": provider_status, "amount": charged, "currency": currency,
+        "operator": entry["code"], "country_code": cc, "provider": "biztranspay",
+        "ussd": show_ussd,
+        "message": (f"Composez {show_ussd} pour confirmer le paiement." if show_ussd
+                    else "Validez la demande de paiement sur votre téléphone."),
     }
+
+
+@api.get("/admin/biztranspay/catalog")
+async def admin_btp_catalog(request: Request, direction: str = "deposit", _=Depends(require_admin)):
+    """Live Biz-transPay catalog (forced refresh) + raw sample, for admin diagnostics."""
+    from btp_catalog import fetch_catalog
+    if direction not in ("deposit", "payout"):
+        raise HTTPException(400, "direction = deposit | payout")
+    db = request.app.state.db
+    items = await fetch_catalog(db, direction, force=True)
+    doc = await db.app_settings.find_one({"key": f"btp_catalog:{direction}"}, {"_id": 0}) or {}
+    return {"direction": direction, "count": len(items), "items": items,
+            "raw_sample": doc.get("raw_sample"), "updated_at": doc.get("updated_at")}
 
 
 @api.get("/payments/biztranspay/status/{reference}")
@@ -719,7 +638,7 @@ async def biztranspay_status(reference: str, request: Request, user=Depends(get_
             r = await _get(f"/deposits/{intent_id}", secret_key, public_key)
             if r.status_code < 400:
                 jd = r.json()
-                remote = str(jd.get("status") or "").lower()
+                remote = str(jd.get("status") or (jd.get("deposit") or {}).get("status") or "").lower()
                 # v1 completed states: completed / approved / paid / success
                 if remote in ("paid", "completed", "approved", "success") and not p.get("activation_done"):
                     from ashtec_activation import _apply_payment_success  # reuse dispatch
@@ -761,251 +680,116 @@ async def _persist_dispatch_failure(db, wd_id: str, reason: str, detail: str = "
         pass
 
 
+def _match_payout_entry(entries: list, cc: str, internal_code: str) -> Optional[dict]:
+    """Catalog payout entry for our internal operator (code list first, then aliases)."""
+    ces = [e for e in entries if e["country"] == cc]
+    op = next((o for o in OPERATORS.get(cc, {}).get("operators", []) if o["code"] == internal_code), None)
+    if not op:
+        return None
+    codes = list(op.get("provider_codes_payout") or []) + list(op.get("provider_codes") or []) + [op["code"]]
+    for c in codes:
+        hit = next((e for e in ces if e["code"].lower() == c.lower()), None)
+        if hit:
+            return hit
+    for e in ces:
+        if _resolve_operator_code(cc, e["label"]) == internal_code or _resolve_operator_code(cc, e["code"]) == internal_code:
+            return e
+    return None
+
+
 async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
-    """Dispatch an auto-payout via Biz-transPay Integration v1 /payouts.
-
-    v27s (2026-02-24) — migrated to Integration API v1:
-      • Endpoint : POST /api/integration/v1/payouts
-      • Body : {amount, currency, country, operator, recipient, reference, fee_bearer}
-      • Auth : Authorization Bearer secret + X-Public-Key + Idempotency-Key
-      • Country coverage: TG + BJ + BF (admin-toggle-gated)
-
-    v27z (2026-03-04) — persist `gateway_error*` on every early abort so
-    unresolved rebrands ("Mixx By Yas", "Yas Togo", …) surface immediately
-    in the admin panel instead of silently leaving the retrait pending.
-    """
+    """Auto-payout via POST /payouts (new doc): Togo, Burkina Faso, Côte d'Ivoire only.
+    Operator code comes from the live payout catalog; one attempt, Idempotency-Key = wd id."""
+    from btp_catalog import PAYOUT_COUNTRIES, e164, fetch_catalog
     wd_id = wd_doc.get("id") or ""
     if not await is_payout_enabled(db):
         await _persist_dispatch_failure(db, wd_id, "disabled",
                                         "Auto-payout Biz-transPay désactivé (clés manquantes ou switch OFF).")
         return {"auto_dispatched": False, "reason": "disabled"}
     country = (wd_doc.get("country") or "").upper()
-    if country not in OPERATORS:
+    if country not in PAYOUT_COUNTRIES:
         await _persist_dispatch_failure(db, wd_id, "country_not_supported",
-                                        f"Pays {country} non supporté par Biz-transPay.")
+                                        f"Retrait automatique Biz-transPay non disponible pour {country} (TG, BF, CI uniquement).")
         return {"auto_dispatched": False, "reason": "country_not_supported"}
-    secret_key = await _get_secret_key(db)
-    public_key = await _get_public_key(db)
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
     if not secret_key or not public_key:
-        await _persist_dispatch_failure(db, wd_id, "no_api_key",
-                                        "Clés Biz-transPay manquantes.")
+        await _persist_dispatch_failure(db, wd_id, "no_api_key", "Clés Biz-transPay manquantes.")
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
-    # v27av — Operator resolution with alias support (handles "Mixx By Yas"
-    # rebrand of Moov Money across TG/BJ/BF) + per-operator provider_codes
-    # fallback for CI (BTP merchant console configures codes per env, docs
-    # don't publish them). We try our internal code first then each
-    # provider_codes entry until BTP accepts one.
     raw_op = (wd_doc.get("operator") or "").strip()
     op_code = _resolve_operator_code(country, raw_op)
     if not op_code:
         await _persist_dispatch_failure(
             db, wd_id, "operator_not_supported",
             f"Opérateur '{raw_op}' non reconnu pour {country}. "
-            f"Codes acceptés : {', '.join(o['code'] for o in OPERATORS[country]['operators'])}.",
-        )
-        return {"auto_dispatched": False, "reason": "operator_not_supported",
-                "operator_raw": raw_op}
-
-    # Router-level check : is this exact (provider, country, operator)
-    # actually enabled in payment_provider_operators?
+            f"Codes acceptés : {', '.join(o['code'] for o in OPERATORS[country]['operators'])}.")
+        return {"auto_dispatched": False, "reason": "operator_not_supported", "operator_raw": raw_op}
     op_row = await db.payment_provider_operators.find_one(
-        {"provider_id": "biztranspay", "country_code": country,
-         "operator_code": op_code, "status": "active"},
-    )
+        {"provider_id": "biztranspay", "country_code": country, "operator_code": op_code, "status": "active"})
     if not op_row:
-        await _persist_dispatch_failure(
-            db, wd_id, "operator_disabled_by_admin",
-            f"L'opérateur {op_code} ({country}) est désactivé côté admin BTP.",
-        )
+        await _persist_dispatch_failure(db, wd_id, "operator_disabled_by_admin",
+                                        f"L'opérateur {op_code} ({country}) est désactivé côté admin BTP.")
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
-    # v27av/v27az — Build ordered candidate codes using the PAYOUT-specific
-    # list (differs from deposit codes in BF/TG). Cache key is scoped per
-    # direction so the deposit learned-code never corrupts the payout one.
-    operator_entry = next(
-        (o for o in OPERATORS[country]["operators"] if o["code"] == op_code),
-        None,
-    )
-    candidate_codes: list[str] = []
-    learned = await db.app_settings.find_one(
-        {"key": _learned_code_key("payout", country, op_code)},
-    )
-    if learned and isinstance(learned.get("value"), str):
-        candidate_codes.append(learned["value"])
-    for pc in _build_candidate_codes(operator_entry, op_code, direction="payout"):
-        if pc not in candidate_codes:
-            candidate_codes.append(pc)
+    entries = await fetch_catalog(db, "payout")
+    entry = _match_payout_entry(entries, country, op_code)
+    if not entry:
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_not_in_btp_catalog",
+            f"L'opérateur {op_code} ({country}) n'est pas dans le catalogue de retrait Biz-transPay actif.")
+        return {"auto_dispatched": False, "reason": "operator_not_in_btp_catalog"}
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
-    phone = _normalize_phone(wd_doc.get("phone") or "", country)
+    body = {"amount": net, "currency": entry["currency"], "country": country,
+            "operator": entry["code"], "recipient": e164(wd_doc.get("phone") or "", country),
+            "fee_bearer": "sender", "reference": wd_doc["id"]}
+    try:
+        r = await _post("/payouts", body, secret_key, public_key, idempotency_key=f"wd-{wd_doc['id']}")
+    except Exception as e:
+        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], _redact(e))
+        return {"auto_dispatched": False, "reason": "network_error"}
 
-    r = None
-    accepted_code: Optional[str] = None
-    for attempt_idx, provider_code in enumerate(candidate_codes):
-        body = {
-            "amount": net,
-            "currency": OPERATORS[country]["currency"],
-            "country": country,
-            "operator": provider_code,
-            "recipient": phone,
-            "reference": wd_doc["id"],
-            "fee_bearer": "sender",
-        }
-        try:
-            idem_key = f"wd-{wd_doc['id']}" if attempt_idx == 0 else f"wd-{wd_doc['id']}-v{attempt_idx}"
-            r = await _post("/payouts", body, secret_key, public_key, idempotency_key=idem_key)
-        except Exception as e:
-            log.exception("biztranspay /payouts failed wd=%s code=%s: %s",
-                          wd_doc["id"], provider_code, _redact(e))
-            return {"auto_dispatched": False, "reason": "network_error"}
-
-        if r.status_code < 400:
-            accepted_code = provider_code
-            break
-
-        # Operator mismatch → try next candidate; other errors → stop.
-        try:
-            jd_err = r.json()
-        except Exception:
-            jd_err = {}
-        err_detail_raw = jd_err.get("detail") if isinstance(jd_err, dict) else None
-        err_detail_text = ""
-        if isinstance(err_detail_raw, str):
-            err_detail_text = err_detail_raw.lower()
-        elif isinstance(err_detail_raw, dict):
-            err_detail_text = (str(err_detail_raw.get("message") or "") + " " + str(err_detail_raw.get("code") or "")).lower()
-        is_operator_mismatch = (
-            "opérateur non disponible" in err_detail_text
-            or ("operator" in err_detail_text and ("not available" in err_detail_text or "non disponible" in err_detail_text))
-            or "operator not supported" in err_detail_text
-        )
-        if is_operator_mismatch and attempt_idx + 1 < len(candidate_codes):
-            log.info("biztranspay /payouts wd=%s code=%s operator mismatch, trying next",
-                     wd_doc["id"], provider_code)
-            continue
-        break
-
-    if r is None or r.status_code >= 400:
-        detail = ""
-        try:
-            jd = r.json()
-            detail = str(jd)[:400]
-            code = str(jd.get("code") or "")
-        except Exception:
-            detail = r.text[:400]
-            code = ""
-        detail = _redact(detail)
-        # v27ax — log the full list of codes we tried + persist it so admin
-        # can forward it to BTP support (« BTP a refusé moov_tg, flooz_tg,
-        # moov_money_tg,… — quel est le code exact de ma config ? »).
-        log.warning("biztranspay /payouts %s wd=%s code=%s tried=%s body=%s",
-                    r.status_code, wd_doc["id"], code, candidate_codes, detail)
-        err_detail_text_low = detail.lower()
-        is_final_operator_mismatch = (
-            "opérateur non disponible" in err_detail_text_low
-            or ("operator" in err_detail_text_low and
-                ("not available" in err_detail_text_low or "non disponible" in err_detail_text_low))
-        )
-        final_code = code or (
-            "operator_not_configured_in_btp_console"
-            if is_final_operator_mismatch else "gateway_error"
-        )
-        final_error = detail[:400]
-        if is_final_operator_mismatch:
-            final_error = (
-                f"BTP a refusé tous les codes opérateur essayés "
-                f"({', '.join(candidate_codes)}). Configurez l'un de ces "
-                f"codes dans votre console marchand BTP → Paramètres → "
-                f"Opérateurs, OU demandez à BTP le code exact et "
-                f"communiquez-le au support pour qu'il soit ajouté. "
-                f"Détail BTP : {detail[:200]}"
-            )[:400]
-        await db.withdrawals.update_one(
-            {"id": wd_doc["id"]},
-            {"$set": {"gateway_error": final_error,
-                      "gateway_error_code": final_code,
-                      "gateway_status_code": r.status_code,
-                      "tried_operator_codes": candidate_codes,
-                      "updated_at": datetime.now(timezone.utc)}},
-        )
-        return {"auto_dispatched": False, "reason": "gateway_error",
-                "detail": final_error, "code": final_code,
-                "tried": candidate_codes}
+    if r.status_code >= 400:
+        detail, jd = _btp_error_detail(r)
+        code = str((jd.get("code") if isinstance(jd, dict) else "") or "gateway_error")
+        log.warning("biztranspay /payouts %s wd=%s op=%s body=%s", r.status_code, wd_doc["id"], entry["code"], detail)
+        await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": {
+            "gateway_error": detail[:400], "gateway_error_code": code,
+            "gateway_status_code": r.status_code, "tried_operator_codes": [entry["code"]],
+            "updated_at": datetime.now(timezone.utc)}})
+        return {"auto_dispatched": False, "reason": "gateway_error", "detail": detail, "code": code}
 
     resp_json = {}
     try:
         resp_json = r.json()
     except Exception:
         pass
-    # v1 envelope: {"id": "...", "status": "...", "payout": {...}}
     payout_env = resp_json.get("payout") or {}
-    payout_id = resp_json.get("id") or (payout_env.get("transaction") or {}).get("id")
-    payout_status = str(resp_json.get("status") or (payout_env.get("transaction") or {}).get("status") or "").lower()
-
-    # v27af (2026-03-04) — CRITICAL fix : if BTP returns a terminal status
-    # SYNCHRONOUSLY (some operators clear the transfer instantly and BTP
-    # answers `completed` right in the /payouts response), we flip our
-    # internal status straight to `completed` / `rejected` — no need to wait
-    # for the webhook. Previous v27ad always kept `pending`, which stranded
-    # already-paid withdrawals in the "En attente" tab.
+    payout_id = resp_json.get("id") or payout_env.get("id")
+    payout_status = str(resp_json.get("status") or payout_env.get("status") or "").lower()
     _TERMINAL_OK = {"completed", "succeeded", "paid", "success", "sent", "delivered"}
     _TERMINAL_KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
-    if payout_status in _TERMINAL_OK:
-        internal_status = "completed"
-    elif payout_status in _TERMINAL_KO:
-        internal_status = "rejected"
-    else:
-        internal_status = "pending"
-
-    set_fields = {
-        "status": internal_status,
-        "auto_dispatched": True,
-        "gateway": "biztranspay",
-        "payout_id": payout_id,
-        "gateway_status": payout_status,
-        "gateway_fee": payout_env.get("fee"),
-        "gateway_total_debit": payout_env.get("total_debit"),
-        "dispatched_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    }
+    internal_status = ("completed" if payout_status in _TERMINAL_OK
+                       else "rejected" if payout_status in _TERMINAL_KO else "pending")
+    now = datetime.now(timezone.utc)
+    set_fields = {"status": internal_status, "auto_dispatched": True, "gateway": "biztranspay",
+                  "payout_id": payout_id, "gateway_status": payout_status,
+                  "gateway_operator_code": entry["code"],
+                  "gateway_fee": payout_env.get("fee") or payout_env.get("total_fee"),
+                  "dispatched_at": now, "updated_at": now}
     if internal_status == "completed":
-        set_fields["completed_at"] = datetime.now(timezone.utc)
+        set_fields["completed_at"] = now
     elif internal_status == "rejected":
-        set_fields["rejected_at"] = datetime.now(timezone.utc)
+        set_fields["rejected_at"] = now
         set_fields["gateway_error"] = f"Gateway returned terminal-fail status: {payout_status}"
-
     await db.withdrawals.update_one(
         {"id": wd_doc["id"]},
-        {"$set": set_fields,
-         # Clear any prior early-abort error (retry path)
-         "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
-                    if internal_status != "rejected" else {"gateway_error_code": ""}},
-    )
-    # v27az — remember the exact BTP payout code accepted so the next
-    # retrait for the same (country, operator) hits BTP with the winner on
-    # the first attempt (no retry loop). Direction-scoped key.
-    if accepted_code and operator_entry and accepted_code != op_code:
-        try:
-            k = _learned_code_key("payout", country, op_code)
-            await db.app_settings.update_one(
-                {"key": k},
-                {"$set": {"key": k, "value": accepted_code,
-                          "updated_at": datetime.now(timezone.utc)}},
-                upsert=True,
-            )
-            log.info("biztranspay learned payout code %s=%s for %s/%s",
-                     op_code, accepted_code, country, op_code)
-        except Exception:
-            pass
-    # v27af — if the gateway rejected synchronously, refund the user's
-    # balance so it doesn't stay locked. Symmetrical with the webhook path.
+        {"$set": set_fields, "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
+         if internal_status != "rejected" else {"gateway_error_code": ""}})
     if internal_status == "rejected":
         try:
-            await db.users.update_one(
-                {"id": wd_doc["user_id"]},
-                {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}},
-            )
+            await db.users.update_one({"id": wd_doc["user_id"]},
+                                      {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}})
         except Exception:
             pass
     return {"auto_dispatched": True, "id": payout_id, "status": payout_status, "internal": internal_status}
@@ -1061,9 +845,20 @@ async def biztranspay_webhook(request: Request):
             return {"ok": True, "duplicate": True}
 
     try:
-        body = await request.json()
+        import json
+        body = json.loads(raw.decode("utf-8") or "{}")
     except Exception:
         body = {}
+    if not event_id:
+        event_id = str(body.get("id") or body.get("event_id") or "")
+        if event_id:
+            try:
+                await db.biztranspay_webhook_events.create_index("event_id", unique=True)
+                await db.biztranspay_webhook_events.insert_one({
+                    "event_id": event_id, "event_type": event_type_hdr or body.get("type"),
+                    "received_at": datetime.now(timezone.utc)})
+            except Exception:
+                return {"ok": True, "duplicate": True}
 
     await db.webhook_logs.insert_one({
         "gateway": "biztranspay",
@@ -1074,44 +869,48 @@ async def biztranspay_webhook(request: Request):
         "received_at": datetime.now(timezone.utc),
     })
 
-    # Payload shape (per doc): {id: evt_..., type, data: {id, reference, status, ...}}
-    data_obj = body.get("data") or {}
-    ref = body.get("reference") or data_obj.get("reference")
-    provider_id = body.get("id") or data_obj.get("id")
-    status_raw = str(body.get("status") or data_obj.get("status") or "").lower()
+    # New doc: {id: evt, type: deposit.status_changed|payout.status_changed, data: {id, object,
+    # previous_status, status, amount, currency, reference}}
+    data_obj = body.get("data") if isinstance(body.get("data"), dict) else {}
+    ref = data_obj.get("reference") or body.get("reference")
+    provider_id = data_obj.get("id") or (None if data_obj else body.get("id"))
+    status_raw = str(data_obj.get("status") or data_obj.get("final_status") or data_obj.get("new_status")
+                     or data_obj.get("current_status") or data_obj.get("to_status")
+                     or body.get("status") or "").lower()
     event = (event_type_hdr or str(body.get("type") or body.get("event") or "")).lower()
+    obj_type = str(data_obj.get("object") or data_obj.get("type") or data_obj.get("object_type") or "").lower()
+    is_payout_event = "payout" in event or "payout" in obj_type
 
-    # v27n — Map official event types to internal PAID / FAILED buckets.
     PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded",
-                   # v27w — crypto success events
                    "crypto_deposit.success", "crypto_deposit.confirmed", "crypto_payout.success"}
     FAIL_EVENTS = {"payment.failed", "payment.expired",
                    "mobile_money.payment.declined", "mobile_money.payment.canceled",
-                   "push.failed",
-                   # v27w — crypto failure events
-                   "crypto_deposit.failed", "crypto_payout.failed"}
-    if event in PAID_EVENTS or status_raw in ("paid", "completed", "approved", "succeeded"):
+                   "push.failed", "crypto_deposit.failed", "crypto_payout.failed"}
+    if event in PAID_EVENTS or status_raw in ("paid", "completed", "approved", "succeeded", "success", "confirmed"):
         internal_status = "paid"
-    elif event in FAIL_EVENTS or status_raw in ("failed", "declined", "canceled", "expired"):
+    elif event in FAIL_EVENTS or status_raw in ("failed", "declined", "canceled", "cancelled", "expired", "rejected"):
         internal_status = "failed"
     else:
         internal_status = "pending"
 
-    # Locate our payment
-    query: dict = {"provider": "biztranspay"}
-    if ref:
-        query["reference"] = ref
-    elif provider_id:
-        query["provider_intent_id"] = provider_id
-    else:
+    if not ref and not provider_id:
         return {"ok": True, "ignored": "no_reference"}
 
-    p = await db.payments.find_one(query, {"_id": 0})
-    # Also try to reconcile a payout (withdrawal) by reference or payout_id
+    p = None
+    if not is_payout_event:
+        if ref:
+            p = await db.payments.find_one({"provider": "biztranspay", "reference": ref}, {"_id": 0})
+        if not p and provider_id:
+            p = await db.payments.find_one({"provider": "biztranspay", "provider_intent_id": provider_id}, {"_id": 0})
     if not p:
-        wd_q = {"id": ref} if ref else {"payout_id": provider_id}
-        wd = await db.withdrawals.find_one(wd_q)
+        wd = None
+        if provider_id:
+            wd = await db.withdrawals.find_one({"payout_id": provider_id})
+        if not wd and ref:
+            wd = await db.withdrawals.find_one({"id": ref})
         if wd:
+            if wd.get("status") in ("completed", "rejected", "validated"):
+                return {"ok": True, "reconciled": "withdrawal", "status": wd.get("status"), "noop": True}
             update = {"gateway_status": status_raw or event,
                       "updated_at": datetime.now(timezone.utc)}
             if internal_status == "paid":
@@ -1141,7 +940,7 @@ async def biztranspay_webhook(request: Request):
                 {"$set": {"activation_error": _redact(str(e)[:400]),
                           "updated_at": datetime.now(timezone.utc)}},
             )
-    elif internal_status == "failed":
+    elif internal_status == "failed" and not p.get("activation_done"):
         await db.payments.update_one(
             {"reference": p["reference"]},
             {"$set": {"status": "failed", "biztranspay_status": status_raw or event,
@@ -1449,7 +1248,7 @@ async def _poll_once(db) -> dict:
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
-    ten_min_ago = now - timedelta(minutes=10)
+    ten_min_ago = now - timedelta(minutes=30)
 
     checked = activated = failed = expired = 0
     secret_key = await _get_secret_key(db)
@@ -1479,7 +1278,7 @@ async def _poll_once(db) -> dict:
         except Exception as e:
             log.debug("btp poll error ref=%s: %s", p.get("reference"), _redact(e))
             continue
-        remote = str(jd.get("status") or "").lower()
+        remote = str(jd.get("status") or (jd.get("deposit") or {}).get("status") or "").lower()
         # v1: only completed/approved/paid/success/confirmed are terminal success.
         if remote in ("paid", "completed", "approved", "success", "confirmed"):
             try:
@@ -1502,7 +1301,7 @@ async def _poll_once(db) -> dict:
          "activation_done": {"$ne": True},
          "created_at": {"$lt": ten_min_ago}},
         {"$set": {"status": "expired", "expired_at": now, "updated_at": now,
-                  "rejected_reason": "timeout_10min"}},
+                  "rejected_reason": "timeout_30min"}},
     )
     expired = exp.modified_count
     return {"checked": checked, "activated": activated,
@@ -1547,7 +1346,7 @@ async def polling_loop(db):
             log.exception("btp polling loop error (stuck activations): %s",
                           _redact(e))
         tick += 1
-        await _a.sleep(4)
+        await _a.sleep(10)
 
 
 

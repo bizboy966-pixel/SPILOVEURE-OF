@@ -5451,3 +5451,13 @@ total_profit = commission_direct
 - `special_tasks.py` : `notify_new_special_task` (claim atomique `notified_at` → 1 seule notif par tâche et par utilisateur ; cible = tous les inscrits non bannis sauf le créateur ; in-app kind `special_task_new` + push `push_to_all_registered` tag par tâche ; lien `/tasks-more?task=<id>`), `special_task_notify_watcher` (toutes les 20 s, couvre tous les chemins de paiement ; backfill initial des tâches déjà actives marqué `notified_skipped=backfill`), `GET /special-tasks/{id}/availability` (statut réel). Force-activate admin déclenche la notif en tâche de fond.
 - Front : clic notification (centre + toast) → lien ; toast marque comme lu ; hook n'affiche que les nouvelles notifs ; tasks-more affiche bannière statut réel + tâche ciblée en tête et surlignée.
 - Tests iteration_62 : 100 % ; données de test restaurées.
+
+## 2026-06 — Biz-transPay : migration vers la nouvelle doc (biz-transpay.com)
+- BASE_URL → https://biz-transpay.com/api/integration/v1 (ancien domaine biz-transppayy.com).
+- `btp_catalog.py` : catalogue live GET /mobile-money/operators?direction=deposit|payout (cache 5 min + secours DB `btp_catalog:*`), prix d'activation = 2 650 XOF ou équivalent via GET /exchanges/quote (cache 1 h, secours table env), explications de flux par opérateur (push / USSD+OTP / OTP SMS avant envoi), E.164.
+- Pay-in (tous les pays du catalogue) : quote → OTP_SENT (request_otp) ou OTP_REQUIRED (USSD) → POST /deposits (fee_bearer=receiver, full_name, email, phone +E164, 1 seule Idempotency-Key = ref, plus de boucle de codes). /payments/activate route vers BTP si l'opérateur est dans le catalogue.
+- Pay-out TG/BF/CI uniquement : code opérateur pris dans le catalogue payout, 1 tentative, Idempotency-Key wd-{id}.
+- Webhook : deposit/payout.status_changed, data.id/data.status, dédup header ou body.id, HMAC sur octets bruts, timestamp s/ms/ISO (10 min). Polling 10 s, fenêtre 30 min.
+- Admin : GET /api/admin/biztranspay/catalog?direction=deposit|payout (diagnostic, raw_sample).
+- pay.tsx : montant dans la devise locale, carte « Comment payer avec X » (étapes), OTP générique (USSD ou SMS).
+- Tests : tests/test_btp_newdoc_v28a.py (11/11). Anciens tests de la boucle de codes déplacés dans tests/_obsolete.

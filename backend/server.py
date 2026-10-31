@@ -2828,6 +2828,13 @@ async def payments_activate(
     if not cc or not op or not phone:
         raise HTTPException(400, "Pays, opérateur et numéro requis.")
     gw = await pick_gateway_for_country(db, cc)
+    try:
+        from biztranspay import is_payin_enabled as _btp_on
+        from btp_catalog import find_entry as _btp_find
+        if await _btp_on(db) and await _btp_find(db, "deposit", cc, op):
+            gw = "biztranspay"
+    except Exception as _e:
+        log.warning("btp routing check failed: %s", _e)
     if not gw:
         raise HTTPException(400, "Aucun opérateur de paiement disponible pour ce pays.")
 
@@ -3115,28 +3122,33 @@ async def activation_catalog(request: Request):
     # card (USSD code + input) as soon as Orange BF (or any op needing an
     # OTP) is selected — no need to wait for the first failed submission.
     if cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payin_enabled", True):
-        api_key_ok = bool((cfg.get("biztranspay_api_key") or "").strip()
-                          or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip())
-        if api_key_ok:
-            btp_countries = cfg.get("biztranspay_countries") or {}
-            try:
-                from biztranspay import OPERATORS as BTP_OPS
-            except Exception:
-                BTP_OPS = {}
-            for cc, info in BTP_OPS.items():
-                enabled_ops = []
-                toggles = btp_countries.get(cc) or {}
-                for op in info.get("operators") or []:
-                    if toggles.get(op["code"], True):
-                        enabled_ops.append({
-                            "code": op["code"], "label": op["label"],
-                            "currency": info.get("currency", "XOF"),
-                            "gateway": "biztranspay",
-                            "requires_otp": bool(op.get("requires_otp")),
-                            "otp_ussd_template": op.get("otp_ussd_template") or "",
-                        })
-                if enabled_ops:
-                    mobile_lookup[cc] = enabled_ops
+        try:
+            from biztranspay import _toggle_on as _btp_toggle_on, is_payin_enabled as _btp_payin_on
+            from btp_catalog import (fetch_catalog as _btp_fetch, activation_amount_for as _btp_price,
+                                     flow_steps as _btp_steps, render_ussd as _btp_ussd,
+                                     currency_label as _btp_cur_label)
+            _btp_entries = await _btp_fetch(db, "deposit") if await _btp_payin_on(db) else []
+        except Exception as _btp_e:
+            log.warning("btp catalog unavailable: %s", _btp_e)
+            _btp_entries = []
+        _btp_by_cc: dict = {}
+        for e in _btp_entries:
+            if not _btp_toggle_on(cfg, e["country"], e):
+                continue
+            price = await _btp_price(db, e["currency"])
+            if not price:
+                continue
+            label_amt = f"{price:,}".replace(",", " ") + " " + _btp_cur_label(e["currency"])
+            ussd = _btp_ussd(e["flow"], price)
+            _btp_by_cc.setdefault(e["country"], []).append({
+                "code": e["code"], "label": e["label"], "currency": e["currency"],
+                "gateway": "biztranspay", "amount": price, "amount_label": label_amt,
+                "flow": e["flow"],
+                "requires_otp": bool(e["flow"].get("otp_required") and not e["flow"].get("otp_request_before_submit")),
+                "otp_ussd_template": e["flow"].get("ussd_template") or "",
+                "steps": _btp_steps(e["flow"], label_amt, ussd),
+            })
+        mobile_lookup.update(_btp_by_cc)
 
     # Crypto availability — same rule as /payments/catalog.
     crypto_available = False
