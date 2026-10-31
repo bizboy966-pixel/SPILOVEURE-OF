@@ -1828,6 +1828,12 @@ def _register_payment_gateway_routes(router):
         """Return providers + countries + operators from the normalized
         collections (Phase 2 source of truth for the router)."""
         db = request.app.state.db
+        try:
+            from btp_catalog import fetch_catalog as _btp_fc
+            from payment_providers import sync_btp_catalog_rows as _btp_sync
+            await _btp_sync(db, (await _btp_fc(db, "deposit")) + (await _btp_fc(db, "payout")))
+        except Exception as _e:
+            log.warning("btp catalog sync on admin list failed: %s", _e)
         providers = [p async for p in db.payment_providers.find({}, {"_id": 0}).sort("priority", 1)]
         for p in providers:
             p["countries"] = [
@@ -3141,7 +3147,13 @@ async def activation_catalog(request: Request):
             log.warning("btp catalog unavailable: %s", _btp_e)
             _btp_entries = []
         _btp_by_cc: dict = {}
+        _btp_off_cc = {r["country_code"] async for r in db.payment_provider_countries.find(
+            {"provider_id": "biztranspay", "status": {"$ne": "active"}}, {"country_code": 1})}
+        _btp_off_op = {(r["country_code"], r["operator_code"]) async for r in db.payment_provider_operators.find(
+            {"provider_id": "biztranspay", "status": {"$ne": "active"}}, {"country_code": 1, "operator_code": 1})}
         for e in _btp_entries:
+            if e["country"] in _btp_off_cc or (e["country"], e["code"]) in _btp_off_op:
+                continue
             if not _btp_toggle_on(cfg, e["country"], e):
                 continue
             price = await _btp_price(db, e["currency"])

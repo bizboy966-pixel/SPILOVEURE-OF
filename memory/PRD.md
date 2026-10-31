@@ -5467,3 +5467,8 @@ total_profit = commission_direct
 - refund_address = portefeuille admin `biztranspay_crypto_refund_address` (validé 0x+40 hex, champ « 4️⃣ » dans Admin → Biz-transPay). Adresse poubelle supprimée ; sans adresse, le crypto BTP est masqué (is_crypto_enabled) et /create renvoie 503.
 - Adresse de dépôt lue aussi dans deposit.instructions / wallet_address ; message d'erreur BTP remonté.
 - Test : test_btp_newdoc_v28a.py 12/12.
+
+## 2026-06 — Pays du catalogue Biz-transPay visibles dans Admin → Fournisseurs
+- `payment_providers.sync_btp_catalog_rows` : chaque pays/opérateur du catalogue live (dépôt + retrait) absent de la liste statique est ajouté dans payment_provider_countries/operators (source=btp_catalog, actif par défaut, jamais réactivé si l'admin l'a coupé). Appelé à chaque rafraîchissement du catalogue, au boot (sync_providers) et à l'ouverture de GET /admin/payment-providers.
+- Interrupteurs admin respectés partout : activation-catalog + /payments/biztranspay/activation ignorent pays/opérateurs inactifs ; `_toggle_on` respecte default_active des opérateurs statiques.
+- Tests : test_btp_newdoc_v28a.py 14/14.

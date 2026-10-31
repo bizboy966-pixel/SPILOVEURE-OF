@@ -257,3 +257,30 @@ def test_crypto_asset_from_catalog_and_admin_refund(env, monkeypatch):
     body = [c for c in CALLS if c[1] == "/crypto/deposits"][0][2]
     assert body["asset_code"] == "usdt-bsc" and body["refund_address"] == "0x" + "1" * 40
     assert r["deposit_address"] == "0xabc" and float(r["amount"]) == 5.01
+
+
+def test_catalog_countries_synced_to_admin_rows(env):
+    db, loop = env
+    from payment_providers import sync_btp_catalog_rows
+    items = loop.run_until_complete(bc.fetch_catalog(db, "deposit", force=True))
+    rows = loop.run_until_complete(db.payment_provider_operators.find(
+        {"provider_id": "biztranspay"}, {"_id": 0}).to_list(50))
+    codes = {(r["country_code"], r["operator_code"]) for r in rows}
+    assert ("CD", "vodacom-cd") in codes
+    assert ("TG", "tmoney_tg") not in codes  # already covered by the static list (Mixx/T-Money)
+    assert loop.run_until_complete(db.payment_provider_countries.find_one(
+        {"provider_id": "biztranspay", "country_code": "CD"}))["status"] == "active"
+    loop.run_until_complete(db.payment_provider_operators.update_one(
+        {"country_code": "CD", "operator_code": "vodacom-cd"}, {"$set": {"status": "inactive"}}))
+    loop.run_until_complete(sync_btp_catalog_rows(db, items))
+    assert loop.run_until_complete(db.payment_provider_operators.find_one(
+        {"country_code": "CD", "operator_code": "vodacom-cd"}))["status"] == "inactive"
+    with pytest.raises(HTTPException):
+        loop.run_until_complete(b.biztranspay_activation(
+            b.BtpActivationIn(country_code="CD", operator="vodacom-cd", phone="810000000"), _req(db), USER))
+
+
+def test_static_default_inactive_respected(env):
+    cfg = {"biztranspay_countries": {"BJ": {"tmoney_bj": False}}}
+    assert b._toggle_on(cfg, "BJ", {"code": "mtn-benin", "label": "MTN Mobile Money"}) is False
+    assert b._toggle_on(cfg, "BJ", {"code": "moov-benin", "label": "Moov Money"}) is True

@@ -463,7 +463,10 @@ def _btp_error_detail(resp) -> tuple[str, dict]:
 def _toggle_on(cfg: dict, cc: str, entry: dict) -> bool:
     toggles = ((cfg.get("biztranspay_countries") or {}).get(cc)) or {}
     internal = _resolve_operator_code(cc, entry["code"]) or _resolve_operator_code(cc, entry["label"])
-    return bool(toggles.get(internal or entry["code"], True))
+    if internal:
+        op = next((o for o in OPERATORS.get(cc, {}).get("operators", []) if o["code"] == internal), {})
+        return bool(toggles.get(internal, op.get("default_active", True)))
+    return bool(toggles.get(entry["code"], True))
 
 
 @api.post("/payments/biztranspay/activation")
@@ -486,6 +489,13 @@ async def biztranspay_activation(
         raise HTTPException(503, "Biz-transPay non configuré (clés publique/secrète manquantes).")
 
     entry = await find_entry(db, "deposit", cc, data.operator)
+    if entry and (
+        await db.payment_provider_countries.find_one(
+            {"provider_id": "biztranspay", "country_code": cc, "status": {"$ne": "active"}})
+        or await db.payment_provider_operators.find_one(
+            {"provider_id": "biztranspay", "country_code": cc, "operator_code": entry["code"], "status": {"$ne": "active"}})
+    ):
+        entry = None
     if not entry or not _toggle_on(await _load_cfg(db), cc, entry):
         raise HTTPException(400, "Cet opérateur n'est pas disponible pour ce pays.")
     currency = entry["currency"]

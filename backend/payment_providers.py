@@ -17,6 +17,7 @@ Phase 2. Nothing else in the codebase reads them yet.
 from __future__ import annotations
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 log = logging.getLogger("payment_providers")
 
@@ -104,6 +105,47 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
     )
 
 
+async def sync_btp_catalog_rows(db, entries: list, cfg: Optional[dict] = None) -> int:
+    """Expose every live Biz-transPay catalog country/operator in the admin
+    provider panel (same rows as the static list). Admin toggles are kept:
+    existing rows are never re-activated; new rows follow the stored toggle (default ON)."""
+    from biztranspay import OPERATORS as BTP, _resolve_operator_code
+    if cfg is None:
+        doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+        cfg = doc.get("value") or {}
+    toggles = cfg.get("biztranspay_countries") or {}
+    now = datetime.now(timezone.utc)
+    by_cc: dict = {}
+    for e in entries or []:
+        cc = e["country"]
+        if cc in BTP and (_resolve_operator_code(cc, e["code"]) or _resolve_operator_code(cc, e["label"])):
+            continue
+        by_cc.setdefault(cc, {})[e["code"]] = e
+    added = 0
+    for cc, ops in by_cc.items():
+        c_toggles = toggles.get(cc) or {}
+        any_on = any(c_toggles.get(code, True) for code in ops)
+        currency = next(iter(ops.values()))["currency"]
+        if cc not in BTP:
+            await db.payment_provider_countries.update_one(
+                {"provider_id": "biztranspay", "country_code": cc},
+                {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "currency": currency,
+                                  "status": "active" if any_on else "inactive", "mode": "automatic",
+                                  "priority": 1, "source": "btp_catalog", "created_at": now},
+                 "$set": {"updated_at": now}},
+                upsert=True)
+        for code, e in ops.items():
+            r = await db.payment_provider_operators.update_one(
+                {"provider_id": "biztranspay", "country_code": cc, "operator_code": code},
+                {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "operator_code": code,
+                                  "status": "active" if c_toggles.get(code, True) else "inactive",
+                                  "source": "btp_catalog", "created_at": now},
+                 "$set": {"operator_label": e["label"], "updated_at": now}},
+                upsert=True)
+            added += 1 if r.upserted_id else 0
+    return added
+
+
 async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
     """Populate `payment_provider_countries` + `payment_provider_operators`
     for one provider, from the flat config's country matrix / operator toggles.
@@ -151,6 +193,12 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
                 default = bool(op.get("default_active", True))
                 on = c_toggles.get(op["code"], default)
                 await _upsert_operator(cc, op["code"], op["label"], on)
+        try:
+            from btp_catalog import fetch_catalog
+            entries = (await fetch_catalog(db, "deposit")) + (await fetch_catalog(db, "payout"))
+        except Exception:
+            entries = []
+        await sync_btp_catalog_rows(db, entries, cfg)
 
     elif provider_id == "soleaspay":
         try:

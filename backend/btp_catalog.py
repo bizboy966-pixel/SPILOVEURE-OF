@@ -91,6 +91,11 @@ async def fetch_catalog(db, direction: str, force: bool = False) -> list[dict]:
                     {"$set": {"value": items, "raw_sample": r.text[:6000],
                               "updated_at": datetime.now(timezone.utc)}},
                     upsert=True)
+                try:
+                    from payment_providers import sync_btp_catalog_rows
+                    await sync_btp_catalog_rows(db, items)
+                except Exception as e:
+                    log.warning("btp catalog admin sync failed: %s", e)
                 return items
             log.warning("btp catalog %s HTTP %s: %s", direction, r.status_code, r.text[:300])
         except Exception as e:
