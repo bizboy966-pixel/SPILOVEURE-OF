@@ -1,0 +1,44 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+      - ./dump:/dump
+    # No "ports": MongoDB is only reachable by the backend, never from Internet.
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger/backend.Dockerfile
+    restart: always
+    env_file: ./backend.env
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      - mongo
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger/web.Dockerfile
+    restart: always
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
+  uploads:
+  caddy_data:
+  caddy_config:

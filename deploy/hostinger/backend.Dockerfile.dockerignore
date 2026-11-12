@@ -1,0 +1,11 @@
+**/node_modules
+**/.expo
+**/__pycache__
+**/.pytest_cache
+frontend/build
+frontend/dist
+backend/uploads
+backend/tests
+test_reports
+.git
+deploy/hostinger/dump

@@ -5472,3 +5472,7 @@ total_profit = commission_direct
 - `payment_providers.sync_btp_catalog_rows` : chaque pays/opérateur du catalogue live (dépôt + retrait) absent de la liste statique est ajouté dans payment_provider_countries/operators (source=btp_catalog, actif par défaut, jamais réactivé si l'admin l'a coupé). Appelé à chaque rafraîchissement du catalogue, au boot (sync_providers) et à l'ouverture de GET /admin/payment-providers.
 - Interrupteurs admin respectés partout : activation-catalog + /payments/biztranspay/activation ignorent pays/opérateurs inactifs ; `_toggle_on` respecte default_active des opérateurs statiques.
 - Tests : test_btp_newdoc_v28a.py 14/14.
+
+## 2026-06 — Kit de déploiement Hostinger (Docker)
+- `deploy/hostinger/` : docker-compose (mongo:7 non exposé, backend FastAPI 1 worker, web = Caddy HTTPS auto + /api → backend + SPA), backend.Dockerfile, web.Dockerfile (yarn build → Caddy), Caddyfile, *.env.example, .gitignore des secrets, README FR (clone main, env, DNS Cloudflare nuage gris, mongorestore --drop, bascule, webhooks, mises à jour, sauvegarde).
+- Build web vérifié localement (expo export OK). Docker non testable dans l'environnement Emergent.
