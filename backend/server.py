@@ -5668,3 +5668,5 @@ app.include_router(push_router)
 
 from identity import router as identity_router  # noqa: E402
 app.include_router(identity_router)
+from android_releases import router as android_releases_router  # noqa: E402
+app.include_router(android_releases_router)

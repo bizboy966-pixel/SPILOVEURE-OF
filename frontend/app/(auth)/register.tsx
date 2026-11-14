@@ -51,14 +51,11 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState<Country | null>(null);
   const [phone, setPhone] = useState("");
-  // ⚠️ Le parrain provient EXCLUSIVEMENT du lien de parrainage (?ref=…).
-  // Aucun fallback "admin" : si le lien est manquant ou invalide, l'inscription
-  // est bloquée jusqu'à ce que l'utilisateur passe par un lien valide.
+  // Resolve missing invitations from the server's official administrator config.
   const [sponsor, setSponsor] = useState<string>((params.ref as string) || "");
-  const [sponsorValid, setSponsorValid] = useState<boolean | null>(
-    (params.ref as string) ? null : false,
-  );
-  const [sponsorChecking, setSponsorChecking] = useState<boolean>(false);
+  const [sponsorValid, setSponsorValid] = useState<boolean | null>(null);
+  const [sponsorChecking, setSponsorChecking] = useState<boolean>(true);
+  const [sponsorError, setSponsorError] = useState("");
   const [accept, setAccept] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -77,35 +74,35 @@ export default function Register() {
     if (params.country && countries.length) setCountry(countries.find(c => c.code === String(params.country)) || null);
   }, [params.email, params.country, countries]);
 
-  // Vérifie l'existence du parrain transmis via le lien dès l'ouverture du
-  // formulaire. Si le lien pointe vers un utilisateur introuvable, on bloque
-  // l'inscription.
+  // A supplied invitation remains authoritative, including explicit errors.
   useEffect(() => {
     const ref = (params.ref as string) || "";
-    if (!ref) {
-      setSponsorValid(false);
-      setSponsor("");
-      return;
-    }
+    let live = true;
     setSponsorChecking(true);
+    setSponsorValid(null);
+    setSponsorError("");
     (async () => {
       try {
-        await api.get<{ username: string }>(`/sponsor/${encodeURIComponent(ref)}`, { auth: false });
-        setSponsor(ref);
+        const result = await api.get<{ username: string }>(`/identity/registration-sponsor${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`, { auth: false });
+        if (!live) return;
+        setSponsor(result.username);
         setSponsorValid(true);
-      } catch {
+      } catch (error: any) {
+        if (!live) return;
         setSponsorValid(false);
         setSponsor("");
+        setSponsorError(error?.detail || "Impossible de vérifier le parrain. Réessayez dans quelques instants.");
       } finally {
-        setSponsorChecking(false);
+        if (live) setSponsorChecking(false);
       }
     })();
+    return () => { live = false; };
   }, [params.ref]);
 
   const submit = async () => {
     setErr(null);
     if (!sponsorValid) {
-      setErr("Lien de parrainage invalide ou introuvable. Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.");
+      setErr(sponsorError || "Veuillez patienter pendant la vérification du parrain.");
       return;
     }
     if (!username || !email || !phone || !sponsor || !country) {
@@ -154,9 +151,9 @@ export default function Register() {
               <View style={styles.refBlockBox} testID="register-ref-invalid">
                 <Ionicons name="warning" size={20} color="#92400E" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.refBlockTitle}>Lien de parrainage invalide ou introuvable.</Text>
+                  <Text style={styles.refBlockTitle}>Vérification du parrain impossible.</Text>
                   <Text style={styles.refBlockText}>
-                    Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.
+                    {sponsorError}
                   </Text>
                 </View>
               </View>
@@ -223,7 +220,7 @@ export default function Register() {
             <Input
               label="Parrain"
               icon="lock-closed"
-              placeholder="Lien de parrainage requis"
+              placeholder="Vérification du parrain…"
               value={sponsorValid ? sponsor : ""}
               onChangeText={() => {}}
               autoCapitalize="none"
@@ -232,8 +229,8 @@ export default function Register() {
             />
             <Text style={styles.sponsorHint}>
               {sponsorValid && sponsor
-                ? `Code parrain verrouillé (transmis via votre lien d'invitation : @${sponsor}).`
-                : "Le parrain est verrouillé et provient exclusivement de votre lien de parrainage. Sans lien valide, vous ne pouvez pas vous inscrire."}
+                ? params.ref ? `Parrain de votre invitation : @${sponsor}. Ce code est verrouillé.` : `Parrain officiel : @${sponsor}. Attribué automatiquement en l’absence de lien d’invitation.`
+                : "Le parrain est vérifié et attribué automatiquement avant l’inscription."}
             </Text>
 
             <TouchableOpacity style={styles.checkRow} onPress={() => setAccept((v) => !v)} testID="register-accept">

@@ -76,6 +76,57 @@ def register(pair, **fields):
     return pair[1].post("/api/auth/register", json=payload)
 
 
+def test_default_sponsor_uses_official_admin(identity_app, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAIL", "official@example.com")
+    asyncio.run(identity_app[0].state.db.users.insert_one({
+        "id": "official-admin", "username": "OfficialAdmin", "email": "official@example.com",
+        "role": "admin", "status": "active",
+    }))
+    client = identity_app[1]
+    resolved = client.get("/api/identity/registration-sponsor").json()
+    assert resolved == {"username": "OfficialAdmin", "source": "official"}
+    result = register(identity_app, sponsor_username=None)
+    assert result.status_code == 200
+    row = asyncio.run(identity_app[0].state.db.users.find_one({"id": result.json()["user"]["id"]}))
+    assert row["sponsor_id"] == "official-admin"
+    assert row["sponsor_username"] == "OfficialAdmin"
+
+
+def test_default_sponsor_omitted_and_blank(identity_app, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAIL", "legacy@example.com")
+    asyncio.run(identity_app[0].state.db.users.update_one({"id": "legacy"}, {"$set": {"role": "admin"}}))
+    for index, code in enumerate(["", "   ", None]):
+        assert register(identity_app, username=f"NoRef{index}", email=f"no-ref-{index}@example.com",
+                        sponsor_username=code).status_code == 200
+    payload = {"username": "OmittedRef", "email": "omitted@example.com", "country": "TG",
+               "phone": "+22891111111", "accept_terms": True}
+    assert identity_app[1].post("/api/auth/register", json=payload).status_code == 200
+
+
+def test_invitation_not_replaced_or_silently_corrected(identity_app, monkeypatch):
+    # Even an unavailable official administrator must not affect a valid invitation.
+    monkeypatch.setenv("ADMIN_EMAIL", "missing-admin@example.com")
+    assert identity_app[1].get("/api/identity/registration-sponsor?ref=Sponsor").json() == {
+        "username": "Sponsor", "source": "invitation",
+    }
+    assert register(identity_app).status_code == 200
+    assert register(identity_app, username="OtherMember", email="other-ref@example.com",
+                    sponsor_username="MissingSponsor").status_code == 400
+    # Repeating registration with a different sponsor cannot reassign the account.
+    assert register(identity_app, sponsor_username=None).status_code == 503
+    row = asyncio.run(identity_app[0].state.db.users.find_one({"username": "NewMember"}))
+    assert row["sponsor_id"] == "legacy"
+
+
+def test_default_sponsor_unavailable_fails_explicitly(identity_app, monkeypatch):
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    assert identity_app[1].get("/api/identity/registration-sponsor").status_code == 503
+    assert register(identity_app, sponsor_username=None).status_code == 503
+    monkeypatch.setenv("ADMIN_EMAIL", "legacy@example.com")
+    # A normal member cannot become the official admin solely by matching an email.
+    assert register(identity_app, sponsor_username=None).status_code == 503
+
+
 def main_header(token):
     return {"Authorization": "Bearer " + token}
 

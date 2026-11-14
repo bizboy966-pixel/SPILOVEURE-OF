@@ -24,13 +24,14 @@ export function useConversations(currentUserId?: string) {
   }, [archived]);
   useEffect(() => { setLoading(true); refresh(); }, [refresh]);
   useEffect(() => {
-    if (typeof window === "undefined" || typeof WebSocket === "undefined") return;
+    if (typeof WebSocket === "undefined") return;
     let stopped = false, socket: WebSocket | null = null, timer: ReturnType<typeof setTimeout>, attempt = 0;
     const connect = async () => {
       try {
         const { ticket } = await api.post<{ ticket: string }>("/messenger/socket-ticket");
         if (stopped) return;
-        const base = process.env.EXPO_PUBLIC_BACKEND_URL || window.location.origin;
+        const base = process.env.EXPO_PUBLIC_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "");
+        if (!base) throw new Error("Adresse du serveur Chat non configurée.");
         const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
         socket = new WebSocket(`${wsBase}/api/messenger/ws?ticket=${encodeURIComponent(ticket)}`);
         socket.onopen = () => { attempt = 0; setVersion(v => v + 1); refresh(); };
@@ -89,9 +90,10 @@ export function useConversations(currentUserId?: string) {
     connect();
     const sub = AppState.addEventListener("change", (state) => { if (state === "active") { setVersion(v => v + 1); refresh(); } });
     const focus = () => { setVersion(v => v + 1); refresh(); };
-    window.addEventListener("focus", focus);
+    if (typeof window !== "undefined") window.addEventListener("focus", focus);
     return () => {
-      stopped = true; clearTimeout(timer); socket?.close(); sub.remove(); window.removeEventListener("focus", focus);
+      stopped = true; clearTimeout(timer); socket?.close(); sub.remove();
+      if (typeof window !== "undefined") window.removeEventListener("focus", focus);
       Object.values(typingTimers.current).forEach(clearTimeout);
       typingTimers.current = {};
     };

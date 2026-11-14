@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -278,6 +279,15 @@ export default function LandingPage({ refCode = "" }: { refCode?: string }) {
             <Text style={styles.footerBrand}>SPILOVEURE</Text>
           </View>
           <Text style={styles.footerTagline}>{t("landing.footer.tagline")}</Text>
+          <Pressable
+            onPress={() => Linking.openURL(`${Platform.OS === "web" ? window.location.origin : process.env.EXPO_PUBLIC_BACKEND_URL || ""}/telecharger`)}
+            accessibilityRole="link"
+            testID="landing-android-download"
+            style={{ paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 7 }}
+          >
+            <Ionicons name="logo-android" size={18} color={theme.colors.primary} />
+            <Text style={{ color: theme.colors.primary, fontSize: 14, fontWeight: "700" }}>Application Android officielle</Text>
+          </Pressable>
           <Text style={styles.footerCopy}>{t("landing.footer.copy")}</Text>
         </View>
       </ScrollView>

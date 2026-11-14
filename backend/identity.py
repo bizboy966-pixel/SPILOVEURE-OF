@@ -23,6 +23,7 @@ from identity_core import (
 from identity_policy import activated, password_created, email_verified
 from levels import COUNTRIES
 from push_notifications import TokenIn, register_push_token
+from referral_defaults import registration_sponsor
 
 def no_store(response: Response):
     response.headers["Cache-Control"] = "no-store, private"
@@ -45,9 +46,7 @@ async def register_account(data, request):
     email = str(data.email).strip().lower()
     if not any(c["code"] == data.country for c in COUNTRIES):
         raise HTTPException(400, "Pays invalide.")
-    sponsor = await db.users.find_one({"username": data.sponsor_username})
-    if not sponsor:
-        raise HTTPException(400, "Parrain introuvable. Utilisez un lien de parrainage valide.")
+    sponsor = await registration_sponsor(db, data.sponsor_username)
     email_query = {"email": {"$regex": "^" + re.escape(email) + "$", "$options": "i"}}
     username_query = {"username": {"$regex": "^" + re.escape(data.username) + "$", "$options": "i"}}
     if await db.users.find_one(email_query):
@@ -81,6 +80,14 @@ async def register_account(data, request):
         raise
     return {"access_token": create_access_token(uid, "user", scope="onboarding"),
             "token_type": "bearer", "user": {**safe_user(user), "session_scope": "onboarding"}}
+
+
+@router.get("/registration-sponsor")
+async def resolve_registration_sponsor(request: Request, ref: str | None = None):
+    if ref and len(ref) > 100:
+        raise HTTPException(400, "Code parrain invalide.")
+    sponsor = await registration_sponsor(request.app.state.db, ref)
+    return {"username": sponsor["username"], "source": "invitation" if (ref or "").strip() else "official"}
 
 
 @router.get("/state")

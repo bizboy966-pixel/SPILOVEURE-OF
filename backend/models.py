@@ -13,7 +13,7 @@ class RegisterIn(BaseModel):
     # Accepted for old clients only; new registration never stores a password.
     password: Optional[str] = Field(default=None, max_length=128)
     password_confirm: Optional[str] = None
-    sponsor_username: str  # required (referral link mandatory)
+    sponsor_username: Optional[str] = Field(default=None, max_length=100)
     accept_terms: bool
 
 
