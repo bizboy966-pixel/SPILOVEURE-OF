@@ -7,6 +7,7 @@ import { api } from "../api";
 import { useActivationGuard } from "./ActivationGuard";
 import { useAuth } from "../auth";
 import { useNavigationTransition } from "../messenger/NavigationTransition";
+import { useChat } from "../chat/ChatContext";
 
 /**
  * Floating bottom navigation (v14 — mockup-driven refresh).
@@ -62,6 +63,7 @@ export const BottomNav: React.FC = () => {
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
   const { guardedNavigate, showModal } = useActivationGuard();
   const { user } = useAuth();
+  const { user: chatUser, refresh: refreshChat } = useChat();
   const navTransition = useNavigationTransition();
   const navY = React.useRef(new Animated.Value(0)).current;
 
@@ -106,11 +108,32 @@ export const BottomNav: React.FC = () => {
 
   const goto = (route: string) => {
     if (route.includes("/messenger")) {
-      if (user?.status === "pending" && (user.max_level || 0) === 0) {
-        guardedNavigate(route);
+      if (chatUser && (!user || chatUser.id === user.id)) {
+        navTransition.toChat(() => router.push("/messenger" as any));
         return;
       }
-      navTransition.toChat(() => guardedNavigate(route));
+      if (chatUser && user && chatUser.id !== user.id) {
+        if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+        return;
+      }
+      (async () => {
+        try {
+          const main = await api.get<{ user: { id: string }; email_verified: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
+          const existing = await api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" }).catch(() => null);
+          if (existing && existing.user?.id !== main.user?.id) {
+            if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+            return;
+          }
+          if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
+          await api.post("/identity/chat/open", undefined, { credentials: "include" });
+          await refreshChat();
+          navTransition.toChat(() => router.push("/messenger" as any));
+        } catch (e: any) {
+          if (e?.status === 401) router.push("/verify-email" as any);
+          else if (e?.detail && typeof window !== "undefined") window.alert(e.detail);
+          else router.push("/verify-email" as any);
+        }
+      })();
       return;
     }
     guardedNavigate(route);

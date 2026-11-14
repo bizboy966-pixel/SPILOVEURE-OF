@@ -346,12 +346,17 @@ async def typing(cid: str, request: Request, user=Depends(chat_user)):
 
 @api.post("/socket-ticket")
 async def socket_ticket(request: Request, user=Depends(chat_user)):
-    return {"ticket": await ticket(request.app.state.db, user["id"])}
+    return {"ticket": await ticket(request.app.state.db, user["id"], request.state.chat_session_id)}
 
 
 @api.websocket("/ws")
 async def socket(websocket: WebSocket, ticket: str = ""):
     db = websocket.app.state.db
+    origin = websocket.headers.get("origin")
+    from urllib.parse import urlsplit
+    if origin and urlsplit(origin).netloc.lower() != websocket.headers.get("host", "").lower():
+        await websocket.close(code=4403)
+        return
     row = await db.spv_tickets.find_one_and_delete({
         "digest": hashlib.sha256(ticket.encode()).hexdigest(),
         "expires_at": {"$gt": datetime.now(timezone.utc)},
@@ -359,7 +364,12 @@ async def socket(websocket: WebSocket, ticket: str = ""):
     if not row:
         await websocket.close(code=4401)
         return
+    from identity_core import session_row
+    if not await session_row(db, row.get("session_id")):
+        await websocket.close(code=4401)
+        return
     uid = row["user_id"]
+    session_id = row["session_id"]
     await websocket.accept()
     cursor = ObjectId.from_datetime(datetime.now(timezone.utc))
     await db.spv_presence.update_one({"user_id": uid}, {
@@ -373,9 +383,7 @@ async def socket(websocket: WebSocket, ticket: str = ""):
         while True:
             # Recheck current account access: an open socket is not permanent authorization.
             user = await db.users.find_one({"id": uid})
-            if not user or user.get("status") in ("banned", "blocked") or (
-                user.get("role") != "admin" and user.get("status") != "active" and (user.get("max_level") or 0) < 1
-            ):
+            if not await session_row(db, session_id):
                 await websocket.close(code=4403)
                 return
             await db.spv_presence.update_one({"user_id": uid}, {"$set": {"last_seen": now()}}, upsert=True)

@@ -10,6 +10,7 @@ import { PushBootstrap } from "@/src/components/PushBootstrap";
 import TelegramFab from "@/src/components/TelegramFab";
 import { ActivationProvider } from "@/src/components/ActivationGuard";
 import { NavigationTransitionProvider } from "@/src/messenger/NavigationTransition";
+import { api } from "@/src/api";
 
 /**
  * v27c (2026-02-14) — activation flow rétabli.
@@ -39,6 +40,7 @@ export default function AppLayout() {
   const router = useRouter();
   const segments = useSegments() as string[];
   const [communityDone, setCommunityDone] = useState(false);
+  const [payChatStatus, setPayChatStatus] = useState<"idle" | "checking" | "done">("idle");
 
   const isPending = useMemo(() => {
     if (!user) return false;
@@ -53,16 +55,34 @@ export default function AppLayout() {
     if (!user) return false;
     return user.status === "active" && (user.max_level || 0) >= 1;
   }, [user]);
+  const needsAccountAccess = !!user && user.auth_flow_version === 2 && isActivated &&
+    (user.session_scope === "onboarding" || !user.email_verified || !user.main_password_created);
 
   // v27d (2026-02-14) — compute the "bounce" decision at render time so
   // we can short-circuit `<Stack>` BEFORE the target screen has a chance
   // to render + flash. Previously the target route mounted, its `load()`
   // spinner rendered, and only then the `useEffect` fired `router.replace`
   // → the user saw the target page appear then instantly disappear.
-  const currentSeg = segments[1] || "";
+  // Expo can retain this layout while a root-level identity route opens.
+  // An off-screen payment guard must not redirect that route back to /pay.
+  const inAppGroup = segments[0] === "(app)";
+  const currentSeg = inAppGroup ? (segments[1] || "") : "";
   const isMessenger = currentSeg === "messenger";
-  const shouldBounceToPay =
-    !loading && !!user && isPending && !PENDING_ALLOWED_SEGMENTS.has(currentSeg);
+  useEffect(() => {
+    if (loading || user || currentSeg !== "pay") {
+      if (user || currentSeg !== "pay") setPayChatStatus("idle");
+      return;
+    }
+    let active = true;
+    setPayChatStatus("checking");
+    api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" })
+      .then(() => { if (active) router.replace("/account-access?source=chat" as any); })
+      .catch(() => { if (active) router.replace("/(auth)/login" as any); })
+      .finally(() => { if (active) setPayChatStatus("done"); });
+    return () => { active = false; };
+  }, [loading, user, currentSeg, router]);
+  const shouldBounceToPay = inAppGroup &&
+    !loading && !!user && isPending && !isMessenger && !PENDING_ALLOWED_SEGMENTS.has(currentSeg);
 
   useEffect(() => {
     const pref = user?.preferred_language;
@@ -72,21 +92,29 @@ export default function AppLayout() {
   }, [user?.preferred_language, lang, setLang]);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) {
+    if (loading || !inAppGroup) return;
+    if (!user && currentSeg === "pay") return;
+    if (!user && !isMessenger) {
       router.replace("/(auth)/login");
+      return;
+    }
+    if (needsAccountAccess && !isMessenger) {
+      router.replace("/account-access" as any);
       return;
     }
     if (shouldBounceToPay) {
       router.replace("/(app)/pay");
     }
-  }, [user, loading, shouldBounceToPay, router]);
+  }, [user, loading, shouldBounceToPay, router, isMessenger, needsAccountAccess, currentSeg, inAppGroup]);
 
   // While we're about to bounce, render an empty screen so the target
   // page never has a chance to mount + call its API + spin. This kills
   // the "click, enter, exit" flash the user reported.
-  if (shouldBounceToPay) {
+  if (shouldBounceToPay || (inAppGroup && needsAccountAccess && !isMessenger)) {
     return <View style={{ flex: 1, backgroundColor: "#fff" }} />;
+  }
+  if (!loading && !user && currentSeg === "pay" && payChatStatus !== "done") {
+    return <View style={{ flex: 1, backgroundColor: "#F6F8FB", alignItems: "center", justifyContent: "center" }} />;
   }
 
   return (
@@ -95,13 +123,13 @@ export default function AppLayout() {
         <NavigationTransitionProvider>
           <>
             <Stack screenOptions={{ headerShown: false }} />
-            {user && (
+            {user && inAppGroup && (
               <>
-                {isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
-                {isActivated && <SupportGroupPopup enabled={communityDone} />}
-                <NotificationToaster />
-                <PushBootstrap />
-                {isActivated && !isMessenger && <TelegramFab />}
+                {!isMessenger && isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
+                {!isMessenger && isActivated && <SupportGroupPopup enabled={communityDone} />}
+                {!isMessenger && <NotificationToaster />}
+                {!isMessenger && <PushBootstrap />}
+                {!isMessenger && isActivated && <TelegramFab />}
               </>
             )}
           </>

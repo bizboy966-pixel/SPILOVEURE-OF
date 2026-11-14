@@ -10,6 +10,8 @@ from mongomock_motor import AsyncMongoMockClient
 from auth import create_access_token
 from messenger import api
 from messenger_core import initialize
+from identity_core import initialize as identity_initialize, digest, now
+from datetime import timedelta
 
 
 @pytest.fixture
@@ -21,12 +23,21 @@ def chat(tmp_path, monkeypatch):
 
     async def seed():
         await initialize(app.state.db)
+        await identity_initialize(app.state.db)
         for uid, name in [("alice", "Alice"), ("bob", "Bob"), ("eve", "Eve"), ("pending", "Pending")]:
             await app.state.db.users.insert_one({
                 "id": uid, "username": name, "email": uid + "@example.invalid",
                 "role": "user", "status": "pending" if uid == "pending" else "active",
                 "max_level": 0 if uid == "pending" else 1,
                 "balance_profit": 1234,
+                "email_verified": True,
+                "email_verified_address": uid + "@example.invalid",
+            })
+            await app.state.db.identity_chat_sessions.insert_one({
+                "id": "session_" + uid, "digest": digest("test_chat_" + uid),
+                "user_id": uid, "email_digest": digest(uid + "@example.invalid"),
+                "revoked": False, "expires_at": now() + timedelta(days=1),
+                "absolute_expires_at": now() + timedelta(days=30), "last_seen": now(),
             })
         await app.state.db.chat_messages.insert_one({"id": "legacy", "text": "Support conservé"})
     asyncio.run(seed())
@@ -35,7 +46,7 @@ def chat(tmp_path, monkeypatch):
 
 
 def auth(uid="alice"):
-    return {"Authorization": "Bearer " + create_access_token(uid, "user")}
+    return {"Cookie": "spv_chat_session=test_chat_" + uid}
 
 
 def call(chat, method, path, uid="alice", **kwargs):
@@ -56,9 +67,12 @@ def message(chat, cid, uid="alice", client_id="one", **extra):
     })
 
 
-def test_authentication_and_activation(chat):
+def test_authentication_independent_of_activation(chat):
     assert chat[0].get("/api/messenger/conversations").status_code == 401
-    assert call(chat, "get", "/conversations", "pending").status_code == 403
+    assert call(chat, "get", "/conversations", "pending").status_code == 200
+    assert chat[0].get("/api/messenger/conversations", headers={
+        "Authorization": "Bearer " + create_access_token("alice", "user"),
+    }).status_code == 401
     assert call(chat, "get", "/conversations", "eve").json() == []
 
 

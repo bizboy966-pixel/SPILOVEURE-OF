@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@playwright/test": "^1.65.1",
+    "@replit/connectors-sdk": "^0.7.0",
     "http-proxy": "^1.18.1",
     "typescript": "~5.9.3"
   }

@@ -10,29 +10,51 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { useAuth } from "@/src/auth";
+import { useChat } from "@/src/chat/ChatContext";
+import { api } from "@/src/api";
 import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { theme } from "@/src/theme";
 
 export default function Login() {
   const router = useRouter();
   const { signIn } = useAuth();
+  const { refresh: refreshChat } = useChat();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   const submit = async () => {
     setErr(null);
     setLoading(true);
     try {
       await signIn(email.trim(), password);
+      const account = await api.get<{ role: string }>("/auth/me");
       armWelcomeSplash();
-      router.replace("/");
+      router.replace(account.role === "admin" ? "/(admin)" : "/(app)/dashboard");
     } catch (e: any) {
       setErr(e?.detail || "Identifiants invalides.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openChat = async () => {
+    if (chatLoading) return;
+    setChatLoading(true);
+    setChatError("");
+    try {
+      await api.get("/identity/chat/session", { auth: false, credentials: "include" });
+      await refreshChat();
+      router.push("/messenger" as any);
+    } catch (e: any) {
+      if (e?.status === 401) router.push("/verify-email?source=chat" as any);
+      else setChatError(e?.detail || "Impossible de vérifier la session Chat. Réessayez.");
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -104,6 +126,19 @@ export default function Login() {
               testID="login-submit"
             />
 
+            <TouchableOpacity
+              onPress={openChat}
+              disabled={chatLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Ouvrir SPILOVEURE Chat"
+              testID="login-chat-button"
+              style={styles.chatButton}
+            >
+              <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.primary} />
+              <Text style={styles.chatButtonText}>{chatLoading ? "Vérification de la session…" : "Ouvrir SPILOVEURE Chat"}</Text>
+            </TouchableOpacity>
+            {chatError ? <Text accessibilityRole="alert" style={styles.chatError}>{chatError}</Text> : null}
+
             <View style={styles.bottomRow}>
               <Text style={styles.bottomText}>Vous n'avez pas encore de compte ?</Text>
               <TouchableOpacity onPress={() => router.push("/(auth)/register")} testID="goto-register">
@@ -158,6 +193,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   link: { color: theme.colors.primary, fontWeight: "600", fontSize: 13 },
+  chatButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 12, backgroundColor: theme.colors.primaryBg },
+  chatButtonText: { color: theme.colors.primary, fontSize: 13, fontWeight: "800" },
+  chatError: { color: theme.colors.danger, fontSize: 12, marginTop: 7, textAlign: "center" },
   bottomRow: { flexDirection: "row", justifyContent: "center", marginTop: 20, flexWrap: "wrap" },
   bottomText: { color: theme.colors.textSecondary, fontSize: 13 },
   errBox: {

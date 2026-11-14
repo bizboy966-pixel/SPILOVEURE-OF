@@ -84,10 +84,14 @@ const executablePath = execFileSync("sh", ["-c", "command -v chromium || nix-she
     await alice.getByTestId("messenger-back").click();
     await alice.screenshot({ path: "generated-artifacts/chat-mobile.jpg" });
     await alice.getByLabel("Retourner à SPILOVEURE").click();
+    await alice.waitForURL("**/account-access?source=chat");
+    await alice.getByTestId("main-password").fill(password);
+    await expect(alice.getByTestId("main-password-confirm")).toHaveCount(0);
+    await alice.getByTestId("main-account-submit").click();
     await alice.waitForURL("**/dashboard");
     await expect(alice.getByTestId("bottom-nav").filter({ visible: true }).last()).toBeVisible();
     assert.equal(errors.length, 0, "Unexpected browser errors: " + errors.join(" | "));
-    console.log("PASS: retour accueil par logo, aucune erreur JavaScript.");
+    console.log("PASS: retour via mot de passe unique, aucune erreur JavaScript.");
   } finally {
     for (const [i, context] of browser.contexts().entries()) {
       for (const page of context.pages()) await page.screenshot({ path: `generated-artifacts/final-browser-${i}.jpg` }).catch(() => {});

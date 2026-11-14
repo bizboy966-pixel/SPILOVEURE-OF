@@ -173,9 +173,8 @@ async def deliver_scheduled_once(db):
         return False
     try:
         user = await db.users.find_one({"id": row["sender_id"]})
-        if not user or user.get("status") in ("banned", "blocked") or (
-            user.get("role") != "admin" and user.get("status") != "active" and (user.get("max_level") or 0) < 1
-        ):
+        from identity_policy import email_verified
+        if not user or user.get("status") in ("banned", "blocked", "deleted") or not email_verified(user):
             raise HTTPException(403, "Le compte ne peut plus envoyer de message.")
         await deliver_message(db, row["conversation_id"], MessageIn(**row["payload"]), user)
         await db.spv_scheduled.update_one({"id": row["id"]}, {"$set": {"status": "sent"}})
@@ -185,7 +184,8 @@ async def deliver_scheduled_once(db):
 
 
 async def deliver_push_once(db):
-    from push_helper import push_to_users
+    from push_helper import _send
+    from identity_core import digest
     import firebase_admin
     row = await db.spv_push_outbox.find_one({"status": "pending"})
     if not row:
@@ -203,8 +203,20 @@ async def deliver_push_once(db):
         pref = await db.spv_preferences.find_one({"user_id": uid, "conversation_id": conv["id"]}) or {}
         if not pref.get("muted", False):
             recipients.append(uid)
-    result = await push_to_users(
-        db, recipients, title="SPILOVEURE Chat", body="Vous avez reçu un nouveau message.",
+    users = {u["id"]: u async for u in db.users.find({
+        "id": {"$in": recipients}, "email_verified": True,
+        "status": {"$nin": ["banned", "blocked", "deleted"]},
+    })}
+    sessions = [s["id"] async for s in db.identity_chat_sessions.find({
+        "user_id": {"$in": list(users)}, "revoked": False,
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+        "absolute_expires_at": {"$gt": datetime.now(timezone.utc)},
+    }) if s["email_digest"] == digest(users[s["user_id"]]["email"].lower())]
+    tokens = [t["token"] async for t in db.push_tokens.find({
+        "user_id": {"$in": recipients}, "chat_session_id": {"$in": sessions},
+    })]
+    result = await _send(
+        db, tokens, title="SPILOVEURE Chat", body="Vous avez reçu un nouveau message.",
         link="/messenger", data={"conversation_id": row["conversation_id"]}, tag="chat-" + row["conversation_id"],
     )
     await db.spv_push_outbox.update_one({"id": row["id"]}, {"$set": {

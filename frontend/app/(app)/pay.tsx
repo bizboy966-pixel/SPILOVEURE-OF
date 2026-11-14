@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { useChat } from "@/src/chat/ChatContext";
 import { theme } from "@/src/theme";
 import ActivationVideoList from "@/src/components/ActivationVideoList";
 
@@ -55,7 +56,8 @@ type Catalog = {
 
 export default function Pay() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { refresh, user } = useAuth();
+  const { user: chatUser, refresh: refreshChat } = useChat();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
@@ -84,6 +86,31 @@ export default function Pay() {
   }>(null);
   const [otp, setOtp] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const openChat = async () => {
+    if (chatBusy) return;
+    if (chatUser && (!user || chatUser.id === user.id)) { router.push("/messenger" as any); return; }
+    if (chatUser && user && chatUser.id !== user.id) {
+      if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+      return;
+    }
+    setChatBusy(true);
+    try {
+      const main = await api.get<{ user: { id: string }; email_verified: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
+      const existing = await api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" }).catch(() => null);
+      if (existing && existing.user?.id !== main.user?.id) {
+        throw { detail: "Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer." };
+      }
+      if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
+      await api.post("/identity/chat/open", undefined, { credentials: "include" });
+      await refreshChat();
+      router.push("/messenger" as any);
+    } catch (e: any) {
+      if (e?.status === 401) router.push("/verify-email" as any);
+      else if (e?.detail) { if (typeof window !== "undefined") window.alert(e.detail); }
+      else router.push("/verify-email" as any);
+    } finally { setChatBusy(false); }
+  };
   // v27i (2026-02-20) — Restore the "Hash de transaction" field on the
   // crypto pending screen. After sending USDT the user pastes the on-chain
   // hash and hits "Valider le paiement". Backend
@@ -633,6 +660,17 @@ export default function Pay() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      <TouchableOpacity
+        testID="pay-chat-button"
+        accessibilityRole="button"
+        accessibilityLabel="Ouvrir SPILOVEURE Chat"
+        disabled={chatBusy}
+        onPress={openChat}
+        style={styles.chatFab}
+      >
+        <Ionicons name="chatbubbles" size={23} color="#fff" />
+        <Text style={styles.chatFabText}>{chatBusy ? "…" : "Chat"}</Text>
+      </TouchableOpacity>
 
       {/* Operator picker modal */}
       <Modal visible={operatorPicker} animationType="slide" onRequestClose={() => setOperatorPicker(false)}>
@@ -669,6 +707,8 @@ export default function Pay() {
 }
 
 const styles = StyleSheet.create({
+  chatFab: { position: "absolute", bottom: 14, left: "50%", marginLeft: -34, width: 68, height: 68, borderRadius: 36, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: theme.colors.primaryDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: .25, shadowRadius: 8 },
+  chatFabText: { color: "#fff", fontSize: 12, fontWeight: "800", marginTop: 1 },
   root: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

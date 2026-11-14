@@ -10,8 +10,9 @@ class RegisterIn(BaseModel):
     email: EmailStr
     country: str  # country code (e.g. "TG")
     phone: str = Field(min_length=6, max_length=20)
-    password: str = Field(min_length=8, max_length=128)
-    password_confirm: str
+    # Accepted for old clients only; new registration never stores a password.
+    password: Optional[str] = Field(default=None, max_length=128)
+    password_confirm: Optional[str] = None
     sponsor_username: str  # required (referral link mandatory)
     accept_terms: bool
 

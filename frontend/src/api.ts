@@ -28,6 +28,14 @@ let _onUnauthorized: UnauthorizedHandler | null = null;
 export function setUnauthorizedHandler(cb: UnauthorizedHandler | null) {
   _onUnauthorized = cb;
 }
+type ChatUnauthorizedHandler = () => void;
+let _onChatUnauthorized: ChatUnauthorizedHandler | null = null;
+export function setChatUnauthorizedHandler(cb: ChatUnauthorizedHandler | null) {
+  _onChatUnauthorized = cb;
+}
+export function reportChatUnauthorized() {
+  try { _onChatUnauthorized?.(); } catch { /* ignore callback failures */ }
+}
 
 // ─── Global 403 ACTIVATION_REQUIRED handler (v23) ───────────────
 // Any protected-action endpoint on the backend returns 403 with detail
@@ -54,7 +62,9 @@ async function request<T = any>(
   path: string,
   opts: RequestInit & { auth?: boolean; pwdConfirm?: string } = {}
 ): Promise<T> {
-  const { auth = true, pwdConfirm, headers, ...rest } = opts;
+  const isChat = path.startsWith("/messenger/");
+  const isIdentity = path.startsWith("/identity/");
+  const { auth = !isChat, pwdConfirm, headers, ...rest } = opts;
   const h: Record<string, string> = {
     "Content-Type": "application/json",
     ...(headers as any),
@@ -75,6 +85,7 @@ async function request<T = any>(
   if (pwdConfirm) h["X-Password-Confirm"] = pwdConfirm;
   const res = await fetch(`${BASE}/api${path}`, {
     ...rest,
+    credentials: isChat || rest.credentials ? "include" : undefined,
     headers: h,
     // Never let the browser or any intermediate CDN serve a cached
     // response for authenticated calls — /auth/me, /payments/*/status
@@ -117,16 +128,19 @@ async function request<T = any>(
     // string should force a clean sign-out + redirect. Prevents the "user
     // stays on a page whose every action fails with 'Session expirée'"
     // dead-end that Challenge Performance was hitting.
-    if (res.status === 401 && AUTH_ERROR_STRINGS.has(message)) {
+    if (!isChat && !isIdentity && res.status === 401 && AUTH_ERROR_STRINGS.has(message)) {
       _authToken = null;
       if (_onUnauthorized) {
         try { _onUnauthorized(message); } catch { /* ignore handler bugs */ }
       }
     }
+    if (isChat && res.status === 401) {
+      reportChatUnauthorized();
+    }
     // v23 — global ACTIVATION_REQUIRED hook. Any protected-action backend
     // guard sends `403 { detail: "ACTIVATION_REQUIRED" }` for pending
     // users. Route it to the activation modal instead of a generic toast.
-    if (res.status === 403 && message === "ACTIVATION_REQUIRED") {
+    if (!isChat && !isIdentity && res.status === 403 && message === "ACTIVATION_REQUIRED") {
       if (_onActivationRequired) {
         try { _onActivationRequired(); } catch { /* ignore handler bugs */ }
       }
@@ -151,18 +165,22 @@ export const api = {
     const fd = new FormData();
     // @ts-ignore — File on web also has .name
     fd.append(fieldName, file, (file as any).name || "upload");
-    let token = _authToken;
-    if (!token) {
+    const isChat = p.startsWith("/messenger/");
+    let token = isChat ? null : _authToken;
+    if (!isChat && !token) {
       const stored = await storage.secureGet("auth_token", "");
       if (stored) { token = stored as string; _authToken = token; }
     }
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${BASE}/api${p}`, { method: "POST", headers, body: fd as any });
+    const res = await fetch(`${BASE}/api${p}`, { method: "POST", headers, body: fd as any, ...(isChat ? { credentials: "include" as RequestCredentials } : {}) });
     const text = await res.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (!res.ok) {
+      if (isChat && res.status === 401) {
+        reportChatUnauthorized();
+      }
       const err: ApiError = { detail: (data && (data.detail || data.msg)) || `Upload failed (${res.status})`, status: res.status };
       throw err;
     }

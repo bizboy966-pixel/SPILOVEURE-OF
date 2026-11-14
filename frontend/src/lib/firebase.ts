@@ -36,6 +36,15 @@ const VAPID_KEY = process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY;
 let _app: FirebaseApp | null = null;
 let _messaging: Messaging | null = null;
 let _unsubscribeForeground: (() => void) | null = null;
+export type PushRegistrationPayload = {
+  token: string;
+  device_id: string;
+  platform: string;
+  user_agent: string | null;
+};
+export type WebPushOptions = {
+  registerToken?: (payload: PushRegistrationPayload) => Promise<unknown>;
+};
 
 function isWeb(): boolean {
   return Platform.OS === "web" && typeof window !== "undefined";
@@ -88,7 +97,8 @@ async function ensureInitialised(): Promise<Messaging | null> {
  * Returns the registered FCM token (or null when unavailable / refused).
  */
 export async function setupWebPush(
-  onToast: (title: string, body: string, data?: Record<string, string>) => void
+  onToast: (title: string, body: string, data?: Record<string, string>) => void,
+  options: WebPushOptions = {}
 ): Promise<string | null> {
   try {
     const messaging = await ensureInitialised();
@@ -114,12 +124,17 @@ export async function setupWebPush(
 
     // Ship token to the backend so admins can broadcast to this device.
     try {
-      await api.post("/push/tokens", {
+      const registrationPayload: PushRegistrationPayload = {
         token,
         device_id: getDeviceId(),
         platform: "web",
         user_agent: navigator.userAgent?.slice(0, 500) || null,
-      });
+      };
+      if (options.registerToken) {
+        await options.registerToken(registrationPayload);
+      } else {
+        await api.post("/push/tokens", registrationPayload);
+      }
     } catch (e) {
       // Non-fatal — token is still valid in the browser; the next login
       // attempt will re-post it.

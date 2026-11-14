@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
-from auth import get_current_user, require_active_user
+from identity_core import require_chat
 
 
 def now():
@@ -21,10 +21,8 @@ def identifier():
     return str(uuid.uuid4())
 
 
-async def chat_user(user=Depends(require_active_user)):
-    # Do not change the platform's activation rules or provision extra accounts.
-    if user.get("status") in ("banned", "blocked"):
-        raise HTTPException(403, "Compte indisponible.")
+async def chat_user(user=Depends(require_chat)):
+    # Verified-email Chat sessions are independent of paid activation.
     return user
 
 
@@ -216,10 +214,11 @@ async def rate_limit(db, uid, collection="spv_messages", maximum=60):
         raise HTTPException(429, "Trop d'envois. Réessayez dans une minute.")
 
 
-async def ticket(db, uid):
+async def ticket(db, uid, session_id=None):
     value = secrets.token_urlsafe(32)
     await db.spv_tickets.insert_one({
         "digest": hashlib.sha256(value.encode()).hexdigest(), "user_id": uid,
+        "session_id": session_id,
         "expires_at": datetime.now(timezone.utc) + timedelta(seconds=30),
     })
     return value

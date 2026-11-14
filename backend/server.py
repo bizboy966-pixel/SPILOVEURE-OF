@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
     # Community messenger owns separate collections; support retention never touches them.
     from messenger_core import initialize as initialize_messenger
     await initialize_messenger(db)
+    from identity_core import initialize as initialize_identity
+    await initialize_identity(db)
     # Bind DB to modules that need it for observability (BizTransPay API logs).
     try:
         from biztranspay import _bind_db as _biztranspay_bind_db
@@ -340,65 +342,28 @@ async def get_sponsor(username: str, request: Request):
 
 @api.post("/auth/register", response_model=TokenOut)
 async def register(data: RegisterIn, request: Request):
-    db = request.app.state.db
-    if not data.accept_terms:
-        raise HTTPException(400, "Vous devez accepter les conditions.")
-    if data.password != data.password_confirm:
-        raise HTTPException(400, "Les mots de passe ne correspondent pas.")
-    email = data.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(400, "Un compte existe déjà avec cet e-mail.")
-    if await db.users.find_one({"username": data.username}):
-        raise HTTPException(400, "Ce nom d’utilisateur est déjà pris.")
-    sponsor = await db.users.find_one({"username": data.sponsor_username})
-    if not sponsor:
-        raise HTTPException(400, "Parrain introuvable.")
-    if not any(c["code"] == data.country for c in COUNTRIES):
-        raise HTTPException(400, "Pays invalide.")
-
-    user_id = str(uuid.uuid4())
-    user = {
-        "id": user_id,
-        "username": data.username,
-        "email": email,
-        "country": data.country,
-        "phone": data.phone,
-        "password_hash": hash_password(data.password),
-        "role": "user",
-        "status": "pending",  # pending activation
-        "max_level": 0,
-        "sponsor_id": sponsor["id"],
-        "sponsor_username": sponsor["username"],
-        "balance_profit": 0,
-        "balance_upgrade": 0,
-        "commission_direct": 0,
-        "commission_spillover": 0,
-        "total_earned": 0,
-        "total_withdrawn": 0,
-        "withdrawals_disabled": False,
-        "earnings_per_level": {},
-        "level_activated_at": {},
-        "created_at": datetime.now(timezone.utc),
-    }
-    await db.users.insert_one(user)
-    user.pop("password_hash", None)
-    user.pop("_id", None)
-    token = create_access_token(user_id, "user")
-    return TokenOut(access_token=token, user=user)
+    from identity import register_account
+    return await register_account(data, request)
 
 
 @api.post("/auth/login", response_model=TokenOut)
 async def login(data: LoginIn, request: Request):
     db = request.app.state.db
+    from identity_core import rate_limit, remote_key
+    from identity_policy import main_ready
+    await rate_limit(db, "login-ip:" + remote_key(request), 40, 900)
+    await rate_limit(db, "login:" + str(data.email).lower(), 10, 900)
     email = data.email.lower()
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(data.password, user["password_hash"]):
+    if not user or not verify_password(data.password, user.get("password_hash", "")):
         raise HTTPException(401, "Identifiants invalides.")
     if user.get("status") == "banned":
         raise HTTPException(403, "Compte banni.")
-    token = create_access_token(user["id"], user.get("role", "user"))
+    scope = "onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
+    token = create_access_token(user["id"], user.get("role", "user"), scope=scope)
     user.pop("password_hash", None)
     user.pop("_id", None)
+    user["session_scope"] = scope or "main"
     return TokenOut(access_token=token, user=user)
 
 
@@ -5700,3 +5665,6 @@ app.include_router(jobs_admin)
 # Firebase Cloud Messaging — web push notifications (register token + admin send).
 from push_notifications import router as push_router  # noqa: E402
 app.include_router(push_router)
+
+from identity import router as identity_router  # noqa: E402
+app.include_router(identity_router)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
-import { api } from "@/src/api";
+import { api, reportChatUnauthorized } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Conversation, ReadReceipts } from "./types";
 
@@ -71,6 +71,9 @@ export function useConversations(currentUserId?: string) {
           } catch { /* ignore malformed event */ }
         };
         socket.onclose = event => {
+          if (event.code === 4401 || event.code === 4403) {
+            reportChatUnauthorized();
+          }
           if (event.code === 4403) {
             stopped = true;
             setError("L’accès au Chat a été retiré. Reconnectez-vous pour vérifier votre compte.");

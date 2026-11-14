@@ -22,6 +22,10 @@ export type User = {
   withdrawals_disabled?: boolean;
   preferred_language?: "fr" | "en";
   created_at: string;
+  auth_flow_version?: number;
+  email_verified?: boolean;
+  main_password_created?: boolean;
+  session_scope?: "main" | "onboarding" | string;
 };
 
 type Ctx = {
@@ -31,6 +35,7 @@ type Ctx = {
   signUp: (payload: any) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
+  adoptSession: (accessToken: string, user: User) => Promise<void>;
 };
 
 const AuthContext = createContext<Ctx | null>(null);
@@ -100,6 +105,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // fire-and-forget — no need to block on storage flush
       storage.secureRemove("auth_token").catch(() => {});
       if (typeof window !== "undefined") {
+        const pathname = window.location.pathname;
+        const isRecoveryRoute = /\/(account-access|verify-email|messenger)(\/|$)/.test(pathname);
+        const isPayRoute = /\/pay(?:\/|$)/.test(pathname);
+        if (isRecoveryRoute || isPayRoute) return;
         // Alert once, then let the auth guard redirect the user.
         // Use a small delay so React finishes the current render.
         setTimeout(() => {
@@ -139,8 +148,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const adoptSession = useCallback(async (accessToken: string, nextUser: User) => {
+    setAuthToken(accessToken);
+    await storage.secureSet("auth_token", accessToken);
+    setUser(nextUser);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refresh, adoptSession }}>
       {children}
     </AuthContext.Provider>
   );

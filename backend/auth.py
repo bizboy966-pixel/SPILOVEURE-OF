@@ -28,7 +28,7 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, scope: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
@@ -37,6 +37,8 @@ def create_access_token(user_id: str, role: str) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=JWT_ACCESS_EXP_MINUTES),
     }
+    if scope:
+        payload["scope"] = scope
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
@@ -78,6 +80,12 @@ async def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable.")
     if user.get("status") == "banned":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte banni.")
+    from identity_policy import main_ready, onboarding_path_allowed
+    onboarding = payload.get("scope") == "onboarding"
+    restricted = onboarding or (user.get("auth_flow_version") == 2 and not main_ready(user))
+    if restricted and not onboarding_path_allowed(request.url.path, request.method):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "MAIN_AUTHENTICATION_REQUIRED")
+    user["session_scope"] = "onboarding" if onboarding else "main"
     return user
 
 

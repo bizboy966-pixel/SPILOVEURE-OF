@@ -1,4 +1,4 @@
-import { api, getAuthToken } from "@/src/api";
+import { api, reportChatUnauthorized } from "@/src/api";
 import type { Attachment, Conversation, Message, Person, PublicChannel, ScheduledMessage, MessengerCapabilities } from "./types";
 
 export const messengerApi = {
@@ -29,11 +29,12 @@ export const messengerApi = {
 };
 
 export async function protectedFileUrl(fileId: string): Promise<string> {
-  if (typeof window === "undefined" || typeof URL === "undefined" || !getAuthToken()) throw new Error("Fichier indisponible");
+  if (typeof window === "undefined" || typeof URL === "undefined") throw new Error("Fichier indisponible");
   const base = process.env.EXPO_PUBLIC_BACKEND_URL || "";
   const response = await fetch(`${base}/api/messenger/files/${encodeURIComponent(fileId)}`, {
-    headers: { Authorization: `Bearer ${getAuthToken()}` }, cache: "no-store",
+    credentials: "include", cache: "no-store",
   });
+  if (response.status === 401) reportChatUnauthorized();
   if (!response.ok) throw new Error("Impossible d’ouvrir ce fichier.");
   return URL.createObjectURL(await response.blob());
 }

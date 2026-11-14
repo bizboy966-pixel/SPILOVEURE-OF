@@ -19,7 +19,7 @@ type Country = { code: string; name: string; dial: string; flag: string };
 
 export default function Register() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ ref?: string; via?: string }>();
+  const params = useLocalSearchParams<{ ref?: string; via?: string; flow?: string; country?: string; email?: string }>();
   const { signUp } = useAuth();
   const landingEnabled = useFeature("landing_page");
   const { loading: featLoading } = useFeatures();
@@ -51,8 +51,6 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState<Country | null>(null);
   const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [passwordConfirm, setPasswordConfirm] = useState("");
   // ⚠️ Le parrain provient EXCLUSIVEMENT du lien de parrainage (?ref=…).
   // Aucun fallback "admin" : si le lien est manquant ou invalide, l'inscription
   // est bloquée jusqu'à ce que l'utilisateur passe par un lien valide.
@@ -62,8 +60,6 @@ export default function Register() {
   );
   const [sponsorChecking, setSponsorChecking] = useState<boolean>(false);
   const [accept, setAccept] = useState(false);
-  const [show, setShow] = useState(false);
-  const [show2, setShow2] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -72,10 +68,14 @@ export default function Register() {
       try {
         const cfg = await api.get<{ countries: Country[] }>("/config", { auth: false });
         setCountries(cfg.countries);
-        if (!country) setCountry(cfg.countries.find((c) => c.code === "TG") || cfg.countries[0]);
+        if (!country) setCountry(cfg.countries.find((c) => c.code === String(params.country || "")) || cfg.countries.find((c) => c.code === "TG") || cfg.countries[0]);
       } catch {}
     })();
   }, []);
+  useEffect(() => {
+    if (params.email) setEmail(String(params.email));
+    if (params.country && countries.length) setCountry(countries.find(c => c.code === String(params.country)) || null);
+  }, [params.email, params.country, countries]);
 
   // Vérifie l'existence du parrain transmis via le lien dès l'ouverture du
   // formulaire. Si le lien pointe vers un utilisateur introuvable, on bloque
@@ -108,12 +108,8 @@ export default function Register() {
       setErr("Lien de parrainage invalide ou introuvable. Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.");
       return;
     }
-    if (!username || !email || !phone || !password || !sponsor) {
+    if (!username || !email || !phone || !sponsor || !country) {
       setErr("Veuillez remplir tous les champs obligatoires.");
-      return;
-    }
-    if (password !== passwordConfirm) {
-      setErr("Les mots de passe ne correspondent pas.");
       return;
     }
     if (!accept) {
@@ -125,7 +121,6 @@ export default function Register() {
       await signUp({
         username, email, country: country?.code,
         phone: `${country?.dial || ""}${phone}`,
-        password, password_confirm: passwordConfirm,
         sponsor_username: sponsor, accept_terms: accept,
       });
       armWelcomeSplash();
@@ -159,7 +154,7 @@ export default function Register() {
               <View style={styles.refBlockBox} testID="register-ref-invalid">
                 <Ionicons name="warning" size={20} color="#92400E" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.refBlockTitle}>⚠️ Lien de parrainage invalide ou introuvable.</Text>
+                  <Text style={styles.refBlockTitle}>Lien de parrainage invalide ou introuvable.</Text>
                   <Text style={styles.refBlockText}>
                     Veuillez utiliser un lien de recommandation valide avant de poursuivre votre inscription.
                   </Text>
@@ -197,6 +192,7 @@ export default function Register() {
               autoCapitalize="none"
               keyboardType="email-address"
               testID="register-email"
+              editable={!params.email}
             />
 
             <Text style={styles.lbl}>Choisir le pays</Text>
@@ -225,28 +221,6 @@ export default function Register() {
             </View>
 
             <Input
-              label="Mot de passe"
-              icon="lock-closed-outline"
-              placeholder="Entrez votre mot de passe"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!show}
-              rightIcon={show ? "eye-off-outline" : "eye-outline"}
-              onRightIconPress={() => setShow((s) => !s)}
-              testID="register-password"
-            />
-            <Input
-              label="Confirmer le mot de passe"
-              icon="lock-closed-outline"
-              placeholder="Confirmez votre mot de passe"
-              value={passwordConfirm}
-              onChangeText={setPasswordConfirm}
-              secureTextEntry={!show2}
-              rightIcon={show2 ? "eye-off-outline" : "eye-outline"}
-              onRightIconPress={() => setShow2((s) => !s)}
-              testID="register-password-confirm"
-            />
-            <Input
               label="Parrain"
               icon="lock-closed"
               placeholder="Lien de parrainage requis"
@@ -258,8 +232,8 @@ export default function Register() {
             />
             <Text style={styles.sponsorHint}>
               {sponsorValid && sponsor
-                ? `🔒 Code parrain verrouillé (transmis via votre lien d'invitation : @${sponsor}).`
-                : "🔒 Le parrain est verrouillé et provient exclusivement de votre lien de parrainage. Sans lien valide, vous ne pouvez pas vous inscrire."}
+                ? `Code parrain verrouillé (transmis via votre lien d'invitation : @${sponsor}).`
+                : "Le parrain est verrouillé et provient exclusivement de votre lien de parrainage. Sans lien valide, vous ne pouvez pas vous inscrire."}
             </Text>
 
             <TouchableOpacity style={styles.checkRow} onPress={() => setAccept((v) => !v)} testID="register-accept">

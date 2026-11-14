@@ -2370,6 +2370,11 @@
   dependencies:
     nanoid "^3.3.11"
 
+"@replit/connectors-sdk@^0.7.0":
+  version "0.7.0"
+  resolved "http://package-firewall.replit.internal/npm/@replit/connectors-sdk/-/connectors-sdk-0.7.0.tgz#803609fb8d37651fafbf667dc73fc45a3bfe80fc"
+  integrity sha512-8AXbiKo5b+0k/x/WjD5O5YIgTGYHx484bydTKLWXDLq6LW3sg0Aq1ClSjp3Mlc91NDpun47TDgIYgFIOKcj0EA==
+
 "@rtsao/scc@^1.1.0":
   version "1.1.0"
   resolved "http://package-firewall.replit.internal/npm/@rtsao/scc/-/scc-1.1.0.tgz#927dd2fae9bc3361403ac2c7a00c32ddce9ad7e8"

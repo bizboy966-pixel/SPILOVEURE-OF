@@ -3,7 +3,7 @@ import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInpu
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useAuth } from "@/src/auth";
+import { useChat } from "@/src/chat/ChatContext";
 import { messengerApi } from "./api";
 import { useConversations } from "./useConversations";
 import type { Conversation, MessengerCapabilities, Person } from "./types";
@@ -21,11 +21,13 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: chatLoading, sessionExpired, refresh: refreshChat } = useChat();
   const navTransition = useNavigationTransition();
   const { items, loading, error, refresh, archived, setArchived, version, feedVersion, typingByConversation, readReceipts } = useConversations(user?.id);
   const { width } = useWindowDimensions();
   const wide = width >= 760;
+  useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
+  useEffect(() => { if (sessionExpired) router.replace("/verify-email?source=chat&expired=1" as any); }, [sessionExpired, router]);
   const [tab, setTab] = useState<Tab>("Échanges");
   const [filter, setFilter] = useState<Filter>("Tous");
   const [query, setQuery] = useState("");
@@ -65,7 +67,7 @@ export default function MessengerScreen() {
   }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()), [items, filter, query]);
 
   const goHome = () => {
-    navTransition.toHome(() => router.replace("/(app)/dashboard" as any));
+    navTransition.toHome(() => router.replace("/account-access?source=chat" as any));
   };
   const createPrivate = (person: Person) => {
     setBusy(true); setActionError("");
@@ -146,6 +148,7 @@ export default function MessengerScreen() {
     { key: "Échanges", icon: "chatbubbles" }, { key: "Contacts", icon: "people" },
     { key: "Actus", icon: "megaphone" }, { key: "Profil", icon: "person" },
   ];
+  if (chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
   return <View style={styles.page}>
     <View style={[styles.workspace, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>

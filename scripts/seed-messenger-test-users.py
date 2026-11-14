@@ -20,6 +20,8 @@ for name in ("alice", "bob"):
         "id": uid, "username": uid, "email": uid + "@example.com",
         "password_hash": hash_password(data["password"]), "phone": "00000000",
         "country": "TG", "role": "user", "status": "active", "max_level": 1,
+        "email_verified": True,
+        "email_verified_address": uid + "@example.com",
         "balance_profit": 0, "balance_upgrade": 0, "commission_direct": 0,
         "commission_spillover": 0, "total_earned": 0, "total_withdrawn": 0,
         "created_at": datetime.now(timezone.utc),

@@ -9,8 +9,8 @@ Le Chat doit être accessible après vérification unique de l’e-mail par code
 
 **How to apply:** Faire respecter les états côté serveur. Retour depuis le Chat : compte non activé vers paiement ; compte activé vers saisie simple du mot de passe avant le tableau de bord. Pour les nouvelles inscriptions, création et confirmation du mot de passe une seule fois après confirmation fiable du paiement. Ne pas modifier la durée d’inactivité existante, les montants, prestataires, confirmations ou règles d’activation. Conserver la landing page, le parrainage et les données existantes ; préparer une migration sauvegardable et réversible.
 
-L’envoi des codes doit utiliser une couche indépendante compatible avec une future intégration Resend. Ne pas prétendre que les e-mails sont envoyés sans fournisseur réellement configuré.
+Conserver le formulaire (pseudo, téléphone, pays, parrainage et conditions) avant le paiement, sans les champs de mot de passe. Le préremplir depuis les nouvelles étapes de pays et d’e-mail. Resend est le fournisseur choisi pour SPILOVEURE.
 
-**Why:** Le document distingue explicitement la vérification de l’e-mail du paiement, tout en exigeant de préserver l’existant et de pouvoir intégrer Resend ultérieurement.
+**Why:** L’utilisateur a confirmé « Conserver le formulaire avant paiement » puis « Resend pour SPILOVEURE ».
 
-**How to apply:** Codes expirables, usage unique, tentatives limitées et délai de renvoi ; aucun code ni secret dans les journaux ou réponses publiques. Le texte source contient une ambiguïté à résoudre entre passage direct e-mail → paiement et conservation du formulaire actuel.
+**How to apply:** Garder une couche fournisseur indépendante. Codes expirables, usage unique, tentatives limitées et délai de renvoi ; aucun code ni secret dans les journaux ou réponses publiques. Ne pas prétendre que les e-mails sont envoyés avant la validation du domaine et la configuration réelle du fournisseur. Ne pas utiliser par défaut les autres domaines déjà vérifiés du compte Resend.

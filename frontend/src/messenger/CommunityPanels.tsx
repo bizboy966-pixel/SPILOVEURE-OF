@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Attachment, ContactState, MessengerCapabilities, Person, Post } from "./types";
+import { useChat } from "@/src/chat/ChatContext";
+import { useRouter } from "expo-router";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void };
@@ -128,10 +130,20 @@ export function FeedPanel({ userId, version = 0 }: FeedProps) {
 
 type ProfileProps = { username: string };
 export function ProfilePanel({ username }: ProfileProps) {
+  const router = useRouter();
+  const { logout } = useChat();
   const [settings, setSettings] = useState({ show_presence: true, allow_contacts: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
+  const [sessions, setSessions] = useState<Array<{ id: string; device: string; created_at: string; last_seen: string; expires_at: string; current: boolean }>>([]);
+  const [sessionError, setSessionError] = useState("");
+  const loadSessions = () => api.get<typeof sessions>("/identity/chat/sessions", { auth: false, credentials: "include" }).then(setSessions).catch((e: any) => setSessionError(e?.detail || "Sessions indisponibles."));
+  useEffect(() => { loadSessions(); }, []);
+  const revoke = async (id: string) => {
+    try { await api.delete(`/identity/chat/sessions/${encodeURIComponent(id)}`, { auth: false, credentials: "include" }); await loadSessions(); }
+    catch (e: any) { setSessionError(e?.detail || "Révocation impossible."); }
+  };
   useEffect(() => { api.get<typeof settings>("/messenger/settings").then(setSettings).catch((e: any) => setError(e?.detail || "Paramètres indisponibles.")).finally(() => setLoading(false)); }, []);
   useEffect(() => { messengerApi.capabilities().then(setCapabilities).catch(() => setCapabilities(null)); }, []);
   const toggle = async (key: keyof typeof settings) => {
@@ -146,6 +158,10 @@ export function ProfilePanel({ username }: ProfileProps) {
       <TouchableOpacity onPress={() => toggle("allow_contacts")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Demandes de contact</Text><Text style={styles.personMeta}>Autoriser les membres à vous ajouter</Text></View><View style={[styles.switch, settings.allow_contacts && styles.switchOn]}><View style={[styles.switchKnob, settings.allow_contacts && styles.switchKnobOn]} /></View></TouchableOpacity>
     </>}
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    <Text style={styles.sectionTitle}>Sessions du Chat</Text>
+    {sessions.map(session => <View key={session.id} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>{session.device || "Appareil"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.personMeta}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>{!session.current && <TouchableOpacity accessibilityLabel="Révoquer cette session" onPress={() => revoke(session.id)}><Text style={[styles.action, { color: "#c43e48" }]}>Révoquer</Text></TouchableOpacity>}</View>)}
+    {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
+    <TouchableOpacity testID="chat-logout" accessibilityLabel="Se déconnecter du Chat" onPress={async () => { await logout(); router.replace("/verify-email" as any); }} style={[styles.settingRow, { justifyContent: "center", marginTop: 12 }]}><Text style={[styles.action, { color: "#c43e48" }]}>Se déconnecter du Chat</Text></TouchableOpacity>
     <Text style={styles.sectionTitle}>Fonctions disponibles</Text>
     <View style={styles.capabilityCard}>
       <Text style={styles.capabilityTitle}>Notifications push</Text>

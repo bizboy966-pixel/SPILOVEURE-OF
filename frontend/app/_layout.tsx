@@ -10,6 +10,7 @@ import { FeaturesProvider } from "@/src/features";
 import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 import { GlobalFonts } from "@/src/components/GlobalFonts";
+import { ChatProvider } from "@/src/chat/ChatContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -84,11 +85,13 @@ export default function RootLayout() {
       <GlobalFonts />
       <I18nProvider>
         <AuthProvider>
+          <ChatProvider>
           <FeaturesProvider>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
             <AnimatedSplash />
             <WelcomeSplash />
           </FeaturesProvider>
+          </ChatProvider>
         </AuthProvider>
       </I18nProvider>
     </SafeAreaProvider>
