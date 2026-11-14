@@ -10,7 +10,8 @@ import SwipeToReply from "@/src/components/SwipeToReply";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
-  onDetails: () => void; version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
+  onDetails: () => void; onViewPhoto: (uri: string, label: string) => void;
+  version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
   readReceipts?: ReadReceipts;
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
@@ -24,7 +25,7 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
   return [...byKey.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
 
-export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, version, typing, scheduledEnabled = true, readReceipts }: Props) {
+export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, version, typing, scheduledEnabled = true, readReceipts }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
     if (!readReceipts) return;
@@ -301,6 +302,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       : <Text key={`${index}-${part}`}>{part}</Text>,
   );
   const otherPerson = conversation.member_profiles.find(person => person.id !== userId);
+  const otherPhoto = otherPerson?.avatar || conversation.photo;
   const isChannelAdmin = conversation.admins.includes(userId) || conversation.owner_id === userId;
   const canSend = conversation.kind !== "channel" || isChannelAdmin;
   const presence = otherPerson?.online ? "En ligne" : otherPerson?.last_seen
@@ -311,10 +313,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     <View style={styles.thread}>
       <View style={styles.threadHead}>
         <TouchableOpacity onPress={onBack} style={styles.back} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
-        <TouchableOpacity onPress={onDetails} style={styles.identity}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text></View>
-          <View style={{ flex: 1 }}><Text style={styles.name} numberOfLines={1}>{conversation.title}</Text><Text style={[styles.presence, typing && styles.typing]}>{typing ? `${typing.username || "Quelqu’un"} écrit…` : presence}</Text></View>
-        </TouchableOpacity>
+        <View style={styles.identity}>
+          <TouchableOpacity onPress={() => otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={styles.avatar} accessibilityRole="button" accessibilityLabel={otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
+            {otherPhoto ? <Image source={{ uri: otherPhoto }} style={styles.avatarPhoto} /> : <Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onDetails} style={styles.identityText} activeOpacity={0.75} accessibilityRole="button">
+            <Text style={styles.name} numberOfLines={1}>{conversation.title}</Text><Text style={[styles.presence, typing && styles.typing]}>{typing ? `${typing.username || "Quelqu’un"} écrit…` : presence}</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity style={styles.headerIcon} onPress={() => setSearching(v => !v)}><Ionicons name="search" size={21} color={blue} /></TouchableOpacity>
         {canSend && scheduledEnabled && <TouchableOpacity style={styles.headerIcon} onPress={() => setScheduleOpen(true)} accessibilityLabel="Messages programmés" testID="messenger-scheduled-open"><Ionicons name="calendar-outline" size={20} color={blue} /></TouchableOpacity>}
         <TouchableOpacity style={styles.headerIcon} onPress={onDetails}><Ionicons name="ellipsis-vertical" size={20} color={blue} /></TouchableOpacity>
@@ -398,8 +404,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 const styles = StyleSheet.create({
   thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0 },
   threadHead: { minHeight: 68, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 12, gap: 7 },
-  back: { padding: 7 }, identity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
-  avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center" }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
+  back: { padding: 7 }, identity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }, identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
+  avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarPhoto: { width: 43, height: 43, borderRadius: 24 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
   name: { fontSize: 16, color: ink, fontWeight: "800" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, typing: { color: blue, fontWeight: "700" },
   headerIcon: { padding: 9 }, searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: ink },

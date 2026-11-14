@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
@@ -32,7 +32,7 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
   const run = async (fn: () => Promise<any>) => { try { await fn(); await refresh(); } catch (e: any) { setError(e?.detail || "Action impossible."); } };
   const personRow = (person: Person, label?: string) => <View key={person.id} style={styles.personRow} testID={`messenger-contact-row-${person.id}`}>
     <TouchableOpacity onPress={() => onStart(person)} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-contact-open-${person.id}`} style={styles.personIdentity}>
-      <View style={styles.avatar}><Text style={styles.avatarText}>{person.username.slice(0, 1).toUpperCase()}</Text></View>
+      <View style={styles.avatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View>
       <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.personName} numberOfLines={1}>{person.username}</Text><Text style={styles.personMeta}>{label || (person.online ? "En ligne" : "Membre SPILOVEURE")}</Text></View>
     </TouchableOpacity>
     <TouchableOpacity onPress={() => onStart(person)} style={styles.smallAction}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 17, marginBottom: 9, textTransform: "uppercase", letterSpacing: .5 },
   personRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderColor: "#eef1f5", position: "relative" },
   personIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
-  avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center" }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
+  avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center", overflow: "hidden" }, avatarImage: { width: 43, height: 43, borderRadius: 23 }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
   personName: { color: ink, fontSize: 14, fontWeight: "800" }, personMeta: { color: muted, fontSize: 11, marginTop: 3 },
   smallAction: { padding: 7 }, saveAction: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, backgroundColor: "#eef4ff", borderRadius: 17, paddingHorizontal: 8 }, saveActionText: { color: blue, fontSize: 10, fontWeight: "800" }, personActions: { position: "absolute", zIndex: 2, right: 0, top: 54, backgroundColor: "#fff", padding: 10, borderRadius: 11, borderWidth: 1, borderColor: "#e7ebf1", shadowColor: "#233", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .15, shadowRadius: 8, elevation: 5 },
   action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },

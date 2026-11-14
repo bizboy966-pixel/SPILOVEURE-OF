@@ -28,7 +28,7 @@ async def people(request: Request, q: str = Query(default="", max_length=100), u
     async for row in request.app.state.db.users.find({
         "id": {"$ne": user["id"]}, "status": {"$nin": ["banned", "blocked"]},
         "username": {"$regex": re.escape(q.strip()), "$options": "i"},
-    }, {"id": 1, "username": 1, "avatar_url": 1}).limit(30):
+    }, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1}).limit(30):
         rows.append(await person(request.app.state.db, row))
     return rows
 

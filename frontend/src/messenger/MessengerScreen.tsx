@@ -11,6 +11,7 @@ import type { Conversation, MessengerCapabilities, Person } from "./types";
 import ConversationThread from "./ConversationThread";
 import ConversationDetails from "./ConversationDetails";
 import PublicChannelsModal from "./PublicChannelsModal";
+import ProfilePhotoViewer from "./ProfilePhotoViewer";
 import { ContactsPanel, FeedPanel, ProfilePanel } from "./CommunityPanels";
 import { useNavigationTransition } from "./NavigationTransition";
 
@@ -27,6 +28,7 @@ export default function MessengerScreen() {
   const { items, loading, error, refresh, archived, setArchived, version, feedVersion, typingByConversation, readReceipts } = useConversations(user?.id);
   const { width } = useWindowDimensions();
   const wide = width >= 760;
+  const [photoPreview, setPhotoPreview] = useState<{ uri: string; label: string } | null>(null);
   useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
   useEffect(() => { if (sessionExpired) router.replace("/verify-email?source=chat&expired=1" as any); }, [sessionExpired, router]);
   const [tab, setTab] = useState<Tab>("Échanges");
@@ -129,23 +131,37 @@ export default function MessengerScreen() {
   };
   const renderConversation = (item: Conversation) => {
     const preview = item.last_message?.deleted ? "Message supprimé" : item.last_message?.text || item.draft || (item.last_message?.attachments?.length ? "Pièce jointe" : "");
-    return <TouchableOpacity key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} onPress={() => setSelected(item)} activeOpacity={0.7} testID={`messenger-conversation-${item.id}`} accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
-      <View style={styles.rowAvatar}>
-        {item.photo ? <Image source={{ uri: item.photo }} style={styles.rowPhoto} /> : <Text style={styles.rowAvatarLetter}>{item.title.slice(0, 1).toUpperCase()}</Text>}
-        {item.kind === "private" && item.member_profiles.find(p => p.id !== user?.id)?.online && <View style={styles.onlineDot} />}
-      </View>
+    const otherPerson = item.member_profiles.find(person => person.id !== user?.id);
+    const photo = item.photo || (item.kind === "private" ? otherPerson?.avatar : undefined);
+    const openConversation = () => setSelected(item);
+    return <View key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} testID={`messenger-conversation-${item.id}`}>
+      <TouchableOpacity style={styles.rowAvatar} onPress={() => photo && setPhotoPreview({ uri: photo, label: item.title })} disabled={!photo} activeOpacity={photo ? 0.8 : 1} accessibilityRole={photo ? "button" : undefined} accessibilityLabel={photo ? `Afficher la photo de ${item.title}` : `Profil de ${item.title}`} testID={`messenger-conversation-avatar-${item.id}`}>
+        {photo ? <Image source={{ uri: photo }} style={styles.rowPhoto} /> : <Text style={styles.rowAvatarLetter}>{item.title.slice(0, 1).toUpperCase()}</Text>}
+        {item.kind === "private" && otherPerson?.online && <View style={styles.onlineDot} />}
+      </TouchableOpacity>
       <View style={styles.rowMain}>
-        <View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text><Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text><TouchableOpacity onPress={() => runPreference(item, "pinned")} hitSlop={8} accessibilityRole="button" accessibilityLabel={item.pinned ? "Désenregistrer la discussion" : "Enregistrer la discussion"} testID={`messenger-pin-${item.id}`}><Ionicons name={item.pinned ? "bookmark" : "bookmark-outline"} size={16} color={item.pinned ? blue : muted} /></TouchableOpacity><TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity></View>
-        <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
-          <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
+        <View style={styles.rowTop}>
+          <TouchableOpacity style={styles.rowOpenTitle} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
+            <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text>
+          </TouchableOpacity>
+          <View style={styles.rowControls}>
+            <TouchableOpacity onPress={() => runPreference(item, "pinned")} hitSlop={8} accessibilityRole="button" accessibilityLabel={item.pinned ? "Désenregistrer la discussion" : "Enregistrer la discussion"} testID={`messenger-pin-${item.id}`}><Ionicons name={item.pinned ? "bookmark" : "bookmark-outline"} size={16} color={item.pinned ? blue : muted} /></TouchableOpacity>
+            <TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity>
+          </View>
         </View>
+        <TouchableOpacity style={styles.rowOpenPreview} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion ${item.title}`}>
+          <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
+            <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
+          </View>
+        </TouchableOpacity>
         {rowMenu === item.id && <View style={styles.rowQuickActions}>
           <TouchableOpacity onPress={() => runPreference(item, "pinned")}><Text style={styles.quickText}>{item.pinned ? "Désépingler" : "Épingler"}</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => runPreference(item, "muted")}><Text style={styles.quickText}>{item.muted ? "Activer le son" : "Sourdine"}</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => runPreference(item, "archived")}><Text style={styles.quickText}>{item.archived ? "Restaurer" : "Archiver"}</Text></TouchableOpacity>
         </View>}
       </View>
-    </TouchableOpacity>;
+    </View>;
   };
   const chatList = <View style={[styles.listPanel, wide && styles.wideList]}>
     <LinearGradient colors={["#075fdf", "#0647b4"]} style={styles.header}>
@@ -164,7 +180,7 @@ export default function MessengerScreen() {
       {searchPeopleLoading ? <ActivityIndicator color={blue} style={{ padding: 10 }} /> : searchPeople.length
         ? searchPeople.slice(0, 5).map(person => <View key={person.id} style={styles.memberSearchRow}>
           <TouchableOpacity onPress={() => createPrivate(person)} style={styles.memberSearchIdentity} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-search-person-${person.id}`}>
-            <View style={styles.searchAvatar}><Text style={styles.searchAvatarText}>{person.username.slice(0, 1).toUpperCase()}</Text></View>
+            <View style={styles.searchAvatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.searchPhoto} /> : <Text style={styles.searchAvatarText}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View>
             <Text style={styles.memberSearchName} numberOfLines={1}>{person.username}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => createPrivate(person)} style={styles.searchAction} accessibilityLabel={`Discuter avec ${person.username}`}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
@@ -191,7 +207,7 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-        {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+        {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel username={user?.username || "Membre"} />}
     </View>
@@ -221,7 +237,7 @@ export default function MessengerScreen() {
         {chosen.length > 0 && <Text style={styles.selectedLine}>Sélectionnés : {chosen.map(p => p.username).join(", ")}</Text>}
         <ScrollView style={{ maxHeight: 320 }}>{people.map(person => {
           const selectedPerson = chosen.some(p => p.id === person.id);
-          return <TouchableOpacity key={person.id} onPress={() => kind === "private" ? createPrivate(person) : togglePerson(person)} style={styles.personChoice}><View style={styles.rowAvatar}><Text style={styles.rowAvatarLetter}>{person.username.slice(0, 1).toUpperCase()}</Text></View><Text style={[styles.choiceName, { flex: 1 }]}>{person.username}</Text>{kind === "private" ? <Ionicons name="chevron-forward" size={18} color={muted} /> : <Ionicons name={selectedPerson ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedPerson ? blue : muted} />}</TouchableOpacity>;
+          return <TouchableOpacity key={person.id} onPress={() => kind === "private" ? createPrivate(person) : togglePerson(person)} style={styles.personChoice}><View style={styles.rowAvatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.rowPhoto} /> : <Text style={styles.rowAvatarLetter}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View><Text style={[styles.choiceName, { flex: 1 }]}>{person.username}</Text>{kind === "private" ? <Ionicons name="chevron-forward" size={18} color={muted} /> : <Ionicons name={selectedPerson ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedPerson ? blue : muted} />}</TouchableOpacity>;
         })}{personQuery.trim().length >= 2 && !people.length ? <Text style={styles.emptyCopy}>Aucun membre trouvé.</Text> : null}</ScrollView>
         {kind !== "private" && <TouchableOpacity disabled={busy || !title.trim() || (kind === "group" && chosen.length === 0)} onPress={createConversation} style={[styles.createButton, (busy || !title.trim() || (kind === "group" && chosen.length === 0)) && { opacity: .45 }]} testID={kind === "group" ? "messenger-create-group-submit" : "messenger-create-channel-submit"}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.createButtonText}>{kind === "group" ? "Créer le groupe" : "Créer le canal"}</Text>}</TouchableOpacity>}
         {kind === "private" && <Text style={styles.createHint}>Saisissez au moins deux caractères pour rechercher un membre.</Text>}
@@ -229,6 +245,7 @@ export default function MessengerScreen() {
       </View></View>
     </Modal>
     <PublicChannelsModal visible={publicChannelsOpen} onClose={() => setPublicChannelsOpen(false)} onJoined={openJoinedChannel} />
+    <ProfilePhotoViewer photo={photoPreview} onClose={() => setPhotoPreview(null)} />
   </View>;
 }
 
@@ -248,12 +265,14 @@ const styles = StyleSheet.create({
   memberSearchRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#f0f2f6" },
   memberSearchIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 4 },
   searchAvatar: { width: 34, height: 34, borderRadius: 18, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center" }, searchAvatarText: { color: blue, fontWeight: "900" },
+  searchPhoto: { width: 34, height: 34, borderRadius: 18 },
   memberSearchName: { flex: 1, color: ink, fontSize: 13, fontWeight: "800" }, searchAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#eef4ff" },
   memberSearchEmpty: { color: muted, fontSize: 12, paddingVertical: 10 },
   discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
   filter: { borderRadius: 21, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 12, fontWeight: "700" }, filterActiveText: { color: "#fff" },
   conversationRow: { minHeight: 82, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
+  rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
    rowMain: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   rowQuickActions: { flexDirection: "row", gap: 12, paddingTop: 5, opacity: .82 }, quickText: { color: blue, fontSize: 10, fontWeight: "700" },
   fab: { position: "absolute", right: 19, bottom: 18, width: 62, height: 62, borderRadius: 34, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .3, shadowRadius: 9 },

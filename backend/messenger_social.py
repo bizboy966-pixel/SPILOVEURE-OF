@@ -26,7 +26,7 @@ async def toggle_reaction(collection, mid, emoji, uid):
 
 async def profile_list(db, ids):
     result = []
-    async for row in db.users.find({"id": {"$in": ids}}, {"id": 1, "username": 1, "avatar_url": 1}):
+    async for row in db.users.find({"id": {"$in": ids}}, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1}):
         result.append(await person(db, row))
     return result
 
