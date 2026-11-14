@@ -8,6 +8,38 @@ Android peut être exporté, mais **ce n'est pas un fichier APK signé**.
 La page `/telecharger` reste sans téléchargement tant qu'aucune version validée
 n'a été préparée.
 
+## APK de test isolé, non officiel
+
+Le profil EAS `test-apk` prépare une application séparée **SPILOVEURE TEST** :
+
+- package Android `com.spilivere.app.preview` et schéma `spiloveure-test`, sans
+  remplacement de l'application de production ni partage de son stockage ;
+- serveur HTTPS de l'aperçu Replit uniquement ; un domaine de production est
+  refusé par les contrôles du profil et du client API ;
+- opérations d'écriture limitées à l'authentification, à l'identité et au Chat ;
+  paiements, retraits et opérations d'administration interdits dans ce client ;
+- aucune mise à jour OTA du client de production ; aucun déploiement Hostinger.
+
+Ce profil **n'est pas un APK officiel validé**, ni un development client exigeant
+Metro sur le téléphone. Il reste à compiler, signer et installer avant de pouvoir
+affirmer qu'il fonctionne sur un appareil. Les identifiants sont ceux de la base
+locale de test, jamais ceux du site en production. L'aperçu Replit doit rester
+accessible ; sa mise en veille ou un changement de domaine peut interrompre les
+essais. Ce serveur temporaire n'est pas adapté à une distribution publique.
+
+Le test automatisé des garde-fous se lance depuis la racine :
+
+```sh
+node scripts/test-android-isolation.cjs
+```
+
+Le profil n'active aucun déclenchement automatique. Avant compilation via GitHub,
+la version contenant ce profil doit avoir été envoyée sur le dépôt. La toute
+première signature peut exiger une initialisation autorisée dans Expo/EAS ;
+aucune clé privée ne doit être déposée dans le code ni dans la conversation.
+
+## Préparation de la version officielle
+
 À terminer avant de qualifier l'application de production :
 
 - Connecter le projet à un compte Expo/EAS autorisé, et conserver les accès à sa

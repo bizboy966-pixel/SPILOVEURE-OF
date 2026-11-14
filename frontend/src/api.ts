@@ -1,4 +1,5 @@
 import { storage } from "@/src/utils/storage";
+import { assertIsolatedTestRequest } from "@/src/testBuildSafety";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
@@ -62,6 +63,9 @@ async function request<T = any>(
   path: string,
   opts: RequestInit & { auth?: boolean; pwdConfirm?: string } = {}
 ): Promise<T> {
+  if (process.env.EXPO_PUBLIC_TEST_BUILD === "1") {
+    assertIsolatedTestRequest(BASE, path, opts.method || "GET");
+  }
   const isChat = path.startsWith("/messenger/");
   const isIdentity = path.startsWith("/identity/");
   const { auth = !isChat, pwdConfirm, headers, ...rest } = opts;
@@ -162,6 +166,9 @@ export const api = {
   delete: <T = any>(p: string, opts: any = {}) => request<T>(p, { method: "DELETE", ...opts }),
   /** Upload a single file via multipart/form-data. */
   upload: async <T = any>(p: string, file: File | Blob, fieldName: string = "file"): Promise<T> => {
+    if (process.env.EXPO_PUBLIC_TEST_BUILD === "1") {
+      assertIsolatedTestRequest(BASE, p, "POST");
+    }
     const fd = new FormData();
     // @ts-ignore — File on web also has .name
     fd.append(fieldName, file, (file as any).name || "upload");
