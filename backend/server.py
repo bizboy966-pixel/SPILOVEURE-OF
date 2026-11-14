@@ -1137,6 +1137,15 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
             auto_result = {"auto_dispatched": False, "reason": "exception"}
         if auto_result.get("auto_dispatched"):
             dispatched_gateway = "soleaspay"
+    elif preferred == "moneyfusion" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
+        try:
+            from moneyfusion import dispatch_withdrawal
+            auto_result = await dispatch_withdrawal(db, wd_doc)
+        except Exception as e:
+            log.exception("MoneyFusion P-Out dispatch failed for wd_id=%s", wd_id)
+            auto_result = {"auto_dispatched": False, "reason": "exception"}
+        if auto_result.get("auto_dispatched"):
+            dispatched_gateway = "moneyfusion"
     elif preferred == "biztranspay" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
         try:
             from biztranspay import dispatch_biztranspay_withdrawal
@@ -1809,6 +1818,12 @@ def _register_payment_gateway_routes(router):
             await _btp_sync(db, (await _btp_fc(db, "deposit")) + (await _btp_fc(db, "payout")))
         except Exception as _e:
             log.warning("btp catalog sync on admin list failed: %s", _e)
+        try:
+            from moneyfusion import refresh_catalog as _mf_refresh, sync_provider as _mf_sync
+            await _mf_refresh(db)
+            await _mf_sync(db)
+        except Exception as _e:
+            log.warning("MoneyFusion catalog sync on admin list failed: %s", _e)
         providers = [p async for p in db.payment_providers.find({}, {"_id": 0}).sort("priority", 1)]
         for p in providers:
             p["countries"] = [
@@ -3239,6 +3254,17 @@ async def get_payment_methods_status(request: Request):
     ashtec_api_key = (gw.get("ashtec_api_key") or "").strip() \
                      or (os.environ.get("ASHTECPAY_API_KEY") or "").strip()
     ashtec_ready = bool(gw.get("ashtec_enabled")) and bool(ashtec_api_key)
+    try:
+        from moneyfusion import load_config as _mf_load_config, load_credentials as _mf_load_credentials
+        mf_cfg = await _mf_load_config(db)
+        mf_credentials = await _mf_load_credentials(db)
+        moneyfusion_ready = bool(
+            mf_cfg.get("payin_enabled")
+            and mf_cfg.get("payin_local_currency_confirmed")
+            and mf_credentials.get("payin_api_url")
+        )
+    except Exception:
+        moneyfusion_ready = False
     if active == "soleas":
         auto_enabled = soleas_ready
     else:
@@ -3258,6 +3284,7 @@ async def get_payment_methods_status(request: Request):
         # is False. Backend also enforces these on every initiate call.
         "ashtec_enabled": ashtec_ready,
         "soleas_enabled": soleas_ready,
+        "moneyfusion_enabled": moneyfusion_ready,
         # Legacy / backward-compat fields (the existing frontend reads these):
         "soleaspay_enabled": auto_enabled,
         "soleaspay_excluded_countries": sorted(list(soleaspay.EXCLUDED_COUNTRIES)),
@@ -5670,3 +5697,9 @@ from identity import router as identity_router  # noqa: E402
 app.include_router(identity_router)
 from android_releases import router as android_releases_router  # noqa: E402
 app.include_router(android_releases_router)
+
+# MoneyFusion Mobile Money — hosted pay-in and automatic payout.
+from moneyfusion import api as moneyfusion_api, webhooks as moneyfusion_webhooks, admin as moneyfusion_admin  # noqa: E402
+app.include_router(moneyfusion_api)
+app.include_router(moneyfusion_webhooks)
+app.include_router(moneyfusion_admin)

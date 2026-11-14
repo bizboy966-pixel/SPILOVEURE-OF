@@ -49,6 +49,14 @@ _PROVIDER_CATALOG: dict[str, dict] = {
         "default_priority": 3,
         "countries_source": "ashtec",
     },
+    "moneyfusion": {
+        "name": "MoneyFusion",
+        "type": "mobile_money",
+        "auto_deposit": False,
+        "auto_withdrawal": False,
+        "default_priority": 4,
+        "countries_source": "moneyfusion_live_methods",
+    },
     "izichange": {
         "name": "IziChangePay",
         "type": "crypto",
@@ -79,6 +87,16 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
         enabled = bool(cfg.get("ashtec_enabled"))
         auto_dep = enabled
         auto_wd = False
+    elif provider_id == "moneyfusion":
+        from moneyfusion import load_config as _mf_config, load_credentials as _mf_credentials
+        mf_cfg = await _mf_config(db)
+        mf_creds = await _mf_credentials(db)
+        auto_dep = bool(mf_cfg.get("payin_enabled")
+                        and mf_cfg.get("payin_local_currency_confirmed")
+                        and mf_creds.get("payin_api_url"))
+        auto_wd = bool(mf_cfg.get("payout_enabled")
+                       and mf_creds.get("payout_private_key"))
+        enabled = auto_dep or auto_wd
     elif provider_id == "izichange":
         # IziChangePay is gated by the `crypto_auto` feature flag + env key
         from feature_flags import is_enabled as _flag_on
@@ -236,6 +254,17 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
         # fallback for every country.
         await _upsert_country("*", "USDT", True, mode="automatic")
         await _upsert_operator("*", "USDT_BEP20", "USDT BEP20", True)
+
+    elif provider_id == "moneyfusion":
+        try:
+            from moneyfusion import refresh_catalog, sync_catalog
+            cached = await db.app_settings.find_one({"key": "moneyfusion_catalog"}) or {}
+            if isinstance(cached.get("value"), list):
+                await sync_catalog(db, cached["value"])
+            elif cfg.get("moneyfusion_catalog_enabled"):
+                await refresh_catalog(db)
+        except Exception as exc:
+            log.warning("MoneyFusion catalog sync failed: %s", exc)
 
 
 async def sync_providers(db) -> dict:
