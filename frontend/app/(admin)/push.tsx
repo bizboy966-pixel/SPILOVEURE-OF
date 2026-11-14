@@ -287,7 +287,7 @@ export default function AdminPush() {
       <TextInput
         value={link}
         onChangeText={setLink}
-        placeholder="https://spiloveure.com/(app)/dashboard"
+        placeholder="https://spiloveure.org/(app)/dashboard"
         placeholderTextColor="#94A3B8"
         style={styles.input}
         testID="push-link"

@@ -25,6 +25,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/hostinger/web.Dockerfile
+      args:
+        DOMAIN: ${DOMAIN}
     restart: always
     environment:
       DOMAIN: ${DOMAIN}

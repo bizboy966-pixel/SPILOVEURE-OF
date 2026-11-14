@@ -21,7 +21,7 @@ type Country = { code: string; name: string; flag?: string };
 export default function Profile() {
   const router = useRouter();
   const { user } = useAuth();
-  const link = `https://spiloveure.com/u/${user?.username || "admin"}`;
+  const link = `https://spiloveure.org/u/${user?.username || "admin"}`;
   const [notifState, setNotifState] = React.useState<"unknown" | "granted" | "default" | "denied" | "unsupported">("unknown");
   const [copied, setCopied] = React.useState(false);
   const [countries, setCountries] = React.useState<Country[]>([]);

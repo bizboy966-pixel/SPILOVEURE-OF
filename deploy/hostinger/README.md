@@ -11,12 +11,13 @@ cd /opt/spiloveure/deploy/hostinger
 
 ## 2. Créer les 3 fichiers de configuration (jamais dans GitHub)
 ```bash
-cp .env.example .env                 # DOMAIN=test.spiloveure.com (puis spiloveure.com)
+   cp .env.example .env                 # DOMAIN=test.spiloveure.org (puis spiloveure.org)
 cp backend.env.example backend.env   # copier les valeurs depuis Emergent → Re-publish → Secrets
 cp frontend.env.example frontend.env # même domaine que DOMAIN + clés Firebase publiques
 nano backend.env
 ```
 `MONGO_URL` est déjà réglé dans docker-compose (mongodb://mongo:27017) — ne pas le mettre.
+Le build web prend automatiquement `https://${DOMAIN}` comme adresse API, même si `frontend.env` contient une ancienne URL.
 Gardez le **même DB_NAME** et le **même JWT_SECRET** qu'en production.
 
 ## 3. Le domaine doit pointer vers le VPS AVANT le démarrage
@@ -28,7 +29,7 @@ certificat HTTPS soit délivré. Ports 80 et 443 ouverts dans le pare-feu.
 docker compose up -d --build
 docker compose logs -f backend      # Ctrl+C pour quitter
 ```
-Test : `https://test.spiloveure.com` et `https://test.spiloveure.com/api/config`.
+Test : `https://test.spiloveure.org` et `https://test.spiloveure.org/api/config`.
 
 ## 5. Importer la base de production (sans perte)
 1. Emergent → Re-publish → Database → copier l'URL → https://mongodb-viewer-2.emergent.host/ → **Dump DB** → télécharger.
@@ -42,10 +43,10 @@ docker compose restart backend
 
 ## 6. Bascule finale (heure calme)
 1. Faire un **dernier Dump DB** juste après avoir mis Emergent hors ligne, puis refaire l'étape 5.
-2. `.env` et `frontend.env` → `spiloveure.com`, puis `docker compose up -d --build`.
-3. Cloudflare : `spiloveure.com` → IP du VPS.
+2. `.env` et `frontend.env` → `spiloveure.org`, puis `docker compose up -d --build`.
+3. Cloudflare : `spiloveure.org` → IP du VPS.
 4. Changer l'URL des webhooks chez Biz-transPay, AshTech, SoleasPay, IziChange :
-   `https://spiloveure.com/api/webhooks/<fournisseur>`.
+   `https://spiloveure.org/api/webhooks/<fournisseur>`.
 
 ## Mises à jour
 ```bash

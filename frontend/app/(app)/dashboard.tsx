@@ -113,7 +113,7 @@ export default function Dashboard() {
     setRefreshing(false);
   };
 
-  const inviteLink = `https://spiloveure.com/u/${user?.username || "admin"}`;
+  const inviteLink = `https://spiloveure.org/u/${user?.username || "admin"}`;
 
   const copy = async () => {
     try {

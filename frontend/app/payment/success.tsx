@@ -5,9 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/auth";
 
-const API = process.env.EXPO_PUBLIC_BACKEND_URL;
-
 type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
+const API = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 /**
  * Generic payment success / status-tracking page.
