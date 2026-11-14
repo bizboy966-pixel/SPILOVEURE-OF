@@ -8,8 +8,8 @@ import { useChat } from "@/src/chat/ChatContext";
 import { useRouter } from "expo-router";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
-type ContactProps = { onStart: (person: Person) => void };
-export function ContactsPanel({ onStart }: ContactProps) {
+type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
+export function ContactsPanel({ onStart, onSave }: ContactProps) {
   const [state, setState] = useState<ContactState>({ contacts: [], blocked: [], requests: [], sent: [] });
   const [results, setResults] = useState<Person[]>([]);
   const [query, setQuery] = useState("");
@@ -30,10 +30,13 @@ export function ContactsPanel({ onStart }: ContactProps) {
     return () => { active = false; clearTimeout(timer); };
   }, [query]);
   const run = async (fn: () => Promise<any>) => { try { await fn(); await refresh(); } catch (e: any) { setError(e?.detail || "Action impossible."); } };
-  const personRow = (person: Person, label?: string) => <View key={person.id} style={styles.personRow}>
-    <View style={styles.avatar}><Text style={styles.avatarText}>{person.username.slice(0, 1).toUpperCase()}</Text></View>
-    <View style={{ flex: 1 }}><Text style={styles.personName}>{person.username}</Text><Text style={styles.personMeta}>{label || (person.online ? "En ligne" : "Membre SPILOVEURE")}</Text></View>
+  const personRow = (person: Person, label?: string) => <View key={person.id} style={styles.personRow} testID={`messenger-contact-row-${person.id}`}>
+    <TouchableOpacity onPress={() => onStart(person)} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-contact-open-${person.id}`} style={styles.personIdentity}>
+      <View style={styles.avatar}><Text style={styles.avatarText}>{person.username.slice(0, 1).toUpperCase()}</Text></View>
+      <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.personName} numberOfLines={1}>{person.username}</Text><Text style={styles.personMeta}>{label || (person.online ? "En ligne" : "Membre SPILOVEURE")}</Text></View>
+    </TouchableOpacity>
     <TouchableOpacity onPress={() => onStart(person)} style={styles.smallAction}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
+    {onSave && <TouchableOpacity onPress={() => run(() => onSave(person))} style={styles.saveAction} accessibilityRole="button" accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`} testID={`messenger-contact-save-${person.id}`}><Ionicons name="bookmark-outline" size={17} color={blue} /><Text style={styles.saveActionText}>Enregistrer</Text></TouchableOpacity>}
     <TouchableOpacity onPress={() => setMenu(menu === person.id ? null : person.id)} style={styles.smallAction}><Ionicons name="ellipsis-horizontal" size={19} color={muted} /></TouchableOpacity>
     {menu === person.id && <View style={styles.personActions}>
       {state.contacts.some(p => p.id === person.id)
@@ -182,10 +185,11 @@ const styles = StyleSheet.create({
   search: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, backgroundColor: "#f2f5f9", borderRadius: 22, marginBottom: 12 },
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
   sectionTitle: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 17, marginBottom: 9, textTransform: "uppercase", letterSpacing: .5 },
-  personRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#eef1f5", position: "relative" },
+  personRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderColor: "#eef1f5", position: "relative" },
+  personIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
   avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center" }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
   personName: { color: ink, fontSize: 14, fontWeight: "800" }, personMeta: { color: muted, fontSize: 11, marginTop: 3 },
-  smallAction: { padding: 8 }, personActions: { position: "absolute", zIndex: 2, right: 0, top: 54, backgroundColor: "#fff", padding: 10, borderRadius: 11, borderWidth: 1, borderColor: "#e7ebf1", shadowColor: "#233", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .15, shadowRadius: 8, elevation: 5 },
+  smallAction: { padding: 7 }, saveAction: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, backgroundColor: "#eef4ff", borderRadius: 17, paddingHorizontal: 8 }, saveActionText: { color: blue, fontSize: 10, fontWeight: "800" }, personActions: { position: "absolute", zIndex: 2, right: 0, top: 54, backgroundColor: "#fff", padding: 10, borderRadius: 11, borderWidth: 1, borderColor: "#e7ebf1", shadowColor: "#233", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .15, shadowRadius: 8, elevation: 5 },
   action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   empty: { color: muted, fontSize: 13, textAlign: "center", marginTop: 28, paddingHorizontal: 20 }, error: { backgroundColor: "#fff1f0", borderRadius: 10, padding: 10 }, errorText: { color: "#bf3e45", fontSize: 12 },
   composeCard: { backgroundColor: "#f8faff", borderWidth: 1, borderColor: "#e8edf5", borderRadius: 15, padding: 13, marginBottom: 14 }, composeTitle: { color: ink, fontWeight: "800", marginBottom: 7 },

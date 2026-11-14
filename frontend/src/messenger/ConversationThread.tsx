@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Attachment, ContactState, Conversation, Message, Person, ReadReceipts } from "./types";
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
+import SwipeToReply from "@/src/components/SwipeToReply";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
@@ -13,6 +14,7 @@ type Props = {
   readReceipts?: ReadReceipts;
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const logo = require("../../assets/images/spiloveure-logo.png");
 const makeId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const messageKey = (message: Message) => message.client_id ? `client:${message.sender_id}:${message.client_id}` : `id:${message.id}`;
 function mergeMessages(existing: Message[], incoming: Message[]) {
@@ -324,13 +326,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         {loading ? <ActivityIndicator color={blue} /> : messages.length === 0 && !messageError ? <View style={styles.empty}><Text style={styles.emptyTitle}>Votre conversation commence ici</Text><Text style={styles.emptyText}>Envoyez un message à {conversation.title}.</Text></View> : null}
         {messages.map(message => {
           const own = message.sender_id === userId;
-          return <View key={message.id} style={[styles.bubbleWrap, own && styles.ownWrap]}>
-            <View style={[styles.bubble, own ? styles.ownBubble : styles.otherBubble]}>
+          const quoted = message.reply_to ? messages.find(item => item.id === message.reply_to) : undefined;
+          const bubble = <View style={[styles.bubble, own ? styles.ownBubble : styles.otherBubble]}>
               {!own && <Text style={styles.sender}>{message.sender_name}</Text>}
               {message.deleted ? <Text style={styles.deleted}>Message supprimé</Text> : <>
                 {message.forwarded_from && <Text style={styles.forwarded}>Message transféré</Text>}
-                {!!message.reply_to && <Text style={styles.replyQuote}>Réponse à un message</Text>}
-                 {!!message.text && <Text style={styles.messageText}>{renderText(message.text)}</Text>}
+                {!!message.reply_to && <View style={styles.replyQuote} testID={`messenger-reply-quote-${message.id}`}>
+                  <Text style={styles.replyQuoteSender}>{quoted?.sender_name || "Message précédent"}</Text>
+                  <Text numberOfLines={2} style={styles.replyQuotePreview}>{quoted?.deleted ? "Message supprimé" : quoted?.text || quoted?.attachments?.[0]?.name || "Pièce jointe"}</Text>
+                </View>}
+                {!!message.text && <Text style={styles.messageText}>{renderText(message.text)}</Text>}
                 {message.attachments?.map(file => <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={styles.fileChip}>
                   {file.mime.startsWith("image/") ? <Ionicons name="image-outline" size={17} color={blue} /> : <Ionicons name="document-outline" size={17} color={blue} />}
                   <Text style={styles.fileLabel} numberOfLines={1}>{file.name}</Text><Ionicons name="download-outline" size={16} color={blue} />
@@ -349,11 +354,18 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 {own && <TouchableOpacity onPress={() => { setEditing(message); changeDraft(message.text); setExpanded(null); }} testID={`messenger-message-edit-${message.id}`}><Text style={styles.actionText}>Modifier</Text></TouchableOpacity>}
                 {(own || isChannelAdmin) && <TouchableOpacity onPress={() => action(message, "delete")} testID={`messenger-message-delete-${message.id}`}><Text style={[styles.actionText, { color: "#d33" }]}>Supprimer</Text></TouchableOpacity>}
               </View>}
-            </View>
+            </View>;
+          return <View key={message.id} style={[styles.bubbleWrap, own && styles.ownWrap]}>
+            {!own && !message.deleted
+              ? <SwipeToReply direction="left" onReply={() => { setReply(message); setExpanded(null); }}><View testID={`messenger-swipe-reply-${message.id}`}>{bubble}</View></SwipeToReply>
+              : bubble}
           </View>;
         })}
       </ScrollView>
-      {reply && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Réponse à {reply.sender_name} · {reply.text.slice(0, 48)}</Text><TouchableOpacity onPress={() => setReply(null)}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
+      {reply && <View style={styles.replyBanner} testID="messenger-reply-preview">
+        <View style={styles.replyBannerCopy}><Text style={styles.replyBannerLabel}>Réponse à {reply.sender_name}</Text><Text numberOfLines={1} style={styles.replyBannerText}>{reply.deleted ? "Message supprimé" : reply.text || reply.attachments?.[0]?.name || "Pièce jointe"}</Text></View>
+        <TouchableOpacity onPress={() => setReply(null)} accessibilityLabel="Annuler la réponse"><Ionicons name="close" size={19} color={blue} /></TouchableOpacity>
+      </View>}
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
       {(recording || recordBlob) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : `Vocal prêt · ${recordSeconds}s`}</Text><TouchableOpacity onPress={() => { discardRecording.current = true; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); setRecordBlob(null); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View>}
       {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
@@ -362,7 +374,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <TouchableOpacity onPress={openContactShare} style={[styles.composerIcon, !canSend && styles.disabled]} disabled={!canSend} accessibilityLabel="Partager un contact"><Ionicons name="person-add-outline" size={20} color={canSend ? blue : muted} /></TouchableOpacity>
         <TextInput value={text} onChangeText={updateComposer} editable={canSend} placeholder={canSend ? "Message" : "Lecture seule"} multiline style={[styles.input, !canSend && styles.readOnlyInput]} onSubmitEditing={() => { if (Platform.OS === "web" && canSend) editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send(); }} />
         {canSend && <TouchableOpacity onPress={() => setSilent(value => !value)} style={[styles.composerIcon, silent && styles.silentActive]} accessibilityRole="checkbox" accessibilityState={{ checked: silent }} accessibilityLabel="Envoi silencieux" testID="messenger-silent-toggle"><Ionicons name={silent ? "notifications-off" : "notifications-outline"} size={19} color={silent ? blue : muted} /></TouchableOpacity>}
-        {canSend && (text.trim() || editing ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Ionicons name="send" size={19} color="#fff" /></TouchableOpacity>
+        {canSend && (text.trim() || editing ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Image source={logo} style={styles.sendLogo} resizeMode="contain" testID="messenger-send-brand" /></TouchableOpacity>
           : <TouchableOpacity onPress={voice} style={styles.composerIcon} accessibilityLabel="Enregistrer ou envoyer un message vocal"><Ionicons name={recording ? "stop-circle" : recordBlob ? "send" : "mic"} size={23} color={recording ? "#d44" : blue} /></TouchableOpacity>)}
       </View>
       <Modal visible={!!forwarding} transparent animationType="fade" onRequestClose={() => setForwarding(null)}>
@@ -397,15 +409,17 @@ const styles = StyleSheet.create({
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
   bubbleWrap: { alignItems: "flex-start" }, ownWrap: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 120, borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
   ownBubble: { backgroundColor: "#e3efff", borderColor: "#d7e7ff", borderBottomRightRadius: 5 }, otherBubble: { backgroundColor: "#fff", borderBottomLeftRadius: 5 },
-  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3 }, messageText: { color: ink, fontSize: 15, lineHeight: 21 }, linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 }, replyQuote: { borderLeftWidth: 2, borderColor: blue, color: blue, paddingLeft: 7, marginBottom: 5, fontSize: 12 },
+  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3 }, messageText: { color: ink, fontSize: 15, lineHeight: 21 }, linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
+  replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7 },
+  replyQuoteSender: { color: blue, fontSize: 11, fontWeight: "800" }, replyQuotePreview: { color: muted, fontSize: 11, marginTop: 2 },
   fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: muted }, receipt: { color: blue, fontSize: 11 }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
-  replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", justifyContent: "space-between", padding: 10 }, replyBannerText: { color: blue, fontSize: 12, flex: 1 },
+  replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
   composer: { flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 9, borderTopWidth: 1, borderColor: "#e7ecf3", gap: 7 },
   composerIcon: { width: 40, height: 42, alignItems: "center", justifyContent: "center" }, input: { flex: 1, maxHeight: 110, minHeight: 42, borderRadius: 23, backgroundColor: "#f2f5f9", paddingHorizontal: 16, paddingTop: 11, paddingBottom: 9, color: ink, fontSize: 15, outlineStyle: "none" as any },
-  sendButton: { width: 42, height: 42, borderRadius: 22, backgroundColor: blue, alignItems: "center", justifyContent: "center" }, silentActive: { borderRadius: 20, backgroundColor: "#eaf1ff" },
+  sendButton: { width: 44, height: 44, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden" }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" }, silentActive: { borderRadius: 20, backgroundColor: "#eaf1ff" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" },
 });

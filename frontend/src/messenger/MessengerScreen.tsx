@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useChat } from "@/src/chat/ChatContext";
+import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import { useConversations } from "./useConversations";
 import type { Conversation, MessengerCapabilities, Person } from "./types";
@@ -39,6 +40,8 @@ export default function MessengerScreen() {
   const [title, setTitle] = useState("");
   const [personQuery, setPersonQuery] = useState("");
   const [people, setPeople] = useState<Person[]>([]);
+  const [searchPeople, setSearchPeople] = useState<Person[]>([]);
+  const [searchPeopleLoading, setSearchPeopleLoading] = useState(false);
   const [chosen, setChosen] = useState<Person[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [publicChannelsOpen, setPublicChannelsOpen] = useState(false);
@@ -60,6 +63,17 @@ export default function MessengerScreen() {
     const timer = setTimeout(() => messengerApi.people(q).then(result => current && setPeople(result.filter(person => person.id !== user?.id))).catch((e: any) => current && setActionError(e?.detail || "Recherche impossible.")), 250);
     return () => { current = false; clearTimeout(timer); };
   }, [personQuery, user?.id]);
+  useEffect(() => {
+    const q = query.trim();
+    if (!searchOpen || q.length < 2) { setSearchPeople([]); setSearchPeopleLoading(false); return; }
+    let current = true;
+    setSearchPeopleLoading(true);
+    const timer = setTimeout(() => messengerApi.people(q)
+      .then(result => current && setSearchPeople(result.filter(person => person.id !== user?.id)))
+      .catch((e: any) => current && setActionError(e?.detail || "Recherche de membres impossible."))
+      .finally(() => current && setSearchPeopleLoading(false)), 250);
+    return () => { current = false; clearTimeout(timer); };
+  }, [query, searchOpen, user?.id]);
   const visible = useMemo(() => items.filter(item => {
     const matchesFilter = filter === "Tous" || (filter === "Messages privés" && item.kind === "private") || (filter === "Groupes" && item.kind === "group") || (filter === "Canaux" && item.kind === "channel");
     const q = query.trim().toLowerCase();
@@ -72,8 +86,19 @@ export default function MessengerScreen() {
   const createPrivate = (person: Person) => {
     setBusy(true); setActionError("");
     messengerApi.createConversation({ kind: "private", member_ids: [person.id] }).then(result => {
-      setSelected(result); setCreationOpen(false); setChosen([]); setPersonQuery(""); setTab("Échanges"); refresh();
+      setSelected(result); setCreationOpen(false); setChosen([]); setPersonQuery(""); setSearchOpen(false); setQuery(""); setTab("Échanges"); refresh();
     }).catch((e: any) => setActionError(e?.detail || "Conversation impossible à créer.")).finally(() => setBusy(false));
+  };
+  const saveContactAndConversation = async (person: Person) => {
+    setBusy(true); setActionError("");
+    try {
+      await api.post(`/messenger/contacts/${encodeURIComponent(person.id)}`);
+      const conversation = await messengerApi.createConversation({ kind: "private", member_ids: [person.id] });
+      const pinned = await messengerApi.patchConversation(conversation.id, { pinned: true });
+      setSelected(pinned); setCreationOpen(false); setSearchOpen(false); setQuery(""); setPersonQuery("");
+      setTab("Échanges"); await refresh();
+    } catch (e: any) { setActionError(e?.detail || "Impossible d’enregistrer le contact et la discussion."); }
+    finally { setBusy(false); }
   };
   const createConversation = async () => {
     setBusy(true); setActionError("");
@@ -110,7 +135,7 @@ export default function MessengerScreen() {
         {item.kind === "private" && item.member_profiles.find(p => p.id !== user?.id)?.online && <View style={styles.onlineDot} />}
       </View>
       <View style={styles.rowMain}>
-        <View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text><Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text><TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8}><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity></View>
+        <View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text><Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text><TouchableOpacity onPress={() => runPreference(item, "pinned")} hitSlop={8} accessibilityRole="button" accessibilityLabel={item.pinned ? "Désenregistrer la discussion" : "Enregistrer la discussion"} testID={`messenger-pin-${item.id}`}><Ionicons name={item.pinned ? "bookmark" : "bookmark-outline"} size={16} color={item.pinned ? blue : muted} /></TouchableOpacity><TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity></View>
         <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
           <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
         </View>
@@ -129,18 +154,31 @@ export default function MessengerScreen() {
         <Image source={logo} style={styles.logo} resizeMode="contain" />
         <View><Text style={styles.brandTitle}>SPILOVEURE</Text><Text style={styles.brandSub}>Chat</Text></View>
       </TouchableOpacity>
-      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher" autoFocus style={styles.headerSearch} onSubmitEditing={() => setSearchOpen(false)} /> : null}
-      <TouchableOpacity onPress={() => { setSearchOpen(v => !v); setQuery(""); }} style={styles.headerIcon}><Ionicons name={searchOpen ? "close" : "search"} size={23} color="#fff" /></TouchableOpacity>
+      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher" autoFocus style={styles.headerSearch} onSubmitEditing={() => setSearchOpen(false)} testID="messenger-global-search" /> : null}
+      <TouchableOpacity onPress={() => { setSearchOpen(v => !v); setQuery(""); }} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher"}><Ionicons name={searchOpen ? "close" : "search"} size={23} color="#fff" /></TouchableOpacity>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerIcon}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
     </LinearGradient>
     <View style={styles.filters}>{filters.map(name => <TouchableOpacity key={name} onPress={() => setFilter(name)} style={[styles.filter, filter === name && styles.filterActive]}><Text style={[styles.filterText, filter === name && styles.filterActiveText]}>{name}</Text></TouchableOpacity>)}</View>
+    {searchOpen && query.trim().length >= 2 && <View style={styles.memberSearchPanel}>
+      <Text style={styles.memberSearchTitle}>Membres SPILOVEURE</Text>
+      {searchPeopleLoading ? <ActivityIndicator color={blue} style={{ padding: 10 }} /> : searchPeople.length
+        ? searchPeople.slice(0, 5).map(person => <View key={person.id} style={styles.memberSearchRow}>
+          <TouchableOpacity onPress={() => createPrivate(person)} style={styles.memberSearchIdentity} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-search-person-${person.id}`}>
+            <View style={styles.searchAvatar}><Text style={styles.searchAvatarText}>{person.username.slice(0, 1).toUpperCase()}</Text></View>
+            <Text style={styles.memberSearchName} numberOfLines={1}>{person.username}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => createPrivate(person)} style={styles.searchAction} accessibilityLabel={`Discuter avec ${person.username}`}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => saveContactAndConversation(person)} style={styles.searchAction} accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`}><Ionicons name="bookmark-outline" size={18} color={blue} /></TouchableOpacity>
+        </View>)
+        : <Text style={styles.memberSearchEmpty}>Aucun membre ne correspond à cette recherche.</Text>}
+    </View>}
     {filter === "Canaux" && capabilities?.public_channels !== false && <TouchableOpacity onPress={() => setPublicChannelsOpen(true)} style={styles.discoverChannels} testID="messenger-channel-discovery" accessibilityLabel="Découvrir les canaux publics"><Ionicons name="compass-outline" size={17} color={blue} /><Text style={styles.discoverText}>Découvrir les canaux publics</Text></TouchableOpacity>}
     {archived && <View style={styles.archiveBanner}><Text style={styles.archiveText}>Conversations archivées</Text><TouchableOpacity onPress={() => setArchived(false)}><Text style={styles.quickText}>Retour</Text></TouchableOpacity></View>}
     {actionError ? <TouchableOpacity onPress={() => setActionError("")} style={styles.errorBanner}><Text style={styles.errorText}>{actionError}  ×</Text></TouchableOpacity> : null}
     {loading ? <View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View>
       : error ? <TouchableOpacity onPress={refresh} style={styles.emptyState}><Ionicons name="cloud-offline-outline" size={30} color={blue} /><Text style={styles.emptyTitle}>{error}</Text><Text style={styles.emptyLink}>Réessayer</Text></TouchableOpacity>
         : visible.length ? <ScrollView contentContainerStyle={{ paddingBottom: 92 }}>{visible.map(renderConversation)}</ScrollView>
-          : <View style={styles.emptyState}><View style={styles.emptyCircle}><Ionicons name="chatbubbles-outline" size={30} color={blue} /></View><Text style={styles.emptyTitle}>{query ? "Aucun résultat" : archived ? "Aucune conversation archivée" : "Aucune conversation pour le moment"}</Text><Text style={styles.emptyCopy}>{query ? "Essayez un autre nom." : "Commencez une conversation avec un membre SPILOVEURE."}</Text><TouchableOpacity onPress={() => openCreate()} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Nouveau message</Text></TouchableOpacity></View>}
+        : <View style={styles.emptyState}><View style={styles.emptyCircle}><Ionicons name="chatbubbles-outline" size={30} color={blue} /></View><Text style={styles.emptyTitle}>{query ? "Aucun échange trouvé" : archived ? "Aucune conversation archivée" : "Aucune conversation pour le moment"}</Text><Text style={styles.emptyCopy}>{query ? "Essayez un autre nom ou choisissez un membre ci-dessus." : "Commencez une conversation avec un membre SPILOVEURE."}</Text><TouchableOpacity onPress={() => openCreate()} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Nouveau message</Text></TouchableOpacity></View>}
     <TouchableOpacity style={styles.fab} onPress={() => openCreate()} accessibilityLabel="Nouvelle conversation"><Ionicons name="add" size={31} color="#fff" /></TouchableOpacity>
   </View>;
 
@@ -155,13 +193,13 @@ export default function MessengerScreen() {
         {(!selected || wide) && chatList}
         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-      </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel username={user?.username || "Membre"} />}
+      </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel username={user?.username || "Membre"} />}
     </View>
     {!navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>
-        {navItems.slice(0, 2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }}><Ionicons name={item.icon} size={24} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
+      {navItems.slice(0, 2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={24} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
         <TouchableOpacity style={styles.centerLogoWrap} onPress={goHome} accessibilityLabel="Retour à l’accueil"><View style={styles.centerLogo}><Image source={logo} style={styles.centerLogoImage} resizeMode="contain" /></View></TouchableOpacity>
-        {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
+      {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
       </View>
     </View>}
     {detailsOpen && selected && <ConversationDetails conversation={selected} userId={user?.id || ""} onClose={() => setDetailsOpen(false)} onChanged={() => { refresh(); messengerApi.conversation(selected.id).then(setSelected).catch(() => setSelected(null)); }} />}
@@ -205,11 +243,18 @@ const styles = StyleSheet.create({
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
   headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" }, headerSearch: { flex: 1, color: "#fff", borderBottomWidth: 1, borderColor: "rgba(255,255,255,.7)", paddingVertical: 6, outlineStyle: "none" as any },
   filters: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 7, paddingHorizontal: 13, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
+  memberSearchPanel: { backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 13, paddingVertical: 7, maxHeight: 250 },
+  memberSearchTitle: { color: muted, fontSize: 10, fontWeight: "800", letterSpacing: .5, textTransform: "uppercase", paddingVertical: 4 },
+  memberSearchRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#f0f2f6" },
+  memberSearchIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 4 },
+  searchAvatar: { width: 34, height: 34, borderRadius: 18, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center" }, searchAvatarText: { color: blue, fontWeight: "900" },
+  memberSearchName: { flex: 1, color: ink, fontSize: 13, fontWeight: "800" }, searchAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#eef4ff" },
+  memberSearchEmpty: { color: muted, fontSize: 12, paddingVertical: 10 },
   discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
   filter: { borderRadius: 21, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 12, fontWeight: "700" }, filterActiveText: { color: "#fff" },
   conversationRow: { minHeight: 82, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
-  rowMain: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+   rowMain: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   rowQuickActions: { flexDirection: "row", gap: 12, paddingTop: 5, opacity: .82 }, quickText: { color: blue, fontSize: 10, fontWeight: "700" },
   fab: { position: "absolute", right: 19, bottom: 18, width: 62, height: 62, borderRadius: 34, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .3, shadowRadius: 9 },
   loading: { padding: 18, gap: 18 }, skeleton: { height: 64, borderRadius: 30, backgroundColor: "#f0f3f8" }, emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 }, emptyCircle: { width: 62, height: 62, borderRadius: 32, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" }, emptyTitle: { color: ink, fontSize: 16, fontWeight: "800", textAlign: "center", marginTop: 13 }, emptyCopy: { color: muted, fontSize: 13, textAlign: "center", marginTop: 7 }, emptyLink: { color: blue, fontSize: 13, fontWeight: "800", marginTop: 10 }, emptyButton: { marginTop: 17, backgroundColor: blue, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 17 }, emptyButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
