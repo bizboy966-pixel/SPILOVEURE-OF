@@ -73,7 +73,7 @@ class VerificationEmailSender:
                     response = client.post(
                         "https://api.resend.com/emails", json=body,
                         headers={"Authorization": "Bearer " + os.environ["RESEND_API_KEY"],
-                                 "User-Agent": "SPILOVEURE"},
+                                 "User-Agent": "Replit"},
                     )
                     response.raise_for_status()
                     if not response.json().get("id"):

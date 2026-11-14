@@ -21,12 +21,12 @@ Après confirmation de l’activation en base, les nouveaux comptes créent et c
 
 ## Résultats vérifiés
 
-**55 tests serveur réussis** : identité, Chat existant et garde d’activation existante.
+**58 tests serveur réussis** : identité, Chat existant, garde d’activation existante et transport Resend.
 
 ```bash
 PYTHONPATH=backend python -m pytest \
   backend/tests/test_identity.py backend/tests/test_messenger.py \
-  backend/tests/test_activation_guard.py -q
+  backend/tests/test_activation_guard.py backend/tests/test_email_delivery.py -q
 ```
 
 Le navigateur a parcouru réellement :
@@ -49,9 +49,11 @@ Le premier test utilise un serveur avec les vrais handlers de l’application, m
 
 Export Expo web réussi. Le contrôle TypeScript global reste en échec sur **31 diagnostics antérieurs hors de ce périmètre**, sans diagnostic dans les fichiers de ce parcours. Les avertissements web préexistants de styles/animation restent présents.
 
-## Dépendance encore bloquante
+## Configuration Resend et contrôle restant
 
-Le domaine Resend est préparé mais les DNS doivent être ajoutés avant tout envoi réel. Voir `resend-spiloveure-dns.md`. Le statut du domaine est vérifié par le connecteur dans l’aperçu. Sans expéditeur opérationnel, les nouvelles inscriptions sont explicitement suspendues **avant** de faire payer un utilisateur.
+La clé du compte Resend de l’utilisateur est maintenant configurée dans les Secrets de l’aperçu. Un envoi depuis l’expéditeur officiel vers l’adresse de test de Resend a été accepté par l’API. Voir `resend-spiloveure-dns.md` : les anciennes instructions de remplacement DNS sont abandonnées ; les DNS validés dans Hostinger restent inchangés.
+
+Les nouvelles inscriptions disposent désormais d’un expéditeur configuré. Il reste à vérifier la réception d’un vrai code dans la boîte d’un utilisateur. En cas de pause nécessaire, `IDENTITY_REGISTRATION_ENABLED=0` reste disponible.
 
 La réception réelle d’un e-mail, un vrai paiement chez les prestataires et les push hors ligne sur téléphone ne sont pas certifiés par ces essais.
 

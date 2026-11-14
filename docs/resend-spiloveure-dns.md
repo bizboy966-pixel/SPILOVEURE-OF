@@ -1,25 +1,20 @@
-# Activation de Resend pour SPILOVEURE
+# Resend pour SPILOVEURE — configuration mise à jour
 
-Le domaine `spiloveure.org` a été ajouté dans Resend pour l’envoi uniquement, région Europe, sans suivi des ouvertures ou des clics. La réception existante des e-mails et les DNS du site n’ont pas été modifiés.
+**Ne pas appliquer les quatre anciens enregistrements DNS du premier rapport.** Ils provenaient de la connexion initiale du workspace, qui ne correspondait pas à la configuration Resend validée par l’utilisateur.
 
-**L’envoi réel attend la vérification DNS.** Les serveurs DNS publics observés sont `hermes.dns-parking.com` et `artemis.dns-parking.com`. Ajouter les lignes suivantes dans la zone DNS active du domaine, normalement dans Hostinger avec cette configuration.
+L’utilisateur a configuré les DNS dans Hostinger et validé `spiloveure.org` dans son compte Resend. Sa propre clé a ensuite été enregistrée dans les Secrets du projet, sans être exposée dans le chat ni dans Git.
 
-| Type | Nom relatif | Valeur / cible | Priorité |
-| --- | --- | --- | --- |
-| TXT | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC9+870gt+HUduusC6HRd/wf0MSKvmza7f+SImJj2+L/LwWc9Hdb6Sxonge4dWd5wAQgCEimKaoiQmt7wdtoMj6JgPzm8W9lXCHKXNMNXFHsnJC2kVz5gSlgIcUWwxVkXt17oUzcc1+bn8+b7md71s/oIp7k/rQfuV00ajj/pRxvwIDAQAB` | — |
-| MX | `send` | `feedback-smtp.eu-west-1.amazonses.com` | 10 |
-| TXT | `send` | `v=spf1 include:amazonses.com ~all` | — |
-| CNAME | `rsend` | `send.forge.rmta.net` | — |
+Un envoi natif depuis `SPILOVEURE <no-reply@spiloveure.org>` vers l’adresse technique de test de Resend a été accepté par l’API (HTTP 200). Cela vérifie l’autorisation de la clé et de l’expéditeur, **pas encore la réception d’un code dans une vraie boîte e-mail**.
 
-TTL : valeur par défaut / Auto. Ces valeurs sont publiques, notamment la clé publique DKIM ; ce ne sont pas des identifiants d’accès.
+L’aperçu utilise désormais `MAIL_PROVIDER=resend`, `MAIL_DOMAIN_VERIFIED=1` et la clé personnelle sécurisée. L’ancien connecteur n’est plus utilisé pour ces envois.
 
-## Précautions
+## Précautions et contrôle restant
 
-- Ne pas changer les A/AAAA/CNAME du site, `@`, `www`, les serveurs de noms, ou les MX du domaine racine.
-- Les MX/TXT ci-dessus concernent **le sous-domaine `send`**, pas la messagerie entrante de `spiloveure.org`.
-- Si une ligne du même nom existe avec une valeur différente, ne pas la remplacer sans examiner le conflit.
-- Après propagation, déclencher ou vérifier la validation du domaine dans Resend. La disponibilité de l’envoi dans l’aperçu est contrôlée automatiquement, avec un cache d’une minute.
-- L’aperçu est configuré avec le connecteur autorisé et l’expéditeur `SPILOVEURE <no-reply@spiloveure.org>`. Aucune clé privée n’est exposée.
+- Ne pas modifier les DNS actuellement validés, les A/AAAA du site, les serveurs de noms ou les MX de la messagerie existante.
+- Si les DNS doivent changer à l’avenir, prendre les valeurs du même compte Resend que celui de la clé utilisée par l’application.
+- Une clé limitée à l’envoi suffit ; un refus de lecture de `/domains` ne signifie pas qu’elle est invalide.
+- Contrôle restant : demander un code depuis le parcours réel et confirmer sa réception, y compris dans les indésirables.
+- Aucun vrai utilisateur n’a été destinataire de l’envoi technique, et aucun paiement n’a été effectué.
 
 ## Différence pour le VPS
 

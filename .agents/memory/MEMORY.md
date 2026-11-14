@@ -1,3 +1,4 @@
 - [Périmètre SPILOVEURE Chat](chat-scope.md) — ajout isolé, référence visuelle imposée et architecture à présenter avant développement.
 - [Contextes de dépendances](dependency-contexts.md) — distinguer les dépendances locales de l’application construite sur Hostinger.
 - [Inscription et sessions distinctes](registration-sessions.md) — le Chat vérifié par e-mail doit rester accessible sans activation ni session principale valide.
+- [Validation Resend](resend-validation.md) — distinguer compte connecté, DNS validés et droits d’envoi ; ne pas remplacer les DNS d’un autre compte.
