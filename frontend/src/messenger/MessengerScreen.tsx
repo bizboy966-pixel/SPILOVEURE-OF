@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
+import { storage } from "@/src/utils/storage";
 import { messengerApi } from "./api";
 import { useConversations } from "./useConversations";
 import type { Conversation, MessengerCapabilities, Person } from "./types";
@@ -33,6 +34,7 @@ export default function MessengerScreen() {
   useEffect(() => { if (sessionExpired) router.replace("/verify-email?source=chat&expired=1" as any); }, [sessionExpired, router]);
   const [tab, setTab] = useState<Tab>("Échanges");
   const [filter, setFilter] = useState<Filter>("Tous");
+  const [filterReadyFor, setFilterReadyFor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Conversation | null>(null);
@@ -52,6 +54,24 @@ export default function MessengerScreen() {
   const [actionError, setActionError] = useState("");
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
+  const filterStorageKey = user?.id ? `spv_messenger_filter_v1:${user.id}` : "";
+  useEffect(() => {
+    if (!user?.id) { setFilter("Tous"); setFilterReadyFor(null); return; }
+    let active = true;
+    const userId = user.id;
+    const key = `spv_messenger_filter_v1:${userId}`;
+    setFilter("Tous");
+    setFilterReadyFor(null);
+    void storage.getItem<string>(key, "Tous").then(saved => {
+      if (!active) return;
+      setFilter(filters.find(option => option === saved) || "Tous");
+      setFilterReadyFor(userId);
+    });
+    return () => { active = false; };
+  }, [user?.id]);
+  useEffect(() => {
+    if (user?.id && filterReadyFor === user.id) void storage.setItem(filterStorageKey, filter);
+  }, [filter, filterReadyFor, filterStorageKey, user?.id]);
   useEffect(() => { messengerApi.capabilities().then(setCapabilities).catch(() => setCapabilities(null)); }, []);
   useEffect(() => {
     if (!selected) return;
@@ -123,11 +143,23 @@ export default function MessengerScreen() {
     return [...old, person];
   });
   const openJoinedChannel = (conversation: Conversation) => {
-    setPublicChannelsOpen(false); setSelected(conversation); setTab("Échanges"); setFilter("Canaux"); refresh();
+    setPublicChannelsOpen(false); setSelected(conversation); setTab("Échanges"); chooseFilter("Canaux"); refresh();
   };
   const runPreference = async (item: Conversation, key: "muted" | "archived" | "pinned") => {
     try { await messengerApi.patchConversation(item.id, { [key]: !item[key] }); await refresh(); }
     catch (e: any) { setActionError(e?.detail || "Mise à jour impossible."); }
+  };
+  const unreadConversationCount = (name: Filter) => items.filter(item =>
+    item.unread > 0 && (
+      name === "Tous" ||
+      (name === "Messages privés" && item.kind === "private") ||
+      (name === "Groupes" && item.kind === "group") ||
+      (name === "Canaux" && item.kind === "channel")
+    )
+  ).length;
+  const chooseFilter = (name: Filter) => {
+    setFilter(name);
+    if (user?.id) void storage.setItem(`spv_messenger_filter_v1:${user.id}`, name);
   };
   const renderConversation = (item: Conversation) => {
     const preview = item.last_message?.deleted ? "Message supprimé" : item.last_message?.text || item.draft || (item.last_message?.attachments?.length ? "Pièce jointe" : "");
@@ -152,7 +184,7 @@ export default function MessengerScreen() {
         </View>
         <TouchableOpacity style={styles.rowOpenPreview} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion ${item.title}`}>
           <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
-            <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
+            <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread} accessibilityLabel={`${item.unread} messages non lus`} testID={`messenger-conversation-unread-${item.id}`}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
           </View>
         </TouchableOpacity>
         {rowMenu === item.id && <View style={styles.rowQuickActions}>
@@ -174,7 +206,15 @@ export default function MessengerScreen() {
       <TouchableOpacity onPress={() => { setSearchOpen(v => !v); setQuery(""); }} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher"}><Ionicons name={searchOpen ? "close" : "search"} size={23} color="#fff" /></TouchableOpacity>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerIcon}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
     </LinearGradient>
-    <View style={styles.filters}>{filters.map(name => <TouchableOpacity key={name} onPress={() => setFilter(name)} style={[styles.filter, filter === name && styles.filterActive]}><Text style={[styles.filterText, filter === name && styles.filterActiveText]}>{name}</Text></TouchableOpacity>)}</View>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={styles.filterContent}>
+      {filters.map(name => {
+        const unread = unreadConversationCount(name);
+        return <TouchableOpacity key={name} onPress={() => chooseFilter(name)} style={[styles.filter, filter === name && styles.filterActive]} accessibilityRole="button" accessibilityState={{ selected: filter === name }} accessibilityLabel={`${name}${unread ? `, ${unread} conversation${unread > 1 ? "s" : ""} non lue${unread > 1 ? "s" : ""}` : ""}`} testID={`messenger-filter-${name}`}>
+          <Text style={[styles.filterText, filter === name && styles.filterActiveText]}>{name}</Text>
+          {unread > 0 && <View style={styles.filterBadge} testID={`messenger-filter-unread-${name}`}><Text style={styles.filterBadgeText}>{unread > 99 ? "99+" : unread}</Text></View>}
+        </TouchableOpacity>;
+      })}
+    </ScrollView>
     {searchOpen && query.trim().length >= 2 && <View style={styles.memberSearchPanel}>
       <Text style={styles.memberSearchTitle}>Membres SPILOVEURE</Text>
       {searchPeopleLoading ? <ActivityIndicator color={blue} style={{ padding: 10 }} /> : searchPeople.length
@@ -259,7 +299,8 @@ const styles = StyleSheet.create({
   goldSwoop: { position: "absolute", width: 210, height: 150, right: -78, top: 14, borderTopWidth: 3, borderColor: "#d9ad42", borderRadius: 110, transform: [{ rotate: "-31deg" }], opacity: .95 },
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
   headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" }, headerSearch: { flex: 1, color: "#fff", borderBottomWidth: 1, borderColor: "rgba(255,255,255,.7)", paddingVertical: 6, outlineStyle: "none" as any },
-  filters: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 7, paddingHorizontal: 13, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
+  filters: { flexGrow: 0, flexShrink: 0, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
+  filterContent: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13 },
   memberSearchPanel: { backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 13, paddingVertical: 7, maxHeight: 250 },
   memberSearchTitle: { color: muted, fontSize: 10, fontWeight: "800", letterSpacing: .5, textTransform: "uppercase", paddingVertical: 4 },
   memberSearchRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#f0f2f6" },
@@ -269,7 +310,8 @@ const styles = StyleSheet.create({
   memberSearchName: { flex: 1, color: ink, fontSize: 13, fontWeight: "800" }, searchAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#eef4ff" },
   memberSearchEmpty: { color: muted, fontSize: 12, paddingVertical: 10 },
   discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
-  filter: { borderRadius: 21, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 12, fontWeight: "700" }, filterActiveText: { color: "#fff" },
+  filter: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0, borderRadius: 21, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 12, fontWeight: "700" }, filterActiveText: { color: "#fff" },
+  filterBadge: { minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
   conversationRow: { minHeight: 82, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
   rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
