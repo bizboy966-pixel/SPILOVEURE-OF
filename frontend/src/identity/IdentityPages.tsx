@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
@@ -35,8 +35,8 @@ function safeVerificationReturn(target: unknown): string {
 
 export function WelcomePage() {
   const router = useRouter(); const p = useLocalSearchParams<{ ref?: string }>();
-  return <Page title="Bienvenue sur SPILOVEURE" subtitle="Entrez dans votre communauté avant de choisir votre formule.">
-    <View style={s.intro}><Ionicons name="people-outline" size={24} color={theme.colors.primary} /><Text style={s.introText}>Votre espace communautaire commence ici. Le paiement d’activation viendra plus tard.</Text></View>
+  return <Page title="Bienvenue sur SPILOVEURE" subtitle="Rejoignez votre communauté et découvrez votre espace.">
+    <View style={s.intro}><Ionicons name="people-outline" size={24} color={theme.colors.primary} /><Text style={s.introText}>Vous pouvez découvrir SPILOVEURE Chat avant d’activer votre compte.</Text></View>
     <Action label="Accepter et continuer" testID="onboarding-welcome-continue" onPress={() => router.push(`/choose-country?${paramsQuery({ ref: p.ref })}` as any)} />
   </Page>;
 }
@@ -44,11 +44,50 @@ export function WelcomePage() {
 export function CountryPage() {
   const router = useRouter(); const p = useLocalSearchParams<{ ref?: string; country?: string }>();
   const [countries, setCountries] = useState<Country[]>([]); const [selected, setSelected] = useState(String(p.country || ""));
-  const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
-  useEffect(() => { api.get<{ countries: Country[] }>("/config", { auth: false }).then(r => { setCountries(r.countries || []); setSelected(old => old || r.countries?.[0]?.code || ""); }).catch(() => setError("Impossible de charger la liste des pays. Réessayez.")).finally(() => setLoading(false)); }, []);
+  const [error, setError] = useState(""); const [loading, setLoading] = useState(true); const [pickerOpen, setPickerOpen] = useState(false);
+  const selectedCountry = countries.find(country => country.code === selected);
+  useEffect(() => { api.get<{ countries: Country[] }>("/config", { auth: false }).then(r => { const available = r.countries || []; setCountries(available); setSelected(old => old && available.some(country => country.code === old) ? old : ""); }).catch(() => setError("Impossible de charger la liste des pays. Réessayez.")).finally(() => setLoading(false)); }, []);
   return <Page title="Votre pays" subtitle="Choisissez votre pays de résidence.">
-    {loading ? <View style={s.countrySkeleton}>{[1, 2, 3, 4, 5].map(n => <View key={n} style={s.countrySkeletonRow} />)}</View> : <View style={s.countryList}>{countries.map(c => <TouchableOpacity key={c.code} onPress={() => setSelected(c.code)} accessibilityRole="radio" accessibilityState={{ selected: selected === c.code }} style={[s.country, selected === c.code && s.countryOn]}><Text style={s.flag}>{c.flag}</Text><Text style={s.countryName}>{c.name}</Text><Ionicons name={selected === c.code ? "radio-button-on" : "radio-button-off"} color={theme.colors.primary} size={20} /></TouchableOpacity>)}</View>}
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel={selectedCountry ? `Pays sélectionné : ${selectedCountry.name}. Modifier le pays` : "Choisir votre pays"}
+      testID="onboarding-country-picker"
+      disabled={loading || !!error}
+      onPress={() => setPickerOpen(true)}
+      style={s.countryPicker}
+    >
+      {loading ? <ActivityIndicator color={theme.colors.primary} /> : <>
+        <Text style={[s.countryPickerText, !selectedCountry && s.countryPlaceholder]}>{selectedCountry ? `${selectedCountry.flag}  ${selectedCountry.name}` : "Choisir votre pays"}</Text>
+        <Ionicons name="chevron-down" color={theme.colors.primary} size={21} />
+      </>}
+    </TouchableOpacity>
     <ErrorText>{error}</ErrorText><Action label="Continuer" testID="onboarding-country-continue" disabled={!selected || loading} onPress={() => router.push(`/registration-email?${paramsQuery({ ref: p.ref, country: selected })}` as any)} />
+    <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+      <View style={s.countryOverlay}>
+        <View style={s.countryModal}>
+          <View style={s.countryModalHeader}>
+            <Text style={s.countryModalTitle}>Choisir votre pays</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Fermer la liste des pays" onPress={() => setPickerOpen(false)} style={s.countryClose}>
+              <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={s.countryOptions} keyboardShouldPersistTaps="handled">
+            {countries.map(country => <TouchableOpacity
+              key={country.code}
+              testID={`onboarding-country-option-${country.code}`}
+              onPress={() => { setSelected(country.code); setPickerOpen(false); }}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: selected === country.code }}
+              style={[s.country, selected === country.code && s.countryOn]}
+            >
+              <Text style={s.flag}>{country.flag}</Text>
+              <Text style={s.countryName}>{country.name}</Text>
+              <Ionicons name={selected === country.code ? "radio-button-on" : "radio-button-off"} color={theme.colors.primary} size={20} />
+            </TouchableOpacity>)}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   </Page>;
 }
 
@@ -60,7 +99,7 @@ export function RegistrationEmailPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) { setError("Saisissez une adresse e-mail valide."); return; }
     router.push(`/register?${paramsQuery({ via: "landing", flow: "2", country: p.country, email: value, ref: p.ref })}` as any);
   };
-  return <Page title="Votre adresse e-mail" subtitle="Elle servira à sécuriser votre accès à SPILOVEURE Chat.">
+  return <Page title="Votre adresse e-mail" subtitle="Nous l’utiliserons pour sécuriser votre compte et votre accès à SPILOVEURE Chat.">
     <TextInput accessibilityLabel="Adresse e-mail" testID="onboarding-email" value={email} onChangeText={v => { setEmail(v); setError(""); }} keyboardType="email-address" autoCapitalize="none" autoComplete="email" placeholder="vous@exemple.com" style={s.input} />
     <ErrorText>{error}</ErrorText><Action label="Continuer" testID="onboarding-email-continue" onPress={submit} />
   </Page>;
@@ -127,7 +166,14 @@ const s = StyleSheet.create({
   button: { width: "100%", minHeight: 50, borderRadius: 15, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 16 },
   buttonText: { color: "#fff", fontWeight: "800", fontSize: 15 }, input: { width: "100%", minHeight: 50, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 13, paddingHorizontal: 14, marginBottom: 11, color: theme.colors.textPrimary, backgroundColor: "#fff" },
   error: { color: theme.colors.danger, backgroundColor: theme.colors.dangerBg, padding: 10, borderRadius: 10, fontSize: 13, marginBottom: 10, width: "100%" },
-  countryList: { width: "100%", maxHeight: 420 }, country: { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderBottomWidth: 1, borderColor: theme.colors.border }, countryOn: { backgroundColor: theme.colors.primaryBg, borderRadius: 11 }, flag: { fontSize: 23 }, countryName: { flex: 1, color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" },
+  countryPicker: { width: "100%", minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 13, paddingHorizontal: 15, backgroundColor: "#fff" },
+  countryPickerText: { color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" }, countryPlaceholder: { color: theme.colors.textSecondary, fontWeight: "500" },
+  country: { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderBottomWidth: 1, borderColor: theme.colors.border }, countryOn: { backgroundColor: theme.colors.primaryBg, borderRadius: 11 }, flag: { fontSize: 23 }, countryName: { flex: 1, color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" },
+  countryOverlay: { flex: 1, backgroundColor: "rgba(7,27,62,.58)", alignItems: "center", justifyContent: "center", padding: 18 },
+  countryModal: { width: "100%", maxWidth: 440, maxHeight: "82%", borderRadius: 22, backgroundColor: "#fff", padding: 18, ...theme.shadow.card },
+  countryModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  countryModalTitle: { color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }, countryClose: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: theme.colors.surfaceSecondary },
+  countryOptions: { flexShrink: 1 },
   countrySkeleton: { width: "100%", gap: 8 }, countrySkeletonRow: { height: 48, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
   overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(7,27,62,.52)", alignItems: "center", justifyContent: "center", padding: 15 },
   modal: { width: "100%", maxWidth: 390, borderRadius: 22, backgroundColor: "#fff", padding: 22, alignItems: "center" }, modalTitle: { fontSize: 20, fontWeight: "800", color: theme.colors.textPrimary }, modalCopy: { textAlign: "center", color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 7, marginBottom: 18 },
