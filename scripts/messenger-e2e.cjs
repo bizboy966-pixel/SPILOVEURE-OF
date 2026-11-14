@@ -93,7 +93,10 @@ const executablePath = execFileSync("sh", ["-c", "command -v chromium || nix-she
     await alice.getByTestId("messenger-filter-Messages privés").click();
     const unreadConversation = alice.getByTestId(/^messenger-conversation-/).filter({ hasText: "messenger_test_bob" });
     await expect(unreadConversation.getByTestId(/^messenger-conversation-unread-/)).toHaveText("1");
+    const unreadReadResponse = alice.waitForResponse(response => response.request().method() === "POST" && /\/api\/messenger\/conversations\/[^/]+\/read$/.test(new URL(response.url()).pathname));
     await unreadConversation.getByLabel("Ouvrir la conversation messenger_test_bob").click();
+    await unreadReadResponse;
+    await alice.getByTestId("messenger-back").click();
     if (privateBefore === 0) await expect(privateBadge).toHaveCount(0, { timeout: 12000 });
     else await expect(privateBadge).toHaveText(String(privateBefore), { timeout: 12000 });
     await expect(totalBadge).toHaveText(String(totalBefore), { timeout: 12000 });
