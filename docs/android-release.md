@@ -38,6 +38,12 @@ la version contenant ce profil doit avoir été envoyée sur le dépôt. La tout
 première signature peut exiger une initialisation autorisée dans Expo/EAS ;
 aucune clé privée ne doit être déposée dans le code ni dans la conversation.
 
+La compilation GitHub du monorepo remplace temporairement, avant l'installation,
+les URL du registre de paquets interne à Replit dans une copie du lockfile par
+leurs URL HTTPS publiques Yarn. Le lockfile du dépôt et celui de l'application
+ne sont pas modifiés par cette étape ; l'intégrité de chaque paquet reste
+vérifiée avec les empreintes déjà consignées dans le lockfile.
+
 ## Préparation de la version officielle
 
 À terminer avant de qualifier l'application de production :

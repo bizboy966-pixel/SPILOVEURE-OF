@@ -4,6 +4,7 @@ const vm = require("node:vm");
 const ts = require("typescript");
 const config = require("../frontend/app.config.js");
 const profiles = require("../frontend/eas.json").build;
+const { externalizeReplitUrls } = require("./eas-test-lockfile.cjs");
 const test = profiles["test-apk"].env;
 
 // Only touch public build settings inside this short-lived test process.
@@ -24,6 +25,17 @@ assert.equal(preview.updates.enabled, false);
 assert.equal(preview.extra.eas.projectId, live.extra.eas.projectId);
 assert.equal(profiles["test-apk"].android.buildType, "apk");
 assert.equal(profiles["test-apk"].developmentClient, false);
+assert.match(fs.readFileSync("frontend/package.json", "utf8"), /eas-build-pre-install/);
+assert.match(fs.readFileSync("package.json", "utf8"), /eas-build-pre-install/);
+const originalUrl = "http://package-firewall.replit.internal/npm/@scope/pkg/-/pkg-1.2.3.tgz";
+assert.equal(externalizeReplitUrls(originalUrl),
+  "https://registry.yarnpkg.com/@scope/pkg/-/pkg-1.2.3.tgz");
+const rootLock = fs.readFileSync("yarn.lock", "utf8");
+const preparedLock = externalizeReplitUrls(rootLock);
+assert.ok(preparedLock.length > 0 && !preparedLock.includes("package-firewall.replit.internal"));
+assert.match(preparedLock, /https:\/\/registry\.yarnpkg\.com\//);
+assert.equal(externalizeReplitUrls(fs.readFileSync("frontend/yarn.lock", "utf8")),
+  fs.readFileSync("frontend/yarn.lock", "utf8"));
 
 for (const origin of ["https://spiloveure.org", "http://localhost:8000",
   "https://example.replit.dev.attacker.invalid", "https://user:password@example.replit.dev"]) {

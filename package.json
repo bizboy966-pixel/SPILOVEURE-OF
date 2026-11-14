@@ -5,6 +5,7 @@
     "frontend"
   ],
   "scripts": {
+    "eas-build-pre-install": "node scripts/eas-test-lockfile.cjs",
     "web": "yarn --cwd frontend start",
     "typecheck": "yarn --cwd frontend tsc --noEmit"
   },

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "preinstall": "node ./scripts/check-pkg.js",
+    "eas-build-pre-install": "node ../scripts/eas-test-lockfile.cjs",
     "start": "CI=1 EXPO_NO_TELEMETRY=1 expo start --web --port 3000",
     "build": "expo export --platform web --output-dir build",
     "serve": "npx serve -s build -l ${PORT:-3000}",
