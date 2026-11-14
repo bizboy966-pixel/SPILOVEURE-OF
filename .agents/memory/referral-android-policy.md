@@ -28,3 +28,14 @@ ni un faux fichier APK et interdit la publication avant les essais physiques.
 réels et publication. Garder le téléchargement indisponible tant que le fichier
 validé n’existe pas. Ne jamais contourner Play Protect ni promettre l’absence
 d’avertissement hors Play Store.
+
+Avant la version officielle, l’utilisateur a choisi un APK de test isolé relié
+à l’environnement Replit et aux comptes de test, sans mise à jour du VPS.
+
+**Why:** L’utilisateur veut vérifier Android sans risque pour le site Hostinger
+en service. Il a explicitement choisi cette étape plutôt qu’une mise à jour du
+serveur officiel.
+
+**How to apply:** Maintenir une identité d’application et des données de test
+séparées, sans opérations financières réelles. Ne jamais présenter cette
+version d’essai comme l’APK officiel validé ni l’installer à la place de celui-ci.
