@@ -45,7 +45,7 @@ docker compose restart backend
 1. Faire un **dernier Dump DB** juste après avoir mis Emergent hors ligne, puis refaire l'étape 5.
 2. `.env` et `frontend.env` → `spiloveure.org`, puis `docker compose up -d --build`.
 3. Cloudflare : `spiloveure.org` → IP du VPS.
-4. Changer l'URL des webhooks chez Biz-transPay, AshTech, SoleasPay, IziChange :
+4. Changer l'URL des webhooks chez Biz-transPay, AshTech, MoneyFusion, IziChange :
    `https://spiloveure.org/api/webhooks/<fournisseur>`.
 
 ## Mises à jour

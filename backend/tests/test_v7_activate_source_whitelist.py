@@ -9,7 +9,7 @@ payment showed as `paid`. This is the real root cause of the
 "compte s'active puis se désactive" bug (v7 diagnosis).
 
 The fix: normalise the source to the concrete gateway name
-("ashtecpay", "soleaspay", …) or fall back to "gateway_return" (all
+("ashtecpay", "moneyfusion", …) or fall back to "gateway_return" (all
 whitelisted).
 """
 from __future__ import annotations

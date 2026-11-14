@@ -16,7 +16,6 @@ const REASON_LABEL: Record<string, { label: string; color: string }> = {
 };
 
 const SOURCE_HINT: Record<string, string> = {
-  soleaspay: "🟢 Paiement SoleasPay",
   ashtecpay: "🟢 Paiement AshtecPay",
   gateway_return: "🟢 Retour passerelle",
   admin_validate: "🟢 Validation admin (Mobile Money)",

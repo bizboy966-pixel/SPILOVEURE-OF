@@ -111,7 +111,9 @@ async def _classify_activation(db, user_id: str, level: int):
     )
     if ev:
         src = ev.get("source")
-        if src in ("soleaspay", "ashtecpay", "gateway_return"):
+        from retired_payment_gateway import RETIRED_IDS
+        # A retired integration does not invalidate historical accounting.
+        if src in RETIRED_IDS or src in ("moneyfusion", "ashtecpay", "gateway_return"):
             return ("ok", src, None)
         if src == "admin_validate":
             return ("ok", src, None)

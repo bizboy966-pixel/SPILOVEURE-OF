@@ -122,7 +122,7 @@ def test_user_manual_upgrade_insufficient_reserve_raises(db, admin_id):
         _cleanup(db, uid)
 
 
-@pytest.mark.parametrize("src", ["soleaspay", "gateway_return", "sendavapay", "manual_reprocess", "admin_validate"])
+@pytest.mark.parametrize("src", ["ashtecpay", "gateway_return", "sendavapay", "manual_reprocess", "admin_validate"])
 def test_external_payment_does_not_debit_reserve(db, admin_id, src):
     """External payment sources MUST keep reserve intact."""
     uid = _make_user(db, admin_id, balance_upgrade=1500)

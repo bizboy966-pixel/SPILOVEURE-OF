@@ -91,7 +91,7 @@ export default function AdminPayments() {
         <TouchableOpacity onPress={() => router.back()} testID="payments-back">
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.hTitle}>💳 Paiements SoleasPay</Text>
+        <Text style={styles.hTitle}>💳 Paiements automatiques</Text>
         <TouchableOpacity onPress={load} testID="payments-refresh">
           <Ionicons name="refresh" size={22} color="#fff" />
         </TouchableOpacity>

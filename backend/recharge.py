@@ -8,7 +8,7 @@ Two deposit methods:
   1. MANUAL — user fills in their mobile money phone + a transaction ref ;
      admin reviews and validates, which credits `balance_recharge`.
   2. AUTOMATIC — routed through the active payment gateway dispatcher used by
-     `/payments/soleaspay/initiate` (SoleasPay or AshtecPay). Credit happens
+     the supported automatic payment endpoints. Credit happens
      when the polling endpoint receives a "paid" status from the gateway.
 
 Collections:

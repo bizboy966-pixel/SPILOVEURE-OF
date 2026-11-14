@@ -65,7 +65,7 @@ def test_activate_level_refuses_unknown_source():
 
 
 def test_activate_level_refuses_external_source_without_payment():
-    """Even a WHITELISTED **automated** external source (soleaspay/ashtecpay/…)
+    """Even a WHITELISTED **automated** external source (moneyfusion/ashtecpay/…)
     must fail if no matching payment or activation record exists.
 
     `admin_validate` is exempt (spec 2026-07-30) — admins verify the payment
@@ -78,7 +78,7 @@ def test_activate_level_refuses_external_source_without_payment():
         uid = str(uuid.uuid4())
         await db.users.insert_one(_mk_user(uid, admin["id"]))
         try:
-            for src in ("soleaspay", "ashtecpay", "sendavapay",
+            for src in ("moneyfusion", "ashtecpay", "sendavapay",
                         "gateway_return", "manual_reprocess"):
                 with pytest.raises(ValueError, match="aucun paiement ou demande"):
                     await activate_level(db, uid, 1, source=src)
@@ -130,7 +130,7 @@ def test_activate_level_accepts_when_payment_row_exists():
             "created_at": datetime.now(timezone.utc),
         })
         try:
-            await activate_level(db, uid, 1, source="soleaspay")
+            await activate_level(db, uid, 1, source="ashtecpay")
             u = await db.users.find_one({"id": uid}, {"_id": 0})
             assert u["status"] == "active"
             assert u["max_level"] == 1

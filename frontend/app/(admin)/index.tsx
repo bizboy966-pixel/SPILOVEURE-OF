@@ -731,7 +731,7 @@ export default function AdminHome() {
                 <Ionicons name="card" size={24} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.contentMgmtTitle}>💳 Paiements SoleasPay</Text>
+                <Text style={styles.contentMgmtTitle}>💳 Paiements automatiques</Text>
                 <Text style={styles.contentMgmtSub}>
                   Tous les paiements • Bloqués • Forcer l'activation
                 </Text>
@@ -978,7 +978,7 @@ export default function AdminHome() {
                     isAuto ? (
                       a.provider === "biztranspay" ? "Automatique (Biz-transPay)" :
                       a.provider === "ashtecpay"   ? "Automatique (AshtecPay)" :
-                                                     "Automatique (SoleasPay)"
+                                                     "Automatique"
                     ) :
                     a.payment_method === "crypto_auto" ? (
                       a.provider === "biztranspay" ? "Automatique (BTP Crypto USDT.BEP20)"
@@ -1216,10 +1216,9 @@ export default function AdminHome() {
               return filtered.map((w) => {
                 const isMission = w.withdrawal_type === "mission";
                 // v27ab (2026-03-04) — expose "Auto-retrait" badge when the
-                // gateway (BTP / SoleasPay) auto-dispatched this withdrawal.
+                // A supported gateway auto-dispatched this withdrawal.
                 const isAuto = !!w.auto_dispatched;
                 const gwLabel = w.gateway === "biztranspay" ? "Biz-transPay"
-                              : w.gateway === "soleaspay"   ? "SoleasPay"
                               : (w.gateway || "");
                 return (
                 <Card key={w.id} style={{ marginBottom: 8, ...(isMission ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : isAuto ? { borderLeftWidth: 4, borderLeftColor: "#0EA5E9" } : {}) }}>
@@ -2496,7 +2495,6 @@ export default function AdminHome() {
                 Les clés API/secrets restent sécurisées côté serveur (masquées). Modifiez uniquement pour remplacer une clé existante.
               </Text>
               <BizTransPayCard />
-              <SolesPaySettingsCard />
               <PaymentGatewaysCard />
             </View>
             <PaymentRouterLogsCard />
@@ -2505,7 +2503,6 @@ export default function AdminHome() {
 
         {tab === "payment" && (
           <>
-            <SolesPaySettingsCard />
             <PaymentGatewaysCard />
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -3613,9 +3610,8 @@ function PillStatus({ status }: { status: string }) {
 
 function MethodBadge({ method, stuck, provider }: { method?: string; stuck?: boolean; provider?: string }) {
   // v27ac (2026-03-04) — show provider suffix on AUTO badge so admins can
-  // instantly distinguish Biz-transPay from SoleasPay / AshtecPay activations.
+  // instantly distinguish the supported automatic payment providers.
   const providerLabel = provider === "biztranspay" ? "BTP"
-                      : provider === "soleaspay"   ? "SOLEAS"
                       : provider === "ashtecpay"   ? "ASHTEC"
                       : provider === "izichange"   ? "IZI"
                       : "";
@@ -3822,239 +3818,6 @@ const styles = StyleSheet.create({
 });
 
 
-/**
- * SolesPaySettingsCard — ⚙️ Réglages → SolesPay
- *
- * Fully ISOLATED admin surface for SoleasPay. Handles: master enable,
- * public/secret keys, notification hash (verif-hash), HMAC webhook secret,
- * per-country pay-in toggles, live connection test, P-Out master.
- * Never touches Ashtec / BizTransPay config.
- */
-function SolesPaySettingsCard() {
-  const [cfg, setCfg] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
-  const [test, setTest] = useState<any>(null);
-  const [testing, setTesting] = useState(false);
-  const [showKeys, setShowKeys] = useState(false);
-  const [pk, setPk] = useState(""); const [sk, setSk] = useState("");
-  const [wh, setWh] = useState(""); const [ws, setWs] = useState("");
-
-  const load = async () => {
-    try { setCfg(await api.get<any>("/admin/soleaspay/config")); } catch {}
-  };
-  useEffect(() => { load(); }, []);
-
-  const patch = async (body: any) => {
-    setSaving(true);
-    try {
-      const r = await api.put<any>("/admin/soleaspay/config", body);
-      setCfg(r);
-      setPk(""); setSk(""); setWh(""); setWs("");
-    } catch (e: any) {
-      if (typeof window !== "undefined") window.alert("❌ " + (e?.detail || "Impossible d'enregistrer."));
-    } finally { setSaving(false); }
-  };
-
-  const toggleCountry = async (code: string, next: boolean) => {
-    // Build a full matrix from the current resolved list, flip only `code`.
-    const matrix: Record<string, boolean> = {};
-    (cfg?.countries || []).forEach((c: any) => {
-      matrix[c.code] = c.code === code ? next : c.enabled;
-    });
-    try {
-      await api.put<any>("/admin/soleaspay/country-matrix", { matrix });
-      load();
-    } catch (e: any) {
-      if (typeof window !== "undefined") window.alert("❌ " + (e?.detail || "Erreur matrice pays."));
-    }
-  };
-
-  const runTest = async () => {
-    setTesting(true);
-    try { setTest(await api.post<any>("/admin/soleaspay/test", {})); }
-    catch (e: any) { setTest({ ok: false, detail: e?.detail || "Erreur réseau." }); }
-    finally { setTesting(false); }
-  };
-
-  if (!cfg) return (
-    <Card style={{ padding: 12 }}><ActivityIndicator color={theme.colors.primary} /></Card>
-  );
-
-  const enabled = !!cfg.enabled;
-  return (
-    <Card style={{ marginBottom: 12, borderWidth: 2, borderColor: enabled ? "#10B981" : theme.colors.border }} testID="solespay-settings-card">
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <Ionicons name="settings" size={22} color="#10B981" />
-        <Text style={styles.section}>⚙️ Réglages → SolesPay</Text>
-      </View>
-      <Text style={styles.helperTxt}>
-        Configuration isolée de la passerelle SolesPay. Ces réglages n'affectent aucune autre passerelle.
-      </Text>
-
-      {/* Master switch */}
-      <TouchableOpacity
-        onPress={() => patch({ enabled: !enabled })}
-        disabled={saving}
-        style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 12, backgroundColor: enabled ? "#D1FAE5" : "#FEE2E2", marginTop: 10 }}
-        testID="solespay-master-toggle"
-      >
-        <View>
-          <Text style={{ fontWeight: "900", color: enabled ? "#065F46" : "#991B1B" }}>
-            SolesPay {enabled ? "🟢 Activé" : "🔴 Désactivé"}
-          </Text>
-          <Text style={{ fontSize: 11, color: enabled ? "#065F46" : "#991B1B", marginTop: 2 }}>
-            {enabled
-              ? "Nouvelles transactions autorisées via SolesPay."
-              : "Aucune nouvelle transaction ne sera envoyée à SolesPay."}
-          </Text>
-        </View>
-        <Ionicons name={enabled ? "toggle" : "toggle-outline"} size={38} color={enabled ? "#10B981" : "#9CA3AF"} />
-      </TouchableOpacity>
-
-      {/* API credentials */}
-      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary }}>🔑 Informations API</Text>
-          <TouchableOpacity onPress={() => setShowKeys((v) => !v)} testID="solespay-toggle-keys">
-            <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "700" }}>
-              {showKeys ? "Masquer" : "Modifier"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>Clé publique : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.public_key || "— non configurée —"}</Text></Text>
-        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>Clé secrète : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.secret_key || "— non configurée —"}</Text></Text>
-        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>Hash de notification : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.webhook_hash || "— non configuré —"}</Text></Text>
-        <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>Secret HMAC webhook : <Text style={{ fontFamily: "monospace", color: theme.colors.textPrimary }}>{cfg.webhook_secret || "— non configuré —"}</Text></Text>
-        {showKeys && (
-          <View style={{ marginTop: 10, gap: 8 }}>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput value={pk} onChangeText={setPk} placeholder="Nouvelle clé publique"
-                         placeholderTextColor={theme.colors.textSecondary}
-                         style={[styles.input, { flex: 1 }]} testID="solespay-input-pk" />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ public_key: pk })} disabled={saving || !pk.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ public_key: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput value={sk} onChangeText={setSk} placeholder="Nouvelle clé secrète"
-                         placeholderTextColor={theme.colors.textSecondary}
-                         style={[styles.input, { flex: 1 }]} testID="solespay-input-sk" />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ secret_key: sk })} disabled={saving || !sk.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ secret_key: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput value={wh} onChangeText={setWh} placeholder="Nouveau hash de notification"
-                         placeholderTextColor={theme.colors.textSecondary}
-                         style={[styles.input, { flex: 1 }]} testID="solespay-input-wh" />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ webhook_hash: wh })} disabled={saving || !wh.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ webhook_hash: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TextInput value={ws} onChangeText={setWs} placeholder="Nouveau secret HMAC (optionnel)"
-                         placeholderTextColor={theme.colors.textSecondary}
-                         style={[styles.input, { flex: 1 }]} testID="solespay-input-ws" />
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.colors.primary }} onPress={() => patch({ webhook_secret: ws })} disabled={saving || !ws.trim()}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Enreg.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#EF4444" }} onPress={() => patch({ webhook_secret: "DELETE" })} disabled={saving}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={{ fontSize: 10, color: theme.colors.textSecondary, marginTop: 4 }}>
-              Astuce : configurez soit le hash de notification (embarqué dans le webhook), soit le secret HMAC (header x-signature). Les deux sont acceptés par le vérificateur.
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Live test */}
-      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary }}>🧪 Tester la connexion</Text>
-          <TouchableOpacity onPress={runTest} disabled={testing}
-            style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: theme.colors.primary }}
-            testID="solespay-test-btn">
-            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 12 }}>
-              {testing ? "..." : "Tester"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {test && (
-          <View style={{ padding: 8, borderRadius: 8, backgroundColor: test.ok ? "#D1FAE5" : "#FEE2E2" }}>
-            <Text style={{ fontSize: 12, fontWeight: "700", color: test.ok ? "#065F46" : "#991B1B" }}>
-              {test.ok ? "✅ Connexion OK" : "❌ Échec"}
-            </Text>
-            <Text style={{ fontSize: 11, color: test.ok ? "#065F46" : "#991B1B", marginTop: 2 }}>
-              {test.detail || test.error || "—"}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Country matrix */}
-      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }} testID="solespay-country-matrix">
-        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 4 }}>🌍 Pays autorisés (Pay-In)</Text>
-        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
-          Un pays désactivé ne pourra plus recevoir de paiements via SolesPay. Le système routera automatiquement vers une autre passerelle si disponible.
-        </Text>
-        {(cfg.countries || []).map((c: any) => (
-          <View key={c.code} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.textPrimary }}>{c.code}</Text>
-              <Text style={{ fontSize: 10, color: theme.colors.textSecondary }}>
-                {c.operators.map((o: any) => o.label).join(" · ")}
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={() => toggleCountry(c.code, !c.enabled)}
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: c.enabled ? "#D1FAE5" : "#FEE2E2" }}
-              testID={`solespay-country-${c.code}`}
-            >
-              <Text style={{ color: c.enabled ? "#065F46" : "#991B1B", fontWeight: "800", fontSize: 11 }}>
-                {c.enabled ? "🟢 Activé" : "🔴 Désactivé"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </View>
-
-      {/* P-Out toggle (kept in same section per doc: SolesPay owns both P-In and P-Out) */}
-      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B" }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={{ fontSize: 13, fontWeight: "800", color: "#92400E" }}>💸 P-Out (Retraits auto)</Text>
-            <Text style={{ fontSize: 11, color: "#78350F", marginTop: 2 }}>
-              Envoie automatiquement les retraits Mobile Money via SolesPay. Sur échec, fallback silencieux.
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => patch({ pout_enabled: !cfg.pout_enabled })}
-            disabled={saving}
-            style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: cfg.pout_enabled ? "#10B981" : "#9CA3AF" }}
-            testID="solespay-pout-toggle"
-          >
-            <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 12 }}>
-              {cfg.pout_enabled ? "🟢 ACTIVÉ" : "⚫ OFF"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Card>
-  );
-}
-
-
 function PaymentGatewaysCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
@@ -4063,24 +3826,8 @@ function PaymentGatewaysCard() {
   const [secretInput, setSecretInput] = useState("");
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(false);
-  // SoleasPay live connection test + editable per-country matrix.
-  const [soleasTest, setSoleasTest] = useState<any>(null);
-  const [soleasTesting, setSoleasTesting] = useState(false);
   const [matrix, setMatrix] = useState<any>({});
-  const [poutEnabled, setPoutEnabled] = useState<boolean>(false);
-  const [poutMatrix, setPoutMatrix] = useState<Record<string, boolean>>({});
-  const [poutSaving, setPoutSaving] = useState(false);
-
-  const runSoleasTest = async () => {
-    setSoleasTesting(true);
-    try {
-      const r = await api.post<any>("/admin/payment-gateways/soleaspay/test", {});
-      setSoleasTest(r);
-    } catch (e: any) {
-      setSoleasTest({ ok: false, detail: e?.detail || "Erreur réseau." });
-    } finally { setSoleasTesting(false); }
-  };
-  const toggleCountry = async (gw: "soleas" | "ashtec", code: string) => {
+  const toggleCountry = async (gw: "ashtec", code: string) => {
     const cur = matrix[gw] || {};
     const next = { ...matrix, [gw]: { ...cur, [code]: !cur[code] } };
     setMatrix(next);
@@ -4093,30 +3840,7 @@ function PaymentGatewaysCard() {
       const r = await api.get<any>("/admin/payment-gateways");
       setCfg(r);
       setMatrix(r.country_matrix || {});
-      setPoutEnabled(!!r.soleaspay_pout_enabled);
-      setPoutMatrix(r.soleaspay_pout_country_matrix || {});
     } catch {}
-  };
-
-  const togglePoutMaster = async () => {
-    setPoutSaving(true);
-    const next = !poutEnabled;
-    setPoutEnabled(next);
-    try {
-      await api.put<any>("/admin/payment-gateways", { soleaspay_pout_enabled: next });
-    } catch {
-      setPoutEnabled(!next);
-      if (typeof window !== "undefined") window.alert("❌ Impossible d'enregistrer.");
-    } finally { setPoutSaving(false); }
-  };
-
-  const togglePoutCountry = async (code: string) => {
-    const cur = poutMatrix[code];
-    const next = { ...poutMatrix, [code]: cur === false ? true : false };
-    setPoutMatrix(next);
-    try {
-      await api.put<any>("/admin/payment-gateways/soleaspay/pout-country-matrix", { matrix: next });
-    } catch { /* silent */ }
   };
 
   const runHealth = async () => {
@@ -4158,15 +3882,11 @@ function PaymentGatewaysCard() {
     );
   }
 
-  const renderGw = (gwKey: "soleas" | "ashtec") => {
+  const renderGw = (gwKey: "ashtec") => {
     const meta = cfg[gwKey] || {};
     const isActive = cfg.active === gwKey;
-    const label =
-      gwKey === "soleas"  ? "🔹 Soles Pay"
-                          : "🔹 AshtecPay (Htech Pay)";
-    const enabledKey =
-      gwKey === "soleas"  ? "soleas_enabled"
-                          : "ashtec_enabled";
+    const label = "🔹 AshtecPay (Htech Pay)";
+    const enabledKey = "ashtec_enabled";
     return (
       <View key={gwKey} style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: isActive ? theme.colors.success : theme.colors.border, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -4408,11 +4128,8 @@ function PaymentGatewaysCard() {
         </View>
       )}
 
-      {renderGw("soleas")}
       {renderGw("ashtec")}
 
-      {/* SolesPay-specific controls (test, matrix, P-Out) have been moved to
-          the dedicated SolesPaySettingsCard above for true isolation. */}
     </Card>
   );
 }
@@ -4984,6 +4701,6 @@ function BizTransPayCard() {
 /**
  * BizTransPayCard REMOVED 2026-09-02 — crypto activation is now handled by
  * IziChangePay (via feature flag `crypto_auto` + IZIPAY_SECRET_KEY env), and
- * mobile activation by SolesPay/Ashtec via the SolesPay + PaymentGateways
+ * mobile activation by the configured automatic payment gateways.
  * cards above. The old BizTransPay admin card has been deleted.
  */

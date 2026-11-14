@@ -90,7 +90,7 @@ def test_spillover_sponsor_share_goes_100pct_to_profit():
         # Both ancestors already activated at L1.
         for u in (sp_id, benef_id):
             await _pay(db, u, 1)
-            await activate_level(db, u, 1, source="soleaspay")
+            await activate_level(db, u, 1, source="ashtecpay")
 
         # Reset balances so we measure only the spillover event.
         await db.users.update_many(
@@ -149,7 +149,7 @@ def test_direct_commission_still_feeds_reserve():
         await db.users.insert_one(_mk_user(sp_id, admin["id"], "admin", f"sd_{sp_id[:6]}"))
         await db.users.insert_one(_mk_user(inv_id, sp_id, f"sd_{sp_id[:6]}", f"id_{inv_id[:6]}"))
         await _pay(db, sp_id, 1)
-        await activate_level(db, sp_id, 1, source="soleaspay")
+        await activate_level(db, sp_id, 1, source="ashtecpay")
         # Reset balances after sp's own activation (no upstream commissions
         # here so this is a no-op, but explicit).
         await db.users.update_one({"id": sp_id}, {"$set": {
@@ -157,7 +157,7 @@ def test_direct_commission_still_feeds_reserve():
             "commission_direct": 0, "total_earned": 0,
         }})
         await _pay(db, inv_id, 1)
-        await activate_level(db, inv_id, 1, source="soleaspay")
+        await activate_level(db, inv_id, 1, source="ashtecpay")
         u = await db.users.find_one({"id": sp_id}, {"_id": 0})
         assert u["balance_upgrade"] == 1000
         assert u["balance_profit"] == 1000

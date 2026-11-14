@@ -9,7 +9,7 @@ Covers (written by the QA agent, independent of the dev-authored tests):
   4. L2+ → is_spillover flag totally ignored, never any spillover_* row.
   5. Guard §10 → recipient with max_level < N is skipped (no row, no balance).
   6. Broken/short L1 tree at L2 → no commission at all.
-  7. End-to-end activate_level(source='soleaspay') at L1 and L2.
+  7. End-to-end activate_level(source='ashtecpay') at L1 and L2.
   8. Balance persistence assertions on db.users after each distribution.
 """
 from __future__ import annotations
@@ -241,9 +241,9 @@ async def test_L2_short_tree_no_commission(db):
         await cleanup(db, [p, activator])
 
 
-# ── 7. End-to-end activate_level via soleaspay (L1 + L2) ──────────────────
+# ── 7. End-to-end activate_level via ashtecpay (L1 + L2) ──────────────────
 @pytest.mark.asyncio
-async def test_activate_level_soleaspay_L1_then_L2_end_to_end(db):
+async def test_activate_level_ashtecpay_L1_then_L2_end_to_end(db):
     root, a, b = _uid("root"), _uid("a"), _uid("b")
     try:
         await seed_user(db, root, max_level=5)
@@ -258,8 +258,8 @@ async def test_activate_level_soleaspay_L1_then_L2_end_to_end(db):
                 "created_at": datetime.now(timezone.utc),
             })
 
-        assert await activate_level(db, a, 1, source="soleaspay") == 1
-        assert await activate_level(db, b, 1, source="soleaspay") == 1
+        assert await activate_level(db, a, 1, source="ashtecpay") == 1
+        assert await activate_level(db, b, 1, source="ashtecpay") == 1
 
         # L1 rows must reference the actual sponsor/parent of the placement
         rows_b1 = await db.commissions.find(
@@ -282,7 +282,7 @@ async def test_activate_level_soleaspay_L1_then_L2_end_to_end(db):
             chain.append(cur)
         expected_ancestor = cur
 
-        assert await activate_level(db, b, 2, source="soleaspay") == 2
+        assert await activate_level(db, b, 2, source="ashtecpay") == 2
         rows_b2 = await db.commissions.find(
             {"from_user_id": b, "level": 2}, {"_id": 0}).to_list(10)
         if expected_ancestor:

@@ -4,7 +4,7 @@ Flow (2026-07-24):
     1. User creates draft ad (upload cover + video via /api/uploads/upload).
     2. User sets targeting (countries, age, gender) & picks a duration.
     3. Backend computes price from admin-configured pricing, sets ad status=`pending_payment`.
-    4. Payment (SoleasPay/AshtechPay) — reuses existing gateway; on success,
+    4. Payment — reuses a supported gateway; on success,
        ad status flips to `pending_admin_review`.
     5. Admin approves → status=`published`, `expires_at = published_at + duration_days`.
     6. Public feed lists only ads with status=`published` and non-expired.
@@ -257,7 +257,7 @@ async def set_duration(ad_id: str, data: AdDuration, request: Request, user=Depe
 @public.post("/ads/{ad_id}/publish")
 async def publish_ad(ad_id: str, request: Request, user=Depends(require_active_user)):
     """Step 4 → move ad to `pending_payment` and return the amount to be paid.
-    The actual payment happens through the existing SoleasPay/AshtechPay flow —
+    The actual payment happens through a supported automatic payment flow —
     the frontend redirects to the payment page carrying `ad_id` in metadata.
     """
     db = request.app.state.db

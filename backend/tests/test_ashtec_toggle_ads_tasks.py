@@ -1,6 +1,6 @@
 """When ashtec_enabled=False, ads and special-tasks mobile_money payments
 must also propagate 503 (they delegate to create_ashtec_payment).
-Also asserts /api/settings/payments exposes both ashtec_enabled + soleas_enabled.
+Also asserts /api/settings/payments exposes the supported gateway switches.
 """
 from __future__ import annotations
 import os, uuid, pytest, requests
@@ -127,12 +127,12 @@ def test_task_mobile_money_blocked_when_ashtec_off(db, new_user, draft_task):
     assert "désactivé" in r.json()["detail"].lower()
 
 
-def test_settings_payments_exposes_soleas_enabled(db):
+def test_settings_payments_exposes_supported_gateway_switches(db):
     _set_ashtec(db, True)
     r = requests.get(f"{API}/settings/payments", timeout=15)
     assert r.status_code == 200
     d = r.json()
     assert "ashtec_enabled" in d
-    assert "soleas_enabled" in d
+    assert "moneyfusion_enabled" in d
     assert isinstance(d["ashtec_enabled"], bool)
-    assert isinstance(d["soleas_enabled"], bool)
+    assert isinstance(d["moneyfusion_enabled"], bool)

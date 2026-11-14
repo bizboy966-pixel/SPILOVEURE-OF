@@ -162,7 +162,7 @@ async def _get_api_key(db) -> str:
     """Resolve the Ashtech API key — ADMIN PANEL (DB) is the source of truth.
 
     Priority: DB (admin panel) FIRST, then env var as a boostrap fallback
-    ONLY when the admin hasn't set anything. This matches the SolesPay flow
+    ONLY when the admin hasn't set anything. This matches the gateway policy
     and ensures the value the admin sees in the admin panel is ALWAYS the
     one that's used for API calls.
     """
@@ -764,7 +764,7 @@ async def _reconcile_stuck_activations(db) -> dict:
     All of these result in "the user paid but his account is still at
     max_level=0". This worker retries the activation on every tick (4 s)
     so stuck accounts self-heal within seconds, for ALL providers
-    (biztranspay, ashtecpay, soleaspay, izichange, sendavapay).
+    (biztranspay, ashtecpay, moneyfusion, izichange, sendavapay).
 
     Scope : `kind == "activation"` only (ads/task/recharge have their own
     idempotent dispatch inside `_apply_payment_success`).
@@ -807,7 +807,7 @@ async def _reconcile_stuck_activations(db) -> dict:
         # Retry the activation. `_apply_payment_success` is idempotent and
         # will either activate or re-set `activation_error`.
         source = p.get("provider") or "manual_reprocess"
-        if source not in ("biztranspay", "ashtecpay", "soleaspay",
+        if source not in ("biztranspay", "ashtecpay", "moneyfusion",
                           "izichange", "sendavapay", "manual_reprocess"):
             source = "manual_reprocess"
         try:

@@ -39,6 +39,9 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
     guards against a provider whose row says "active" but whose credentials
     are missing (e.g. admin toggled ON but never pasted the key).
     """
+    from payment_providers import _PROVIDER_CATALOG
+    if provider_id not in _PROVIDER_CATALOG:
+        return False, "unsupported_provider"
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
     cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
     if provider_id == "biztranspay":
@@ -55,16 +58,6 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
             return False, "payin_disabled"
         if kind == "payout" and not cfg.get("biztranspay_payout_enabled"):
             return False, "payout_disabled"
-    elif provider_id == "soleaspay":
-        try:
-            import soleaspay
-            key_ok = bool(soleaspay.is_configured() or await soleaspay.is_configured_async(db))
-        except Exception:
-            key_ok = False
-        if not key_ok:
-            return False, "missing_credentials"
-        if kind == "payout" and not cfg.get("soleaspay_pout_enabled"):
-            return False, "payout_disabled"
     elif provider_id == "ashtec":
         key_ok = bool((cfg.get("ashtec_api_key") or "").strip()
                       or (os.environ.get("ASHTECPAY_API_KEY") or "").strip())
@@ -75,7 +68,7 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
     elif provider_id == "moneyfusion":
         # Its hosted checkout has its own initiation endpoint/UI. The legacy
         # dispatcher cannot consume a checkout URL and must never route an
-        # Ashtec/Soleas operator request to MoneyFusion by accident.
+        # Legacy operator request to MoneyFusion by accident.
         if kind == "payin":
             return False, "hosted_checkout_requires_dedicated_flow"
         try:
@@ -127,9 +120,11 @@ async def pick_provider(
     cap_field = "auto_deposit" if kind == "payin" else "auto_withdrawal"
 
     # 1. Load active providers with the capability, sorted by priority.
+    from payment_providers import _PROVIDER_CATALOG
     active_providers = []
     async for p in db.payment_providers.find(
-        {"status": "active", cap_field: True}, {"_id": 0},
+        {"id": {"$in": list(_PROVIDER_CATALOG)},
+         "status": "active", cap_field: True}, {"_id": 0},
     ).sort("priority", 1):
         active_providers.append(p)
 

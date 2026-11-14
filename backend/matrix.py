@@ -386,7 +386,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     other value → raises immediately, closing the "activation without payment"
     loophole once and for all.
       - AUTOMATED PAID sources (must have matching db.payments/db.activations):
-            soleaspay, ashtecpay, sendavapay, gateway_return, manual_reprocess
+            moneyfusion, ashtecpay, sendavapay, gateway_return, manual_reprocess
       - ADMIN OVERRIDE sources (authoritative — no payment lookup):
             admin_validate  → admin has reconciled payment on gateway
             admin_manual    → complimentary L1 grant
@@ -395,7 +395,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     """
     ALLOWED_SOURCES = {
         # External payments — must reference a settled db.payments/db.activations row
-        "soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay", "moneyfusion", "gateway_return",
+        "ashtecpay", "sendavapay", "izichange", "biztranspay", "moneyfusion", "gateway_return",
         "admin_validate", "manual_reprocess",
         # Internal / operator overrides
         "auto_upgrade", "manual", "admin_manual", "manual_review",
@@ -412,10 +412,10 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
 
     # ────────────────────────────────────────────────────────────────────
     # SECURITY GUARD — "Sans paiement valide = aucune activation".
-    # For AUTOMATED external-payment sources (SoleasPay / AshtecPay / etc.)
+    # For AUTOMATED external-payment sources (MoneyFusion / AshtecPay / etc.)
     # we require a matching payment or activation record in DB. This closes
     # the theoretical bug where a caller invokes activate_level(..., source=
-    # "soleaspay") without an actual paid transaction.
+    # "moneyfusion") without an actual paid transaction.
     #
     # `admin_validate` is deliberately EXEMPT (2026-07-29): when an admin
     # clicks the "Valider" button, they have already personally reconciled
@@ -423,7 +423,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     # the source of truth and the system MUST NOT second-guess it. Same
     # rationale applies to `admin_manual` for complimentary L1 activations.
     # ────────────────────────────────────────────────────────────────────
-    _PAID_EXTERNAL = {"soleaspay", "ashtecpay", "sendavapay", "izichange", "biztranspay", "moneyfusion",
+    _PAID_EXTERNAL = {"ashtecpay", "sendavapay", "izichange", "biztranspay", "moneyfusion",
                       "gateway_return", "manual_reprocess"}
     if source in _PAID_EXTERNAL:
         pay = await db.payments.find_one({
@@ -473,7 +473,7 @@ async def activate_level(db, user_id: str, level: int, source: str = "manual") -
     )
     # Persist a full audit trail for every activation so operators can trace
     # back "how" and "when" any user reached a given level. Sources ending in
-    # {soleaspay, ashtecpay, gateway_return, admin_validate, manual_reprocess}
+    # {moneyfusion, ashtecpay, gateway_return, admin_validate, manual_reprocess}
     # correspond to real external payments; auto_upgrade/manual/admin_manual
     # come from the internal reserve; source=admin_manual for L1 is the only
     # "no-payment-required" path documented in the business spec.

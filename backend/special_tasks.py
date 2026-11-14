@@ -4,7 +4,7 @@ Flow (2026-07-24):
     1. User picks an action type (video/subscribe/share/like/comment/group) + network + link.
     2. Sets audience (countries, age, gender).
     3. Picks quantity → server computes price = price_per_action × quantity.
-    4. Payment (manual confirm for now — plug SoleasPay webhook later).
+    4. Payment (manual confirmation until a supported verified webhook is connected).
     5. Task goes LIVE (status=active) automatically — no admin review required.
     6. Feed shows only active tasks (quantity_completed < quantity_target).
     7. Users complete → reward credited to their balance_profit; counter increments.

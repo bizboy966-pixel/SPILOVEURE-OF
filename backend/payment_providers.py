@@ -2,7 +2,7 @@
 
 Phase 1 of the multi-provider refactor. Three collections:
 
-  • payment_providers            — one row per gateway (soleaspay, ashtec,
+  • payment_providers            — one row per gateway (moneyfusion, ashtec,
                                     izichange, biztranspay, …)
   • payment_provider_countries   — provider × country + mode/priority/status
   • payment_provider_operators   — provider × country × operator
@@ -32,14 +32,6 @@ _PROVIDER_CATALOG: dict[str, dict] = {
         "auto_withdrawal": True,
         "default_priority": 1,   # TG owner wants BTP first
         "countries_source": "biztranspay",
-    },
-    "soleaspay": {
-        "name": "SoleasPay",
-        "type": "mobile_money",
-        "auto_deposit": True,
-        "auto_withdrawal": True,
-        "default_priority": 2,
-        "countries_source": "soleaspay",
     },
     "ashtec": {
         "name": "AshtecPay",
@@ -79,10 +71,6 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
         enabled = bool(cfg.get("biztranspay_enabled"))
         auto_dep = bool(cfg.get("biztranspay_payin_enabled", True))
         auto_wd = bool(cfg.get("biztranspay_payout_enabled"))
-    elif provider_id == "soleaspay":
-        enabled = bool(cfg.get("soleas_enabled"))
-        auto_dep = enabled  # SoleasPay PayIn = master switch
-        auto_wd = bool(cfg.get("soleaspay_pout_enabled"))
     elif provider_id == "ashtec":
         enabled = bool(cfg.get("ashtec_enabled"))
         auto_dep = enabled
@@ -220,22 +208,6 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
             entries = []
         await sync_btp_catalog_rows(db, entries, cfg)
 
-    elif provider_id == "soleaspay":
-        try:
-            import soleaspay
-        except Exception:
-            return
-        matrix = (cfg.get("country_matrix") or {}).get("soleas") or {}
-        for cc, ops in soleaspay.SUPPORTED.items():
-            if cc in soleaspay.EXCLUDED_COUNTRIES:
-                continue
-            enabled = matrix.get(cc, True) is not False
-            # currency taken from first operator (all XOF/XAF anyway)
-            currency = ops[0]["currency"] if ops else "XOF"
-            await _upsert_country(cc, currency, enabled)
-            for op in ops:
-                await _upsert_operator(cc, str(op["id"]), op["label"], enabled)
-
     elif provider_id == "ashtec":
         try:
             from ashtec_activation import COUNTRIES as AC
@@ -277,6 +249,8 @@ async def sync_providers(db) -> dict:
     collections the primary source).
     """
     try:
+        from retired_payment_gateway import retire_gateway_configuration
+        await retire_gateway_configuration(db)
         doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
         cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
 

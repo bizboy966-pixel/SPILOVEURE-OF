@@ -10,7 +10,8 @@ en dur. Ne pas étendre cette intégration aux cartes ou à la crypto.
 **Why:** L’utilisateur a expressément limité ce prestataire au Mobile Money
 et réserve les autres moyens de paiement à une demande ultérieure.
 
-**How to apply:** Conserver les moyens de paiement existants sans les remplacer.
+**How to apply:** Conserver les moyens de paiement existants sans les remplacer,
+sauf SoleasPay dont l’utilisateur a ensuite demandé la suppression intégrale.
 L’ajout du prestataire n’autorise ni paiement réel ni déploiement sur Hostinger.
 
 Ne pas déduire la devise ni les opérateurs du Pay-in du catalogue Pay-out.

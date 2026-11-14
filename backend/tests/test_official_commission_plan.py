@@ -78,10 +78,10 @@ def test_L1_first_invite_splits_1000_reserve_and_1000_profit():
         await db.users.insert_one(_mk_user(invitee_id, sponsor_id, f"spx_{sponsor_id[:6]}", f"inv_{invitee_id[:6]}"))
         # Sponsor already at level 1 (activated by admin), reserve = 0.
         await _pay(db, sponsor_id, 1)
-        await activate_level(db, sponsor_id, 1, source="soleaspay")
+        await activate_level(db, sponsor_id, 1, source="ashtecpay")
         # Now invitee activates L1.
         await _pay(db, invitee_id, 1)
-        await activate_level(db, invitee_id, 1, source="soleaspay")
+        await activate_level(db, invitee_id, 1, source="ashtecpay")
 
         u = await db.users.find_one({"id": sponsor_id}, {"_id": 0})
         # Expect exactly 1000 upgrade + 1000 profit from this single commission.
@@ -107,9 +107,9 @@ def test_L1_second_invite_all_to_profit_when_reserve_full():
         await db.users.insert_one(_mk_user(inv2_id, sponsor_id, f"spy_{sponsor_id[:6]}", f"iv2_{inv2_id[:6]}"))
         for u in (sponsor_id, inv1_id, inv2_id):
             await _pay(db, u, 1)
-        await activate_level(db, sponsor_id, 1, source="soleaspay")
+        await activate_level(db, sponsor_id, 1, source="ashtecpay")
         # First invitation.
-        await activate_level(db, inv1_id, 1, source="soleaspay")
+        await activate_level(db, inv1_id, 1, source="ashtecpay")
         state1 = await db.users.find_one({"id": sponsor_id}, {"_id": 0})
         # Spec §2 : après la 1re invitation le parrain n'est PAS encore
         # promu à L2 — il faut 2 invitations directes ET la réserve remplie.
@@ -121,7 +121,7 @@ def test_L1_second_invite_all_to_profit_when_reserve_full():
         # Second invitation — the 2nd direct fills the last slot and the
         # commission triggers auto-upgrade to L2 (reserve full, 2 direct
         # invitees). Auto-upgrade debits the reserve by 1000 (L2 price).
-        await activate_level(db, inv2_id, 1, source="soleaspay")
+        await activate_level(db, inv2_id, 1, source="ashtecpay")
         state2 = await db.users.find_one({"id": sponsor_id}, {"_id": 0})
         # Reserve had 1000 (full), so 2nd L1 commission is 100 % profit → +2000.
         # Then auto-upgrade to L2 debits the 1000 reserve.
@@ -150,13 +150,13 @@ def test_L1_spillover_splits_50_50_between_sponsor_and_beneficiary():
             await db.users.insert_one(_mk_user(x, sponsor_id, f"sp_{sponsor_id[:6]}", f"{name}_{x[:6]}"))
             await _pay(db, x, 1)
         await _pay(db, sponsor_id, 1)
-        await activate_level(db, sponsor_id, 1, source="soleaspay")
+        await activate_level(db, sponsor_id, 1, source="ashtecpay")
         # Two direct invitees fill sponsor's left/right slots.
-        await activate_level(db, d1, 1, source="soleaspay")
-        await activate_level(db, d2, 1, source="soleaspay")
+        await activate_level(db, d1, 1, source="ashtecpay")
+        await activate_level(db, d2, 1, source="ashtecpay")
         sponsor_state_before = await db.users.find_one({"id": sponsor_id}, {"_id": 0})
         # 3rd invitee will spill under d1 (leftmost).
-        await activate_level(db, d3, 1, source="soleaspay")
+        await activate_level(db, d3, 1, source="ashtecpay")
         placement_d3 = await db.matrix_placements.find_one({"user_id": d3, "level": 1}, {"_id": 0})
         assert placement_d3["is_spillover"] is True
         assert placement_d3["parent_id"] != sponsor_id  # under a descendant
@@ -197,7 +197,7 @@ def test_commission_skipped_when_ancestor_not_at_level_N():
         await _pay(db, invitee_id, 1)
         # Try to activate the invitee — commission targets sponsor (max_level=0).
         # It must be skipped and sponsor's balances stay at 0.
-        await activate_level(db, invitee_id, 1, source="soleaspay")
+        await activate_level(db, invitee_id, 1, source="ashtecpay")
         u = await db.users.find_one({"id": sponsor_id}, {"_id": 0})
         assert u["balance_profit"] == 0
         assert u["balance_upgrade"] == 0
