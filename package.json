@@ -1,0 +1,16 @@
+{
+  "name": "spiloveure-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "web": "yarn --cwd frontend start",
+    "typecheck": "yarn --cwd frontend tsc --noEmit"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.65.1",
+    "http-proxy": "^1.18.1",
+    "typescript": "~5.9.3"
+  }
+}

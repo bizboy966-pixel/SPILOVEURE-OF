@@ -74,6 +74,9 @@ async def lifespan(app: FastAPI):
     db = client[os.environ.get("DB_NAME", "spilivere")]
     app.state.mongo = client
     app.state.db = db
+    # Community messenger owns separate collections; support retention never touches them.
+    from messenger_core import initialize as initialize_messenger
+    await initialize_messenger(db)
     # Bind DB to modules that need it for observability (BizTransPay API logs).
     try:
         from biztranspay import _bind_db as _biztranspay_bind_db
@@ -234,7 +237,14 @@ async def lifespan(app: FastAPI):
         log.info("Chat retention worker scheduled")
     except Exception as _e:
         log.warning(f"Chat retention worker failed to start: {_e}")
+    from messenger_delivery import delivery_worker
+    messenger_delivery_task = asyncio.create_task(delivery_worker(db))
     yield
+    messenger_delivery_task.cancel()
+    try:
+        await messenger_delivery_task
+    except asyncio.CancelledError:
+        pass
     if retention_task:
         retention_task.cancel()
         try:
@@ -5658,6 +5668,8 @@ app.include_router(btp_webhook)
 from chat import api as chat_api, admin_router as chat_admin  # noqa: E402
 app.include_router(chat_api)
 app.include_router(chat_admin)
+from messenger import api as messenger_api  # noqa: E402
+app.include_router(messenger_api)
 
 # Support desk (Phase 3a) — dedicated agent workflow + admin authorization.
 from support import public as support_public, admin_router as support_admin  # noqa: E402

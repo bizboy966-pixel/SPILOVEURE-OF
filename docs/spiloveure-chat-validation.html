@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SPILOVEURE Chat — rapport de validation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef3fa;color:#172748;font:16px/1.6 system-ui,-apple-system,sans-serif}main{max-width:940px;margin:40px auto;padding:36px;background:white;border-radius:18px}h1,h2{line-height:1.2}h1{color:#0b2d6f;font-size:32px}h2{font-size:21px;margin-top:32px}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.1em;color:#1769e8}.notice{background:#fff5db;border-left:4px solid #d5a63c;padding:16px 20px}.good{color:#08795b;font-weight:700}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:13px 10px;text-align:left;vertical-align:top;border-bottom:1px solid #e4eaf2}th{background:#f4f7fc}pre{padding:18px;overflow:auto;background:#102342;color:#fff;border-radius:10px;font-size:13px}footer{margin-top:32px;color:#6c7890;font-size:13px}@media(max-width:640px){main{margin:0;border-radius:0;padding:22px}h1{font-size:27px}table{font-size:12px}th,td{padding:9px 6px}}@media print{body{background:white}main{margin:0;padding:0}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">SPILOVEURE CHAT · 14 NOVEMBRE 2026</div>
+<h1>Validation de la première version</h1>
+<p>Un module réel de messagerie a été ajouté à la plateforme existante. Ce rapport distingue les contrôles réalisés des fonctions encore absentes ou dépendantes de l’installation sur le VPS.</p>
+<div class="notice"><strong>Ce n’est pas encore la totalité du cahier des charges Telegram.</strong> Les appels audio/vidéo ne sont pas implémentés. Les push hors ligne ne sont pas validés sur un téléphone réel. Aucun chiffrement de bout en bout n’est revendiqué.</div>
+
+<h2>Résultats vérifiés</h2>
+<table>
+<thead><tr><th>Contrôle</th><th>Résultat</th><th>Portée</th></tr></thead>
+<tbody>
+<tr><td>Tests serveur du Chat</td><td class="good">29 réussis</td><td>Authentification, activation, conversations, historique, droits, groupes et canaux, contacts, blocages, publications, fichiers, tickets WebSocket, programmation, mode silencieux et sourdine.</td></tr>
+<tr><td>Non-régression de l’activation</td><td class="good">5 réussis</td><td>Tests existants exécutés contre la base locale isolée. Aucune opération sur un prestataire de paiement réel.</td></tr>
+<tr><td>Échanges navigateur</td><td class="good">Réussis</td><td>Deux comptes de test, deux contextes authentifiés, mobile 402 × 874 et ordinateur 1200 × 874. Messages dans les deux sens, sans actualisation manuelle.</td></tr>
+<tr><td>Persistance de l’historique</td><td class="good">Réussie</td><td>Conversation retrouvée après rechargement du navigateur.</td></tr>
+<tr><td>Pièce jointe</td><td class="good">Réussie</td><td>Fichier envoyé depuis l’interface et reçu par le second compte. Les tests serveur vérifient aussi le refus d’accès à un tiers et à un membre retiré.</td></tr>
+<tr><td>Message vocal</td><td class="good">Réussi avec simulation</td><td>MediaRecorder utilisé dans Chromium avec un microphone simulé : enregistrement, arrêt et envoi au second compte. Ce contrôle ne remplace pas un essai sur un vrai téléphone.</td></tr>
+<tr><td>Messages programmés</td><td class="good">Réussis</td><td>Création et annulation depuis l’interface. Envoi différé et reprise sans doublon vérifiés côté serveur.</td></tr>
+<tr><td>Navigation</td><td class="good">Vérifiée</td><td>Entrée par le bouton Chat et retour à l’accueil par le logo supérieur testés. Le bouton central utilise le même gestionnaire de retour. Animation des deux barres sur une même progression.</td></tr>
+<tr><td>Build web</td><td class="good">Réussi</td><td>Export Expo web complet. Les tests navigateur n’ont remonté aucune exception JavaScript non interceptée.</td></tr>
+<tr><td>Vérification TypeScript globale</td><td>Non réussie</td><td>31 diagnostics préexistants dans d’autres modules. Aucun diagnostic dans les fichiers du Chat ou les points de navigation modifiés lors du contrôle ciblé.</td></tr>
+</tbody></table>
+
+<h2>Préservation de la plateforme</h2>
+<ul>
+<li>Les comptes existants servent d’identité : aucun nouveau système d’inscription n’est introduit.</li>
+<li>Le Chat communautaire possède ses propres collections, séparées du support et de sa purge automatique.</li>
+<li>Le code des paiements, abonnements, marketplace, formations et tâches n’a pas été modifié pour cette intégration.</li>
+<li>La page Trading reste présente ; seule son entrée dans la barre principale est remplacée par Chat.</li>
+<li>Aucune modification ni importation de données n’a été effectué sur le VPS de production.</li>
+</ul>
+<p>Ces vérifications ne constituent pas une certification exhaustive de tous les parcours historiques ou de tous les prestataires externes.</p>
+
+<h2>Limites connues et travail restant</h2>
+<ul>
+<li>Appels audio/vidéo, signalisation WebRTC et relais TURN : non implémentés.</li>
+<li>Push sur téléphone hors ligne : fournisseur existant réutilisé, mais configuration et réception réelles à vérifier sur le VPS. Les notifications de réactions et mentions ne disposent pas d’un parcours push spécialisé.</li>
+<li>Pas de chiffrement de bout en bout, antivirus de pièces jointes, ni test de charge à grande échelle.</li>
+<li>200 membres maximum par groupe/canal. Fichiers : 20 Mo maximum ; quota de 100 Mo et 100 fichiers par utilisateur sur 24 heures.</li>
+<li>Les messages en échec sont relançables dans l’écran ouvert ; la boîte d’envoi n’est pas persistante après fermeture de l’onglet.</li>
+<li>Partage de contacts textuel ; commentaires spécifiques aux canaux, bots, localisation et gestion des appareils non livrés.</li>
+<li>L’interface suit la référence avec le logo officiel déjà présent dans la plateforme ; aucune certification pixel par pixel n’est annoncée.</li>
+</ul>
+
+<h2>Mise à jour du VPS</h2>
+<p>Après sauvegarde et envoi du code vers le dépôt, reconstruire <strong>le backend et le frontend</strong>, sans supprimer les volumes ni réimporter la base :</p>
+<pre>cd /opt/spiloveure
+git pull
+cd deploy/hostinger
+docker compose up -d --build backend web
+docker compose logs --tail=80 backend web</pre>
+<p>Conserver les variables et secrets de production existants. Le site public ne reçoit pas ces changements tant que cette mise à jour n’a pas été exécutée sur le VPS.</p>
+<footer>Documentation technique incluse dans le projet : docs/spiloveure-chat.md et docs/spv-chat-api.md. Ce rapport porte sur l’environnement local de développement, pas sur une vérification de la production.</footer>
+</main></body></html>

@@ -1,7 +1,49 @@
-modules = ["python-3.12", "nodejs-20", "bash"]
+modules = ["python-3.12", "bash", "nodejs-22"]
 
 [nix]
 channel = "stable-25_05"
+packages = ["cargo", "chromium", "libiconv", "libxcrypt", "mongodb-ce", "openssl", "pkg-config", "rustc"]
 
 [agent]
 expertMode = true
+
+[userenv]
+
+[userenv.development]
+ADMIN_EMAIL = "preview-admin@example.invalid"
+DB_NAME = "spiloveure_local_development"
+MONGO_URL = "mongodb://127.0.0.1:27017"
+FRONTEND_APP_JSON = "/home/runner/workspace/frontend/app.json"
+UPLOADS_DIR = "/home/runner/workspace/.local/dev-uploads"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "SPILOVEURE"
+
+[[workflows.workflow]]
+name = "SPILOVEURE"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/start-dev.sh"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8080
+externalPort = 8080

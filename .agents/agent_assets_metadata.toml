@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "x0u3AevjPULkDY0MXRpjy"
+uri = "file://docs/spiloveure-chat-validation.html"
+type = "html"
+title = "SPILOVEURE Chat — rapport de validation"
+description = "Fonctions ajoutées, résultats des tests, limites connues et commandes de mise à jour du VPS."
+logical_id = "9a5220c8-bc11-43c5-b1a4-5a6010ac61dd"
+content_hash = "sha256:d992deeb6e60770dce1d905808d65af84d8aeb890824632b43eb735ba19027b6"
+size = 6781
+mtime_ms = 1794669662058
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/9a5220c8-bc11-43c5-b1a4-5a6010ac61dd/a745b4cb-b431-425e-a439-22e5b145e918"
+storage_version_token = "1794669704586593"
+content_type = "text/html"

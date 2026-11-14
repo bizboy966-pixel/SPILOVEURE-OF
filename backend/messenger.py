@@ -1,0 +1,412 @@
+"""Community messenger REST API, deliberately separate from /api/chat support."""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from datetime import datetime, timedelta, timezone
+
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pymongo.errors import DuplicateKeyError
+
+from messenger_core import (
+    ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
+    administrator, allowed_pair, attachments_checked, chat_user, clean,
+    conversation_view, event, get_message, identifier, member, notify, now,
+    person, rate_limit, ticket,
+)
+
+api = APIRouter(prefix="/api/messenger", tags=["messenger"])
+
+
+@api.get("/people")
+async def people(request: Request, q: str = Query(default="", max_length=100), user=Depends(chat_user)):
+    import re
+    if len(q.strip()) < 2:
+        return []
+    rows = []
+    async for row in request.app.state.db.users.find({
+        "id": {"$ne": user["id"]}, "status": {"$nin": ["banned", "blocked"]},
+        "username": {"$regex": re.escape(q.strip()), "$options": "i"},
+    }, {"id": 1, "username": 1, "avatar_url": 1}).limit(30):
+        rows.append(await person(request.app.state.db, row))
+    return rows
+
+
+@api.get("/conversations")
+async def conversations(request: Request, archived: bool = False, user=Depends(chat_user)):
+    db = request.app.state.db
+    result = []
+    async for conv in db.spv_conversations.find({"members": user["id"]}).sort("updated_at", -1).limit(300):
+        view = await conversation_view(db, conv, user["id"])
+        if view["archived"] == archived:
+            result.append(view)
+    return sorted(result, key=lambda c: (c["pinned"], c["updated_at"]), reverse=True)
+
+
+@api.post("/conversations")
+async def create_conversation(body: ConversationIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    ids = sorted(set(body.member_ids) - {uid})
+    if body.kind == "private" and len(ids) != 1:
+        raise HTTPException(400, "Choisissez un seul destinataire.")
+    if body.kind in ("group", "channel") and not body.title.strip():
+        raise HTTPException(400, "Le nom est obligatoire.")
+    if body.kind == "saved":
+        ids = []
+    if ids:
+        existing = await db.users.count_documents({"id": {"$in": ids}, "status": {"$nin": ["banned", "blocked"]}})
+        if existing != len(ids):
+            raise HTTPException(400, "Un membre est introuvable ou indisponible.")
+        for peer in ids:
+            await allowed_pair(db, uid, peer)
+    private_key = None
+    if body.kind == "private":
+        private_key = ":".join(sorted([uid, *ids]))
+    elif body.kind == "saved":
+        private_key = "saved:" + uid
+    if private_key:
+        previous = await db.spv_conversations.find_one({"private_key": private_key})
+        if previous:
+            await db.spv_preferences.update_one(
+                {"user_id": uid, "conversation_id": previous["id"]},
+                {"$set": {"archived": False}}, upsert=True,
+            )
+            return await conversation_view(db, previous, uid)
+    stamp = now()
+    conv = {
+        "id": identifier(), "kind": body.kind, "title": body.title.strip() if body.kind != "saved" else "Messages enregistrés",
+        "photo": "", "members": [uid, *ids], "admins": [uid], "owner_id": uid,
+        "created_at": stamp, "updated_at": stamp,
+        "is_public": body.is_public if body.kind == "channel" else False,
+    }
+    if private_key:
+        conv["private_key"] = private_key
+    try:
+        await db.spv_conversations.insert_one(conv)
+    except DuplicateKeyError:
+        conv = await db.spv_conversations.find_one({"private_key": private_key})
+    await notify(db, conv)
+    return await conversation_view(db, conv, uid)
+
+
+@api.get("/conversations/{cid}")
+async def detail(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    return await conversation_view(db, await member(db, cid, user), user["id"])
+
+
+@api.patch("/conversations/{cid}")
+async def update_conversation(cid: str, body: ConversationPatch, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    changes = body.model_dump(exclude_none=True)
+    meta = {k: v for k, v in changes.items() if k in ("title", "photo", "is_public")}
+    if meta:
+        if conv["kind"] not in ("group", "channel"):
+            raise HTTPException(400, "Cette conversation ne peut pas être renommée.")
+        administrator(conv, user)
+        if "is_public" in meta and conv["kind"] != "channel":
+            raise HTTPException(400, "La découverte publique est réservée aux canaux.")
+        if "title" in meta and not meta["title"].strip():
+            raise HTTPException(400, "Le nom est obligatoire.")
+        # Only protected uploaded images, never arbitrary external tracking URLs.
+        if meta.get("photo"):
+            file = await db.spv_files.find_one({"url": meta["photo"], "scope": cid})
+            if not file or not file["mime"].startswith("image/"):
+                raise HTTPException(400, "Choisissez une image envoyée dans cette discussion.")
+        await db.spv_conversations.update_one({"id": cid}, {"$set": meta})
+        conv.update(meta)
+        await notify(db, conv)
+    pref = {k: v for k, v in changes.items() if k not in ("title", "photo", "is_public")}
+    if pref:
+        await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid}, {"$set": pref}, upsert=True)
+    return await conversation_view(db, conv, user["id"])
+
+
+@api.post("/conversations/{cid}/members")
+async def members(cid: str, body: MemberIn, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    administrator(conv, user)
+    if conv["kind"] not in ("group", "channel"):
+        raise HTTPException(400, "Action réservée aux groupes et canaux.")
+    peer = body.user_id
+    if peer == conv["owner_id"]:
+        raise HTTPException(400, "Le propriétaire conserve son rôle.")
+    if body.action in ("promote", "demote") and user["id"] != conv["owner_id"]:
+        raise HTTPException(403, "Seul le propriétaire gère les administrateurs.")
+    if peer in conv["admins"] and user["id"] != conv["owner_id"]:
+        raise HTTPException(403, "Seul le propriétaire peut retirer un administrateur.")
+    if body.action == "add":
+        if len(conv["members"]) >= 200:
+            raise HTTPException(400, "Limite de 200 membres pour cette version.")
+        if not await db.users.find_one({"id": peer, "status": {"$nin": ["banned", "blocked"]}}):
+            raise HTTPException(404, "Membre introuvable.")
+        await allowed_pair(db, user["id"], peer)
+        op = {"$addToSet": {"members": peer}}
+    elif body.action == "remove":
+        op = {"$pull": {"members": peer, "admins": peer}}
+    else:
+        if peer not in conv["members"]:
+            raise HTTPException(400, "Cette personne n'est pas membre.")
+        op = {("$addToSet" if body.action == "promote" else "$pull"): {"admins": peer}}
+    await db.spv_conversations.update_one({"id": cid}, op)
+    await notify(db, conv)
+    if body.action == "add":
+        await event(db, [peer], {"type": "updated", "conversation_id": cid})
+    return {"ok": True}
+
+
+@api.post("/conversations/{cid}/leave")
+async def leave(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    if conv["kind"] not in ("group", "channel"):
+        raise HTTPException(400, "Archivez plutôt cette discussion.")
+    if conv["owner_id"] == user["id"]:
+        raise HTTPException(400, "Le propriétaire doit supprimer le groupe plutôt que le quitter.")
+    await db.spv_conversations.update_one({"id": cid}, {"$pull": {"members": user["id"], "admins": user["id"]}})
+    await notify(db, conv)
+    return {"ok": True}
+
+
+@api.delete("/conversations/{cid}")
+async def remove_conversation(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    if conv["kind"] in ("private", "saved"):
+        await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid},
+                                           {"$set": {"archived": True}}, upsert=True)
+    else:
+        if conv["owner_id"] != user["id"]:
+            raise HTTPException(403, "Seul le propriétaire peut supprimer cette discussion.")
+        await db.spv_conversations.delete_one({"id": cid})
+        await db.spv_messages.delete_many({"conversation_id": cid})
+        await db.spv_preferences.delete_many({"conversation_id": cid})
+    await notify(db, conv)
+    return {"ok": True}
+
+
+@api.get("/conversations/{cid}/messages")
+async def messages(cid: str, request: Request, before: str = "", q: str = Query(default="", max_length=200),
+                   limit: int = Query(default=50, ge=1, le=100), user=Depends(chat_user)):
+    import re
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    query = {"conversation_id": cid}
+    if before:
+        anchor = await get_message(db, conv, before)
+        query["$or"] = [
+            {"created_at": {"$lt": anchor["created_at"]}},
+            {"created_at": anchor["created_at"], "id": {"$lt": anchor["id"]}},
+        ]
+    if q.strip():
+        query.update({"text": {"$regex": re.escape(q.strip()), "$options": "i"}, "deleted": False})
+    rows = await db.spv_messages.find(query).sort([("created_at", -1), ("id", -1)]).limit(limit + 1).to_list(limit + 1)
+    return {"items": [clean(x) for x in reversed(rows[:limit])], "has_more": len(rows) > limit}
+
+
+@api.post("/conversations/{cid}/messages")
+async def send(cid: str, body: MessageIn, request: Request, user=Depends(chat_user)):
+    return await deliver_message(request.app.state.db, cid, body, user)
+
+
+async def deliver_message(db, cid, body, user):
+    uid = user["id"]
+    conv = await member(db, cid, user)
+    if conv["kind"] == "channel":
+        administrator(conv, user)
+    if conv["kind"] == "private":
+        for peer in conv["members"]:
+            if peer != uid:
+                await allowed_pair(db, uid, peer)
+    key = {"conversation_id": cid, "sender_id": uid, "client_id": body.client_id}
+    previous = await db.spv_messages.find_one(key)
+    if previous:
+        return clean(previous)
+    if not body.text.strip() and not body.attachments:
+        raise HTTPException(400, "Écrivez un message ou ajoutez un fichier.")
+    await rate_limit(db, uid)
+    attachments = await attachments_checked(db, body.attachments, user, cid)
+    if body.reply_to:
+        await get_message(db, conv, body.reply_to)
+    forwarded = None
+    if body.forwarded_from:
+        source = await db.spv_messages.find_one({"id": body.forwarded_from, "deleted": False})
+        if not source:
+            raise HTTPException(404, "Message à transférer introuvable.")
+        await member(db, source["conversation_id"], user)
+        # Forwarded files need their own protected copies; don't bypass source permissions.
+        if source["attachments"]:
+            raise HTTPException(400, "Téléchargez puis joignez les fichiers pour les transférer.")
+        forwarded = source["id"]
+    stamp = now()
+    msg = {
+        **key, "id": identifier(), "sender_name": user.get("username", "Membre"),
+        "text": body.text.strip(), "attachments": attachments, "reply_to": body.reply_to,
+        "forwarded_from": forwarded, "silent": body.silent, "created_at": stamp,
+        "edited_at": None, "deleted": False, "reactions": {}, "pinned": False, "read_by": [uid],
+    }
+    try:
+        await db.spv_messages.insert_one(msg)
+    except DuplicateKeyError:
+        return clean(await db.spv_messages.find_one(key))
+    await db.spv_conversations.update_one({"id": cid}, {"$set": {"updated_at": stamp}})
+    await db.spv_preferences.update_one(
+        {"user_id": uid, "conversation_id": cid}, {"$set": {"draft": "", "archived": False}}, upsert=True,
+    )
+    await notify(db, conv, "message", message_id=msg["id"], silent=body.silent)
+    if not body.silent:
+        from messenger_delivery import enqueue_push
+        await enqueue_push(db, conv, msg)
+    return clean(msg)
+
+
+@api.patch("/conversations/{cid}/messages/{mid}")
+async def edit(cid: str, mid: str, body: TextIn, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    msg = await get_message(db, conv, mid)
+    if msg["sender_id"] != user["id"] or msg["deleted"]:
+        raise HTTPException(403, "Seul l'auteur peut modifier ce message.")
+    if not body.text.strip():
+        raise HTTPException(400, "Le message ne peut pas être vide.")
+    await db.spv_messages.update_one({"id": mid}, {"$set": {"text": body.text.strip(), "edited_at": now()}})
+    await notify(db, conv)
+    return clean(await db.spv_messages.find_one({"id": mid}))
+
+
+@api.delete("/conversations/{cid}/messages/{mid}")
+async def delete_message(cid: str, mid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    msg = await get_message(db, conv, mid)
+    if msg["sender_id"] != user["id"] and not (conv["kind"] in ("group", "channel") and user["id"] in conv["admins"]):
+        raise HTTPException(403, "Vous ne pouvez pas supprimer ce message.")
+    await db.spv_messages.update_one({"id": mid}, {"$set": {
+        "text": "", "attachments": [], "deleted": True, "reactions": {}, "pinned": False,
+    }})
+    await notify(db, conv)
+    return {"ok": True}
+
+
+@api.post("/conversations/{cid}/messages/{mid}/reaction")
+async def reaction(cid: str, mid: str, body: ReactionIn, request: Request, user=Depends(chat_user)):
+    from messenger_social import toggle_reaction
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    msg = await get_message(db, conv, mid)
+    if msg["deleted"]:
+        raise HTTPException(400, "Ce message a été supprimé.")
+    result = await toggle_reaction(db.spv_messages, mid, body.emoji, user["id"])
+    await notify(db, conv)
+    return result
+
+
+@api.post("/conversations/{cid}/messages/{mid}/pin")
+async def pin(cid: str, mid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    if conv["kind"] in ("group", "channel"):
+        administrator(conv, user)
+    msg = await get_message(db, conv, mid)
+    if msg["deleted"]:
+        raise HTTPException(400, "Ce message a été supprimé.")
+    await db.spv_messages.update_one({"id": mid}, {"$set": {"pinned": not msg.get("pinned", False)}})
+    await notify(db, conv)
+    return clean(await db.spv_messages.find_one({"id": mid}))
+
+
+@api.post("/conversations/{cid}/read")
+async def mark_read(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    stamp = now()
+    await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid},
+                                       {"$set": {"read_at": stamp}}, upsert=True)
+    changed = await db.spv_messages.update_many({"conversation_id": cid, "created_at": {"$lte": stamp}},
+                                               {"$addToSet": {"read_by": user["id"]}})
+    if changed.modified_count:
+        await notify(db, conv, "read", user_id=user["id"], read_at=stamp)
+    return {"ok": True}
+
+
+@api.post("/conversations/{cid}/typing")
+async def typing(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=3)).isoformat()
+    previous = await db.spv_presence.find_one({"user_id": user["id"]}) or {}
+    if previous.get("typing_at", "") < cutoff:
+        await db.spv_presence.update_one({"user_id": user["id"]}, {"$set": {"typing_at": now()}}, upsert=True)
+        await notify(db, conv, "typing", user_id=user["id"], username=user.get("username", "Membre"))
+    return {"ok": True}
+
+
+@api.post("/socket-ticket")
+async def socket_ticket(request: Request, user=Depends(chat_user)):
+    return {"ticket": await ticket(request.app.state.db, user["id"])}
+
+
+@api.websocket("/ws")
+async def socket(websocket: WebSocket, ticket: str = ""):
+    db = websocket.app.state.db
+    row = await db.spv_tickets.find_one_and_delete({
+        "digest": hashlib.sha256(ticket.encode()).hexdigest(),
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not row:
+        await websocket.close(code=4401)
+        return
+    uid = row["user_id"]
+    await websocket.accept()
+    cursor = ObjectId.from_datetime(datetime.now(timezone.utc))
+    await db.spv_presence.update_one({"user_id": uid}, {
+        "$inc": {"online_count": 1}, "$set": {"last_seen": now()},
+    }, upsert=True)
+    peers = {uid}
+    async for conv in db.spv_conversations.find({"members": uid}).limit(300):
+        peers.update(conv["members"])
+    await event(db, peers, {"type": "presence"})
+    try:
+        while True:
+            # Recheck current account access: an open socket is not permanent authorization.
+            user = await db.users.find_one({"id": uid})
+            if not user or user.get("status") in ("banned", "blocked") or (
+                user.get("role") != "admin" and user.get("status") != "active" and (user.get("max_level") or 0) < 1
+            ):
+                await websocket.close(code=4403)
+                return
+            await db.spv_presence.update_one({"user_id": uid}, {"$set": {"last_seen": now()}}, upsert=True)
+            rows = await db.spv_events.find({"recipients": uid, "_id": {"$gt": cursor}}).sort("_id", 1).limit(100).to_list(100)
+            for row in rows:
+                cursor = row["_id"]
+                payload = row["payload"]
+                cid = payload.get("conversation_id")
+                if cid and not await db.spv_conversations.find_one({"id": cid, "members": uid}):
+                    # Membership revocation never leaks future messages or typing events.
+                    await websocket.send_json({"type": "updated"})
+                    continue
+                await websocket.send_json(payload)
+            try:
+                packet = await asyncio.wait_for(websocket.receive_json(), timeout=1)
+                if packet.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                continue
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        return
+    finally:
+        await db.spv_presence.update_one({"user_id": uid, "online_count": {"$gt": 0}}, {
+            "$inc": {"online_count": -1}, "$set": {"last_seen": now()},
+        })
+        await event(db, peers, {"type": "presence"})
+
+
+from messenger_social import api as social_api  # noqa: E402
+from messenger_files import api as files_api  # noqa: E402
+from messenger_delivery import api as delivery_api  # noqa: E402
+api.include_router(social_api)
+api.include_router(files_api)
+api.include_router(delivery_api)

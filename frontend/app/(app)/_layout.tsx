@@ -9,6 +9,7 @@ import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
 import TelegramFab from "@/src/components/TelegramFab";
 import { ActivationProvider } from "@/src/components/ActivationGuard";
+import { NavigationTransitionProvider } from "@/src/messenger/NavigationTransition";
 
 /**
  * v27c (2026-02-14) — activation flow rétabli.
@@ -59,6 +60,7 @@ export default function AppLayout() {
   // spinner rendered, and only then the `useEffect` fired `router.replace`
   // → the user saw the target page appear then instantly disappear.
   const currentSeg = segments[1] || "";
+  const isMessenger = currentSeg === "messenger";
   const shouldBounceToPay =
     !loading && !!user && isPending && !PENDING_ALLOWED_SEGMENTS.has(currentSeg);
 
@@ -90,16 +92,20 @@ export default function AppLayout() {
   return (
     <ActivationProvider>
       <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }} />
-        {user && (
+        <NavigationTransitionProvider>
           <>
-            {isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
-            {isActivated && <SupportGroupPopup enabled={communityDone} />}
-            <NotificationToaster />
-            <PushBootstrap />
-            {isActivated && <TelegramFab />}
+            <Stack screenOptions={{ headerShown: false }} />
+            {user && (
+              <>
+                {isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
+                {isActivated && <SupportGroupPopup enabled={communityDone} />}
+                <NotificationToaster />
+                <PushBootstrap />
+                {isActivated && !isMessenger && <TelegramFab />}
+              </>
+            )}
           </>
-        )}
+        </NavigationTransitionProvider>
       </View>
     </ActivationProvider>
   );

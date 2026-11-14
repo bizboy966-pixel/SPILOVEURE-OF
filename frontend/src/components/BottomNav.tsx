@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
+import { Animated, Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { theme } from "../theme";
 import { api } from "../api";
 import { useActivationGuard } from "./ActivationGuard";
+import { useAuth } from "../auth";
+import { useNavigationTransition } from "../messenger/NavigationTransition";
 
 /**
  * Floating bottom navigation (v14 — mockup-driven refresh).
  * 5 items with the centre "Tâches" pill elevated above the bar:
- *   [ Accueil ] [ IA SPV ] ( Tâches ) [ Trading ] [ Profil ]
+ *   [ Accueil ] [ IA SPV ] ( Tâches ) [ Chat ] [ Profil ]
  *
  * The wrapper floats with rounded pill shape + shadow to match the
  * user's mockup. All secondary destinations (Marketplace, Emploi,
@@ -31,7 +33,7 @@ const LEFT: Item[] = [
 ];
 
 const RIGHT: Item[] = [
-  { key: "trading", icon: "trending-up", label: "Trading", route: "/(app)/trading", matchers: ["/trading"] },
+  { key: "chat", icon: "chatbubbles", label: "Chat", route: "/(app)/messenger", matchers: ["/messenger"] },
   { key: "profile", icon: "person", label: "Profil", route: "/(app)/profile", matchers: ["/profile"] },
 ];
 
@@ -59,6 +61,9 @@ export const BottomNav: React.FC = () => {
   const [plusOpen, setPlusOpen] = useState(false);
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
   const { guardedNavigate, showModal } = useActivationGuard();
+  const { user } = useAuth();
+  const navTransition = useNavigationTransition();
+  const navY = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +80,17 @@ export const BottomNav: React.FC = () => {
     return () => { cancelled = true; clearInterval(iv); };
   }, [pathname]);
 
+  // Preserve the pre-existing dashboard entrance motion on dashboard mounts.
+  // Chat's persistent transition overlay owns the two-bar synchronized return.
+  useEffect(() => {
+    if ((pathname.includes("/dashboard") || pathname === "/(app)") && !navTransition.active) {
+      navY.setValue(100);
+      Animated.timing(navY, { toValue: 0, duration: 340, useNativeDriver: true }).start();
+    }
+  // Only path changes should replay the existing dashboard mount animation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const openSupport = async () => {
     try {
       const sup = await api.get<any>("/settings/support", { auth: false } as any);
@@ -88,7 +104,17 @@ export const BottomNav: React.FC = () => {
     if (typeof window !== "undefined") window.alert("Service client indisponible pour le moment.");
   };
 
-  const goto = (route: string) => guardedNavigate(route);
+  const goto = (route: string) => {
+    if (route.includes("/messenger")) {
+      if (user?.status === "pending" && (user.max_level || 0) === 0) {
+        guardedNavigate(route);
+        return;
+      }
+      navTransition.toChat(() => guardedNavigate(route));
+      return;
+    }
+    guardedNavigate(route);
+  };
   const tasksActive = pathname.includes("/tasks");
 
   const renderItem = (it: Item, side: "L" | "R") => {
@@ -114,7 +140,7 @@ export const BottomNav: React.FC = () => {
 
   return (
     <>
-      <View style={styles.floater} pointerEvents="box-none">
+      {!navTransition.active && <Animated.View style={[styles.floater, { transform: [{ translateY: navY }] }]} pointerEvents="box-none">
         <View style={styles.bar} testID="bottom-nav">
           {LEFT.map((it) => renderItem(it, "L"))}
 
@@ -139,7 +165,7 @@ export const BottomNav: React.FC = () => {
 
           {RIGHT.map((it) => renderItem(it, "R"))}
         </View>
-      </View>
+      </Animated.View>}
 
       {/* Long-press on the central pill opens the extra services sheet */}
       <Modal
