@@ -1,7 +1,13 @@
 {
   "expo": {
     "name": "Spiloveure",
-    "slug": "spilivere",
+    "slug": "spiloveure",
+    "owner": "biztechsarl",
+    "extra": {
+      "eas": {
+        "projectId": "1e5fdbe4-3e45-4d2b-9918-e6c8c7dfe877"
+      }
+    },
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
