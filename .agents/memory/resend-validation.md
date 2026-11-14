@@ -5,7 +5,7 @@ description: Choix du compte Resend et pièges de diagnostic des clés d’envoi
 
 Utiliser le compte Resend choisi par l’utilisateur pour les e-mails SPILOVEURE. Ne pas supposer qu’un connecteur déjà disponible correspond à ce compte, ni demander de refaire les DNS uniquement parce que ce connecteur indique un échec.
 
-**Why:** L’utilisateur avait déjà validé son domaine dans Resend et publié les DNS dans Hostinger. La connexion initialement disponible attendait d’autres valeurs. Sa propre clé a permis un envoi natif accepté sans aucune modification DNS.
+**Why:** L’utilisateur avait déjà validé son domaine dans Resend et publié les DNS dans Hostinger. La connexion initialement disponible attendait d’autres valeurs. Sa propre clé a permis un envoi natif sans modification DNS, dont l’utilisateur a confirmé la réception dans sa boîte principale.
 
 **How to apply:** Aligner la clé utilisée par l’application avec le compte où le domaine est vérifié. Garder les secrets dans le formulaire sécurisé et distinguer un test accepté par l’API de la réception réelle d’un code.
 
