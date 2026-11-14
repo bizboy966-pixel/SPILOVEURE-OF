@@ -39,3 +39,13 @@ serveur officiel.
 **How to apply:** Maintenir une identité d’application et des données de test
 séparées, sans opérations financières réelles. Ne jamais présenter cette
 version d’essai comme l’APK officiel validé ni l’installer à la place de celui-ci.
+
+EAS Build depuis GitHub doit aussi convertir dans son espace temporaire les
+URL du lockfile qui pointent vers le registre interne Replit ; les workers
+Expo ne peuvent pas résoudre ce nom d’hôte.
+
+**Why:** La première compilation de test s’est arrêtée pendant l’installation
+des paquets, avant toute étape de compilation Android.
+
+**How to apply:** Garder cette conversion limitée au hook EAS de `test-apk`,
+sans réécrire les lockfiles du dépôt ni changer le flux de dépendances de Replit.
