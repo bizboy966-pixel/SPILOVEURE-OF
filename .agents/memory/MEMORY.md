@@ -3,3 +3,4 @@
 - [Inscription et sessions distinctes](registration-sessions.md) — le Chat vérifié par e-mail doit rester accessible sans activation ni session principale valide.
 - [Validation Resend](resend-validation.md) — distinguer compte connecté, DNS validés et droits d’envoi ; ne pas remplacer les DNS d’un autre compte.
 - [Parrain par défaut et Android](referral-android-policy.md) — invitation prioritaire, administrateur officiel en l’absence de code ; aucune diffusion APK sans validation réelle.
+- [Contrat MoneyFusion](moneyfusion-contract.md) — Mobile Money uniquement ; devise et couverture Pay-in à confirmer, sans les déduire du catalogue Pay-out.

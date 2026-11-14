@@ -93,8 +93,10 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
         mf_creds = await _mf_credentials(db)
         auto_dep = bool(mf_cfg.get("payin_enabled")
                         and mf_cfg.get("payin_local_currency_confirmed")
+                        and mf_cfg.get("mobile_money_only_confirmed")
                         and mf_creds.get("payin_api_url"))
         auto_wd = bool(mf_cfg.get("payout_enabled")
+                       and mf_cfg.get("payout_ip_confirmed")
                        and mf_creds.get("payout_private_key"))
         enabled = auto_dep or auto_wd
     elif provider_id == "izichange":
@@ -260,7 +262,7 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
             from moneyfusion import refresh_catalog, sync_catalog
             cached = await db.app_settings.find_one({"key": "moneyfusion_catalog"}) or {}
             if isinstance(cached.get("value"), list):
-                await sync_catalog(db, cached["value"])
+                await sync_catalog(db, cached["value"], cache_snapshot=False)
             elif cfg.get("moneyfusion_catalog_enabled"):
                 await refresh_catalog(db)
         except Exception as exc:
@@ -279,6 +281,10 @@ async def sync_providers(db) -> dict:
         cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
 
         for provider_id in _PROVIDER_CATALOG.keys():
+            if provider_id == "moneyfusion":
+                from moneyfusion import sync_provider
+                await sync_provider(db)
+                continue
             await _sync_provider_row(db, provider_id, cfg)
             await _sync_countries_operators(db, provider_id, cfg)
 

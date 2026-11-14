@@ -30,6 +30,7 @@ def onboarding_path_allowed(path, method="GET"):
         "/api/identity/", "/api/payments/activation-catalog",
         "/api/payments/activate", "/api/payments/activation/",
         "/api/payments/ashtec/", "/api/activations/",
+        "/api/payments/moneyfusion/",
     ))
 
 

@@ -73,6 +73,11 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
         if kind == "payout":
             return False, "payout_unsupported"
     elif provider_id == "moneyfusion":
+        # Its hosted checkout has its own initiation endpoint/UI. The legacy
+        # dispatcher cannot consume a checkout URL and must never route an
+        # Ashtec/Soleas operator request to MoneyFusion by accident.
+        if kind == "payin":
+            return False, "hosted_checkout_requires_dedicated_flow"
         try:
             from moneyfusion import load_config, load_credentials
             mf_cfg = await load_config(db)
@@ -82,9 +87,11 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
         if kind == "payin":
             if not (mf_cfg.get("payin_enabled")
                     and mf_cfg.get("payin_local_currency_confirmed")
+                    and mf_cfg.get("mobile_money_only_confirmed")
                     and credentials.get("payin_api_url")):
                 return False, "payin_not_configured_or_currency_unconfirmed"
         elif not (mf_cfg.get("payout_enabled")
+                  and mf_cfg.get("payout_ip_confirmed")
                   and credentials.get("payout_private_key")):
             return False, "payout_not_configured"
     elif provider_id == "izichange":

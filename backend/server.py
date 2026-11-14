@@ -130,12 +130,20 @@ async def lifespan(app: FastAPI):
         except Exception:
             log.warning("payments.reference unique index skipped: %s", _idx_e)
     await db.payments.create_index("transaction_id")
+    await db.payments.create_index("moneyfusion_active_key", unique=True, sparse=True)
+    await db.payments.create_index(
+        [("provider", 1), ("provider_token", 1)], unique=True,
+        partialFilterExpression={"provider": "moneyfusion", "provider_token": {"$type": "string"}},
+        name="moneyfusion_token_unique",
+    )
     # FCM push tokens — one row per (user_id, device_id)
     await db.push_tokens.create_index([("user_id", 1), ("device_id", 1)], unique=True)
     await db.push_tokens.create_index("token")
     # SoleasPay P-Out — one payout row per withdrawal id (idempotency).
     await db.soleaspay_payouts.create_index("wd_id", unique=True)
     await db.soleaspay_payouts.create_index("provider_reference")
+    await db.moneyfusion_payouts.create_index("wd_id", unique=True)
+    await db.moneyfusion_payouts.create_index("tokenPay", unique=True, sparse=True)
     # v27i (2026-02-20) — Normalized payment provider registry (Phase 1).
     # Idempotently mirrors the flat config into normalized collections so
     # the future PaymentProviderRouter (Phase 2) can consume them.
@@ -3261,6 +3269,7 @@ async def get_payment_methods_status(request: Request):
         moneyfusion_ready = bool(
             mf_cfg.get("payin_enabled")
             and mf_cfg.get("payin_local_currency_confirmed")
+            and mf_cfg.get("mobile_money_only_confirmed")
             and mf_credentials.get("payin_api_url")
         )
     except Exception:
@@ -3735,7 +3744,7 @@ async def admin_stats(request: Request):
         # v27ac (2026-03-04) — include biztranspay (mobile + crypto)
         # in the automatic pending count so the dashboard reflects
         # every gateway, not just SoleasPay / AshtecPay.
-        "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]},
+        "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay", "moneyfusion"]},
         "$or": [
             {"status": "pending"},
             {"status": "paid", "activation_done": {"$ne": True}},
@@ -3771,15 +3780,16 @@ async def admin_stats(request: Request):
     # Auto payment gateways store their activation records in `db.payments`.
     # We include BOTH SoleasPay (legacy) and AshtecPay (current) so the
     # dashboard reflects every automatic activation regardless of the
-    # provider dispatched to. All amounts are in FCFA (XOF/XAF).
+        # provider dispatched to. MoneyFusion freezes the canonical XOF amount
+        # alongside the provider's local-currency charge.
     total_auto_agg = await db.payments.aggregate([
         {"$match": {
             # v27ac — biztranspay activations (mobile money + crypto USDT.BEP20)
             # must be aggregated too.
-            "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]},
+            "provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay", "moneyfusion"]},
             "activation_done": True,
         }},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$base_amount_xof", "$amount"]}}}},
     ]).to_list(1)
     total_activations_auto = total_auto_agg[0]["total"] if total_auto_agg else 0
     total_activations = (total_activations_manual or 0) + (total_activations_auto or 0)
@@ -4182,7 +4192,7 @@ async def admin_list_activations(request: Request, status_filter: Optional[str] 
     # v27ac (2026-03-04) — biztranspay added so mobile-money AND crypto
     # USDT.BEP20 activations dispatched through BTP land in the admin panel
     # with the same buckets (pending / validated / rejected) as SoleasPay.
-    payment_query: dict = {"provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay"]}}
+    payment_query: dict = {"provider": {"$in": ["soleaspay", "ashtecpay", "biztranspay", "moneyfusion"]}}
     if status_filter == "pending":
         payment_query["$or"] = [
             {"status": "pending"},
@@ -4487,6 +4497,10 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
+        if wd.get("gateway") == "moneyfusion":
+            from moneyfusion import manual_withdrawal_action_allowed
+            if not await manual_withdrawal_action_allowed(db, wd_id):
+                raise HTTPException(409, "Ce retrait a été soumis à MoneyFusion. Vérifiez son statut dans les réglages MoneyFusion avant toute action manuelle.")
         # v27ag (2026-03-04) — accept validate on gateway-lifecycle statuses
         # too (dispatched / processing). Manual validation of an auto-dispatched
         # retrait means the admin trusts the gateway succeeded even without
@@ -4564,10 +4578,15 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
                     "usdt_amount": usdt_amount}
 
         # Classic manual path.
-        await db.withdrawals.update_one(
-            {"id": wd_id},
+        claimed = await db.withdrawals.update_one(
+            {"id": wd_id, "status": wd["status"], "$or": [
+                {"gateway": {"$ne": "moneyfusion"}},
+                {"gateway_status": "refused"},
+            ]},
             {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
         )
+        if not claimed.modified_count:
+            raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
         await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
         await db.admin_logs.insert_one({
             "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_withdrawal",
@@ -4597,17 +4616,27 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
     reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
+        if wd.get("gateway") == "moneyfusion":
+            from moneyfusion import manual_withdrawal_action_allowed
+            if not await manual_withdrawal_action_allowed(db, wd_id):
+                raise HTTPException(409, "Impossible de rembourser un transfert MoneyFusion en cours ou au résultat inconnu. Vérifiez d’abord son statut dans les réglages MoneyFusion.")
         # v27ag (2026-03-04) — accept reject on gateway-lifecycle statuses
         # too (dispatched / processing), not just pending. Otherwise stuck
         # auto-retraits are unrejectable from the admin panel.
         if wd["status"] not in ("pending", "dispatched", "processing"):
             raise HTTPException(400, "Déjà traité.")
-        # Refund balance
-        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})
-        await db.withdrawals.update_one(
-            {"id": wd_id},
+        # Claim before refunding. MoneyFusion may have reserved the transfer
+        # after this handler read it; never refund a concurrently sent payout.
+        claimed = await db.withdrawals.update_one(
+            {"id": wd_id, "status": wd["status"], "$or": [
+                {"gateway": {"$ne": "moneyfusion"}},
+                {"gateway_status": "refused"},
+            ]},
             {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"], "reject_reason": reason}},
         )
+        if not claimed.modified_count:
+            raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
+        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})
         await db.admin_logs.insert_one({
             "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_withdrawal",
             "target": wd_id, "at": datetime.now(timezone.utc),

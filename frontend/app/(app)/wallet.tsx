@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -12,18 +12,27 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 
-type Country = { code: string; name: string; flag: string };
+type Country = { code: string; name: string; flag?: string };
+type MoneyFusionCountry = {
+  country_code: string;
+  country: string;
+  currency: string;
+  operators: { code: string; label: string }[];
+};
+type OperatorOption = { value: string; label: string; source: "legacy" | "moneyfusion" };
 type Method = "mobile" | "crypto";
 
 export default function Wallet() {
   const router = useRouter();
   const { user } = useAuth();
   const [country, setCountry] = useState(user?.country || "TG");
-  const [countries, setCountries] = useState<Country[]>([]);
+  const [baseCountries, setBaseCountries] = useState<Country[]>([]);
+  const [moneyFusionCountries, setMoneyFusionCountries] = useState<MoneyFusionCountry[]>([]);
+  const [moneyFusionCatalogError, setMoneyFusionCatalogError] = useState("");
   const [showCP, setShowCP] = useState(false);
 
   const [method, setMethod] = useState<Method>("mobile");
-  const [operators, setOperators] = useState<string[]>([]);
+  const [legacyOperators, setLegacyOperators] = useState<string[]>([]);
   const [operator, setOperator] = useState<string>("");
   const [phone, setPhone] = useState(user?.phone || "");
   const [fullName, setFullName] = useState("");
@@ -36,8 +45,8 @@ export default function Wallet() {
         const cfg = await api.get<{ countries: Country[]; operators_by_country: Record<string, string[]> }>(
           "/config", { auth: false },
         );
-        setCountries(cfg.countries);
-        setOperators(cfg.operators_by_country[country] || []);
+        setBaseCountries(cfg.countries);
+        setLegacyOperators(cfg.operators_by_country[country] || []);
       } catch {}
       try {
         const w = await api.get<any>("/wallet");
@@ -59,10 +68,47 @@ export default function Wallet() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    api.get<{ countries: MoneyFusionCountry[] }>("/payments/moneyfusion/payout-catalog")
+      .then((result) => {
+        if (active) {
+          setMoneyFusionCountries(Array.isArray(result?.countries) ? result.countries : []);
+        }
+      })
+      .catch((e: any) => {
+        if (active) {
+          setMoneyFusionCatalogError(e?.detail || "Les options MoneyFusion ne sont pas disponibles pour le moment.");
+        }
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     api.get<{ operators_by_country: Record<string, string[]> }>("/config", { auth: false })
-      .then((cfg) => setOperators(cfg.operators_by_country[country] || []))
+      .then((cfg) => setLegacyOperators(cfg.operators_by_country[country] || []))
       .catch(() => {});
   }, [country]);
+
+  const countries = useMemo(() => {
+    const merged = [...baseCountries];
+    for (const item of moneyFusionCountries) {
+      if (!merged.some((existing) => existing.code === item.country_code)) {
+        merged.push({ code: item.country_code, name: item.country || item.country_code });
+      }
+    }
+    return merged;
+  }, [baseCountries, moneyFusionCountries]);
+
+  const operators = useMemo<OperatorOption[]>(() => {
+    const options: OperatorOption[] = legacyOperators.map((label) => ({ value: label, label, source: "legacy" }));
+    const countryCatalog = moneyFusionCountries.find((item) => item.country_code === country);
+    for (const item of countryCatalog?.operators || []) {
+      if (!options.some((option) => option.value === item.code)) {
+        options.push({ value: item.code, label: item.label || item.code, source: "moneyfusion" });
+      }
+    }
+    return options;
+  }, [legacyOperators, moneyFusionCountries, country]);
 
   const save = async () => {
     if (!country || !fullName.trim()) {
@@ -107,17 +153,17 @@ export default function Wallet() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Card>
-          <Text style={styles.step}>Étape 1 — 🌍 Sélectionner le pays</Text>
+          <Text style={styles.step}>Étape 1 — Sélectionner le pays</Text>
           <TouchableOpacity style={styles.field} onPress={() => setShowCP(true)} testID="wallet-country-btn">
             <Text style={styles.fieldTxt}>
-              {selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : "Sélectionner..."}
+              {selectedCountry ? `${selectedCountry.flag ? `${selectedCountry.flag} ` : ""}${selectedCountry.name}` : "Sélectionner..."}
             </Text>
             <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.step}>Étape 2 — 💰 Choisir le mode de retrait</Text>
+          <Text style={styles.step}>Étape 2 — Choisir le mode de retrait</Text>
           <View style={styles.methodRow}>
             <TouchableOpacity
               style={[styles.methodBox, method === "mobile" && styles.methodBoxOn]}
@@ -145,16 +191,19 @@ export default function Wallet() {
 
           {method === "mobile" ? (
             <>
-              <Text style={styles.lbl}>📱 Opérateur Mobile Money</Text>
+              <Text style={styles.lbl}>Opérateur Mobile Money</Text>
               <View style={styles.opRow}>
                 {operators.map((op) => (
                   <TouchableOpacity
-                    key={op}
-                    style={[styles.opChip, operator === op && styles.opChipOn]}
-                    onPress={() => setOperator(op)}
-                    testID={`wallet-operator-${op}`}
+                    key={`${op.source}-${op.value}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: operator === op.value }}
+                    style={[styles.opChip, operator === op.value && styles.opChipOn]}
+                    onPress={() => setOperator(op.value)}
+                    testID={`wallet-operator-${op.value}`}
                   >
-                    <Text style={[styles.opTxt, operator === op && { color: "#fff" }]}>{op}</Text>
+                    <Text style={[styles.opTxt, operator === op.value && { color: "#fff" }]}>{op.label}</Text>
+                    {op.source === "moneyfusion" ? <Text style={styles.operatorSource}>MoneyFusion</Text> : null}
                   </TouchableOpacity>
                 ))}
                 {operators.length === 0 && (
@@ -163,7 +212,8 @@ export default function Wallet() {
                   </Text>
                 )}
               </View>
-              <Input label="☎️ Numéro de téléphone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Ex: +22890000000" testID="wallet-phone" />
+              {moneyFusionCatalogError ? <Text style={styles.hint}>{moneyFusionCatalogError} Les opérateurs historiques restent disponibles.</Text> : null}
+              <Input label="Numéro de téléphone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Ex: +22890000000" testID="wallet-phone" />
             </>
           ) : (
             <>
@@ -172,7 +222,7 @@ export default function Wallet() {
                 <Text style={styles.networkTxt}>Réseau : USDT BEP20</Text>
               </View>
               <Input
-                label="📥 Adresse wallet USDT BEP20"
+                label="Adresse wallet USDT BEP20"
                 value={walletAddress}
                 onChangeText={setWalletAddress}
                 placeholder="0x..."
@@ -181,7 +231,7 @@ export default function Wallet() {
                 testID="wallet-address"
               />
               <Text style={styles.hint}>
-                ⚠️ Vérifiez attentivement votre adresse — toute erreur entraîne une perte définitive des fonds.
+                Vérifiez attentivement votre adresse — toute erreur entraîne une perte définitive des fonds.
               </Text>
             </>
           )}
@@ -209,10 +259,14 @@ export default function Wallet() {
                 <TouchableOpacity
                   key={c.code}
                   style={styles.countryRow}
-                  onPress={() => { setCountry(c.code); setShowCP(false); }}
+                  onPress={() => {
+                    if (c.code !== country) setOperator("");
+                    setCountry(c.code);
+                    setShowCP(false);
+                  }}
                   testID={`wallet-country-${c.code}`}
                 >
-                  <Text style={styles.countryRowTxt}>{c.flag} {c.name}</Text>
+                  <Text style={styles.countryRowTxt}>{c.flag ? `${c.flag} ` : ""}{c.name}</Text>
                   {country === c.code ? <Ionicons name="checkmark" size={18} color={theme.colors.success} /> : null}
                 </TouchableOpacity>
               ))}
@@ -242,6 +296,7 @@ const styles = StyleSheet.create({
   opChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   opChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   opTxt: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12 },
+  operatorSource: { color: theme.colors.textSecondary, fontSize: 9, fontWeight: "700", marginTop: 3 },
   networkChip: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF3C7", padding: 8, borderRadius: 12, marginBottom: 4 },
   networkTxt: { color: "#92400E", fontWeight: "700", fontSize: 12 },
   hint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 6, fontStyle: "italic" },

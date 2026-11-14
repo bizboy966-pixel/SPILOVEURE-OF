@@ -21,6 +21,7 @@ import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { theme } from "@/src/theme";
 import ActivationVideoList from "@/src/components/ActivationVideoList";
+import MoneyFusionActivation from "@/src/components/MoneyFusionActivation";
 
 type Operator = {
   code: string;
@@ -313,6 +314,8 @@ export default function Pay() {
           </Text>
           <Text style={styles.amountSub}>Montant fixe · frais inclus · non modifiable</Text>
         </View>
+
+        <MoneyFusionActivation />
 
         {catalogErr && <Text style={styles.err}>❌ {catalogErr}</Text>}
         {!catalog && !catalogErr && (

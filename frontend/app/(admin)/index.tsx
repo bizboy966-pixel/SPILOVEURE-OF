@@ -35,6 +35,7 @@ import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
 import SupportAgentsCard from "@/src/components/SupportAgentsCard";
+import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
 
 type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions";
 
@@ -43,6 +44,7 @@ export default function AdminHome() {
   const { user, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [refreshing, setRefreshing] = useState(false);
+  const [providerCardVersion, setProviderCardVersion] = useState(0);
   // v27q — dropdown "3 dots" menu that lists all tabs vertically
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -2483,7 +2485,11 @@ export default function AdminHome() {
                 Vue unifiée : chaque prestataire → statut, dépôt/retrait auto, priorité, pays et opérateurs. Le router central choisit dynamiquement le prestataire selon le pays, l'opérateur et la priorité.
               </Text>
             </View>
-            <PaymentProvidersRouterCard />
+            <MoneyFusionSettings
+              onSaved={() => setProviderCardVersion((version) => version + 1)}
+              onCatalogueRefreshed={() => setProviderCardVersion((version) => version + 1)}
+            />
+            <PaymentProvidersRouterCard key={`providers-${providerCardVersion}`} />
             <View style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8, marginBottom: 12 }}>
               <Text style={{ fontSize: 13, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 }}>🔑 Configuration des clés (par prestataire)</Text>
               <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 10 }}>
@@ -4531,7 +4537,7 @@ function PaymentProvidersRouterCard() {
                           testID={`provider-${p.id}-country-${c.country_code}`}
                         >
                           <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
-                            {c.country_code === "*" ? "🌍 Universel" : `🌍 ${c.country_code}`}  •  {c.currency}
+                            {c.country_code === "*" ? "Universel" : (c.country_name || c.country || c.country_code)}  •  {c.currency}
                           </Text>
                           <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
                             {cActive ? "🟢 Activé" : "🔴 Désactivé"}
