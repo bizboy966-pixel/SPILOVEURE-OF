@@ -1,0 +1,1 @@
+- [Périmètre SPILOVEURE Chat](chat-scope.md) — ajout isolé, référence visuelle imposée et architecture à présenter avant développement.
