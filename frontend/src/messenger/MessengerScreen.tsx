@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,6 +15,7 @@ import PublicChannelsModal from "./PublicChannelsModal";
 import ProfilePhotoViewer from "./ProfilePhotoViewer";
 import { ContactsPanel, FeedPanel, ProfilePanel } from "./CommunityPanels";
 import { useNavigationTransition } from "./NavigationTransition";
+import { normalizeSpvUsername } from "./userLinks";
 
 const logo = require("../../assets/images/spiloveure-logo.png");
 const blue = "#1769e8", ink = "#102042", muted = "#8993a4";
@@ -24,9 +25,11 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ invite?: string | string[] }>();
+  const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[] }>();
   const inviteParam = Array.isArray(params.invite) ? params.invite[0] : params.invite;
+  const directUsernameParam = Array.isArray(params.username) ? params.username[0] : params.username;
   const handledInvite = useRef<string | null>(null);
+  const handledUserLink = useRef<string | null>(null);
   const { user, loading: chatLoading, sessionExpired, refresh: refreshChat } = useChat();
   const navTransition = useNavigationTransition();
   const { items, loading, error, refresh, archived, setArchived, version, feedVersion, typingByConversation, readReceipts } = useConversations(user?.id);
@@ -34,7 +37,13 @@ export default function MessengerScreen() {
   const wide = width >= 760;
   const [photoPreview, setPhotoPreview] = useState<{ uri: string; label: string } | null>(null);
   useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
-  useEffect(() => { if (sessionExpired) router.replace("/verify-email?source=chat&expired=1" as any); }, [sessionExpired, router]);
+  useEffect(() => {
+    if (!sessionExpired) return;
+    const returnTo = directUsernameParam
+      ? `/messenger?username=${encodeURIComponent(directUsernameParam)}`
+      : "/messenger";
+    router.replace(`/verify-email?source=chat&expired=1&returnTo=${encodeURIComponent(returnTo)}` as any);
+  }, [sessionExpired, directUsernameParam, router]);
   const [tab, setTab] = useState<Tab>("Échanges");
   const [filter, setFilter] = useState<Filter>("Tous");
   const [filterReadyFor, setFilterReadyFor] = useState<string | null>(null);
@@ -146,10 +155,40 @@ export default function MessengerScreen() {
   };
   const createPrivate = (person: Person) => {
     setBusy(true); setActionError("");
-    messengerApi.createConversation({ kind: "private", member_ids: [person.id] }).then(result => {
+    return messengerApi.createConversation({ kind: "private", member_ids: [person.id] }).then(result => {
       setSelected(result); setCreationOpen(false); setChosen([]); setPersonQuery(""); setSearchOpen(false); setQuery(""); setTab("Échanges"); refresh();
     }).catch((e: any) => setActionError(e?.detail || "Conversation impossible à créer.")).finally(() => setBusy(false));
   };
+  const openSpvUser = useCallback(async (rawUsername: string) => {
+    const username = normalizeSpvUsername(rawUsername);
+    if (username.length < 2) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const rows = await messengerApi.people(`SPV@${username}`);
+      const person = rows.find(item => item.username.toLocaleLowerCase() === username.toLocaleLowerCase() && item.id !== user?.id);
+      if (!person) throw new Error(`Aucun membre ne correspond à SPV@${username}.`);
+      const conversation = await messengerApi.createConversation({ kind: "private", member_ids: [person.id] });
+      setSelected(conversation);
+      setTab("Échanges");
+      setSearchOpen(false);
+      setQuery("");
+      await refresh();
+    } catch (e: any) {
+      setActionError(e?.detail || e?.message || "Impossible d’ouvrir cette conversation.");
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, user?.id]);
+  useEffect(() => {
+    if (!user?.id || !directUsernameParam || inviteParam || handledUserLink.current === directUsernameParam) return;
+    handledUserLink.current = directUsernameParam;
+    let active = true;
+    void openSpvUser(directUsernameParam).finally(() => {
+      if (active) router.replace("/messenger" as any);
+    });
+    return () => { active = false; };
+  }, [directUsernameParam, inviteParam, openSpvUser, router, user?.id]);
   const saveContactAndConversation = async (person: Person) => {
     setBusy(true); setActionError("");
     try {
@@ -259,7 +298,7 @@ export default function MessengerScreen() {
         <Image source={logo} style={styles.logo} resizeMode="contain" />
         <View><Text style={styles.brandTitle}>SPILOVEURE</Text><Text style={styles.brandSub}>Chat</Text></View>
       </TouchableOpacity>
-      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher" autoFocus style={styles.headerSearch} onSubmitEditing={() => setSearchOpen(false)} testID="messenger-global-search" /> : null}
+      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher" autoFocus autoCapitalize="none" returnKeyType="search" style={styles.headerSearch} testID="messenger-global-search" /> : null}
       <TouchableOpacity onPress={() => { setSearchOpen(v => !v); setQuery(""); }} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher"}><Ionicons name={searchOpen ? "close" : "search"} size={23} color="#fff" /></TouchableOpacity>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerIcon}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
     </LinearGradient>
@@ -304,7 +343,7 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-        {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={() => { const authorId = selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={() => { const authorId = selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
        </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} onStatusRequestConsumed={() => setRequestedStatusAuthor(null)} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} /> : <ProfilePanel user={user} />}
     </View>

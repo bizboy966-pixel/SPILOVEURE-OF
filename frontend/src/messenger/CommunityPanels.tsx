@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Platform, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Attachment, ContactState, MessengerCapabilities, Person, Post } from "./types";
@@ -9,6 +10,7 @@ import { useRouter } from "expo-router";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import StatusStories from "./StatusStories";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
+import { chatProfileUrl } from "./userLinks";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
@@ -160,6 +162,8 @@ export function ProfilePanel({ user }: ProfileProps) {
   const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
   const [sessions, setSessions] = useState<Array<{ id: string; device: string; created_at: string; last_seen: string; expires_at: string; current: boolean }>>([]);
   const [sessionError, setSessionError] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
+  const personalLink = chatProfileUrl(user.username);
   const loadSessions = () => api.get<typeof sessions>("/identity/chat/sessions", { auth: false, credentials: "include" }).then(setSessions).catch((e: any) => setSessionError(e?.detail || "Sessions indisponibles."));
   useEffect(() => { loadSessions(); }, []);
   const revoke = async (id: string) => {
@@ -172,7 +176,32 @@ export function ProfilePanel({ user }: ProfileProps) {
     const next = { ...settings, [key]: !settings[key] }; setSettings(next);
     try { setSettings(await api.patch("/messenger/settings", next)); } catch (e: any) { setSettings(settings); setError(e?.detail || "Modification impossible."); }
   };
-   return <View style={styles.panel}><Text style={styles.panelTitle}>Profil</Text>
+  const copyPersonalLink = async () => {
+    try {
+      await Clipboard.setStringAsync(personalLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2200);
+    } catch { setError("Impossible de copier le lien sur cet appareil."); }
+  };
+  const sharePersonalLink = async () => {
+    const message = `SPV@${user.username}\n${personalLink}`;
+    try {
+      if (Platform.OS === "web") {
+        if (typeof navigator !== "undefined" && navigator.share) {
+          await navigator.share({ title: "SPILOVEURE Chat", text: message, url: personalLink });
+        } else {
+          await Clipboard.setStringAsync(message);
+          setLinkCopied(true);
+          setTimeout(() => setLinkCopied(false), 2200);
+        }
+      } else {
+        await Share.share({ title: "SPILOVEURE Chat", message });
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") setError(e?.message || "Impossible de partager le lien.");
+    }
+  };
+    return <ScrollView style={styles.panel} contentContainerStyle={{ paddingBottom: 28 }}><Text style={styles.panelTitle}>Profil</Text>
      <View style={styles.profileCard}>
        <TouchableOpacity style={styles.profileAvatar} onPress={() => setPhotoOpen(true)} accessibilityRole="button" accessibilityLabel="Importer ou modifier ma photo de profil">
          {user.profile_photo ? <Image source={{ uri: user.profile_photo }} style={styles.profileAvatarImage} /> : <Text style={styles.profileLetter}>{user.username.slice(0, 1).toUpperCase()}</Text>}
@@ -180,6 +209,15 @@ export function ProfilePanel({ user }: ProfileProps) {
        </TouchableOpacity>
        <Text style={styles.profileName}>{user.username}</Text><Text style={styles.personMeta}>Membre SPILOVEURE</Text>
      </View>
+      <View style={styles.personalLinkCard}>
+        <Text style={styles.personalLinkTitle}>Mon lien personnel SPILOVEURE</Text>
+        <Text style={styles.personalHandle}>SPV@{user.username}</Text>
+        <Text selectable style={styles.personalUrl}>{personalLink}</Text>
+        <View style={styles.personalLinkActions}>
+          <TouchableOpacity onPress={copyPersonalLink} style={styles.personalLinkButton} accessibilityLabel="Copier mon lien personnel"><Ionicons name={linkCopied ? "checkmark-circle" : "copy-outline"} size={17} color={blue} /><Text style={styles.personalLinkActionText}>{linkCopied ? "Copié" : "Copier le lien"}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={sharePersonalLink} style={styles.personalLinkButton} accessibilityLabel="Partager mon lien personnel"><Ionicons name="share-social-outline" size={18} color={blue} /><Text style={styles.personalLinkActionText}>Partager</Text></TouchableOpacity>
+        </View>
+      </View>
      <ProfilePhotoManager mode="chat" visible={photoOpen} onClose={() => setPhotoOpen(false)} />
     <Text style={styles.sectionTitle}>Confidentialité</Text>
     {loading ? <ActivityIndicator color={blue} /> : <>
@@ -202,7 +240,7 @@ export function ProfilePanel({ user }: ProfileProps) {
       <Text style={styles.capabilityTitle}>Messages programmés</Text>
       <Text style={styles.noticeText}>{capabilities?.scheduled_messages ? "Disponibles dans les conversations." : "Non disponibles."}</Text>
     </View>
-  </View>;
+   </ScrollView>;
 }
 
 const styles = StyleSheet.create({
@@ -225,7 +263,8 @@ const styles = StyleSheet.create({
   visibility: { flexDirection: "row", gap: 5, alignItems: "center" }, visibilityText: { color: blue, fontSize: 12, fontWeight: "700" }, publish: { backgroundColor: blue, borderRadius: 17, paddingVertical: 8, paddingHorizontal: 16 }, publishText: { color: "#fff", fontSize: 12, fontWeight: "800" }, disabled: { opacity: .45 },
   postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e9edf3", borderRadius: 15, padding: 13, marginBottom: 12 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, officialTitle: { flexDirection: "row", alignItems: "center", gap: 5 }, postText: ({ color: ink, fontSize: 14, lineHeight: 21, marginTop: 11, marginBottom: 10, maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-word" } as any), postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 9 },
   postAction: { paddingVertical: 4 }, comment: { borderTopWidth: 1, borderColor: "#f0f2f5", paddingVertical: 7 }, commentText: { color: ink, fontSize: 12, lineHeight: 18 }, commentRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f4f6f9", borderRadius: 19, paddingHorizontal: 12, marginTop: 8 }, commentInput: { flex: 1, height: 38, color: ink, outlineStyle: "none" as any, fontSize: 12 },
-   profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10, overflow: "visible" }, profileAvatarImage: { width: 72, height: 72, borderRadius: 40 }, profileCamera: { position: "absolute", right: -2, bottom: -2, width: 25, height: 25, borderRadius: 13, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
+    profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10, overflow: "visible" }, profileAvatarImage: { width: 72, height: 72, borderRadius: 40 }, profileCamera: { position: "absolute", right: -2, bottom: -2, width: 25, height: 25, borderRadius: 13, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
+    personalLinkCard: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 8 }, personalLinkTitle: { color: muted, fontSize: 11, fontWeight: "800" }, personalHandle: { color: ink, fontSize: 15, fontWeight: "900", marginTop: 4 }, personalUrl: ({ color: blue, fontSize: 11, lineHeight: 17, marginTop: 3, overflowWrap: "anywhere", wordBreak: "break-word" } as any), personalLinkActions: { flexDirection: "row", gap: 10, marginTop: 10 }, personalLinkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#e8f0ff", borderRadius: 18, minHeight: 34, paddingHorizontal: 12 }, personalLinkActionText: { color: blue, fontSize: 12, fontWeight: "800" },
   settingRow: { minHeight: 66, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderColor: "#eef1f5", gap: 12 }, settingTitle: { color: ink, fontSize: 14, fontWeight: "700" }, switch: { width: 40, height: 23, borderRadius: 14, backgroundColor: "#d3d9e2", padding: 3, justifyContent: "center" }, switchOn: { backgroundColor: blue }, switchKnob: { width: 17, height: 17, backgroundColor: "#fff", borderRadius: 9 }, switchKnobOn: { alignSelf: "flex-end" },
   notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#eef5ff", padding: 12, borderRadius: 12, marginTop: 20 }, noticeText: { flex: 1, color: "#52637e", fontSize: 12, lineHeight: 18 },
   capabilityCard: { backgroundColor: "#f7f9fc", borderRadius: 13, padding: 13, gap: 4, marginTop: 4 }, capabilityTitle: { color: ink, fontSize: 13, fontWeight: "800", marginTop: 8 },

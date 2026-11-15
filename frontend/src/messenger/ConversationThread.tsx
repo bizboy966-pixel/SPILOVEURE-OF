@@ -11,10 +11,11 @@ import MediaComposer from "./MediaComposer";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
+import { chatProfileUrl } from "./userLinks";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
-  onDetails: () => void; onViewPhoto: (uri: string, label: string) => void;
+  onDetails: () => void; onViewPhoto: (uri: string, label: string) => void; onOpenUsername?: (username: string) => void;
   hasActiveStatus?: boolean; onOpenStatus?: () => void;
   version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
   readReceipts?: ReadReceipts;
@@ -51,7 +52,7 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
   return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
 }
 
-export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts }: Props) {
+export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts }: Props) {
   const { width: viewportWidth } = useWindowDimensions();
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
@@ -359,7 +360,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (!canSend) return;
     try {
       const message = await messengerApi.send(conversation.id, {
-        text: `Contact SPILOVEURE : @${person.username}`,
+        text: `Contact SPILOVEURE : SPV@${person.username}\n${chatProfileUrl(person.username)}`,
         client_id: makeId(),
       });
       setMessages(previous => mergeMessages(previous, [message]));
@@ -371,11 +372,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (Platform.OS === "web" && typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
     else Linking.openURL(url).catch(() => {});
   };
-  const renderText = (content: string) => content.split(/(https?:\/\/[^\s]+)/gi).map((part, index) =>
-    /^https?:\/\//i.test(part)
-      ? <Text key={`${index}-${part}`} style={styles.linkText} onPress={() => openUrl(part)}>{part}</Text>
-      : <Text key={`${index}-${part}`}>{part}</Text>,
-  );
+  const renderText = (content: string) => content.split(/(https?:\/\/[^\s]+|SPV@[^\s.,!?;:()[\]{}<>]+)/gi).map((part, index) => {
+    if (/^https?:\/\//i.test(part)) {
+      return <Text key={`${index}-${part}`} style={styles.linkText} onPress={() => openUrl(part)}>{part}</Text>;
+    }
+    const handle = part.match(/^SPV@(.+)$/i);
+    return handle
+      ? <Text key={`${index}-${part}`} style={styles.linkText} onPress={() => onOpenUsername?.(handle[1])}>{part}</Text>
+      : <Text key={`${index}-${part}`}>{part}</Text>;
+  });
   const otherPerson = conversation.member_profiles.find(person => person.id !== userId);
   const otherPhoto = (conversation.is_saved
     ? conversation.member_profiles.find(person => person.id === userId)?.avatar

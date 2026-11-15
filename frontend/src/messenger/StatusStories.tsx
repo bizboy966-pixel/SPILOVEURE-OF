@@ -33,6 +33,9 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const [storyProgress, setStoryProgress] = useState(0);
   const progressRef = useRef(0);
   const videoElement = useRef<HTMLVideoElement | null>(null);
+  const storyContentRef = useRef<View | null>(null);
+  const heldStoryId = useRef<string | null>(null);
+  const currentStoryId = useRef<string | null>(null);
   const touchStartX = useRef<number | null>(null);
   const lastSwipeAt = useRef(0);
   const uploadInput = useRef<HTMLInputElement | null>(null);
@@ -62,19 +65,31 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const ownStatuses = groups.find(group => group.authorId === userId)?.statuses || [];
   const selectedGroup = groups.find(group => group.authorId === openAuthorId);
   const story = selectedGroup?.statuses[activeIndex];
+  currentStoryId.current = story?.id || null;
   const media = story?.attachments?.[0];
-  const holdStory = () => { setPaused(true); videoElement.current?.pause(); };
+  const holdStory = () => {
+    if (!story) return;
+    heldStoryId.current = story.id;
+    setPaused(true);
+    videoElement.current?.pause();
+  };
   const resumeStory = () => {
+    const heldId = heldStoryId.current;
+    heldStoryId.current = null;
+    if (!heldId || currentStoryId.current !== heldId) return;
     setPaused(false);
     if (videoElement.current) void videoElement.current.play().catch(() => undefined);
   };
 
   useEffect(() => {
     if (!requestedAuthorId || loading) return;
-    if (groups.some(group => group.authorId === requestedAuthorId)) {
+    const group = groups.find(item => item.authorId === requestedAuthorId);
+    if (group) {
       setOpenAuthorId(requestedAuthorId);
-      setActiveIndex(0);
+      const firstUnseen = requestedAuthorId === userId ? -1 : group.statuses.findIndex(item => !item.viewed_by_me);
+      setActiveIndex(firstUnseen >= 0 ? firstUnseen : 0);
       setPaused(false);
+      heldStoryId.current = null;
       progressRef.current = 0;
       setStoryProgress(0);
     } else {
@@ -120,16 +135,40 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     };
   }, [story?.id, media?.mime, mediaUrl]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web" || !story) return;
+    const node = storyContentRef.current as unknown as HTMLElement | null;
+    if (!node) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      holdStory();
+    };
+    const onPointerUp = () => resumeStory();
+    node.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      node.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [story?.id]);
+
   const closeViewer = () => {
     setOpenAuthorId(null);
     setActiveIndex(0);
     setPaused(false);
+    heldStoryId.current = null;
     progressRef.current = 0;
     setStoryProgress(0);
     onViewerClose?.();
   };
   const advance = () => {
     if (!selectedGroup) return;
+    setPaused(false);
+    heldStoryId.current = null;
+    progressRef.current = 0;
+    setStoryProgress(0);
     if (activeIndex + 1 < selectedGroup.statuses.length) {
       setActiveIndex(index => index + 1);
       return;
@@ -140,6 +179,8 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     else { setOpenAuthorId(nextGroup.authorId); setActiveIndex(0); }
   };
   const goBack = () => {
+    setPaused(false);
+    heldStoryId.current = null;
     progressRef.current = 0;
     setStoryProgress(0);
     if (activeIndex > 0) { setActiveIndex(index => index - 1); return; }
@@ -192,9 +233,12 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   }, [story?.id, openAuthorId, activeIndex, paused, media?.mime]);
 
   const openGroup = (authorId: string) => {
+    const group = groups.find(item => item.authorId === authorId);
+    const firstUnseen = authorId === userId ? -1 : group?.statuses.findIndex(item => !item.viewed_by_me) ?? -1;
     setOpenAuthorId(authorId);
-    setActiveIndex(0);
+    setActiveIndex(firstUnseen >= 0 ? firstUnseen : 0);
     setPaused(false);
+    heldStoryId.current = null;
     progressRef.current = 0;
     setStoryProgress(0);
   };

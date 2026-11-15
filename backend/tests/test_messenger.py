@@ -200,6 +200,9 @@ def test_contact_request_accept_and_remove(chat):
 def test_people_privacy_settings(chat):
     rows = call(chat, "get", "/people?q=bo").json()
     assert rows[0]["id"] == "bob"
+    exact_rows = call(chat, "get", "/people?q=SPV%40bOB").json()
+    assert [row["id"] for row in exact_rows] == ["bob"]
+    assert call(chat, "get", "/people?q=SPV%40eve").json()[0]["id"] == "eve"
     assert not {"email", "phone", "balance_profit"} & rows[0].keys()
     assert call(chat, "get", "/people?q=b").json() == []
     assert call(chat, "patch", "/settings", "bob", json={"allow_contacts": False, "show_presence": False}).status_code == 200

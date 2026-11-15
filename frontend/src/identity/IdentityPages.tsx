@@ -30,6 +30,17 @@ function paramsQuery(params: Record<string, any>) {
 }
 function safeVerificationReturn(target: unknown): string {
   if (target === "/messenger" || target === "/account-access" || target === "/account-access?source=chat") return target;
+  if (typeof target === "string") {
+    const match = target.match(/^\/messenger\?username=([^&]+)$/);
+    if (match) {
+      try {
+        const username = decodeURIComponent(match[1]).trim().replace(/^SPV@/i, "").replace(/^@/, "");
+        if (/^[\p{L}\p{N}_.-]{2,60}$/u.test(username)) {
+          return `/messenger?username=${encodeURIComponent(username)}`;
+        }
+      } catch { /* Invalid return links fall back to the safe Chat home. */ }
+    }
+  }
   return "/messenger";
 }
 

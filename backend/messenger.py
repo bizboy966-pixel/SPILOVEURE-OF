@@ -23,12 +23,21 @@ api = APIRouter(prefix="/api/messenger", tags=["messenger"])
 @api.get("/people")
 async def people(request: Request, q: str = Query(default="", max_length=100), user=Depends(chat_user)):
     import re
-    if len(q.strip()) < 2:
+    query = q.strip()
+    exact_username = False
+    if query.lower().startswith("spv@"):
+        query = query[4:].strip()
+        exact_username = True
+    elif query.startswith("@"):
+        query = query[1:].strip()
+        exact_username = True
+    if len(query) < 2:
         return []
+    username_pattern = f"^{re.escape(query)}$" if exact_username else re.escape(query)
     rows = []
     async for row in request.app.state.db.users.find({
         "id": {"$ne": user["id"]}, "status": {"$nin": ["banned", "blocked"]},
-        "username": {"$regex": re.escape(q.strip()), "$options": "i"},
+        "username": {"$regex": username_pattern, "$options": "i"},
     }, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1}).limit(30):
         rows.append(await person(request.app.state.db, row))
     return rows

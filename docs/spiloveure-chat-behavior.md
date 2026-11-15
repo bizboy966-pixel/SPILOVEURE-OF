@@ -20,6 +20,8 @@ Cette note décrit les interactions ajoutées pour les conversations, les statut
 ## Conversations
 
 - Les textes longs et les liens sans espaces doivent revenir à la ligne dans les bulles, les réponses citées et les champs de saisie.
+- Le champ de message grandit sur plusieurs lignes; son aperçu de réponse reste au-dessus. Le fil ne saute pas en bas pendant que la personne consulte l’historique.
+- Les bulles, photos, vidéos, vocaux et fichiers envoyés sont alignés sur le côté droit.
 - Les photos et vidéos de profil, les messages et les médias gardent leurs parcours existants.
 
 ## Groupes
@@ -45,6 +47,13 @@ La liste des membres, les rôles administrateur, l’ajout, le retrait et la sor
 - Créer un nouveau lien désactive le précédent. Un administrateur peut désactiver le lien actif.
 - Un lien désactivé ou invalide ne permet pas de rejoindre la conversation.
 - La limite actuelle de la conversation reste de 200 membres.
+
+## Liens personnels SPV
+
+- Le profil affiche l’identifiant `SPV@nom_utilisateur` et un lien partageable vers `/messenger?username=…`.
+- Le champ de recherche des membres reconnaît `SPV@nom_utilisateur` sans tenir compte des majuscules; une correspondance exacte ouvre une conversation privée.
+- Les identifiants SPV dans les messages sont cliquables. Le lien partagé ouvre la conversation directe; si la session Chat est expirée, l’adresse est conservée pendant la vérification.
+- Les réseaux sociaux ne rendent pas nécessairement `SPV@nom_utilisateur` cliquable seuls. Il faut partager aussi le lien web généré depuis le profil.
 
 ## Références de conception
 
