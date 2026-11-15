@@ -6,6 +6,7 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { theme } from "@/src/theme";
+import { countryDisplayName, matchesCountry } from "./countrySearch";
 
 type Country = { code: string; name: string; dial: string; flag: string };
 type IdentityState = { user: any; email_verified: boolean; activated: boolean; password_created: boolean; chat_authenticated: boolean; main_authenticated: boolean };
@@ -56,19 +57,21 @@ export function CountryPage() {
   const router = useRouter(); const p = useLocalSearchParams<{ ref?: string; country?: string }>();
   const [countries, setCountries] = useState<Country[]>([]); const [selected, setSelected] = useState(String(p.country || ""));
   const [error, setError] = useState(""); const [loading, setLoading] = useState(true); const [pickerOpen, setPickerOpen] = useState(false);
+  const [countryQuery, setCountryQuery] = useState("");
   const selectedCountry = countries.find(country => country.code === selected);
+  const filteredCountries = countries.filter(country => matchesCountry(country, countryQuery));
   useEffect(() => { api.get<{ countries: Country[] }>("/config", { auth: false }).then(r => { const available = r.countries || []; setCountries(available); setSelected(old => old && available.some(country => country.code === old) ? old : ""); }).catch(() => setError("Impossible de charger la liste des pays. Réessayez.")).finally(() => setLoading(false)); }, []);
   return <Page title="Votre pays" subtitle="Choisissez votre pays de résidence.">
     <TouchableOpacity
       accessibilityRole="button"
-      accessibilityLabel={selectedCountry ? `Pays sélectionné : ${selectedCountry.name}. Modifier le pays` : "Choisir votre pays"}
+      accessibilityLabel={selectedCountry ? `Pays sélectionné : ${countryDisplayName(selectedCountry)}. Modifier le pays` : "Choisir votre pays"}
       testID="onboarding-country-picker"
       disabled={loading || !!error}
-      onPress={() => setPickerOpen(true)}
+      onPress={() => { setCountryQuery(""); setPickerOpen(true); }}
       style={s.countryPicker}
     >
       {loading ? <ActivityIndicator color={theme.colors.primary} /> : <>
-        <Text style={[s.countryPickerText, !selectedCountry && s.countryPlaceholder]}>{selectedCountry ? `${selectedCountry.flag}  ${selectedCountry.name}` : "Choisir votre pays"}</Text>
+        <Text style={[s.countryPickerText, !selectedCountry && s.countryPlaceholder]}>{selectedCountry ? `${selectedCountry.flag}  ${countryDisplayName(selectedCountry)}` : "Choisir votre pays"}</Text>
         <Ionicons name="chevron-down" color={theme.colors.primary} size={21} />
       </>}
     </TouchableOpacity>
@@ -82,8 +85,21 @@ export function CountryPage() {
               <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           </View>
+          <View style={s.countrySearch}>
+            <Ionicons name="search-outline" size={19} color={theme.colors.textSecondary} />
+            <TextInput
+              value={countryQuery}
+              onChangeText={setCountryQuery}
+              placeholder="Nom du pays ou indicatif"
+              accessibilityLabel="Rechercher un pays par nom ou indicatif"
+              testID="onboarding-country-search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={s.countrySearchInput}
+            />
+          </View>
           <ScrollView style={s.countryOptions} keyboardShouldPersistTaps="handled">
-            {countries.map(country => <TouchableOpacity
+            {filteredCountries.map(country => <TouchableOpacity
               key={country.code}
               testID={`onboarding-country-option-${country.code}`}
               onPress={() => { setSelected(country.code); setPickerOpen(false); }}
@@ -92,9 +108,11 @@ export function CountryPage() {
               style={[s.country, selected === country.code && s.countryOn]}
             >
               <Text style={s.flag}>{country.flag}</Text>
-              <Text style={s.countryName}>{country.name}</Text>
+              <Text style={s.countryName}>{countryDisplayName(country)}</Text>
+              <Text style={s.countryDial}>{country.dial}</Text>
               <Ionicons name={selected === country.code ? "radio-button-on" : "radio-button-off"} color={theme.colors.primary} size={20} />
             </TouchableOpacity>)}
+            {!filteredCountries.length && <Text accessibilityLiveRegion="polite" style={s.countryEmpty}>Aucun pays ne correspond à votre recherche.</Text>}
           </ScrollView>
         </View>
       </View>
@@ -194,13 +212,17 @@ const s = StyleSheet.create({
   buttonText: { color: "#fff", fontWeight: "800", fontSize: 15 }, input: { width: "100%", minHeight: 50, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 13, paddingHorizontal: 14, marginBottom: 11, color: theme.colors.textPrimary, backgroundColor: "#fff" },
   error: { color: theme.colors.danger, backgroundColor: theme.colors.dangerBg, padding: 10, borderRadius: 10, fontSize: 13, marginBottom: 10, width: "100%" },
   countryPicker: { width: "100%", minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 13, paddingHorizontal: 15, backgroundColor: "#fff" },
-  countryPickerText: { color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" }, countryPlaceholder: { color: theme.colors.textSecondary, fontWeight: "500" },
+  countryPickerText: { flex: 1, minWidth: 0, flexShrink: 1, paddingVertical: 10, color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" }, countryPlaceholder: { color: theme.colors.textSecondary, fontWeight: "500" },
   country: { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderBottomWidth: 1, borderColor: theme.colors.border }, countryOn: { backgroundColor: theme.colors.primaryBg, borderRadius: 11 }, flag: { fontSize: 23 }, countryName: { flex: 1, color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" },
   countryOverlay: { flex: 1, backgroundColor: "rgba(7,27,62,.58)", alignItems: "center", justifyContent: "center", padding: 18 },
   countryModal: { width: "100%", maxWidth: 440, maxHeight: "82%", borderRadius: 22, backgroundColor: "#fff", padding: 18, ...theme.shadow.card },
   countryModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   countryModalTitle: { color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }, countryClose: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: theme.colors.surfaceSecondary },
   countryOptions: { flexShrink: 1 },
+  countrySearch: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.borderStrong, marginBottom: 8, flexShrink: 0 },
+  countrySearchInput: { flex: 1, minWidth: 0, minHeight: 46, color: theme.colors.textPrimary, fontSize: 14, outlineStyle: "none" as any },
+  countryDial: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600", flexShrink: 0 },
+  countryEmpty: { padding: 18, textAlign: "center", color: theme.colors.textSecondary, fontSize: 14 },
   countrySkeleton: { width: "100%", gap: 8 }, countrySkeletonRow: { height: 48, borderRadius: 12, backgroundColor: theme.colors.surfaceSecondary },
   overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(7,27,62,.52)", alignItems: "center", justifyContent: "center", padding: 15 },
   modal: { width: "100%", maxWidth: 390, borderRadius: 22, backgroundColor: "#fff", padding: 22, alignItems: "center" }, modalTitle: { fontSize: 20, fontWeight: "800", color: theme.colors.textPrimary }, modalCopy: { textAlign: "center", color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 7, marginBottom: 18 },
