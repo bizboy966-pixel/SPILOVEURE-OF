@@ -8,12 +8,13 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
-from auth import JWT_SECRET, create_access_token, get_current_user, hash_password
+from auth import JWT_SECRET, create_access_token, get_current_user, hash_password, verify_password
 from identity import register_account, router
 from identity_core import COOKIE, digest, initialize, now
 from messenger import api as messenger_router
 from messenger_core import initialize as initialize_chat
-from models import RegisterIn
+from models import LoginIn, RegisterIn
+from account_login import login_account
 
 
 class Outbox:
@@ -38,6 +39,10 @@ def identity_app():
     @app.post("/api/auth/register")
     async def register(data: RegisterIn, request: Request):
         return await register_account(data, request)
+
+    @app.post("/api/auth/login")
+    async def login(data: LoginIn, request: Request):
+        return await login_account(data, request)
 
     @app.get("/api/auth/me")
     @app.get("/api/test/protected")
@@ -71,6 +76,7 @@ def register(pair, **fields):
     payload = {
         "username": "NewMember", "email": "new@example.com", "country": "TG",
         "phone": "+22891111111", "sponsor_username": "Sponsor", "accept_terms": True,
+        "password": "SignupPassword9!", "password_confirm": "SignupPassword9!",
         **fields,
     }
     return pair[1].post("/api/auth/register", json=payload)
@@ -99,7 +105,8 @@ def test_default_sponsor_omitted_and_blank(identity_app, monkeypatch):
         assert register(identity_app, username=f"NoRef{index}", email=f"no-ref-{index}@example.com",
                         sponsor_username=code).status_code == 200
     payload = {"username": "OmittedRef", "email": "omitted@example.com", "country": "TG",
-               "phone": "+22891111111", "accept_terms": True}
+               "phone": "+22891111111", "accept_terms": True,
+               "password": "SignupPassword9!", "password_confirm": "SignupPassword9!"}
     assert identity_app[1].post("/api/auth/register", json=payload).status_code == 200
 
 
@@ -149,17 +156,18 @@ def activate(pair, uid):
     run(pair[0].state.db.users.update_one({"id": uid}, {"$set": {"status": "active", "max_level": 1}}))
 
 
-def test_registration_preserves_referral_without_creating_password(identity_app):
+def test_registration_creates_password_without_bypassing_referral_or_activation(identity_app):
     from identity_policy import onboarding_path_allowed
     assert onboarding_path_allowed("/api/settings/activation-videos", "GET")
     assert not onboarding_path_allowed("/api/settings/activation-videos", "POST")
-    response = register(identity_app, password="IgnoredLegacyPassword9!", password_confirm="different")
+    response = register(identity_app)
     assert response.status_code == 200
     data = response.json()
     user = run(identity_app[0].state.db.users.find_one({"id": data["user"]["id"]}))
     assert user["sponsor_id"] == "legacy" and user["country"] == "TG"
-    assert user["email_verified"] is False and user["main_password_created"] is False
-    assert "password_hash" not in user and "password" not in user
+    assert user["email_verified"] is False and user["main_password_created"] is True
+    assert verify_password("SignupPassword9!", user["password_hash"])
+    assert "password_hash" not in data["user"] and "password" not in user
     headers = main_header(data["access_token"])
     assert identity_app[1].get("/api/auth/me", headers=headers).status_code == 200
     assert identity_app[1].get("/api/test/protected", headers=headers).status_code == 403
@@ -185,7 +193,7 @@ def test_verification_opens_chat_without_activation_and_is_single_use(identity_a
     assert again.status_code == 400
     user = run(identity_app[0].state.db.users.find_one({"id": data["user"]["id"]}))
     assert user["email_verified"] is True and user["status"] == "pending"
-    assert user["max_level"] == 0 and "password_hash" not in user
+    assert user["max_level"] == 0 and user["main_password_created"] is True
     row = run(identity_app[0].state.db.identity_email_codes.find_one({"id": challenge["challenge_id"]}))
     assert row["used"] and row["code_digest"] != code
     assert "code" not in row
@@ -248,8 +256,10 @@ def test_mismatched_email_cannot_be_associated(identity_app):
     assert result.status_code == 400 and not identity_app[0].state.email_sender.messages
 
 
-def test_password_only_after_confirmed_activation_and_once(identity_app):
+def test_legacy_passwordless_account_can_set_password_only_after_activation_and_once(identity_app):
     data = register(identity_app).json()
+    run(identity_app[0].state.db.users.update_one({"id": data["user"]["id"]},
+        {"$unset": {"password_hash": "", "password_created_at": ""}, "$set": {"main_password_created": False}}))
     verify(identity_app, data["access_token"])
     body = {"password": "NewPassword9!", "password_confirm": "NewPassword9!"}
     client = identity_app[1]
@@ -271,8 +281,8 @@ def test_main_expiry_does_not_expire_chat_and_unlock_needs_only_password(identit
     verify(identity_app, data["access_token"])
     activate(identity_app, data["user"]["id"])
     client = identity_app[1]
-    password = {"password": "NewPassword9!", "password_confirm": "NewPassword9!"}
-    assert client.post("/api/identity/password", json=password).status_code == 200
+    password = {"password": "SignupPassword9!"}
+    assert client.post("/api/identity/password", json={**password, "password_confirm": password["password"]}).status_code == 409
     expired = jwt.encode({"sub": data["user"]["id"], "type": "access", "exp": now() - timedelta(seconds=1)},
                          JWT_SECRET, algorithm="HS256")
     client.headers.update(main_header(expired))
@@ -350,6 +360,8 @@ def test_csrf_cookie_security_and_cookie_is_not_main_auth(identity_app):
 
 def test_registered_email_verification_on_another_device_does_not_grant_attacker_access(identity_app):
     data = register(identity_app).json()
+    run(identity_app[0].state.db.users.update_one({"id": data["user"]["id"]},
+        {"$unset": {"password_hash": "", "password_created_at": ""}, "$set": {"main_password_created": False}}))
     app, attacker = identity_app
     with TestClient(app) as owner:
         verify(identity_app, client=owner)

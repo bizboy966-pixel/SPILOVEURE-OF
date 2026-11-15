@@ -45,6 +45,8 @@ async def register_account(data, request):
         raise HTTPException(503, "Les nouvelles inscriptions sont temporairement indisponibles : le service de vérification e-mail doit être configuré.")
     if not data.accept_terms:
         raise HTTPException(400, "Vous devez accepter les conditions.")
+    if data.password != data.password_confirm:
+        raise HTTPException(400, "Les mots de passe ne correspondent pas.")
     email = str(data.email).strip().lower()
     if not any(c["code"] == data.country for c in COUNTRIES):
         raise HTTPException(400, "Pays invalide.")
@@ -55,6 +57,7 @@ async def register_account(data, request):
         raise HTTPException(409, "Un compte existe déjà avec cet e-mail. Connectez-vous ou récupérez votre accès au Chat.")
     if await db.users.find_one(username_query):
         raise HTTPException(409, "Ce nom d’utilisateur est déjà pris.")
+    password_hash = await asyncio.to_thread(hash_password, data.password)
     uid = str(uuid.uuid4())
     try:
         for reservation in [
@@ -72,7 +75,8 @@ async def register_account(data, request):
             "commission_spillover": 0, "total_earned": 0, "total_withdrawn": 0,
             "withdrawals_disabled": False, "earnings_per_level": {}, "level_activated_at": {},
             "created_at": now(), "auth_flow_version": 2,
-            "main_password_created": False, "email_verified": False,
+            "main_password_created": True, "password_hash": password_hash,
+            "password_created_at": now(), "email_verified": False,
         }
         await db.users.insert_one(user)
     except Exception as exc:

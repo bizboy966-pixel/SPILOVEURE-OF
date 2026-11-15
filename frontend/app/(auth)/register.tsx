@@ -14,6 +14,8 @@ import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { useFeature, useFeatures } from "@/src/features";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { countryDisplayName } from "@/src/identity/countrySearch";
+import { registrationPasswordError } from "@/src/identity/passwordValidation";
 
 type Country = { code: string; name: string; dial: string; flag: string };
 
@@ -49,6 +51,10 @@ export default function Register() {
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [country, setCountry] = useState<Country | null>(null);
   const [phone, setPhone] = useState("");
   // Resolve missing invitations from the server's official administrator config.
@@ -113,12 +119,18 @@ export default function Register() {
       setErr("Vous devez accepter les conditions d'utilisation.");
       return;
     }
+    const passwordError = registrationPasswordError(password, passwordConfirm);
+    if (passwordError) {
+      setErr(passwordError);
+      return;
+    }
     setLoading(true);
     try {
       await signUp({
         username, email, country: country?.code,
         phone: `${country?.dial || ""}${phone}`,
         sponsor_username: sponsor, accept_terms: accept,
+        password, password_confirm: passwordConfirm,
       });
       armWelcomeSplash();
       router.replace("/(app)/pay");
@@ -192,15 +204,43 @@ export default function Register() {
               editable={!params.email}
             />
 
-            <Text style={styles.lbl}>Choisir le pays</Text>
-            <TouchableOpacity style={styles.countryBtn} onPress={() => setShowCountryPicker(true)} testID="register-country">
+            <Text style={styles.lbl}>{params.country ? "Pays" : "Choisir le pays"}</Text>
+            <TouchableOpacity style={styles.countryBtn} disabled={!!params.country} accessibilityState={{ disabled: !!params.country }} onPress={() => setShowCountryPicker(true)} testID="register-country">
               <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
               <Text style={styles.countryText}>
-                {country ? `${country.flag}  ${country.name}` : "Sélectionnez votre pays"}
+                {country ? `${country.flag}  ${countryDisplayName(country)}` : "Sélectionnez votre pays"}
               </Text>
-              <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+              <Ionicons name={params.country ? "lock-closed-outline" : "chevron-down"} size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
 
+            <Input
+              label="Créer le mot de passe"
+              icon="lock-closed-outline"
+              placeholder="Au moins 8 caractères"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+              onRightIconPress={() => setShowPassword(value => !value)}
+              testID="register-password"
+            />
+            <Input
+              label="Confirmer le mot de passe"
+              icon="lock-closed-outline"
+              placeholder="Saisissez à nouveau votre mot de passe"
+              value={passwordConfirm}
+              onChangeText={setPasswordConfirm}
+              secureTextEntry={!showPasswordConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              rightIcon={showPasswordConfirm ? "eye-off-outline" : "eye-outline"}
+              onRightIconPress={() => setShowPasswordConfirm(value => !value)}
+              testID="register-password-confirm"
+            />
             <Text style={styles.lbl}>Numéro de téléphone</Text>
             <View style={styles.phoneRow}>
               <View style={styles.dialBox}>

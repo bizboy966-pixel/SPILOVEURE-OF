@@ -32,7 +32,7 @@ export type User = {
 type Ctx = {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (identifier: string, password: string) => Promise<void>;
   signUp: (payload: any) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -121,10 +121,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (identifier: string, password: string) => {
     const r = await api.post<{ access_token: string; user: User }>(
       "/auth/login",
-      { email, password },
+      { identifier, password },
       { auth: false }
     );
     setAuthToken(r.access_token); // sync update BEFORE any subsequent request

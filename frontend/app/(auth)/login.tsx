@@ -93,13 +93,13 @@ export default function Login() {
             ) : null}
 
             <Input
-              label="E-mail"
-              icon="mail-outline"
-              placeholder="Entrez votre adresse e-mail"
+              label="E-mail, nom d’utilisateur ou téléphone"
+              icon="person-outline"
+              placeholder="E-mail, pseudo ou téléphone avec indicatif"
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
-              keyboardType="email-address"
+              autoCorrect={false}
               testID="login-email"
             />
             <Input

@@ -353,23 +353,8 @@ async def register(data: RegisterIn, request: Request):
 
 @api.post("/auth/login", response_model=TokenOut)
 async def login(data: LoginIn, request: Request):
-    db = request.app.state.db
-    from identity_core import rate_limit, remote_key
-    from identity_policy import main_ready
-    await rate_limit(db, "login-ip:" + remote_key(request), 40, 900)
-    await rate_limit(db, "login:" + str(data.email).lower(), 10, 900)
-    email = data.email.lower()
-    user = await db.users.find_one({"email": email})
-    if not user or not verify_password(data.password, user.get("password_hash", "")):
-        raise HTTPException(401, "Identifiants invalides.")
-    if user.get("status") == "banned":
-        raise HTTPException(403, "Compte banni.")
-    scope = "onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
-    token = create_access_token(user["id"], user.get("role", "user"), scope=scope, auth_version=user.get("auth_version", 0))
-    user.pop("password_hash", None)
-    user.pop("_id", None)
-    user["session_scope"] = scope or "main"
-    return TokenOut(access_token=token, user=user)
+    from account_login import login_account
+    return await login_account(data, request)
 
 
 @api.get("/auth/me")

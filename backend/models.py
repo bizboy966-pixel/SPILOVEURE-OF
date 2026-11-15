@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List, Dict
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 
 
 class RegisterIn(BaseModel):
@@ -10,15 +10,21 @@ class RegisterIn(BaseModel):
     email: EmailStr
     country: str  # country code (e.g. "TG")
     phone: str = Field(min_length=6, max_length=20)
-    # Accepted for old clients only; new registration never stores a password.
-    password: Optional[str] = Field(default=None, max_length=128)
-    password_confirm: Optional[str] = None
+    password: str = Field(min_length=8, max_length=128)
+    password_confirm: str = Field(max_length=128)
     sponsor_username: Optional[str] = Field(default=None, max_length=100)
     accept_terms: bool
 
+    @field_validator("password")
+    @classmethod
+    def bounded_registration_password(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Le mot de passe ne doit pas dépasser 72 octets.")
+        return value
+
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    identifier: str = Field(min_length=1, max_length=254, validation_alias=AliasChoices("identifier", "email"))
     password: str
 
 

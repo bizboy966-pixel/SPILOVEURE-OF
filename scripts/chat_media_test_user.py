@@ -26,6 +26,7 @@ async def main():
                 "status": "active", "max_level": 1, "auth_flow_version": 2,
                 "main_password_created": True, "email_verified": True,
                 "email_verified_address": uid + "@example.com", "country": "TG",
+                "phone": data.get("phone", ""),
                 "balance_profit": 0, "balance_upgrade": 0, "total_earned": 0, "total_withdrawn": 0,
             })
         elif data["mode"] == "cleanup":
