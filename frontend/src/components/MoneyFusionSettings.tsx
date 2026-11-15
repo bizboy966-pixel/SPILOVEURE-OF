@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 
 import { api } from "@/src/api";
 import { Card } from "@/src/components/Card";
@@ -214,6 +215,27 @@ export default function MoneyFusionSettings({
       </View>
 
       <SectionTitle number="01" title="Encaissement · activation" />
+      <FieldLabel>URL de redirection après paiement</FieldLabel>
+      {config.public_app_url.trim().startsWith("https://") ? (
+        <>
+          <Text selectable style={styles.hint} accessibilityLabel="URL de redirection après paiement">
+            {`${config.public_app_url.replace(/\/+$/, "")}/pay`}
+          </Text>
+          <SmallAction label="Copier l’URL de redirection" onPress={async () => {
+            try {
+              await Clipboard.setStringAsync(`${config.public_app_url.replace(/\/+$/, "")}/pay`);
+              setError("");
+              setMessage("URL de redirection copiée.");
+            } catch {
+              setMessage("");
+              setError("Impossible de copier le lien. Sélectionnez l’URL pour la copier manuellement.");
+            }
+          }} />
+        </>
+      ) : (
+        <Text style={styles.cautionText}>URL indisponible : configurez PUBLIC_APP_URL avec le domaine HTTPS public de ce serveur.</Text>
+      )}
+      <Text style={styles.hint}>À renseigner dans MoneyFusion comme URL de retour après paiement. Ce lien renvoie vers la page de paiement ; seule la vérification serveur confirme l’activation. Utilisez le lien du serveur de production, pas celui de l’aperçu.</Text>
       <FieldLabel>URL API Pay-in MoneyFusion</FieldLabel>
       <TextInput
         value={payinUrl}
