@@ -1,17 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Platform, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Attachment, ContactState, Person, Post } from "./types";
-import { useChat } from "@/src/chat/ChatContext";
-import { useRouter } from "expo-router";
-import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import StatusStories from "./StatusStories";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
-import { chatProfileUrl } from "./userLinks";
-import NotificationSettingsPanel from "./NotificationSettingsPanel";
+import ProfileSettingsPanel from "./ProfileSettingsPanel";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
@@ -153,84 +148,16 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, requeste
   </View>;
 }
 
-type ProfileProps = { user: { id: string; username: string; profile_photo?: string } };
-export function ProfilePanel({ user }: ProfileProps) {
-  const router = useRouter();
-  const { logout } = useChat();
-  const [photoOpen, setPhotoOpen] = useState(false);
-  const [settings, setSettings] = useState({ show_presence: true, allow_contacts: true });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [sessions, setSessions] = useState<Array<{ id: string; device: string; created_at: string; last_seen: string; expires_at: string; current: boolean }>>([]);
-  const [sessionError, setSessionError] = useState("");
-  const [linkCopied, setLinkCopied] = useState(false);
-  const personalLink = chatProfileUrl(user.username);
-  const loadSessions = () => api.get<typeof sessions>("/identity/chat/sessions", { auth: false, credentials: "include" }).then(setSessions).catch((e: any) => setSessionError(e?.detail || "Sessions indisponibles."));
-  useEffect(() => { loadSessions(); }, []);
-  const revoke = async (id: string) => {
-    try { await api.delete(`/identity/chat/sessions/${encodeURIComponent(id)}`, { auth: false, credentials: "include" }); await loadSessions(); }
-    catch (e: any) { setSessionError(e?.detail || "Révocation impossible."); }
-  };
-  useEffect(() => { api.get<typeof settings>("/messenger/settings").then(setSettings).catch((e: any) => setError(e?.detail || "Paramètres indisponibles.")).finally(() => setLoading(false)); }, []);
-  const toggle = async (key: keyof typeof settings) => {
-    const next = { ...settings, [key]: !settings[key] }; setSettings(next);
-    try { setSettings(await api.patch("/messenger/settings", next)); } catch (e: any) { setSettings(settings); setError(e?.detail || "Modification impossible."); }
-  };
-  const copyPersonalLink = async () => {
-    try {
-      await Clipboard.setStringAsync(personalLink);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2200);
-    } catch { setError("Impossible de copier le lien sur cet appareil."); }
-  };
-  const sharePersonalLink = async () => {
-    const message = `SPV@${user.username}\n${personalLink}`;
-    try {
-      if (Platform.OS === "web") {
-        if (typeof navigator !== "undefined" && navigator.share) {
-          await navigator.share({ title: "SPILOVEURE Chat", text: message, url: personalLink });
-        } else {
-          await Clipboard.setStringAsync(message);
-          setLinkCopied(true);
-          setTimeout(() => setLinkCopied(false), 2200);
-        }
-      } else {
-        await Share.share({ title: "SPILOVEURE Chat", message });
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") setError(e?.message || "Impossible de partager le lien.");
-    }
-  };
-    return <ScrollView style={styles.panel} contentContainerStyle={{ paddingBottom: 28 }}><Text style={styles.panelTitle}>Profil</Text>
-     <View style={styles.profileCard}>
-       <TouchableOpacity style={styles.profileAvatar} onPress={() => setPhotoOpen(true)} accessibilityRole="button" accessibilityLabel="Importer ou modifier ma photo de profil">
-         {user.profile_photo ? <Image source={{ uri: user.profile_photo }} style={styles.profileAvatarImage} /> : <Text style={styles.profileLetter}>{user.username.slice(0, 1).toUpperCase()}</Text>}
-         <View style={styles.profileCamera}><Ionicons name="camera" size={14} color="#fff" /></View>
-       </TouchableOpacity>
-       <Text style={styles.profileName}>{user.username}</Text><Text style={styles.personMeta}>Membre SPILOVEURE</Text>
-     </View>
-      <View style={styles.personalLinkCard}>
-        <Text style={styles.personalLinkTitle}>Mon lien personnel SPILOVEURE</Text>
-        <Text style={styles.personalHandle}>SPV@{user.username}</Text>
-        <Text selectable style={styles.personalUrl}>{personalLink}</Text>
-        <View style={styles.personalLinkActions}>
-          <TouchableOpacity onPress={copyPersonalLink} style={styles.personalLinkButton} accessibilityLabel="Copier mon lien personnel"><Ionicons name={linkCopied ? "checkmark-circle" : "copy-outline"} size={17} color={blue} /><Text style={styles.personalLinkActionText}>{linkCopied ? "Copié" : "Copier le lien"}</Text></TouchableOpacity>
-          <TouchableOpacity onPress={sharePersonalLink} style={styles.personalLinkButton} accessibilityLabel="Partager mon lien personnel"><Ionicons name="share-social-outline" size={18} color={blue} /><Text style={styles.personalLinkActionText}>Partager</Text></TouchableOpacity>
-        </View>
-      </View>
-     <ProfilePhotoManager mode="chat" visible={photoOpen} onClose={() => setPhotoOpen(false)} />
-     <NotificationSettingsPanel userId={user.id} />
-    <Text style={styles.sectionTitle}>Confidentialité</Text>
-    {loading ? <ActivityIndicator color={blue} /> : <>
-      <TouchableOpacity onPress={() => toggle("show_presence")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Afficher ma présence</Text><Text style={styles.personMeta}>Autoriser les membres à voir quand vous êtes en ligne</Text></View><View style={[styles.switch, settings.show_presence && styles.switchOn]}><View style={[styles.switchKnob, settings.show_presence && styles.switchKnobOn]} /></View></TouchableOpacity>
-      <TouchableOpacity onPress={() => toggle("allow_contacts")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Demandes de contact</Text><Text style={styles.personMeta}>Autoriser les membres à vous ajouter</Text></View><View style={[styles.switch, settings.allow_contacts && styles.switchOn]}><View style={[styles.switchKnob, settings.allow_contacts && styles.switchKnobOn]} /></View></TouchableOpacity>
-    </>}
-    {error ? <Text style={styles.errorText}>{error}</Text> : null}
-     <View style={styles.deviceHeading}><Text style={styles.sectionTitle}>Appareils connectés</Text><TouchableOpacity onPress={loadSessions} accessibilityLabel="Actualiser les appareils"><Ionicons name="refresh-outline" size={18} color={blue} /></TouchableOpacity></View>
-     {sessions.map(session => <View key={session.id} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>{session.device || "Appareil"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.personMeta}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>{!session.current && <TouchableOpacity accessibilityLabel="Terminer cette session" onPress={() => revoke(session.id)}><Text style={[styles.action, { color: "#c43e48" }]}>Déconnecter</Text></TouchableOpacity>}</View>)}
-    {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
-    <TouchableOpacity testID="chat-logout" accessibilityLabel="Se déconnecter du Chat" onPress={async () => { await logout(); router.replace("/verify-email" as any); }} style={[styles.settingRow, { justifyContent: "center", marginTop: 12 }]}><Text style={[styles.action, { color: "#c43e48" }]}>Se déconnecter du Chat</Text></TouchableOpacity>
-   </ScrollView>;
+type ProfileProps = {
+  user: { id: string; username: string; email?: string; phone?: string; country?: string; profile_photo?: string };
+  onOpenContacts?: () => void;
+  onOpenChats?: () => void;
+  onAppearanceChange?: (value: "light" | "dark") => void;
+  onReduceMotionChange?: (value: boolean) => void;
+  onHighContrastChange?: (value: boolean) => void;
+};
+export function ProfilePanel(props: ProfileProps) {
+  return <ProfileSettingsPanel {...props} />;
 }
 
 const styles = StyleSheet.create({

@@ -1,6 +1,7 @@
 """Protected local-volume attachments. No public static mount, no bearer in URLs."""
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,55 @@ ALLOWED = {
 
 def upload_root():
     return Path(os.environ.get("UPLOADS_DIR", str(Path(__file__).parent / "uploads"))) / "messenger"
+
+
+async def cleanup_expired_message_files(db):
+    current = datetime.now(timezone.utc)
+    expired_files = await db.spv_files.find(
+        {"expires_at": {"$lte": current}}, {"_id": 0, "id": 1},
+    ).to_list(500)
+    for row in expired_files:
+        referenced = await db.spv_messages.find_one({
+            "attachments.id": row["id"], "deleted": False,
+            "$or": [
+                {"expires_at": {"$exists": False}}, {"expires_at": None},
+                {"expires_at": {"$gt": current}},
+            ],
+        }, {"_id": 1})
+        if referenced:
+            continue
+        (upload_root() / row["id"]).unlink(missing_ok=True)
+        await db.spv_files.delete_one({"id": row["id"], "expires_at": {"$lte": current}})
+
+
+async def file_retention_worker(db):
+    while True:
+        try:
+            await cleanup_expired_message_files(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A transient cleanup error must not stop the worker permanently.
+            pass
+        await asyncio.sleep(30)
+
+
+@api.get("/storage")
+async def storage_usage(request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    await cleanup_expired_message_files(db)
+    rows = await db.spv_files.find(
+        {"owner_id": user["id"], "$or": [
+            {"expires_at": {"$exists": False}}, {"expires_at": None},
+            {"expires_at": {"$gt": datetime.now(timezone.utc)}},
+        ]}, {"_id": 0, "size": 1},
+    ).to_list(5000)
+    return {
+        "file_count": len(rows),
+        "used_bytes": sum(max(0, int(row.get("size") or 0)) for row in rows),
+        "daily_upload_limit_bytes": MAX_DAILY,
+        "max_file_bytes": MAX_BYTES,
+    }
 
 
 async def store(request, user, file, scope):
@@ -91,6 +141,9 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
     row = await db.spv_files.find_one({"id": fid})
     if not row:
         raise HTTPException(404, "Fichier introuvable.")
+    if row.get("expires_at") and row["expires_at"] <= datetime.now(timezone.utc):
+        await cleanup_expired_message_files(db)
+        raise HTTPException(404, "Ce média a expiré.")
     if row["scope"] != "feed":
         await member(db, row["scope"], user)
     elif row["owner_id"] != user["id"]:

@@ -43,10 +43,14 @@ async def initialize(db):
         [("conversation_id", 1), ("sender_id", 1), ("client_id", 1)], unique=True
     )
     await db.spv_messages.create_index([("conversation_id", 1), ("created_at", -1)])
+    await db.spv_messages.create_index("expires_at", expireAfterSeconds=0)
     await db.spv_contacts.create_index([("user_id", 1), ("peer_id", 1)], unique=True)
     await db.spv_blocks.create_index([("user_id", 1), ("peer_id", 1)], unique=True)
     await db.spv_preferences.create_index([("user_id", 1), ("conversation_id", 1)], unique=True)
     await db.spv_settings.create_index("user_id", unique=True)
+    await db.spv_chat_lists.create_index("id", unique=True)
+    await db.spv_chat_lists.create_index([("owner_id", 1), ("name_key", 1)], unique=True)
+    await db.spv_chat_lists.create_index([("owner_id", 1), ("updated_at", -1)])
     await db.spv_presence.create_index("user_id", unique=True)
     await db.spv_tickets.create_index("digest", unique=True)
     await db.spv_tickets.create_index("expires_at", expireAfterSeconds=0)
@@ -54,6 +58,7 @@ async def initialize(db):
     await db.spv_events.create_index([("recipients", 1), ("_id", 1)])
     await db.spv_comment_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.spv_files.create_index("id", unique=True)
+    await db.spv_files.create_index("expires_at")
     await db.spv_posts.create_index("id", unique=True)
     await db.spv_statuses.create_index("id", unique=True)
     await db.spv_statuses.create_index([("author_id", 1), ("expires_at", 1)])
@@ -139,12 +144,17 @@ async def conversation_view(db, conv, uid):
         {"id": {"$in": conv["members"]}}, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1},
     ).to_list(200)
     profiles = await people_views(db, users)
+    expiry_filter = {"$or": [
+        {"expires_at": {"$exists": False}}, {"expires_at": None},
+        {"expires_at": {"$gt": datetime.now(timezone.utc)}},
+    ]}
     last = await db.spv_messages.find_one(
-        {"conversation_id": conv["id"]}, sort=[("created_at", -1), ("id", -1)]
+        {"conversation_id": conv["id"], **expiry_filter}, sort=[("created_at", -1), ("id", -1)]
     )
     unread = await db.spv_messages.count_documents({
         "conversation_id": conv["id"], "sender_id": {"$ne": uid},
         "created_at": {"$gt": pref.get("read_at", "")}, "deleted": False,
+        **expiry_filter,
     })
     is_saved = bool(conv.get("is_saved") or conv.get("kind") == "saved")
     title = "Messages enregistrés" if is_saved else conv["title"]
@@ -154,6 +164,7 @@ async def conversation_view(db, conv, uid):
         **clean(conv), "kind": "private" if is_saved else conv["kind"],
         "is_saved": is_saved, "title": title, "member_profiles": profiles,
         "permissions": conv.get("permissions") or default_permissions(conv["kind"]),
+        "disappearing_seconds": conv.get("disappearing_seconds", 0),
         "last_message": clean(last), "unread": max(unread, 1) if pref.get("force_unread") else unread,
         **{key: pref.get(key, default) for key, default in [
             ("muted", False), ("archived", False), ("pinned", False), ("draft", ""), ("read_at", ""),
@@ -184,6 +195,7 @@ class ConversationPatch(BaseModel):
     draft: str | None = Field(default=None, max_length=8000)
     is_public: bool | None = None
     permissions: dict[str, str | bool] | None = None
+    disappearing_seconds: int | None = Field(default=None, ge=0, le=7776000)
 
 
 class Attachment(BaseModel):
@@ -202,6 +214,15 @@ class MessageIn(BaseModel):
     status_reply_id: str | None = Field(default=None, max_length=100)
     forwarded_from: str | None = None
     silent: bool = False
+
+
+class ChatListIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    conversation_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class BroadcastIn(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
 
 
 class TextIn(BaseModel):

@@ -246,10 +246,17 @@ async def lifespan(app: FastAPI):
         log.warning(f"Chat retention worker failed to start: {_e}")
     from messenger_delivery import delivery_worker
     messenger_delivery_task = asyncio.create_task(delivery_worker(db))
+    from messenger_files import file_retention_worker
+    messenger_file_retention_task = asyncio.create_task(file_retention_worker(db))
     yield
     messenger_delivery_task.cancel()
+    messenger_file_retention_task.cancel()
     try:
         await messenger_delivery_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await messenger_file_retention_task
     except asyncio.CancelledError:
         pass
     if retention_task:

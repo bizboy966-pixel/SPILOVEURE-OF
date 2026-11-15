@@ -41,7 +41,32 @@ export default function MessengerScreen() {
   const { width } = useWindowDimensions();
   const wide = width >= 760;
   const [photoPreview, setPhotoPreview] = useState<{ uri: string; label: string } | null>(null);
+  const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    api.get<{ appearance?: "light" | "dark"; reduce_motion?: boolean }>("/messenger/settings")
+      .then(value => {
+        if (!active) return;
+        setAppearance(value.appearance === "dark" ? "dark" : "light");
+        setReduceMotion(Boolean(value.reduce_motion));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [user?.id]);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const style = document.createElement("style");
+    style.dataset.spvAccessibility = "true";
+    style.textContent = `.spv-chat-reduce-motion *, .spv-chat-reduce-motion *::before, .spv-chat-reduce-motion *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }`;
+    document.head.appendChild(style);
+    document.documentElement.classList.toggle("spv-chat-reduce-motion", reduceMotion);
+    return () => {
+      document.documentElement.classList.remove("spv-chat-reduce-motion");
+      style.remove();
+    };
+  }, [reduceMotion]);
   useEffect(() => {
     if (!sessionExpired) return;
     const returnTo = directUsernameParam
@@ -55,6 +80,7 @@ export default function MessengerScreen() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Conversation | null>(null);
+  const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
   useEffect(() => {
     setActiveNotificationConversation(tab === "Échanges" ? selected?.id || null : null);
@@ -392,7 +418,7 @@ export default function MessengerScreen() {
       </View>
     </View>;
   };
-  const chatList = <View style={[styles.listPanel, wide && styles.wideList]}>
+  const chatList = <View style={[styles.listPanel, wide && styles.wideList, appearance === "dark" && { backgroundColor: "#111827" }]}>
     <LinearGradient colors={["#063ba8", "#0057ee"]} style={styles.header}>
       <View pointerEvents="none" style={styles.goldSwoop} testID="messenger-header-gold-swoop">
         <Svg width="100%" height="100%" viewBox="0 0 575 94" preserveAspectRatio="none">
@@ -472,13 +498,13 @@ export default function MessengerScreen() {
     { key: "Actus", icon: "megaphone", label: "Statuts" }, { key: "Profil", icon: "person", label: "Profil" },
   ];
   if (chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
-  return <View style={styles.page}>
+  return <View style={[styles.page, appearance === "dark" && { backgroundColor: "#0b1220" }]}>
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
          {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} focusComposer={notificationReplyTarget === selected.id} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-        </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} requestedStatusId={requestedStatusId} onStatusRequestConsumed={() => { setRequestedStatusAuthor(null); setRequestedStatusId(null); }} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} />}
+         </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} requestedStatusId={requestedStatusId} onStatusRequestConsumed={() => { setRequestedStatusAuthor(null); setRequestedStatusId(null); }} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} onOpenContacts={() => setTab("Contacts")} onOpenChats={() => setTab("Échanges")} onAppearanceChange={setAppearance} onReduceMotionChange={setReduceMotion} />}
     </View>
     {!selected && !navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>

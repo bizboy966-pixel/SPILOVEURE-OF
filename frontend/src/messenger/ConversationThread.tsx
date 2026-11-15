@@ -25,6 +25,14 @@ type Props = {
   focusComposer?: boolean;
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+type ChatVisualSettings = {
+  appearance?: "light" | "dark";
+  message_color?: "blue" | "green" | "gold";
+  font_scale?: number;
+  high_contrast?: boolean;
+  auto_load_media?: boolean;
+};
+const messageColors = { blue: "#dbeafe", green: "#dcfce7", gold: "#fff1cc" };
 const logo = require("../../assets/images/spiloveure-logo.png");
 const emojiStorage = createMemoryAdapter();
 const emojiTranslation: Record<CategoryTypes, string> = {
@@ -55,10 +63,13 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
   return [...byKey.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
 
-function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean }) {
+function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment; own: boolean; autoLoad?: boolean }) {
   const [src, setSrc] = useState("");
   const [error, setError] = useState(false);
+  const [requested, setRequested] = useState(autoLoad);
+  useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);
   useEffect(() => {
+    if (!requested) return;
     let active = true;
     let url = "";
     protectedFileUrl(file.id).then(value => {
@@ -70,7 +81,10 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [file.id]);
+  }, [file.id, requested]);
+  if (!requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le vocal ${file.name}`} testID={`messenger-voice-load-${file.id}`} style={styles.voiceLoad}>
+    <Ionicons name="download-outline" size={20} color={blue} /><Text style={styles.fileLabel}>Charger le vocal</Text>
+  </TouchableOpacity>;
   if (error) return <Text style={styles.fileLabel}>Vocal indisponible</Text>;
   if (!src) return <ActivityIndicator size="small" color={blue} />;
   return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
@@ -80,6 +94,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const { height: windowHeight } = useWindowDimensions();
   const emojiPickerHeight = Math.min(420, Math.max(180, windowHeight - 300));
   const [messages, setMessages] = useState<Message[]>([]);
+  const [visualSettings, setVisualSettings] = useState<ChatVisualSettings>({});
+  useEffect(() => {
+    let active = true;
+    api.get<ChatVisualSettings>("/messenger/settings").then(value => {
+      if (active) setVisualSettings(value);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [conversation.id]);
   useEffect(() => {
     if (!readReceipts) return;
     setMessages(previous => previous.map(message => ({
@@ -442,12 +464,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     : otherPerson?.avatar) || conversation.photo;
   const isChannelAdmin = conversation.admins.includes(userId) || conversation.owner_id === userId;
   const canSend = conversation.kind !== "channel" || isChannelAdmin;
+  const darkMode = visualSettings.appearance === "dark";
+  const ownBubbleColor = messageColors[visualSettings.message_color || "blue"];
+  const textScale = Math.min(1.4, Math.max(0.9, Number(visualSettings.font_scale) || 1));
   const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
     ? `Vu ${new Date(otherPerson.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
     : conversation.kind === "private" ? "Membre SPILOVEURE" : `${conversation.member_profiles.length} membres`;
 
   return (
-    <View style={styles.thread}>
+    <View style={[styles.thread, darkMode && { backgroundColor: "#111827" }]}>
       <View style={styles.threadHead}>
         <TouchableOpacity onPress={onBack} style={styles.back} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
         <View style={styles.identity}>
@@ -463,7 +488,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <TouchableOpacity style={styles.headerIcon} onPress={onDetails}><Ionicons name="ellipsis-vertical" size={20} color={blue} /></TouchableOpacity>
       </View>
       {searching && <View style={styles.searchRow}><TextInput value={historyQuery} onChangeText={setHistoryQuery} placeholder="Rechercher dans l’historique" style={styles.searchInput} onSubmitEditing={() => loadMessages(historyQuery)} /><TouchableOpacity onPress={() => loadMessages(historyQuery)}><Ionicons name="search" size={20} color={blue} /></TouchableOpacity></View>}
-      <ScrollView ref={scroll} style={styles.history} contentContainerStyle={styles.historyContent} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
+      <ScrollView ref={scroll} style={[styles.history, darkMode && { backgroundColor: "#111827" }]} contentContainerStyle={[styles.historyContent, darkMode && { backgroundColor: "#111827" }]} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
         {more && <TouchableOpacity onPress={fetchOlder} style={styles.older}><Text style={styles.olderText}>Charger les messages précédents</Text></TouchableOpacity>}
         {messageError ? <TouchableOpacity onPress={() => loadMessages(historyQuery || undefined)} style={styles.historyError}><Text style={styles.historyErrorText}>{messageError} · Réessayer</Text></TouchableOpacity> : null}
         {loading ? <ActivityIndicator color={blue} /> : messages.length === 0 && !messageError ? <View style={styles.empty}><Text style={styles.emptyTitle}>Votre conversation commence ici</Text><Text style={styles.emptyText}>Envoyez un message à {conversation.title}.</Text></View> : null}
@@ -471,7 +496,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           const own = message.sender_id === userId;
           const quoted = message.reply_to ? messages.find(item => item.id === message.reply_to) : undefined;
           const bubble = <View
-            style={[styles.bubble, own ? styles.ownBubble : styles.otherBubble]}
+             style={[
+               styles.bubble, own ? styles.ownBubble : styles.otherBubble,
+               { backgroundColor: own ? ownBubbleColor : darkMode ? "#263244" : "#fff" },
+               darkMode && { borderColor: "#3a4759" },
+             ]}
             accessibilityRole="text"
             accessibilityLabel={`${own ? "Message envoyé" : `Message de ${message.sender_name}`}${message.text ? ` : ${message.text}` : message.attachments?.some(file => file.mime.startsWith("audio/")) ? " : message vocal" : ""}`}
             testID={`messenger-message-bubble-${message.id}`}
@@ -498,11 +527,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 </View>}
                 {!!message.attachments?.some(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")) && <View style={[styles.mediaGroup, own && styles.ownAttachment]}>
                   {message.attachments.filter(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")).map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} onOpen={() => openAttachment(file)} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} onOpen={() => openAttachment(file)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
-                {!!message.text && <Text style={styles.messageText}>{renderText(message.text)}</Text>}
+                {!!message.text && <Text style={[
+                  styles.messageText,
+                  { fontSize: 17 * textScale, color: visualSettings.high_contrast ? (darkMode && !own ? "#fff" : "#0b111b") : darkMode && !own ? "#f5f7fa" : undefined },
+                ]}>{renderText(message.text)}</Text>}
                 {message.attachments?.filter(file => file.mime.startsWith("audio/")).map(file =>
-                  <View key={file.id} style={[styles.voiceCard, own && styles.ownAttachment]}><ProtectedVoicePlayer file={file} own={own} /></View>)}
+                  <View key={file.id} style={[styles.voiceCard, own && styles.ownAttachment]}><ProtectedVoicePlayer file={file} own={own} autoLoad={visualSettings.auto_load_media !== false} /></View>)}
                 {message.attachments?.filter(file => !file.mime.startsWith("audio/") && !file.mime.startsWith("image/") && !file.mime.startsWith("video/")).map(file =>
                   <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={[styles.fileChip, own && styles.ownAttachment]}>
                     <Ionicons name="document-outline" size={17} color={blue} />
@@ -547,7 +579,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
       {(recording || voiceSending) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
       {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
-      <View style={styles.composer}>
+      <View style={[styles.composer, darkMode && { backgroundColor: "#1b2635", borderColor: "#344153" }]}>
         <TouchableOpacity onPress={toggleEmojiPicker} style={styles.composerIcon} accessibilityLabel={emojiPickerOpen ? "Revenir au clavier pour écrire" : "Choisir un emoji"} testID="messenger-emoji-toggle"><Ionicons name={emojiPickerOpen ? "keypad-outline" : "happy-outline"} size={23} color={blue} /></TouchableOpacity>
         <View
           style={styles.inputShell}
@@ -662,7 +694,7 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: "#77966f" }, receipt: { color: "#77966f", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#77966f" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },

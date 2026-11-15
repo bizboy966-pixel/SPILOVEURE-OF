@@ -86,6 +86,18 @@ export default function ConversationDetails({ conversation, userId, onClose, onC
           <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { muted: !conversation.muted }))} style={styles.preference}><Ionicons name={conversation.muted ? "notifications-off-outline" : "notifications-outline"} size={20} color={blue} /><Text style={styles.preferenceText}>{conversation.muted ? "Activer le son" : "Mettre en sourdine"}</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { archived: !conversation.archived }))} style={styles.preference}><Ionicons name="archive-outline" size={20} color={blue} /><Text style={styles.preferenceText}>{conversation.archived ? "Désarchiver" : "Archiver"}</Text></TouchableOpacity>
         </View>
+        {conversation.kind === "private" && !conversation.is_saved && <View style={{ backgroundColor: "#f5f8ff", borderRadius: 14, padding: 12, marginBottom: 12 }}>
+          <Text style={{ color: ink, fontSize: 14, fontWeight: "800" }}>Messages éphémères</Text>
+          <Text style={{ color: muted, fontSize: 12, lineHeight: 17, marginTop: 4 }}>Le délai s’applique uniquement aux nouveaux messages. L’historique déjà envoyé reste intact.</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+            {[{ value: 0, label: "Désactivé" }, { value: 86400, label: "24 h" }, { value: 604800, label: "7 jours" }, { value: 7776000, label: "90 jours" }].map(option => {
+              const selected = (conversation.disappearing_seconds || 0) === option.value;
+              return <TouchableOpacity key={option.value} onPress={() => run(() => messengerApi.patchConversation(conversation.id, { disappearing_seconds: option.value }))} accessibilityRole="radio" accessibilityState={{ selected }} testID={`conversation-disappearing-${option.value}`} style={{ minHeight: 34, borderRadius: 18, borderWidth: 1, borderColor: selected ? blue : "#dbe4f0", backgroundColor: selected ? "#e8f0ff" : "#fff", paddingHorizontal: 11, justifyContent: "center" }}>
+                <Text style={{ color: selected ? blue : muted, fontSize: 12, fontWeight: "700" }}>{option.label}</Text>
+              </TouchableOpacity>;
+            })}
+          </View>
+        </View>}
         <NotificationSettingsPanel userId={userId} conversationId={conversation.id} />
         {conversation.kind === "channel" && <View style={styles.publicSection}>
           {isAdmin ? <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { is_public: !conversation.is_public }))} style={styles.publicToggle} accessibilityRole="checkbox" accessibilityState={{ checked: !!conversation.is_public }} testID="messenger-channel-public-toggle">

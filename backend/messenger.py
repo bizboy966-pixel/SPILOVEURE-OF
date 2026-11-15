@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from pymongo.errors import DuplicateKeyError
 
 from messenger_core import (
-    ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
+    BroadcastIn, ChatListIn, ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
     administrator, allowed_pair, attachments_checked, chat_user, clean,
     conversation_view, default_permissions, event, get_message, identifier, member, notify, now,
     person, rate_limit, ticket,
@@ -56,6 +56,115 @@ async def conversations(request: Request, archived: bool = False, user=Depends(c
     return sorted(result, key=lambda c: (c["pinned"], c["updated_at"]), reverse=True)
 
 
+@api.get("/lists")
+async def list_chat_lists(request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    rows = await db.spv_chat_lists.find({"owner_id": uid}).sort("updated_at", -1).to_list(100)
+    return [clean(row) for row in rows]
+
+
+async def checked_private_conversations(db, uid: str, conversation_ids: list[str]):
+    ids = list(dict.fromkeys(conversation_ids))
+    if len(ids) > 50:
+        raise HTTPException(400, "Une liste peut contenir jusqu’à 50 conversations.")
+    rows = await db.spv_conversations.find({
+        "id": {"$in": ids}, "members": uid, "kind": "private", "is_saved": {"$ne": True},
+    }).to_list(50)
+    if len(rows) != len(ids):
+        raise HTTPException(400, "Les listes et diffusions ne concernent que vos conversations privées.")
+    return rows
+
+
+def chat_list_name_key(value: str):
+    import unicodedata
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+@api.post("/lists")
+async def create_chat_list(body: ChatListIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Donnez un nom à la liste.")
+    ids = list(dict.fromkeys(body.conversation_ids))
+    await checked_private_conversations(db, uid, ids)
+    row = {
+        "id": identifier(), "owner_id": uid, "name": name,
+        "name_key": chat_list_name_key(name), "conversation_ids": ids,
+        "created_at": now(), "updated_at": now(),
+    }
+    try:
+        await db.spv_chat_lists.insert_one(row)
+    except DuplicateKeyError:
+        raise HTTPException(409, "Une liste porte déjà ce nom.")
+    return clean(row)
+
+
+@api.patch("/lists/{list_id}")
+async def update_chat_list(list_id: str, body: ChatListIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    current = await db.spv_chat_lists.find_one({"id": list_id, "owner_id": uid})
+    if not current:
+        raise HTTPException(404, "Liste introuvable.")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Donnez un nom à la liste.")
+    ids = list(dict.fromkeys(body.conversation_ids))
+    await checked_private_conversations(db, uid, ids)
+    try:
+        await db.spv_chat_lists.update_one(
+            {"id": list_id, "owner_id": uid},
+            {"$set": {"name": name, "name_key": chat_list_name_key(name), "conversation_ids": ids, "updated_at": now()}},
+        )
+    except DuplicateKeyError:
+        raise HTTPException(409, "Une liste porte déjà ce nom.")
+    return clean(await db.spv_chat_lists.find_one({"id": list_id, "owner_id": uid}))
+
+
+@api.delete("/lists/{list_id}")
+async def delete_chat_list(list_id: str, request: Request, user=Depends(chat_user)):
+    result = await request.app.state.db.spv_chat_lists.delete_one({"id": list_id, "owner_id": user["id"]})
+    if not result.deleted_count:
+        raise HTTPException(404, "Liste introuvable.")
+    return {"ok": True}
+
+
+@api.post("/lists/{list_id}/broadcast")
+async def broadcast_chat_list(list_id: str, body: BroadcastIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    listing = await db.spv_chat_lists.find_one({"id": list_id, "owner_id": uid})
+    if not listing:
+        raise HTTPException(404, "Liste introuvable.")
+    ids = list(dict.fromkeys(listing.get("conversation_ids") or []))
+    if not ids or len(ids) > 50:
+        raise HTTPException(400, "Ajoutez de 1 à 50 conversations privées avant la diffusion.")
+    rows = await checked_private_conversations(db, uid, ids)
+    peer_ids = [next((member_id for member_id in row["members"] if member_id != uid), "") for row in rows]
+    accepted = await db.spv_contacts.count_documents({
+        "user_id": uid, "peer_id": {"$in": peer_ids}, "status": "accepted",
+    })
+    if accepted != len(set(peer_ids)) or "" in peer_ids:
+        raise HTTPException(403, "Une diffusion est réservée aux contacts qui ont accepté votre demande.")
+    for peer_id in peer_ids:
+        await allowed_pair(db, uid, peer_id)
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    recent_messages = await db.spv_messages.count_documents({
+        "sender_id": uid, "created_at": {"$gte": cutoff},
+    })
+    if recent_messages + len(rows) > 60:
+        raise HTTPException(429, "La diffusion dépasse votre limite d’envoi actuelle. Réessayez plus tard.")
+    clean_text = body.text.strip()
+    if not clean_text:
+        raise HTTPException(400, "Le message de diffusion ne peut pas être vide.")
+    results = []
+    for row in rows:
+        sent = await deliver_message(db, row["id"], MessageIn(
+            text=clean_text, client_id=f"broadcast-{identifier()}",
+        ), user)
+        results.append({"conversation_id": row["id"], "message_id": sent["id"]})
+    return {"sent": len(results), "items": results}
+
+
 @api.post("/conversations")
 async def create_conversation(body: ConversationIn, request: Request, user=Depends(chat_user)):
     db, uid = request.app.state.db, user["id"]
@@ -93,6 +202,8 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
             )
             return await conversation_view(db, previous, uid)
     stamp = now()
+    settings = await db.spv_settings.find_one({"user_id": uid}) or {}
+    default_disappearing = settings.get("default_disappearing_seconds", 0) if body.kind == "private" else 0
     conv = {
         "id": identifier(), "kind": "private" if saved else body.kind,
         "is_saved": saved,
@@ -101,6 +212,7 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
         "created_at": stamp, "updated_at": stamp,
         "is_public": body.is_public if body.kind == "channel" else False,
         "permissions": default_permissions(body.kind),
+        "disappearing_seconds": default_disappearing,
     }
     if private_key:
         conv["private_key"] = private_key
@@ -124,6 +236,7 @@ async def update_conversation(cid: str, body: ConversationPatch, request: Reques
     conv = await member(db, cid, user)
     changes = body.model_dump(exclude_none=True)
     permission_changes = changes.pop("permissions", None)
+    disappearing_seconds = changes.pop("disappearing_seconds", None)
     meta = {k: v for k, v in changes.items() if k in ("title", "photo", "is_public")}
     if permission_changes is not None:
         if conv["kind"] not in ("group", "channel"):
@@ -157,6 +270,16 @@ async def update_conversation(cid: str, body: ConversationPatch, request: Reques
         await db.spv_conversations.update_one({"id": cid}, {"$set": meta})
         conv.update(meta)
         await notify(db, conv)
+    if disappearing_seconds is not None:
+        if conv["kind"] != "private" or conv.get("is_saved"):
+            raise HTTPException(400, "Les messages éphémères sont disponibles uniquement dans une discussion privée.")
+        if disappearing_seconds not in (0, 86400, 604800, 7776000):
+            raise HTTPException(400, "Choisissez Désactivé, 24 heures, 7 jours ou 90 jours.")
+        await db.spv_conversations.update_one(
+            {"id": cid}, {"$set": {"disappearing_seconds": disappearing_seconds}},
+        )
+        conv["disappearing_seconds"] = disappearing_seconds
+        await notify(db, conv, "conversation_settings", disappearing_seconds=disappearing_seconds)
     pref = {k: v for k, v in changes.items() if k not in ("title", "photo", "is_public")}
     if pref:
         await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid}, {"$set": pref}, upsert=True)
@@ -287,13 +410,19 @@ async def messages(cid: str, request: Request, before: str = "", q: str = Query(
     import re
     db = request.app.state.db
     conv = await member(db, cid, user)
-    query = {"conversation_id": cid}
+    query = {
+        "conversation_id": cid,
+        "$or": [
+            {"expires_at": {"$exists": False}}, {"expires_at": None},
+            {"expires_at": {"$gt": datetime.now(timezone.utc)}},
+        ],
+    }
     if before:
         anchor = await get_message(db, conv, before)
-        query["$or"] = [
+        query["$and"] = [{"$or": [
             {"created_at": {"$lt": anchor["created_at"]}},
             {"created_at": anchor["created_at"], "id": {"$lt": anchor["id"]}},
-        ]
+        ]}]
     if q.strip():
         query.update({"text": {"$regex": re.escape(q.strip()), "$options": "i"}, "deleted": False})
     rows = await db.spv_messages.find(query).sort([("created_at", -1), ("id", -1)]).limit(limit + 1).to_list(limit + 1)
@@ -427,6 +556,16 @@ async def deliver_message(db, cid, body, user):
         "edited_at": None, "deleted": False, "reactions": {}, "pinned": False, "read_by": [uid],
         "delivered_by": delivered_by,
     }
+    disappearing_seconds = int(conv.get("disappearing_seconds") or 0)
+    if disappearing_seconds in (86400, 604800, 7776000):
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=disappearing_seconds)
+        msg["expires_at"] = expiry
+        attachment_ids = [item["id"] for item in attachments]
+        if attachment_ids:
+            await db.spv_files.update_many(
+                {"id": {"$in": attachment_ids}, "scope": cid},
+                {"$set": {"expires_at": expiry}},
+            )
     try:
         await db.spv_messages.insert_one(msg)
     except DuplicateKeyError:

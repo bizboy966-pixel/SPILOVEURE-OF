@@ -234,7 +234,7 @@ test("emoji keyboard is below the composer and outside hidden modals", () => {
       for (const attribute of node.openingElement.attributes.properties) {
         if (!ts.isJsxAttribute(attribute)) continue;
         if (attribute.name.getText(file) === "testID" && attribute.initializer?.text === "messenger-emoji-picker") picker = node;
-        if (attribute.name.getText(file) === "style" && attribute.initializer?.expression?.getText(file) === "styles.composer") composer = node;
+        if (attribute.name.getText(file) === "style" && attribute.initializer?.expression?.getText(file).includes("styles.composer")) composer = node;
       }
     }
     ts.forEachChild(node, walk);

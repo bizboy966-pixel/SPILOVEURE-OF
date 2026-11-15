@@ -15,6 +15,7 @@ export type Conversation = {
   id: string; kind: "private" | "group" | "channel" | "saved"; title: string; photo?: string;
   members: string[]; admins: string[]; owner_id: string; created_at: string; updated_at: string;
   permissions?: ConversationPermissions;
+  disappearing_seconds?: number;
   last_message?: Message; unread: number; muted: boolean; archived: boolean; pinned: boolean;
   draft: string; read_at?: string; member_profiles: Person[]; is_public?: boolean; is_saved?: boolean;
 };

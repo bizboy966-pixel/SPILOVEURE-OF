@@ -131,17 +131,36 @@ async def report(body: ReportIn, request: Request, user=Depends(chat_user)):
 class SettingsIn(BaseModel):
     show_presence: bool | None = None
     allow_contacts: bool | None = None
+    appearance: str | None = Field(default=None, pattern="^(light|dark)$")
+    message_color: str | None = Field(default=None, pattern="^(blue|green|gold)$")
+    font_scale: float | None = Field(default=None, ge=0.9, le=1.4)
+    high_contrast: bool | None = None
+    reduce_motion: bool | None = None
+    auto_load_media: bool | None = None
+    default_disappearing_seconds: int | None = Field(default=None, ge=0, le=7776000)
 
 
 @api.get("/settings")
 async def settings(request: Request, user=Depends(chat_user)):
     row = await request.app.state.db.spv_settings.find_one({"user_id": user["id"]}) or {}
-    return {key: row.get(key, True) for key in ["show_presence", "allow_contacts"]}
+    return {
+        "show_presence": row.get("show_presence", True),
+        "allow_contacts": row.get("allow_contacts", True),
+        "appearance": row.get("appearance", "light"),
+        "message_color": row.get("message_color", "blue"),
+        "font_scale": row.get("font_scale", 1),
+        "high_contrast": row.get("high_contrast", False),
+        "reduce_motion": row.get("reduce_motion", False),
+        "auto_load_media": row.get("auto_load_media", True),
+        "default_disappearing_seconds": row.get("default_disappearing_seconds", 0),
+    }
 
 
 @api.patch("/settings")
 async def set_settings(body: SettingsIn, request: Request, user=Depends(chat_user)):
     changes = body.model_dump(exclude_none=True)
+    if changes.get("default_disappearing_seconds") not in (None, 0, 86400, 604800, 7776000):
+        raise HTTPException(400, "Choisissez Désactivé, 24 heures, 7 jours ou 90 jours.")
     if changes:
         await request.app.state.db.spv_settings.update_one({"user_id": user["id"]}, {"$set": changes}, upsert=True)
     return await settings(request, user)
