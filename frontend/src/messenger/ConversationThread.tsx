@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import Svg, { Path } from "react-native-svg";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
@@ -14,9 +15,10 @@ import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
-import { elapsedVoiceSeconds } from "@/src/components/voiceDuration";
+import VoiceRecorderControls from "@/src/components/VoiceRecorderControls";
 import { chatProfileUrl } from "./userLinks";
 import ChatWallpaper from "./ChatWallpaper";
+import MessageContextMenu from "./MessageContextMenu";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
@@ -25,6 +27,7 @@ type Props = {
   version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
   readReceipts?: ReadReceipts;
   focusComposer?: boolean;
+  focusMessageId?: string;
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ChatVisualSettings = {
@@ -69,22 +72,50 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
   const [src, setSrc] = useState("");
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [requested, setRequested] = useState(autoLoad);
-  useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);
+  const viewOnce = Boolean(file.view_once && !own);
+  const [viewOnceOpened, setViewOnceOpened] = useState(Boolean(file.view_once_opened));
+  const [requested, setRequested] = useState(autoLoad && !viewOnce);
+  useEffect(() => {
+    if (viewOnce) setViewOnceOpened(Boolean(file.view_once_opened));
+    if (autoLoad && !viewOnce) setRequested(true);
+  }, [autoLoad, file.view_once_opened, viewOnce]);
   useEffect(() => {
     if (!requested) return;
     let active = true;
     let url = "";
     protectedFileUrl(file.id).then(value => {
       url = value;
-      if (active) setSrc(value);
+      if (active) {
+        setSrc(value);
+        if (viewOnce) setViewOnceOpened(true);
+      }
       else URL.revokeObjectURL(value);
-    }).catch(() => { if (active) setError(true); });
+    }).catch((loadError: any) => {
+      if (!active) return;
+      if (viewOnce && loadError?.status === 410) setViewOnceOpened(true);
+      else setError(true);
+    });
     return () => {
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [file.id, requested, attempt]);
+  }, [file.id, requested, attempt, viewOnce]);
+  if (viewOnce && viewOnceOpened && !src) return <View style={styles.onceOpened}>
+    <Ionicons name="checkmark-circle-outline" size={19} color="#6d9271" />
+    <Text style={styles.onceOpenedText}>Vocal déjà écouté</Text>
+    <Ionicons name="timer-outline" size={18} color="#6d9271" />
+  </View>;
+  if (viewOnce && !requested) return <TouchableOpacity
+    onPress={() => { setError(false); setRequested(true); }}
+    accessibilityRole="button"
+    accessibilityLabel="Ouvrir le message vocal une seule fois"
+    testID={`messenger-voice-once-open-${file.id}`}
+    style={styles.voiceLoad}
+  >
+    <Ionicons name="play-circle-outline" size={24} color={blue} />
+    <Text style={styles.fileLabel}>Écouter une fois</Text>
+    <Ionicons name="timer-outline" size={18} color={blue} />
+  </TouchableOpacity>;
   if (!requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le vocal ${file.name}`} testID={`messenger-voice-load-${file.id}`} style={styles.voiceLoad}>
     <Ionicons name="download-outline" size={20} color={blue} /><Text style={styles.fileLabel}>Charger le vocal</Text>
   </TouchableOpacity>;
@@ -97,11 +128,12 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
     loading={!src}
     tint={own ? "own" : "other"}
     testID={`messenger-voice-${file.id}`}
+    viewOnce={viewOnce}
   />;
 }
 
-export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts, focusComposer = false }: Props) {
-  const { height: windowHeight } = useWindowDimensions();
+export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts, focusComposer = false, focusMessageId }: Props) {
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const emojiPickerHeight = Math.min(420, Math.max(180, windowHeight - 300));
   const [messages, setMessages] = useState<Message[]>([]);
   const [visualSettings, setVisualSettings] = useState<ChatVisualSettings>({});
@@ -137,10 +169,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [historyQuery, setHistoryQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [contextMessage, setContextMessage] = useState<Message | null>(null);
+  const [contextPosition, setContextPosition] = useState({ left: 12, top: 100 });
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
   const [recording, setRecording] = useState(false);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [recordingViewOnce, setRecordingViewOnce] = useState(false);
+  const [recordingWaveform, setRecordingWaveform] = useState<number[]>(() => Array.from({ length: 38 }, () => 5));
   const [voiceSending, setVoiceSending] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [failedIds, setFailedIds] = useState<string[]>([]);
@@ -151,10 +188,13 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [contactsLoading, setContactsLoading] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recordingStartedAt = useRef(0);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const recordingElapsed = useRef({ activeMs: 0, segmentStartedAt: 0 });
   const discardRecording = useRef(false);
   const sendRecordingAfterStop = useRef(false);
-  const sendVoiceRef = useRef<(blob: Blob, durationSeconds: number) => Promise<void>>(async () => {});
+  const recordingViewOnceRef = useRef(false);
+  const sendVoiceRef = useRef<(blob: Blob, durationSeconds: number, viewOnce: boolean) => Promise<void>>(async () => {});
   const scroll = useRef<ScrollView>(null);
   const nearBottom = useRef(true);
   const initialScrollPending = useRef(true);
@@ -165,6 +205,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const lastVersion = useRef(version);
   const lastTypingAt = useRef(0);
   const composerInput = useRef<TextInput>(null);
+  const focusPendingMessage = useRef<string | null>(null);
+  const focusedMessageRequest = useRef("");
   useEffect(() => {
     if (focusComposer) requestAnimationFrame(() => composerInput.current?.focus());
   }, [focusComposer, conversation.id]);
@@ -176,16 +218,29 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   };
   const beginReply = (message: Message) => {
     setReply(message);
-    setExpanded(null);
+    setContextMessage(null);
     setEmojiPickerOpen(false);
     requestAnimationFrame(() => composerInput.current?.focus());
+  };
+  const openMessageContext = (message: Message, event?: any) => {
+    const native = event?.nativeEvent || {};
+    const pageX = Number(native.pageX ?? native.clientX) || windowWidth / 2;
+    const pageY = Number(native.pageY ?? native.clientY) || windowHeight / 2;
+    const menuWidth = Math.min(288, windowWidth - 24);
+    setContextPosition({
+      left: Math.max(12, Math.min(windowWidth - menuWidth - 12, pageX - menuWidth / 2)),
+      top: Math.max(74, Math.min(windowHeight - Math.min(420, windowHeight - 100) - 16, pageY - 28)),
+    });
+    setContextMessage(message);
   };
 
   const loadMessages = async (q?: string, mode: "replace" | "merge" = "replace") => {
     setLoading(true);
     try {
       const result = await messengerApi.messages(conversation.id, undefined, q);
-      setMessages(previous => mode === "merge" ? mergeMessages(previous, result.items) : result.items);
+      setMessages(previous => mode === "merge" || (focusMessageId && !q)
+        ? mergeMessages(previous, result.items)
+        : result.items);
       if (mode === "merge") {
         const resolved = new Set(result.items.filter(message => message.sender_id === userId).map(message => message.client_id).filter(Boolean));
         setFailedIds(previous => previous.filter(id => !resolved.has(id)));
@@ -202,6 +257,27 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   // The thread belongs to a conversation id; text is intentionally not a fetch dependency.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id]);
+  useEffect(() => {
+    if (!focusMessageId) return;
+    const requestKey = `${conversation.id}:${focusMessageId}`;
+    if (focusedMessageRequest.current === requestKey) return;
+    focusedMessageRequest.current = requestKey;
+    focusPendingMessage.current = focusMessageId;
+    nearBottom.current = false;
+    initialScrollPending.current = false;
+    setFocusedMessageId(focusMessageId);
+    let active = true;
+    messengerApi.message(conversation.id, focusMessageId)
+      .then(message => { if (active) setMessages(previous => mergeMessages(previous, [message])); })
+      .catch(() => {
+        if (!active) return;
+        setMessageError("Ce message est introuvable ou a expiré.");
+        initialScrollPending.current = true;
+        nearBottom.current = true;
+        requestAnimationFrame(() => scroll.current?.scrollToEnd({ animated: false }));
+      });
+    return () => { active = false; };
+  }, [conversation.id, focusMessageId]);
   useEffect(() => {
     if (lastVersion.current !== version) {
       lastVersion.current = version;
@@ -235,12 +311,33 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   }, [text, conversation.id]);
   useEffect(() => {
     if (!recording) return;
-    const timer = setInterval(() => setRecordSeconds(v => v + 1), 1000);
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = recordingElapsed.current.activeMs
+        + (recordingPaused || !recordingElapsed.current.segmentStartedAt
+          ? 0
+          : now - recordingElapsed.current.segmentStartedAt);
+      setRecordSeconds(Math.floor(elapsed / 1000));
+      const analyser = analyserRef.current;
+      if (!recordingPaused && analyser) {
+        const samples = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(samples);
+        const rms = Math.sqrt(samples.reduce((sum, value) => sum + (value - 128) ** 2, 0) / samples.length) / 128;
+        const height = Math.max(4, Math.min(38, Math.round(4 + rms * 96)));
+        setRecordingWaveform(previous => [...previous.slice(1), height]);
+      } else if (!recordingPaused) {
+        const height = 5 + Math.round(Math.abs(Math.sin(now / 95)) * 17);
+        setRecordingWaveform(previous => [...previous.slice(1), height]);
+      }
+    }, 90);
     return () => clearInterval(timer);
-  }, [recording]);
+  }, [recording, recordingPaused]);
   useEffect(() => () => {
-    recorder.current?.state === "recording" && recorder.current.stop();
+    discardRecording.current = true;
+    sendRecordingAfterStop.current = false;
+    if (recorder.current && recorder.current.state !== "inactive") recorder.current.stop();
     streamRef.current?.getTracks().forEach(track => track.stop());
+    audioContextRef.current?.close().catch(() => {});
   }, []);
   const read = () => api.post(`/messenger/conversations/${encodeURIComponent(conversation.id)}/read`).catch(() => {});
   useEffect(() => { if (!loading) read(); }, [loading, conversation.id]);
@@ -338,9 +435,43 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       if (kind === "edit" && updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
       else if (kind === "delete") setMessages(prev => prev.map(m => m.id === message.id ? { ...m, deleted: true, text: "", attachments: [] } : m));
       else if (updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
-      setExpanded(null);
+      setContextMessage(null);
       return true;
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e?.detail || "Action impossible."); return false; }
+  };
+  const copyMessage = async (message: Message) => {
+    const text = message.text || message.attachments?.map(file => file.name).filter(Boolean).join("\n") || "";
+    if (!text) return;
+    try { await Clipboard.setStringAsync(text); setContextMessage(null); }
+    catch { if (typeof window !== "undefined") window.alert("Copie du message impossible."); }
+  };
+  const copyMessageLink = async (message: Message) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://spiloveure.org";
+    const url = `${origin}/messenger?conversation=${encodeURIComponent(conversation.id)}&message=${encodeURIComponent(message.id)}`;
+    try { await Clipboard.setStringAsync(url); setContextMessage(null); }
+    catch { if (typeof window !== "undefined") window.alert("Copie du lien impossible."); }
+  };
+  const saveMessageMedia = async (message: Message) => {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      if (typeof window !== "undefined") window.alert("Enregistrement direct disponible depuis la version web.");
+      return;
+    }
+    const files = (message.attachments || []).filter(file => !file.view_once);
+    try {
+      for (const file of files) {
+        const url = await protectedFileUrl(file.id);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file.name || `spiloveure-${file.id}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      }
+      setContextMessage(null);
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(e?.message || "Enregistrement du média impossible.");
+    }
   };
   const messengerApiPatch = async (path: string, body: any) => {
     return api.patch<Message>(path, body);
@@ -385,29 +516,73 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     await send({ attachments: attached, text: caption });
     setPendingMedia(null);
   };
-  const sendVoiceBlob = async (blob: Blob, durationSeconds: number) => {
+  const sendVoiceBlob = async (blob: Blob, durationSeconds: number, viewOnce: boolean) => {
     setVoiceSending(true);
     try {
       const mime = blob.type || "audio/webm";
       const extension = mime.includes("ogg") ? ".ogg" : mime.includes("mp4") ? ".m4a" : mime.includes("mpeg") ? ".mp3" : ".webm";
       const file = new File([blob], `message-vocal-${Date.now()}${extension}`, { type: mime });
       if (file.size > 20 * 1024 * 1024) throw new Error("Le message vocal dépasse 20 Mo.");
-      const attachment = await messengerApi.file(conversation.id, file, durationSeconds);
+      const attachment = await messengerApi.file(conversation.id, file, durationSeconds, viewOnce);
       await send({ attachments: [attachment], text: "" });
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(e?.detail || e?.message || "Envoi vocal impossible.");
     } finally { setVoiceSending(false); }
   };
   sendVoiceRef.current = sendVoiceBlob;
+  const releaseVoiceResources = () => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    analyserRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== "closed") void context.close().catch(() => {});
+  };
+  const cancelVoiceRecording = () => {
+    discardRecording.current = true;
+    sendRecordingAfterStop.current = false;
+    if (recorder.current?.state !== "inactive") recorder.current?.stop();
+    releaseVoiceResources();
+    recordingElapsed.current = { activeMs: 0, segmentStartedAt: 0 };
+    recordingViewOnceRef.current = false;
+    setRecording(false);
+    setRecordingPaused(false);
+    setRecordingViewOnce(false);
+    setRecordSeconds(0);
+    setRecordingWaveform(Array.from({ length: 38 }, () => 5));
+  };
+  const toggleVoicePause = () => {
+    const rec = recorder.current;
+    const now = Date.now();
+    if (!rec) return;
+    if (rec.state === "recording") {
+      recordingElapsed.current.activeMs += Math.max(0, now - recordingElapsed.current.segmentStartedAt);
+      recordingElapsed.current.segmentStartedAt = 0;
+      rec.pause();
+      setRecordingPaused(true);
+    } else if (rec.state === "paused") {
+      recordingElapsed.current.segmentStartedAt = now;
+      rec.resume();
+      setRecordingPaused(false);
+    }
+  };
+  const sendVoiceRecording = () => {
+    const rec = recorder.current;
+    if (!rec || rec.state === "inactive") return;
+    sendRecordingAfterStop.current = true;
+    setVoiceSending(true);
+    rec.stop();
+    setRecording(false);
+    setRecordingPaused(false);
+  };
+  const toggleRecordingViewOnce = () => {
+    const next = !recordingViewOnceRef.current;
+    recordingViewOnceRef.current = next;
+    setRecordingViewOnce(next);
+  };
   const voice = async () => {
     if (!canSend) return;
-    if (recording) {
-      sendRecordingAfterStop.current = true;
-      recorder.current?.stop();
-      setRecording(false);
-      return;
-    }
-    if (voiceSending) return;
+    if (recording || voiceSending) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       if (typeof window !== "undefined") window.alert("L’enregistrement vocal n’est pas disponible sur ce navigateur.");
       return;
@@ -420,28 +595,75 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       rec.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       discardRecording.current = false;
       sendRecordingAfterStop.current = false;
+      recordingViewOnceRef.current = false;
+      setRecordingViewOnce(false);
+      setRecordingPaused(false);
+      setRecordingWaveform(Array.from({ length: 38 }, () => 5));
+      try {
+        const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextCtor) {
+          const context = new AudioContextCtor();
+          const analyser = context.createAnalyser();
+          analyser.fftSize = 256;
+          context.createMediaStreamSource(stream).connect(analyser);
+          audioContextRef.current = context;
+          analyserRef.current = analyser;
+          if (context.state === "suspended") await context.resume();
+        }
+      } catch {
+        analyserRef.current = null;
+      }
       rec.onstop = () => {
         const recordedType = rec.mimeType || chunks.find(chunk => chunk instanceof Blob)?.type || "audio/webm";
-        const durationSeconds = Math.max(0.1, elapsedVoiceSeconds(recordingStartedAt.current, Date.now()));
-        recordingStartedAt.current = 0;
+        const elapsed = recordingElapsed.current.activeMs
+          + (recordingElapsed.current.segmentStartedAt
+            ? Date.now() - recordingElapsed.current.segmentStartedAt
+            : 0);
+        const durationSeconds = Math.max(0.1, elapsed / 1000);
+        recordingElapsed.current = { activeMs: 0, segmentStartedAt: 0 };
+        setRecording(false);
+        setRecordingPaused(false);
         if (!discardRecording.current && sendRecordingAfterStop.current) {
           sendRecordingAfterStop.current = false;
           const blob = new Blob(chunks, { type: recordedType });
-          if (blob.size) void sendVoiceRef.current(blob, durationSeconds);
-          else if (typeof window !== "undefined") window.alert("Aucun son n’a été enregistré. Réessayez.");
+          if (blob.size) void sendVoiceRef.current(blob, durationSeconds, recordingViewOnceRef.current);
+          else {
+            setVoiceSending(false);
+            if (typeof window !== "undefined") window.alert("Aucun son n’a été enregistré. Réessayez.");
+          }
         }
-        stream.getTracks().forEach(t => t.stop());
+        releaseVoiceResources();
+        recordingViewOnceRef.current = false;
+        setRecordingViewOnce(false);
       };
       recorder.current = rec;
-      recordingStartedAt.current = Date.now();
+      recordingElapsed.current = { activeMs: 0, segmentStartedAt: Date.now() };
       setRecordSeconds(0);
       setRecording(true);
-      rec.start();
+      rec.start(100);
     } catch { if (typeof window !== "undefined") window.alert("Autorisez le microphone pour enregistrer."); }
   };
   const forward = async (target: Conversation) => {
     if (!forwarding) return;
-    try { await messengerApi.send(target.id, { text: forwarding.text, client_id: makeId(), attachments: forwarding.attachments, forwarded_from: forwarding.id }); setForwarding(null); onChanged(); }
+    try {
+      const attachments: Attachment[] = [];
+      for (const source of forwarding.attachments || []) {
+        if (source.view_once) throw new Error("Les messages vocaux à écoute unique ne peuvent pas être transférés.");
+        const protectedUrl = await protectedFileUrl(source.id);
+        try {
+          const response = await fetch(protectedUrl);
+          if (!response.ok) throw new Error("Téléchargement de la pièce jointe impossible.");
+          const blob = await response.blob();
+          const file = new File([blob], source.name || `fichier-${source.id}`, { type: source.mime || blob.type });
+          attachments.push(await messengerApi.file(target.id, file, source.duration_seconds));
+        } finally {
+          URL.revokeObjectURL(protectedUrl);
+        }
+      }
+      await messengerApi.send(target.id, { text: forwarding.text, client_id: makeId(), attachments, forwarded_from: forwarding.id });
+      setForwarding(null);
+      onChanged();
+    }
     catch (e: any) { window.alert(e?.detail || "Transfert impossible."); }
   };
   const openContactShare = async () => {
@@ -470,14 +692,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (Platform.OS === "web" && typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
     else Linking.openURL(url).catch(() => {});
   };
-  const renderText = (content: string) => content.split(/(https?:\/\/[^\s]+|SPV@[^\s.,!?;:()[\]{}<>]+)/gi).map((part, index) => {
+  const renderText = (content: string, message: Message) => content.split(/(https?:\/\/[^\s]+|SPV@[^\s.,!?;:()[\]{}<>]+)/gi).map((part, index) => {
     if (/^https?:\/\//i.test(part)) {
-      return <Text key={`${index}-${part}`} style={styles.linkText} onPress={() => openUrl(part)}>{part}</Text>;
+      return <Text key={`${index}-${part}`} style={styles.linkText} onPress={event => { event.stopPropagation?.(); openUrl(part); }}>{part}</Text>;
     }
     const handle = part.match(/^SPV@(.+)$/i);
     return handle
-      ? <Text key={`${index}-${part}`} style={styles.linkText} onPress={() => onOpenUsername?.(handle[1])}>{part}</Text>
-      : <Text key={`${index}-${part}`}>{part}</Text>;
+      ? <Text key={`${index}-${part}`} style={styles.linkText} onPress={event => { event.stopPropagation?.(); onOpenUsername?.(handle[1]); }}>{part}</Text>
+      : <Text key={`${index}-${part}`} onPress={event => openMessageContext(message, event)}>{part}</Text>;
   });
   const otherPerson = conversation.member_profiles.find(person => person.id !== userId);
   const otherPhoto = (conversation.is_saved
@@ -524,6 +746,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                styles.bubble, own ? styles.ownBubble : styles.otherBubble,
                { backgroundColor: own ? ownBubbleColor : darkMode ? "#263244" : "#fff" },
                darkMode && { borderColor: "#3a4759" },
+                focusedMessageId === message.id && styles.focusedBubble,
              ]}
             accessibilityRole="text"
             accessibilityLabel={`${own ? "Message envoyé" : `Message de ${message.sender_name}`}${message.text ? ` : ${message.text}` : message.attachments?.some(file => file.mime.startsWith("audio/")) ? " : message vocal" : ""}`}
@@ -556,7 +779,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 {!!message.text && <Text style={[
                   styles.messageText,
                   { fontSize: 17 * textScale, color: visualSettings.high_contrast ? (darkMode && !own ? "#fff" : "#0b111b") : darkMode && !own ? "#f5f7fa" : undefined },
-                ]}>{renderText(message.text)}</Text>}
+                ]}>{renderText(message.text, message)}</Text>}
                 {message.attachments?.filter(file => file.mime.startsWith("audio/")).map(file =>
                   <View key={file.id} style={[styles.voiceCard, own && styles.ownAttachment]}><ProtectedVoicePlayer file={file} own={own} autoLoad={visualSettings.auto_load_media !== false} /></View>)}
                 {message.attachments?.filter(file => !file.mime.startsWith("audio/") && !file.mime.startsWith("image/") && !file.mime.startsWith("video/")).map(file =>
@@ -572,27 +795,30 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 return <Text style={[styles.receipt, delivered && styles.receiptDelivered, read && styles.receiptRead]} accessibilityLabel={read ? "Lu" : delivered ? "Distribué" : "Envoyé"}>{read || delivered ? "✓✓" : "✓"}</Text>;
               })()}
                 {message.client_id && failedIds.includes(message.client_id) && <TouchableOpacity onPress={() => retrySend(message.client_id!)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity>}
-                <TouchableOpacity onPress={() => setExpanded(expanded === message.id ? null : message.id)} accessibilityLabel="Actions du message" testID={`messenger-message-menu-${message.id}`}><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity>
               </View>
               {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <Text key={emoji} style={styles.reaction}>{emoji} {ids.length}</Text>)}
-              {expanded === message.id && <View style={styles.actions}>
-                <TouchableOpacity onPress={() => beginReply(message)} testID={`messenger-message-reply-${message.id}`}><Text style={styles.actionText}>Répondre</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => action(message, "reaction", { emoji: "👍" })} testID={`messenger-message-react-${message.id}`}><Text style={styles.actionText}>👍</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => { setForwarding(message); messengerApi.conversations().then(setTargets).catch(() => setTargets([])); setExpanded(null); }} testID={`messenger-message-forward-${message.id}`}><Text style={styles.actionText}>Transférer</Text></TouchableOpacity>
-                {(conversation.kind === "private" || isChannelAdmin) && <TouchableOpacity onPress={() => action(message, "pin")} testID={`messenger-message-pin-${message.id}`}><Text style={styles.actionText}>{message.pinned ? "Désépingler" : "Épingler"}</Text></TouchableOpacity>}
-                {own && <TouchableOpacity onPress={() => { setEditing(message); changeDraft(message.text); setExpanded(null); }} testID={`messenger-message-edit-${message.id}`}><Text style={styles.actionText}>Modifier</Text></TouchableOpacity>}
-                {(own || isChannelAdmin) && <TouchableOpacity onPress={() => action(message, "delete")} testID={`messenger-message-delete-${message.id}`}><Text style={[styles.actionText, { color: "#d33" }]}>Supprimer</Text></TouchableOpacity>}
-              </View>}
               <View pointerEvents="none" style={[styles.bubbleTail, own ? styles.ownBubbleTail : styles.otherBubbleTail]}>
                 <Svg width={11} height={14} viewBox="0 0 11 14">
                  <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? ownBubbleColor : "#fff"} />
                 </Svg>
               </View>
             </View>;
-          return <View key={message.id} style={[styles.bubbleWrap, own && styles.ownWrap]}>
+          const handleMessageLayout = (event: any) => {
+            if (focusPendingMessage.current !== message.id) return;
+            focusPendingMessage.current = null;
+            const y = Math.max(0, event.nativeEvent.layout.y - 64);
+            requestAnimationFrame(() => scroll.current?.scrollTo({ y, animated: true }));
+            setTimeout(() => setFocusedMessageId(current => current === message.id ? null : current), 2400);
+          };
+          const contextPressable = (content: React.ReactNode) => <Pressable
+            onLongPress={event => openMessageContext(message, event)}
+            delayLongPress={420}
+            testID={`messenger-message-press-${message.id}`}
+          >{content}</Pressable>;
+          return <View key={message.id} onLayout={handleMessageLayout} style={[styles.bubbleWrap, own && styles.ownWrap]}>
             {!message.deleted
-              ? <SwipeToReply direction="left" onReply={() => beginReply(message)}><View style={[styles.swipeMessage, own && styles.swipeMessageOwn]} testID={`messenger-swipe-reply-${message.id}`}>{bubble}</View></SwipeToReply>
-              : bubble}
+              ? <SwipeToReply direction="left" onReply={() => beginReply(message)}><View style={[styles.swipeMessage, own && styles.swipeMessageOwn]} testID={`messenger-swipe-reply-${message.id}`}>{contextPressable(bubble)}</View></SwipeToReply>
+              : contextPressable(bubble)}
           </View>;
         })}
       </ScrollView>
@@ -601,9 +827,19 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <TouchableOpacity onPress={() => setReply(null)} accessibilityLabel="Annuler la réponse"><Ionicons name="close" size={19} color={blue} /></TouchableOpacity>
       </View>}
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
-      {(recording || voiceSending) && <View style={[styles.recordStatus, { backgroundColor: chatSurface }]}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
       {!canSend && <View style={[styles.readOnly, { backgroundColor: chatSurface }]}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
-      <View style={[styles.composer, darkMode && { backgroundColor: "#1b2635", borderColor: "#344153" }]}>
+      {canSend && (recording || voiceSending) ? <VoiceRecorderControls
+        seconds={recordSeconds}
+        waveform={recordingWaveform}
+        paused={recordingPaused}
+        viewOnce={recordingViewOnce}
+        darkMode={darkMode}
+        sending={voiceSending}
+        onCancel={cancelVoiceRecording}
+        onTogglePause={toggleVoicePause}
+        onToggleViewOnce={toggleRecordingViewOnce}
+        onSend={sendVoiceRecording}
+      /> : <View style={[styles.composer, darkMode && { backgroundColor: "#1b2635", borderColor: "#344153" }]}>
         <TouchableOpacity onPress={toggleEmojiPicker} style={styles.composerIcon} accessibilityLabel={emojiPickerOpen ? "Revenir au clavier pour écrire" : "Choisir un emoji"} testID="messenger-emoji-toggle"><Ionicons name={emojiPickerOpen ? "keypad-outline" : "happy-outline"} size={23} color={blue} /></TouchableOpacity>
         <View
           style={styles.inputShell}
@@ -631,12 +867,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           />
           {canSend && <TouchableOpacity onPress={() => setComposerActionsOpen(true)} style={styles.inputAttach} accessibilityLabel="Pièce jointe et options" testID="messenger-composer-actions"><Ionicons name="attach" size={23} color={blue} /></TouchableOpacity>}
         </View>
-        {canSend && (recording || voiceSending
-          ? <TouchableOpacity style={[styles.sendButton, voiceSending && styles.disabled]} onPress={voice} disabled={voiceSending} accessibilityLabel="Terminer et envoyer le message vocal" testID="messenger-send-voice"><Image source={logo} style={styles.sendLogo} resizeMode="contain" /></TouchableOpacity>
-          : text.trim() || editing
+        {canSend && (text.trim() || editing
             ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Image source={logo} style={styles.sendLogo} resizeMode="contain" testID="messenger-send-brand" /></TouchableOpacity>
             : <TouchableOpacity onPress={voice} style={styles.recordButton} accessibilityLabel="Enregistrer un message vocal" testID="messenger-record-voice"><Ionicons name="mic" size={22} color="#fff" /></TouchableOpacity>)}
-      </View>
+      </View>}
       <Modal visible={composerActionsOpen} transparent animationType="fade" onRequestClose={() => setComposerActionsOpen(false)}>
         <View style={styles.composerActionsBackdrop}>
           <TouchableOpacity style={styles.composerActionsDismiss} onPress={() => setComposerActionsOpen(false)} accessibilityLabel="Fermer les options" />
@@ -673,6 +907,37 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
       <ProtectedAttachmentViewer preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
+      <MessageContextMenu
+        message={contextMessage}
+        left={contextPosition.left}
+        top={contextPosition.top}
+        screenWidth={windowWidth}
+        screenHeight={windowHeight}
+        canPin={conversation.kind === "private" || isChannelAdmin}
+        canEdit={!!contextMessage && contextMessage.sender_id === userId && !contextMessage.deleted}
+        canDelete={!!contextMessage && (contextMessage.sender_id === userId || isChannelAdmin) && !contextMessage.deleted}
+        onClose={() => setContextMessage(null)}
+        onReply={() => contextMessage && beginReply(contextMessage)}
+        onReact={emoji => contextMessage && void action(contextMessage, "reaction", { emoji })}
+        onCopy={() => contextMessage && void copyMessage(contextMessage)}
+        onCopyLink={() => contextMessage && void copyMessageLink(contextMessage)}
+        onForward={() => {
+          if (!contextMessage) return;
+          setForwarding(contextMessage);
+          setContextMessage(null);
+          messengerApi.conversations().then(setTargets).catch(() => setTargets([]));
+        }}
+        onPin={() => contextMessage && void action(contextMessage, "pin")}
+        onEdit={() => {
+          if (!contextMessage) return;
+          setEditing(contextMessage);
+          changeDraft(contextMessage.text);
+          setContextMessage(null);
+          requestAnimationFrame(() => composerInput.current?.focus());
+        }}
+        onDelete={() => contextMessage && void action(contextMessage, "delete")}
+        onSave={() => contextMessage && void saveMessageMedia(contextMessage)}
+      />
       <Modal visible={headerMenuOpen} transparent animationType="fade" onRequestClose={() => setHeaderMenuOpen(false)}>
         <View style={styles.headerMenuOverlay}>
           <TouchableOpacity style={styles.headerMenuDismiss} onPress={() => setHeaderMenuOpen(false)} accessibilityLabel="Fermer le menu" />
@@ -746,9 +1011,10 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: "#77966f" }, receipt: { color: "#77966f", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#77966f" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
-  reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
+  reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 },
+  focusedBubble: { borderColor: "#2684ff", borderWidth: 2 },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },

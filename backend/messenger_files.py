@@ -81,7 +81,7 @@ async def storage_usage(request: Request, user=Depends(chat_user)):
     }
 
 
-async def store(request, user, file, scope, duration_seconds=None):
+async def store(request, user, file, scope, duration_seconds=None, view_once=False):
     db = request.app.state.db
     filename = Path((file.filename or "fichier").replace("\\", "/")).name[:180]
     suffix = Path(filename).suffix.lower()
@@ -110,6 +110,8 @@ async def store(request, user, file, scope, duration_seconds=None):
         # MediaRecorder audio-only blobs commonly use the .webm container.
         if suffix == ".webm" and (file.content_type or "").split(";")[0] == "audio/webm":
             mime = "audio/webm"
+        if view_once and (scope == "feed" or not mime.startswith("audio/")):
+            raise HTTPException(400, "L’écoute unique est réservée aux messages vocaux.")
         row = {
             "id": fid, "owner_id": user["id"], "scope": scope, "name": filename,
             "size": size, "mime": mime, "url": "/api/messenger/files/" + fid, "created_at": now(),
@@ -118,6 +120,8 @@ async def store(request, user, file, scope, duration_seconds=None):
             if not mime.startswith("audio/") or not math.isfinite(duration_seconds) or not 0 < duration_seconds <= 7200:
                 raise HTTPException(400, "La durée du message vocal est invalide.")
             row["duration_seconds"] = duration_seconds
+        if view_once:
+            row.update({"view_once": True, "view_once_opened_by": []})
         await db.spv_files.insert_one(row)
     except BaseException:
         path.unlink(missing_ok=True)
@@ -127,6 +131,8 @@ async def store(request, user, file, scope, duration_seconds=None):
     keys = ["id", "name", "mime", "size", "url"]
     if "duration_seconds" in row:
         keys.append("duration_seconds")
+    if row.get("view_once"):
+        keys.append("view_once")
     return {key: row[key] for key in keys}
 
 
@@ -136,12 +142,13 @@ async def upload(
     request: Request,
     file: UploadFile = File(...),
     duration_seconds: float | None = Form(default=None, ge=0, le=7200),
+    view_once: bool = Form(default=False),
     user=Depends(chat_user),
 ):
     conv = await member(request.app.state.db, cid, user)
     if conv["kind"] == "channel":
         administrator(conv, user)
-    return await store(request, user, file, cid, duration_seconds)
+    return await store(request, user, file, cid, duration_seconds, view_once)
 
 
 @api.post("/feed/files")
@@ -176,6 +183,13 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
             "conversation_id": row["scope"], "attachments.id": fid, "deleted": False,
         }):
             raise HTTPException(404, "Fichier introuvable.")
+        if row.get("view_once"):
+            consumed = await db.spv_files.update_one(
+                {"id": fid, "view_once": True, "view_once_opened_by": {"$ne": user["id"]}},
+                {"$addToSet": {"view_once_opened_by": user["id"]}},
+            )
+            if not consumed.modified_count:
+                raise HTTPException(410, "Ce message vocal à écoute unique a déjà été ouvert.")
     path = upload_root() / row["id"]
     if not path.is_file():
         raise HTTPException(404, "Fichier indisponible sur le serveur.")

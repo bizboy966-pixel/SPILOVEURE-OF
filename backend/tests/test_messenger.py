@@ -114,6 +114,16 @@ def test_message_authorization_and_tombstones(chat):
     assert call(chat, "patch", path, json={"text": "Restauré"}).status_code == 403
 
 
+def test_message_link_lookup_requires_membership_and_hides_deleted_messages(chat):
+    cid = conversation(chat)
+    mid = message(chat, cid).json()["id"]
+    path = f"/conversations/{cid}/messages/{mid}"
+    assert call(chat, "get", path).json()["id"] == mid
+    assert call(chat, "get", path, "eve").status_code == 404
+    assert call(chat, "delete", path).status_code == 200
+    assert call(chat, "get", path).status_code == 404
+
+
 def test_reply_cannot_reference_another_conversation(chat):
     first = conversation(chat)
     mid = message(chat, first).json()["id"]

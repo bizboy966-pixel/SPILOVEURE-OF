@@ -27,14 +27,16 @@ type Props = {
   testID?: string;
   durationSeconds?: number;
   loading?: boolean;
+  viewOnce?: boolean;
 };
 
-export default function VoiceMessage({ src, testID, durationSeconds, loading = false }: Props) {
+export default function VoiceMessage({ src, testID, durationSeconds, loading = false, viewOnce = false }: Props) {
   const { t } = useI18n();
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(durationSeconds || 0);
   const [loaded, setLoaded] = useState(false);
+  const [consumed, setConsumed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [waveform, setWaveform] = useState<number[]>(() => Array.from({ length: 36 }, () => 7));
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -94,7 +96,16 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
       if (isFinite(d) && d > 0) { setDuration(d); setLoaded(true); return; }
     };
     const onTime = () => setCurrent(a.currentTime || 0);
-    const onEnd = () => { setPlaying(false); setCurrent(0); };
+    const onEnd = () => {
+      setPlaying(false);
+      if (viewOnce) {
+        setConsumed(true);
+        setCurrent(recordedDuration || a.duration || 0);
+        a.pause();
+        a.removeAttribute("src");
+        a.load();
+      } else setCurrent(0);
+    };
     const onPlay = () => { setPlaying(true); setErr(null); };
     const onPause = () => setPlaying(false);
     const onError = () => {
@@ -128,9 +139,10 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
       audioRef.current = null;
       if (decodeContext && decodeContext.state !== "closed") void decodeContext.close().catch(() => {});
     };
-  }, [src, durationSeconds]);
+  }, [src, durationSeconds, viewOnce]);
 
   const toggle = () => {
+    if (consumed) return;
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) {
@@ -148,7 +160,7 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
 
   const seek = (evt: any) => {
     const a = audioRef.current;
-    if (!a || !loaded || !duration) return;
+    if (!a || !loaded || !duration || viewOnce) return;
     try {
       const rect = (trackRef.current as any)?.getBoundingClientRect?.();
       const clientX = evt?.clientX ?? evt?.nativeEvent?.clientX
@@ -170,6 +182,14 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
   const fillBg = "#75bd70";
   const textCol = "#66865e";
   const errCol = theme.colors.danger;
+
+  if (viewOnce && consumed) {
+    return <View style={styles.consumed} testID={testID ? `${testID}-consumed` : undefined}>
+      <Ionicons name="checkmark-circle" size={18} color="#6d9271" />
+      <Text style={styles.consumedText}>Message vocal écouté</Text>
+      <Ionicons name="timer-outline" size={18} color="#6d9271" />
+    </View>;
+  }
 
   if (!src && loading) {
     return <View style={styles.wrap} testID={testID}>
@@ -207,14 +227,14 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
       <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
         <Pressable
           ref={trackRef}
-          onPress={Platform.OS === "web" ? (seek as any) : undefined}
+          onPress={Platform.OS === "web" && !viewOnce ? (seek as any) : undefined}
           style={[styles.track, { backgroundColor: trackBg }]}
           accessibilityRole="adjustable"
           accessibilityLabel="Position de lecture du message vocal"
           accessibilityValue={{ min: 0, max: duration, now: current }}
           testID={testID ? `${testID}-seek` : undefined}
           // @ts-ignore web-only pointer events for drag-to-seek
-          onPointerDown={Platform.OS === "web" ? (seek as any) : undefined}
+          onPointerDown={Platform.OS === "web" && !viewOnce ? (seek as any) : undefined}
         >
           <View style={styles.waveform} pointerEvents="none">
             {waveform.map((height, index) => (
@@ -264,6 +284,8 @@ const styles = StyleSheet.create({
   },
   waveform: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", height: "100%", gap: 2 },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  consumed: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, paddingHorizontal: 10 },
+  consumedText: { color: "#66865e", fontSize: 13, fontWeight: "700", flex: 1 },
   loadingText: { color: "#66865e", fontSize: 11, flex: 1 },
   waveBar: {
     width: 2,

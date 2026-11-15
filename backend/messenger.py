@@ -12,7 +12,7 @@ from pymongo.errors import DuplicateKeyError
 
 from messenger_core import (
     BroadcastIn, ChatListIn, ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
-    administrator, allowed_pair, attachments_checked, chat_user, clean,
+    administrator, allowed_pair, attachments_checked, chat_user, clean, message_views,
     conversation_view, default_permissions, event, get_message, identifier, member, notify, now,
     person, rate_limit, ticket,
 )
@@ -426,7 +426,24 @@ async def messages(cid: str, request: Request, before: str = "", q: str = Query(
     if q.strip():
         query.update({"text": {"$regex": re.escape(q.strip()), "$options": "i"}, "deleted": False})
     rows = await db.spv_messages.find(query).sort([("created_at", -1), ("id", -1)]).limit(limit + 1).to_list(limit + 1)
-    return {"items": [clean(x) for x in reversed(rows[:limit])], "has_more": len(rows) > limit}
+    return {"items": await message_views(db, reversed(rows[:limit]), user["id"]),
+            "has_more": len(rows) > limit}
+
+
+@api.get("/conversations/{cid}/messages/{mid}")
+async def message_by_id(cid: str, mid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    msg = await db.spv_messages.find_one({
+        "id": mid, "conversation_id": cid, "deleted": False,
+        "$or": [
+            {"expires_at": {"$exists": False}}, {"expires_at": None},
+            {"expires_at": {"$gt": datetime.now(timezone.utc)}},
+        ],
+    })
+    if not msg:
+        raise HTTPException(404, "Message introuvable.")
+    return (await message_views(db, [msg], user["id"]))[0]
 
 
 @api.post("/conversations/{cid}/messages")
@@ -542,9 +559,6 @@ async def deliver_message(db, cid, body, user):
         if not source:
             raise HTTPException(404, "Message à transférer introuvable.")
         await member(db, source["conversation_id"], user)
-        # Forwarded files need their own protected copies; don't bypass source permissions.
-        if source["attachments"]:
-            raise HTTPException(400, "Téléchargez puis joignez les fichiers pour les transférer.")
         forwarded = source["id"]
     stamp = now()
     delivered_by = await online_recipients(db, conv, uid)

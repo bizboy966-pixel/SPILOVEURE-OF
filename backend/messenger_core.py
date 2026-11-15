@@ -205,6 +205,8 @@ class Attachment(BaseModel):
     size: int = 0
     url: str = ""
     duration_seconds: float | None = Field(default=None, ge=0, le=7200)
+    view_once: bool = False
+    view_once_opened: bool = False
 
 
 class MessageIn(BaseModel):
@@ -249,8 +251,36 @@ async def attachments_checked(db, supplied, user, scope):
         keys = ["id", "name", "mime", "size", "url"]
         if "duration_seconds" in stored:
             keys.append("duration_seconds")
+        if stored.get("view_once"):
+            keys.append("view_once")
         result.append({key: stored[key] for key in keys})
     return result
+
+
+async def message_views(db, messages, user_id):
+    """Expose only the current member's one-time voice playback state."""
+    views = [clean(message) for message in messages]
+    file_ids = [
+        attachment["id"]
+        for message in views
+        for attachment in message.get("attachments", [])
+        if attachment.get("view_once")
+    ]
+    if not file_ids:
+        return views
+    file_rows = await db.spv_files.find(
+        {"id": {"$in": file_ids}, "view_once": True},
+        {"id": 1, "view_once_opened_by": 1},
+    ).to_list(len(file_ids))
+    opened_by_file = {
+        row["id"]: set(row.get("view_once_opened_by") or [])
+        for row in file_rows
+    }
+    for message in views:
+        for attachment in message.get("attachments", []):
+            if attachment.get("view_once"):
+                attachment["view_once_opened"] = user_id in opened_by_file.get(attachment["id"], set())
+    return views
 
 
 async def rate_limit(db, uid, collection="spv_messages", maximum=60):

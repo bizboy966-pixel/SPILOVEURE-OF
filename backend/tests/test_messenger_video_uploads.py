@@ -34,6 +34,46 @@ def test_video_support_does_not_reclassify_voice_recordings(chat):
     assert response.json()["mime"] == "audio/webm"
 
 
+def test_view_once_voice_is_consumed_per_recipient(chat):
+    cid = conversation(chat, "group")
+    uploaded = call(
+        chat, "post", f"/conversations/{cid}/files",
+        files={"file": ("voice.webm", b"synthetic-voice", "audio/webm")},
+        data={"duration_seconds": "2.4", "view_once": "true"},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    attachment = uploaded.json()
+    assert attachment["view_once"] is True
+    sent = message(chat, cid, attachments=[attachment])
+    assert sent.status_code == 200, sent.text
+
+    first_open = chat[0].get(attachment["url"], headers=auth("bob"))
+    assert first_open.status_code == 200
+    assert first_open.content == b"synthetic-voice"
+    assert chat[0].get(attachment["url"], headers=auth("bob")).status_code == 410
+    assert chat[0].get(attachment["url"], headers=auth("alice")).status_code == 200
+
+    bob_messages = call(chat, "get", f"/conversations/{cid}/messages", "bob").json()["items"]
+    bob_attachment = bob_messages[-1]["attachments"][0]
+    assert bob_attachment["view_once"] is True
+    assert bob_attachment["view_once_opened"] is True
+
+    joined = call(chat, "post", f"/conversations/{cid}/members", json={"user_id": "eve", "action": "add"})
+    assert joined.status_code == 200
+    assert chat[0].get(attachment["url"], headers=auth("eve")).status_code == 200
+    assert chat[0].get(attachment["url"], headers=auth("eve")).status_code == 410
+
+
+def test_view_once_rejects_non_audio_uploads(chat):
+    cid = conversation(chat)
+    response = call(
+        chat, "post", f"/conversations/{cid}/files",
+        files={"file": ("photo.jpg", b"not-a-real-image", "image/jpeg")},
+        data={"view_once": "true"},
+    )
+    assert response.status_code == 400
+
+
 def test_video_size_limit_is_preserved(chat):
     cid = conversation(chat)
     response = call(chat, "post", f"/conversations/{cid}/files",

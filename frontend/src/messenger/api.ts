@@ -14,6 +14,8 @@ export const messengerApi = {
     if (q) params.set("q", q);
     return api.get<{ items: Message[]; has_more: boolean }>(`/messenger/conversations/${encodeURIComponent(id)}/messages?${params}`);
   },
+  message: (conversationId: string, messageId: string) =>
+    api.get<Message>(`/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`),
   send: (id: string, payload: {
     text: string; client_id: string; attachments?: Attachment[]; reply_to?: string;
     forwarded_from?: string; silent?: boolean; status_reply_id?: string;
@@ -21,12 +23,15 @@ export const messengerApi = {
     api.post<Message>(`/messenger/conversations/${encodeURIComponent(id)}/messages`, payload),
   markConversationDelivered: (conversationId: string) =>
     api.post(`/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`, {}),
-  file: async (id: string, file: File, durationSeconds?: number) =>
+  file: async (id: string, file: File, durationSeconds?: number, viewOnce = false) =>
     api.upload<Attachment>(
       `/messenger/conversations/${encodeURIComponent(id)}/files`,
       file,
       "file",
-      durationSeconds === undefined ? {} : { duration_seconds: durationSeconds },
+      {
+        ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
+        ...(viewOnce ? { view_once: true } : {}),
+      },
     ),
   people: (q: string) => api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}`),
   publicChannels: (q = "") => api.get<PublicChannel[]>(`/messenger/channels?q=${encodeURIComponent(q)}`),
@@ -49,7 +54,11 @@ export async function protectedFileUrl(fileId: string): Promise<string> {
       credentials: "include", cache: "no-store", signal: controller?.signal,
     });
     if (response.status === 401) reportChatUnauthorized();
-    if (!response.ok) throw new Error("Impossible d’ouvrir ce fichier.");
+    if (!response.ok) {
+      const error: any = new Error("Impossible d’ouvrir ce fichier.");
+      error.status = response.status;
+      throw error;
+    }
     return URL.createObjectURL(await response.blob());
   } catch (error: any) {
     if (controller?.signal.aborted) throw new Error("Le chargement du fichier a expiré. Réessayez.");

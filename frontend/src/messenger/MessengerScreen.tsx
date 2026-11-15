@@ -27,8 +27,9 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[]; conversation?: string | string[]; notificationAction?: string | string[] }>();
+  const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[]; conversation?: string | string[]; message?: string | string[]; notificationAction?: string | string[] }>();
   const conversationParam = Array.isArray(params.conversation) ? params.conversation[0] : params.conversation;
+  const messageParam = Array.isArray(params.message) ? params.message[0] : params.message;
   const notificationAction = Array.isArray(params.notificationAction) ? params.notificationAction[0] : params.notificationAction;
   const handledNotification = useRef<string | null>(null);
   const inviteParam = Array.isArray(params.invite) ? params.invite[0] : params.invite;
@@ -80,6 +81,8 @@ export default function MessengerScreen() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Conversation | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectedMessageConversationId, setSelectedMessageConversationId] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
   useEffect(() => {
@@ -103,7 +106,7 @@ export default function MessengerScreen() {
   useEffect(() => {
     if (!conversationParam) { handledNotification.current = null; return; }
     if (!user?.id) return;
-    const key = `${conversationParam}:${notificationAction || "open"}`;
+    const key = `${conversationParam}:${notificationAction || "open"}:${messageParam || ""}`;
     if (handledNotification.current === key) return;
     handledNotification.current = key;
     let cancelled = false;
@@ -117,6 +120,8 @@ export default function MessengerScreen() {
           const conversation = await messengerApi.conversation(conversationParam);
           if (cancelled) return;
           setNotificationReplyTarget(notificationAction === "reply" ? conversationParam : null);
+          setSelectedMessageId(messageParam || null);
+          setSelectedMessageConversationId(messageParam ? conversationParam : null);
           setSelected(conversation);
           setTab("Échanges");
         }
@@ -126,7 +131,7 @@ export default function MessengerScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [conversationParam, notificationAction, user?.id, refresh, router]);
+  }, [conversationParam, messageParam, notificationAction, user?.id, refresh, router]);
   const [creationOpen, setCreationOpen] = useState(false);
   const [kind, setKind] = useState<"private" | "group" | "channel">("private");
   const [isPublic, setIsPublic] = useState(false);
@@ -502,7 +507,7 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} focusComposer={notificationReplyTarget === selected.id} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+          {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} focusMessageId={selectedMessageConversationId === selected.id ? selectedMessageId || undefined : undefined} focusComposer={notificationReplyTarget === selected.id} onBack={() => { setSelected(null); setSelectedMessageId(null); setSelectedMessageConversationId(null); }} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
          </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} requestedStatusId={requestedStatusId} onStatusRequestConsumed={() => { setRequestedStatusAuthor(null); setRequestedStatusId(null); }} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} onOpenContacts={() => setTab("Contacts")} onOpenChats={() => setTab("Échanges")} onAppearanceChange={setAppearance} onReduceMotionChange={setReduceMotion} />}
     </View>
