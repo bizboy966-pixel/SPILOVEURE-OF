@@ -40,8 +40,12 @@ test("lists, private broadcasts, appearance and accessibility have real persiste
 
 test("native-only sound and phone-number changes are described honestly", () => {
   const panel = read("ProfileSettingsPanel.tsx");
+  const notifications = read("NotificationSettingsPanel.tsx");
+  const translations = fs.readFileSync(path.join(__dirname, "../src/i18n/translations.ts"), "utf8");
   assert.match(panel, /n’est pas encore disponible/);
-  assert.match(panel, /sonneries système et les appels nécessitent l’application native/);
+  assert.match(notifications, /chat\.notifications\.sound_web_note/);
+  assert.match(panel, /chat\.notifications\.browser_scope_desc/);
+  assert.match(translations, /"chat\.notifications\.browser_scope_desc": "These settings control browser alerts/);
   assert.match(panel, /vérification nécessaire pour remplacer le numéro/);
   assert.doesNotMatch(panel, /Cette page ne supprime aucun message ni fichier/);
   assert.doesNotMatch(panel, /delete\([^)]*message/);

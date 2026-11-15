@@ -43,6 +43,29 @@ test("mute and sound-off never start audio; built-in tones are playable", async 
   assert.equal(audio.oscillatorCount(), 1);
   await audio.playNotificationSound("test", "global", { ...base, sound: "bell" });
   assert.equal(audio.oscillatorCount(), 3);
+  await audio.playNotificationSound("test", "global", { ...base, sound: "marimba" });
+  assert.equal(audio.oscillatorCount(), 6);
+  assert.deepEqual(Array.from(audio.BUILT_IN_NOTIFICATION_SOUNDS), [
+    "default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba",
+  ]);
+});
+
+test("notification settings offer tap-to-preview and persist the selected built-in tone", () => {
+  const panel = fs.readFileSync(path.join(root, "src/messenger/NotificationSettingsPanel.tsx"), "utf8");
+  assert.match(panel, /onPress=\{\(\) => void chooseSound\(sound\)\}/);
+  assert.match(panel, /await playNotificationSound\(userId, scope, \{\s*\.\.\.effectiveSettings, sound, enabled: true, sound_enabled: true,/);
+  assert.match(panel, /api\.patch<Settings>\(endpoint, \{ sound \}\)/);
+  assert.match(panel, /radio-button-on/);
+});
+
+test("conversation header follows the rounded Telegram-style back, identity and actions layout", () => {
+  const thread = fs.readFileSync(path.join(root, "src/messenger/ConversationThread.tsx"), "utf8");
+  assert.match(thread, /styles\.backButton/);
+  assert.match(thread, /styles\.identityPill/);
+  assert.match(thread, /styles\.headerActionPill/);
+  assert.match(thread, /conversation\.is_saved \? <Ionicons name="bookmark"/);
+  assert.match(thread, /messenger-header-more/);
+  assert.match(thread, /testID="messenger-scheduled-open"/);
 });
 
 test("missing custom sounds report an error instead of silently replacing them", async () => {

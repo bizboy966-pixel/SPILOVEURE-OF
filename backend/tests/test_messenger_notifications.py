@@ -63,6 +63,8 @@ def test_settings_persist_privately_and_validate_sound(chat):
     assert call(chat, "get", "/notification-settings").json()["preview"] is False
     assert call(chat, "get", "/notification-settings", "bob").json()["enabled"] is True
     assert call(chat, "patch", "/notification-settings", json={"sound": "invalid"}).status_code == 422
+    assert call(chat, "patch", "/notification-settings", json={"sound": "pulse"}).status_code == 200
+    assert call(chat, "get", "/notification-settings").json()["sound"] == "pulse"
     assert call(chat, "patch", "/notification-settings", json={"custom_name": "x" * 121}).status_code == 422
     assert chat[0].get("/api/messenger/notification-settings").status_code == 401
 

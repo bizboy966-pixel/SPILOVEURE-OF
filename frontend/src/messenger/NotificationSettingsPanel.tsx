@@ -135,7 +135,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
       const saved = await api.patch<Settings>(endpoint, payload);
       setSettings({ ...defaults, ...saved, inherit: isConversation ? saved.inherit !== false : undefined });
       if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("spv-notification-settings-changed"));
-      setNotice("Paramètres enregistrés.");
+      setNotice(t("chat.notifications.saved"));
     } catch (e: any) {
       setError(errorText(e, "Enregistrement impossible. Réessayez."));
     } finally {
@@ -276,7 +276,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     {open && <View style={styles.body}>
       {loading ? <View style={styles.loading}><ActivityIndicator color={blue} /><Text style={styles.help}>{t("chat.notifications.loading")}</Text></View> : <>
         {isConversation && toggleRow(t("chat.notifications.inherit"), t("chat.notifications.inherit_desc"), settings.inherit !== false, () => change({ inherit: settings.inherit === false }), "messenger-notification-inherit", false)}
-        {controlsDisabled && <Text style={styles.inheritNote}>Les réglages détaillés suivent vos préférences générales.</Text>}
+        {controlsDisabled && <Text style={styles.inheritNote}>{t("chat.notifications.inherited_note")}</Text>}
         {toggleRow(t("chat.notifications.enabled"), t("chat.notifications.enabled_desc"), settings.enabled, () => change({ enabled: !settings.enabled }), "messenger-notification-enabled")}
         {toggleRow(t("chat.notifications.play_sound"), t("chat.notifications.play_sound_desc"), settings.sound_enabled, () => change({ sound_enabled: !settings.sound_enabled }), "messenger-notification-sound-enabled")}
         {toggleRow(t("chat.notifications.preview"), t("chat.notifications.preview_desc"), settings.preview, () => change({ preview: !settings.preview }), "messenger-notification-preview")}

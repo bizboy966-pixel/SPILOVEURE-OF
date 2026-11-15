@@ -236,5 +236,5 @@ export async function playNotificationSound(userId: string, scope: string, setti
     return;
   }
   await ready;
-  await playOscillator(settings.sound === "custom" ? "default" : settings.sound);
+  await playOscillator(settings.sound);
 }

@@ -135,6 +135,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [editing, setEditing] = useState<Message | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
@@ -492,19 +493,20 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 
   return (
     <View style={[styles.thread, darkMode && { backgroundColor: "#111827" }]}>
-      <View style={styles.threadHead}>
-        <TouchableOpacity onPress={onBack} style={styles.back} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
-        <View style={styles.identity}>
-          <TouchableOpacity onPress={() => hasActiveStatus ? onOpenStatus?.() : otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={[styles.avatar, hasActiveStatus && styles.avatarStoryRing]} accessibilityRole="button" accessibilityLabel={hasActiveStatus ? `Voir le statut de ${conversation.title}` : otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
-            {otherPhoto ? <Image source={{ uri: otherPhoto }} style={[styles.avatarPhoto, hasActiveStatus && styles.avatarPhotoStory]} /> : <Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text>}
+      <View style={[styles.threadHead, darkMode && styles.threadHeadDark]}>
+        <TouchableOpacity onPress={onBack} style={[styles.backButton, darkMode && styles.headerPillDark]} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
+        <View style={[styles.identityPill, darkMode && styles.headerPillDark]}>
+          <TouchableOpacity onPress={() => conversation.is_saved ? onDetails() : hasActiveStatus ? onOpenStatus?.() : otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={[styles.avatar, conversation.is_saved && styles.savedAvatar, hasActiveStatus && styles.avatarStoryRing]} accessibilityRole="button" accessibilityLabel={hasActiveStatus ? `Voir le statut de ${conversation.title}` : conversation.is_saved ? "Messages enregistrés" : otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
+            {conversation.is_saved ? <Ionicons name="bookmark" size={22} color="#fff" /> : otherPhoto ? <Image source={{ uri: otherPhoto }} style={[styles.avatarPhoto, hasActiveStatus && styles.avatarPhotoStory]} /> : <Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text>}
           </TouchableOpacity>
           <TouchableOpacity onPress={onDetails} style={styles.identityText} activeOpacity={0.75} accessibilityRole="button">
-            <Text style={styles.name} numberOfLines={1}>{conversation.title}</Text><Text style={[styles.presence, typing && styles.typing]}>{typing ? `${typing.username || "Quelqu’un"} écrit…` : presence}</Text>
+            <Text style={[styles.name, darkMode && styles.nameDark]} numberOfLines={1} testID="messenger-thread-title">{conversation.title}</Text><Text style={[styles.presence, darkMode && styles.presenceDark, typing && styles.typing]}>{typing ? `${typing.username || "Quelqu’un"} écrit…` : presence}</Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => setSearching(v => !v)}><Ionicons name="search" size={21} color={blue} /></TouchableOpacity>
-        {canSend && scheduledEnabled && <TouchableOpacity style={styles.headerIcon} onPress={() => setScheduleOpen(true)} accessibilityLabel="Messages programmés" testID="messenger-scheduled-open"><Ionicons name="calendar-outline" size={20} color={blue} /></TouchableOpacity>}
-        <TouchableOpacity style={styles.headerIcon} onPress={onDetails}><Ionicons name="ellipsis-vertical" size={20} color={blue} /></TouchableOpacity>
+        <View style={[styles.headerActionPill, darkMode && styles.headerPillDark]}>
+          <TouchableOpacity style={styles.headerAction} onPress={() => setSearching(v => !v)} accessibilityLabel="Rechercher dans la discussion" testID="messenger-thread-search"><Ionicons name="search" size={21} color={blue} /></TouchableOpacity>
+          <TouchableOpacity style={styles.headerAction} onPress={() => setHeaderMenuOpen(true)} accessibilityLabel="Plus d’options" testID="messenger-header-more"><Ionicons name="ellipsis-vertical" size={20} color={blue} /></TouchableOpacity>
+        </View>
       </View>
       {searching && <View style={styles.searchRow}><TextInput value={historyQuery} onChangeText={setHistoryQuery} placeholder="Rechercher dans l’historique" style={styles.searchInput} onSubmitEditing={() => loadMessages(historyQuery)} /><TouchableOpacity onPress={() => loadMessages(historyQuery)}><Ionicons name="search" size={20} color={blue} /></TouchableOpacity></View>}
       <ScrollView ref={scroll} style={[styles.history, darkMode && { backgroundColor: "#111827" }]} contentContainerStyle={[styles.historyContent, darkMode && { backgroundColor: "#111827" }]} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
@@ -668,6 +670,19 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
       <ProtectedAttachmentViewer preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
+      <Modal visible={headerMenuOpen} transparent animationType="fade" onRequestClose={() => setHeaderMenuOpen(false)}>
+        <View style={styles.headerMenuOverlay}>
+          <TouchableOpacity style={styles.headerMenuDismiss} onPress={() => setHeaderMenuOpen(false)} accessibilityLabel="Fermer le menu" />
+          <View style={[styles.headerMenu, darkMode && styles.headerMenuDark]}>
+            <TouchableOpacity style={styles.headerMenuItem} onPress={() => { setHeaderMenuOpen(false); onDetails(); }}>
+              <Ionicons name="information-circle-outline" size={19} color={blue} /><Text style={[styles.headerMenuText, darkMode && styles.nameDark]}>Détails de la discussion</Text>
+            </TouchableOpacity>
+            {canSend && scheduledEnabled && <TouchableOpacity style={styles.headerMenuItem} onPress={() => { setHeaderMenuOpen(false); setScheduleOpen(true); }} accessibilityLabel="Messages programmés" testID="messenger-scheduled-open">
+              <Ionicons name="calendar-outline" size={19} color={blue} /><Text style={[styles.headerMenuText, darkMode && styles.nameDark]}>Messages programmés</Text>
+            </TouchableOpacity>}
+          </View>
+        </View>
+      </Modal>
       <MediaComposer
         visible={!!pendingMedia}
         files={pendingMedia || []}
@@ -691,11 +706,26 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 
 const styles = StyleSheet.create({
   thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0, position: "relative" },
-  threadHead: { minHeight: 68, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 12, gap: 7 },
-  back: { padding: 7 }, identity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }, identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
-  avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarStoryRing: { width: 49, height: 49, borderRadius: 26, padding: 2, borderWidth: 2, borderColor: "#f2a934" }, avatarPhoto: { width: 43, height: 43, borderRadius: 24 }, avatarPhotoStory: { width: 39, height: 39, borderRadius: 20 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
-  name: { fontSize: 16, color: ink, fontWeight: "800" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, typing: { color: blue, fontWeight: "700" },
-  headerIcon: { padding: 9 }, searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
+  threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "#b9e3d9", paddingHorizontal: 11, gap: 8 },
+  threadHeadDark: { backgroundColor: "#111827" },
+  backButton: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  identityPill: { flex: 1, minWidth: 0, height: 54, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 30, backgroundColor: "#fff", paddingHorizontal: 6, paddingVertical: 4 },
+  headerPillDark: { backgroundColor: "#202b3a", borderColor: "#37465a", borderWidth: 1 },
+  identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
+  avatar: { width: 44, height: 44, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
+  savedAvatar: { backgroundColor: "#2999ef" },
+  avatarStoryRing: { width: 49, height: 49, borderRadius: 26, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
+  avatarPhoto: { width: 44, height: 44, borderRadius: 24 }, avatarPhotoStory: { width: 39, height: 39, borderRadius: 20 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
+  name: { fontSize: 16, color: ink, fontWeight: "800" }, nameDark: { color: "#f3f6fb" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, presenceDark: { color: "#aab5c4" }, typing: { color: blue, fontWeight: "700" },
+  headerActionPill: { height: 46, flexDirection: "row", alignItems: "center", borderRadius: 25, backgroundColor: "#fff", paddingHorizontal: 3, flexShrink: 0 },
+  headerAction: { width: 39, height: 40, alignItems: "center", justifyContent: "center" },
+  headerMenuOverlay: { flex: 1, backgroundColor: "rgba(16,32,66,.14)" },
+  headerMenuDismiss: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  headerMenu: { position: "absolute", top: 64, right: 12, minWidth: 228, borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 6 }, shadowOpacity: .18, shadowRadius: 16, elevation: 10 },
+  headerMenuDark: { backgroundColor: "#202b3a", borderWidth: 1, borderColor: "#37465a" },
+  headerMenuItem: { minHeight: 47, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#edf0f4" },
+  headerMenuText: { fontSize: 13, color: ink, fontWeight: "700" },
+  searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: ink },
   history: { flex: 1, minHeight: 0 }, historyContent: { padding: 14, paddingBottom: 14, gap: 8 },
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },

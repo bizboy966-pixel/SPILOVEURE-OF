@@ -39,6 +39,7 @@ const executablePath = execFileSync("sh", ["-c", "command -v chromium || nix-she
     await alice.getByPlaceholder("Rechercher des membres").fill("messenger_test_bob");
     await alice.getByPlaceholder("Rechercher des membres").locator("..").getByText("messenger_test_bob", { exact: true }).click();
     await expect(alice.getByPlaceholder("Message", { exact: true })).toBeVisible();
+    await alice.screenshot({ path: "/tmp/spv-chat-thread-header.png" });
     const text = "Vérification temps réel " + Date.now();
     await alice.getByPlaceholder("Message", { exact: true }).fill(text);
     await expect(alice.getByTestId("messenger-send-brand")).toBeVisible();
@@ -129,6 +130,8 @@ const executablePath = execFileSync("sh", ["-c", "command -v chromium || nix-she
     await (await chooser).setFiles({ name: "verification-chat.txt", mimeType: "text/plain", buffer: Buffer.from("Pièce jointe de test navigateur.") });
     await expect(bob.getByText("verification-chat.txt", { exact: true }).last()).toBeVisible({ timeout: 12000 });
     console.log("PASS: envoi réel d’une pièce jointe entre deux navigateurs.");
+    await alice.getByTestId("messenger-header-more").click();
+    await expect(alice.getByTestId("messenger-scheduled-open")).toBeVisible();
     await alice.getByTestId("messenger-scheduled-open").click();
     const scheduledText = "Programmation navigateur " + Date.now();
     await alice.getByLabel("Texte du message programmé").fill(scheduledText);
