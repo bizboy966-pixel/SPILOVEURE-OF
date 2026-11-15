@@ -16,7 +16,6 @@ log = logging.getLogger("biztranspay.catalog")
 
 CATALOG_TTL = 300
 RATE_TTL = 3600
-PAYOUT_COUNTRIES = {"TG", "BF", "CI"}
 FCFA = {"XOF", "XAF"}
 _CATALOG: dict[str, tuple[float, list]] = {}
 _RATES: dict[str, tuple[float, int]] = {}
@@ -31,6 +30,7 @@ def _norm_flow(raw: dict) -> dict:
     tpl = g("ussd_template") or ""
     return {
         "kind": str(g("kind") or ("ussd" if tpl else "push")).lower(),
+        "before_submit": bool(g("before_submit")),
         "otp_required": bool(g("otp_required") or g("requires_otp")),
         "otp_request_before_submit": bool(g("otp_request_before_submit")),
         "ussd_template": tpl,
@@ -73,11 +73,11 @@ def parse_catalog(jd) -> list[dict]:
     return out
 
 
-async def fetch_catalog(db, direction: str, force: bool = False) -> list[dict]:
+async def fetch_catalog(db, direction: str, force: bool = False, strict: bool = False) -> list[dict]:
     from biztranspay import _get, _get_public_key, _get_secret_key
     now = time.time()
     hit = _CATALOG.get(direction)
-    if hit and not force and now - hit[0] < CATALOG_TTL:
+    if hit and not force and not strict and now - hit[0] < CATALOG_TTL:
         return hit[1]
     sk, pk = await _get_secret_key(db), await _get_public_key(db)
     if sk and pk:
@@ -97,9 +97,12 @@ async def fetch_catalog(db, direction: str, force: bool = False) -> list[dict]:
                 except Exception as e:
                     log.warning("btp catalog admin sync failed: %s", e)
                 return items
-            log.warning("btp catalog %s HTTP %s: %s", direction, r.status_code, r.text[:300])
+            log.warning("btp catalog %s HTTP %s", direction, r.status_code)
         except Exception as e:
             log.warning("btp catalog %s error: %s", direction, e)
+    if strict:
+        from fastapi import HTTPException
+        raise HTTPException(503, "Catalogue Biz-transPay indisponible : vérifiez les deux clés et les autorisations. L’ancien catalogue n’a pas été remplacé.")
     doc = await db.app_settings.find_one({"key": f"btp_catalog:{direction}"}) or {}
     items = doc.get("value") or []
     _CATALOG[direction] = (now - CATALOG_TTL + 60, items)

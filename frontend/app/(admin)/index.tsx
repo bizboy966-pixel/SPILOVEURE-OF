@@ -36,6 +36,7 @@ import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
 import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
+import BizTransPayCatalog from "@/src/components/BizTransPayCatalog";
 
 type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions";
 
@@ -4394,7 +4395,7 @@ function PaymentRouterLogsCard() {
 function BizTransPayCard() {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
-  const [showKeys, setShowKeys] = useState(false);
+  const [showKeys, setShowKeys] = useState(true);
   const [publicKeyInput, setPublicKeyInput] = useState("");
   const [secretKeyInput, setSecretKeyInput] = useState("");
   const [webhookInput, setWebhookInput] = useState("");
@@ -4421,17 +4422,6 @@ function BizTransPayCard() {
     } finally { setSaving(false); }
   };
 
-  const toggleOperator = async (cc: string, code: string) => {
-    if (!cfg) return;
-    const current: Record<string, Record<string, boolean>> = { ...(cfg.countries || {}) };
-    const inner: Record<string, boolean> = { ...(current[cc] || {}) };
-    // Default true if unset — flipping means becoming false.
-    const nowVal = inner[code] === false ? true : false;
-    inner[code] = nowVal;
-    current[cc] = inner;
-    await patch({ biztranspay_countries: current });
-  };
-
   if (!cfg) return (
     <Card style={{ padding: 12, marginBottom: 12 }}>
       <ActivityIndicator color={theme.colors.primary} />
@@ -4441,7 +4431,6 @@ function BizTransPayCard() {
   const enabled = !!cfg.enabled;
   const payinEnabled = cfg.payin_enabled !== false;   // default true
   const payoutEnabled = !!cfg.payout_enabled;
-  const catalog = cfg.catalog || {};
 
   // Reconstruit l'URL webhook côté client à partir du base URL public si le
   // backend n'a renvoyé qu'un chemin relatif.
@@ -4667,31 +4656,7 @@ function BizTransPayCard() {
       {/* Countries / operators toggles */}
       <View style={{ marginTop: 12 }}>
         <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>🌍 Pays & opérateurs</Text>
-        {Object.entries(catalog).map(([cc, info]: [string, any]) => (
-          <View key={cc} style={{ marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
-            <Text style={{ fontWeight: "800", fontSize: 13, color: theme.colors.textPrimary }}>{info.name} ({cc}) — {info.currency}</Text>
-            {(info.operators || []).map((op: any) => {
-              const on = ((cfg.countries || {})[cc] || {})[op.code] !== false;
-              return (
-                <TouchableOpacity
-                  key={op.code}
-                  onPress={() => toggleOperator(cc, op.code)}
-                  disabled={saving}
-                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 10, borderRadius: 8, backgroundColor: on ? "#D1FAE5" : "#FEE2E2", marginTop: 6 }}
-                  testID={`btp-op-${cc}-${op.code}`}
-                >
-                  <View>
-                    <Text style={{ fontWeight: "800", color: on ? "#065F46" : "#991B1B" }}>{op.label}</Text>
-                    <Text style={{ fontSize: 10, color: on ? "#065F46" : "#991B1B", marginTop: 2 }}>
-                      Code : <Text style={{ fontFamily: "monospace" }}>{op.code}</Text>
-                    </Text>
-                  </View>
-                  <Ionicons name={on ? "checkmark-circle" : "close-circle-outline"} size={26} color={on ? "#10B981" : "#EF4444"} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
+        <BizTransPayCatalog />
       </View>
     </Card>
   );

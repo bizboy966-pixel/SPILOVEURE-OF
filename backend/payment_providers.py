@@ -126,22 +126,19 @@ async def sync_btp_catalog_rows(db, entries: list, cfg: Optional[dict] = None) -
     by_cc: dict = {}
     for e in entries or []:
         cc = e["country"]
-        if cc in BTP and (_resolve_operator_code(cc, e["code"]) or _resolve_operator_code(cc, e["label"])):
-            continue
         by_cc.setdefault(cc, {})[e["code"]] = e
     added = 0
     for cc, ops in by_cc.items():
         c_toggles = toggles.get(cc) or {}
         any_on = any(c_toggles.get(code, True) for code in ops)
         currency = next(iter(ops.values()))["currency"]
-        if cc not in BTP:
-            await db.payment_provider_countries.update_one(
-                {"provider_id": "biztranspay", "country_code": cc},
-                {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "currency": currency,
-                                  "status": "active" if any_on else "inactive", "mode": "automatic",
-                                  "priority": 1, "source": "btp_catalog", "created_at": now},
-                 "$set": {"updated_at": now}},
-                upsert=True)
+        await db.payment_provider_countries.update_one(
+            {"provider_id": "biztranspay", "country_code": cc},
+            {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "currency": currency,
+                              "status": "active" if any_on else "inactive", "mode": "automatic",
+                              "priority": 1, "source": "btp_catalog", "created_at": now},
+             "$set": {"updated_at": now}},
+            upsert=True)
         for code, e in ops.items():
             r = await db.payment_provider_operators.update_one(
                 {"provider_id": "biztranspay", "country_code": cc, "operator_code": code},

@@ -5,3 +5,4 @@
 - [Parrain par défaut et Android](referral-android-policy.md) — invitation prioritaire, administrateur officiel en l’absence de code ; aucune diffusion APK sans validation réelle.
 - [Contrat MoneyFusion](moneyfusion-contract.md) — Mobile Money uniquement ; devise et couverture Pay-in à confirmer, sans les déduire du catalogue Pay-out.
 - [Prestataire retiré](retired-provider-policy.md) — SoleasPay doit rester absent des paiements ; conserver les données financières historiques.
+- [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.

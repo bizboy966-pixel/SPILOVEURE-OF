@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, SafeAreaView, ScrollView,
+  ActivityIndicator, Image, Linking, Modal, SafeAreaView, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -158,6 +158,8 @@ export default function Pay() {
   const amountLabel = (isMobilePick && selectedOperator?.amount_label)
     || `${(catalog?.amount_fcfa ?? 2650).toLocaleString("fr-FR").replace(/,/g, "\u202f")} FCFA`;
   const [pendingMsg, setPendingMsg] = useState<string>("");
+  const [ussdAuthorization, setUssdAuthorization] = useState<{ code: string; message: string; accepted: boolean } | null>(null);
+  useEffect(() => { setUssdAuthorization(null); }, [countryCode, operatorCode, phone]);
   const operatorRequiresOtp = !!selectedOperator?.requires_otp;
   const operatorUssd = useMemo(() => {
     const tpl = selectedOperator?.otp_ussd_template || "";
@@ -191,12 +193,14 @@ export default function Pay() {
     if (!selectedCountry || !selectedOperator) return false;
     if (isCryptoPick) return true;
     if (phone.replace(/\s/g, "").length < 6) return false;
+    if (ussdAuthorization && !ussdAuthorization.accepted) return false;
     // v27bb — require the OTP input to be filled when the operator
     // explicitly demands it (Orange BF). The CTA stays disabled until
     // the user has composed the USSD on their phone AND typed the OTP.
-    if ((operatorRequiresOtp || otpFlow) && otp.trim().length < 4) return false;
+    if ((operatorRequiresOtp || otpFlow) && !selectedOperator.flow?.otp_request_before_submit && otp.trim().length < 4) return false;
+    if (otpFlow && otp.trim().length < 4) return false;
     return true;
-  }, [selectedCountry, selectedOperator, isCryptoPick, phone, operatorRequiresOtp, otp, otpFlow]);
+  }, [selectedCountry, selectedOperator, isCryptoPick, phone, operatorRequiresOtp, otp, otpFlow, ussdAuthorization]);
 
   const activate = async () => {
     if (!selectedCountry || !selectedOperator) return;
@@ -215,6 +219,7 @@ export default function Pay() {
         // v27az — forward the OTP (if the user typed one). Backend ignores
         // for operators that don't need it (e.g. T-Money, Moov).
         if (otp.trim()) body.otp = otp.trim();
+        if (ussdAuthorization?.accepted) body.ussd_authorized = true;
       }
       const r = await api.post<any>("/payments/activate", body);
       setRef(r.reference);
@@ -230,10 +235,18 @@ export default function Pay() {
       setOtp("");
       setPendingMsg(String(r.message || ""));
       setPhase("pending");
+      if (r.redirect_url) {
+        try { await Linking.openURL(r.redirect_url); }
+        catch { setErr("Impossible d’ouvrir la page du prestataire. Le paiement reste en attente ; ne le renvoyez pas."); }
+      }
     } catch (e: any) {
       // v27az — detect OTP_REQUIRED backend contract and render a proper
       // UI instead of dumping the raw JSON object as the error message.
       const detail = e?.detail;
+      if (detail && typeof detail === "object" && detail.code === "USSD_AUTHORIZATION_REQUIRED") {
+        setUssdAuthorization({ code: String(detail.ussd || ""), message: String(detail.message || ""), accepted: false });
+        return;
+      }
       const isOtp =
         detail && typeof detail === "object" && (detail.code === "OTP_REQUIRED" || detail.code === "OTP_SENT");
       if (isOtp) {
@@ -284,9 +297,9 @@ export default function Pay() {
         missed += 1;
         if (missed >= 6) setErr("Impossible de vérifier le paiement. Actualisez la page.");
       }
-    }, 3000);
+    }, currentGateway === "biztranspay" ? 10000 : 3000);
     return () => clearInterval(t);
-  }, [phase, ref, refresh, router]);
+  }, [phase, ref, refresh, router, currentGateway]);
 
   const copy = (v: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -423,6 +436,17 @@ export default function Pay() {
               </View>
             )}
 
+            {ussdAuthorization && isMobilePick && (
+              <View style={styles.otpCard}>
+                <Text style={styles.otpTitle}>Autorisation du paiement</Text>
+                <Text style={styles.otpSubtitle}>{ussdAuthorization.message}</Text>
+                <Text selectable style={styles.ussdCode}>{ussdAuthorization.code}</Text>
+                <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{ checked: ussdAuthorization.accepted }}
+                  onPress={() => setUssdAuthorization(current => current ? { ...current, accepted: !current.accepted } : null)}>
+                  <Text style={styles.otpStep}>{ussdAuthorization.accepted ? "✓ " : "☐ "}J’ai composé le code et autorisé le paiement. Je peux continuer.</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {selectedCountry && isMobilePick && (operatorRequiresOtp || otpFlow) && (
               <View style={styles.otpCard} testID="pay-otp-flow">
                 <View style={styles.otpHeader}>

@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 from fastapi import HTTPException  # noqa: E402
-from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
+from mongomock_motor import AsyncMongoMockClient  # noqa: E402
 
 import biztranspay as b  # noqa: E402
 import btp_catalog as bc  # noqa: E402
@@ -79,7 +79,7 @@ async def fake_post(path, body, sk, pk, *, idempotency_key):
 def env(monkeypatch):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    db = AsyncIOMotorClient(os.environ["MONGO_URL"], io_loop=loop)["spv_btp_test"]
+    db = AsyncMongoMockClient(tz_aware=True)["spv_btp_test"]
     loop.run_until_complete(db.client.drop_database("spv_btp_test"))
     loop.run_until_complete(db.app_settings.insert_one({"key": "payment_gateway", "value": {
         "biztranspay_enabled": True, "biztranspay_payin_enabled": True, "biztranspay_payout_enabled": True,
@@ -267,7 +267,7 @@ def test_catalog_countries_synced_to_admin_rows(env):
         {"provider_id": "biztranspay"}, {"_id": 0}).to_list(50))
     codes = {(r["country_code"], r["operator_code"]) for r in rows}
     assert ("CD", "vodacom-cd") in codes
-    assert ("TG", "tmoney_tg") not in codes  # already covered by the static list (Mixx/T-Money)
+    assert ("TG", "tmoney_tg") in codes  # exact official codes must all be configurable
     assert loop.run_until_complete(db.payment_provider_countries.find_one(
         {"provider_id": "biztranspay", "country_code": "CD"}))["status"] == "active"
     loop.run_until_complete(db.payment_provider_operators.update_one(
@@ -284,3 +284,158 @@ def test_static_default_inactive_respected(env):
     cfg = {"biztranspay_countries": {"BJ": {"tmoney_bj": False}}}
     assert b._toggle_on(cfg, "BJ", {"code": "mtn-benin", "label": "MTN Mobile Money"}) is False
     assert b._toggle_on(cfg, "BJ", {"code": "moov-benin", "label": "Moov Money"}) is True
+
+
+def test_admin_catalog_directions_and_preserved_toggles(env):
+    db, loop = env
+    from payment_router import toggle_country
+    result = loop.run_until_complete(b.admin_btp_catalog(_req(db), "deposit", USER))
+    assert result["count"] == 4
+    assert all("enabled" in item and "country_enabled" in item for item in result["items"])
+    loop.run_until_complete(toggle_country(db, "biztranspay", "CD", False))
+    result = loop.run_until_complete(b.admin_btp_catalog(_req(db), "deposit", USER))
+    assert next(item for item in result["items"] if item["country"] == "CD")["enabled"] is False
+    payout = loop.run_until_complete(b.admin_btp_catalog(_req(db), "payout", USER))
+    assert {item["code"] for item in payout["items"]} == {item["code"] for item in PAYOUT_CAT}
+    assert not any(call[0] == "POST" for call in CALLS)
+
+
+def test_admin_refresh_failure_is_explicit(env, monkeypatch):
+    db, loop = env
+    loop.run_until_complete(bc.fetch_catalog(db, "deposit"))
+    async def unavailable(*args):
+        return R(401, {"detail": "Unauthorized"})
+    monkeypatch.setattr(b, "_get", unavailable)
+    with pytest.raises(HTTPException) as exc:
+        loop.run_until_complete(b.admin_btp_catalog(_req(db), "deposit", USER))
+    assert exc.value.status_code == 503
+
+
+def test_deposit_retry_never_creates_second_operation(env):
+    db, loop = env
+    data = b.BtpActivationIn(country_code="TG", operator="tmoney_tg", phone="90000000")
+    first = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    second = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    assert first["reference"] == second["reference"]
+    assert len([call for call in CALLS if call[1] == "/deposits"]) == 1
+
+
+def test_ambiguous_deposit_is_not_replaced(env, monkeypatch):
+    db, loop = env
+    async def ambiguous(path, body, sk, pk, *, idempotency_key):
+        if path == "/deposits":
+            CALLS.append(("POST", path, body, idempotency_key))
+            raise TimeoutError("uncertain")
+        return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
+    monkeypatch.setattr(b, "_post", ambiguous)
+    data = b.BtpActivationIn(country_code="TG", operator="tmoney_tg", phone="90000000")
+    with pytest.raises(HTTPException):
+        loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    result = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    assert result["status"] == "pending"
+    assert loop.run_until_complete(db.payments.find_one({}))["status"] == "unknown"
+    assert len([call for call in CALLS if call[1] == "/deposits"]) == 1
+
+
+def test_ussd_authorization_required_before_financial_request(env, monkeypatch):
+    db, loop = env
+    async def ussd_quote(path, body, sk, pk, *, idempotency_key):
+        if path == "/deposits/quote":
+            return R(200, {"charged_amount": 2650, "payment_flow": {
+                "kind": "ussd", "before_submit": True, "ussd_template": "*123*{amount}#"}})
+        return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
+    monkeypatch.setattr(b, "_post", ussd_quote)
+    data = dict(country_code="TG", operator="tmoney_tg", phone="90000000")
+    with pytest.raises(HTTPException) as exc:
+        loop.run_until_complete(b.biztranspay_activation(b.BtpActivationIn(**data), _req(db), USER))
+    assert exc.value.detail["code"] == "USSD_AUTHORIZATION_REQUIRED"
+    assert not any(call[1] == "/deposits" for call in CALLS)
+    loop.run_until_complete(b.biztranspay_activation(b.BtpActivationIn(**data, ussd_authorized=True), _req(db), USER))
+    assert next(call for call in CALLS if call[1] == "/deposits")[2]["ussd_authorized"] is True
+
+
+def test_quote_failure_prevents_deposit(env, monkeypatch):
+    db, loop = env
+    async def failed_quote(*args, **kwargs):
+        return R(503, {"detail": "unavailable"})
+    monkeypatch.setattr(b, "_post", failed_quote)
+    with pytest.raises(HTTPException) as exc:
+        loop.run_until_complete(b.biztranspay_activation(
+            b.BtpActivationIn(country_code="TG", operator="tmoney_tg", phone="90000000"), _req(db), USER))
+    assert exc.value.status_code == 503
+    assert loop.run_until_complete(db.payments.count_documents({})) == 0
+
+
+def test_webhook_without_signature_secret_is_rejected(env, monkeypatch):
+    db, loop = env
+    loop.run_until_complete(db.app_settings.update_one({"key": "payment_gateway"},
+        {"$set": {"value.biztranspay_webhook_secret": ""}}))
+    monkeypatch.delenv("BIZTRANSPAY_WEBHOOK_SECRET", raising=False)
+    raw, headers = _signed({"id": "evt-no-secret", "type": "deposit.status_changed"})
+    with pytest.raises(HTTPException) as exc:
+        loop.run_until_complete(b.biztranspay_webhook(FakeReq(db, raw, headers)))
+    assert exc.value.status_code == 503
+
+
+def test_payout_repeat_is_reserved_once(env):
+    db, loop = env
+    wd = _wd("TG", "tmoney_tg")
+    loop.run_until_complete(db.withdrawals.insert_one(dict(wd)))
+    first = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
+    second = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
+    assert first["auto_dispatched"]
+    assert second["reason"] == "already_submitted"
+    assert len([call for call in CALLS if call[1] == "/payouts"]) == 1
+
+
+def test_ambiguous_payout_blocks_resubmit_and_manual_refund(env, monkeypatch):
+    db, loop = env
+    async def uncertain(path, body, sk, pk, *, idempotency_key):
+        if path == "/payouts":
+            CALLS.append(("POST", path, body, idempotency_key))
+            raise TimeoutError("uncertain")
+        return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
+    monkeypatch.setattr(b, "_post", uncertain)
+    wd = _wd("TG", "tmoney_tg")
+    loop.run_until_complete(db.withdrawals.insert_one(dict(wd)))
+    first = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
+    second = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
+    assert first["reason"] == "network_error"
+    assert second["reason"] == "already_submitted"
+    assert len([call for call in CALLS if call[1] == "/payouts"]) == 1
+    import server
+    for action in (server.admin_validate_withdrawal, server.admin_reject_withdrawal):
+        with pytest.raises(HTTPException) as exc:
+            loop.run_until_complete(action(wd["id"], _req(db), {"id": "admin"}))
+        assert exc.value.status_code == 409
+
+
+def test_wave_redirect_and_duplicate_return_same_url(env, monkeypatch):
+    db, loop = env
+    async def redirected(path, body, sk, pk, *, idempotency_key):
+        if path == "/deposits":
+            CALLS.append(("POST", path, body, idempotency_key))
+            return R(200, {"id": "wave-1", "status": "pending",
+                           "deposit": {"redirect_url": "https://example.invalid/wave"}})
+        return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
+    monkeypatch.setattr(b, "_post", redirected)
+    data = b.BtpActivationIn(country_code="TG", operator="tmoney_tg", phone="90000000")
+    first = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    second = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
+    assert first["redirect_url"] == second["redirect_url"] == "https://example.invalid/wave"
+    assert len([call for call in CALLS if call[1] == "/deposits"]) == 1
+
+
+def test_failed_webhook_different_event_ids_refunds_only_once(env):
+    db, loop = env
+    loop.run_until_complete(db.users.insert_one({"id": "u1", "balance_profit": 0}))
+    loop.run_until_complete(db.withdrawals.insert_one({
+        "id": "wd-fail", "user_id": "u1", "status": "pending", "payout_id": "po-fail", "amount": 1000}))
+    async def notify(event_id):
+        raw, headers = _signed({"id": event_id, "type": "payout.status_changed",
+            "data": {"id": "po-fail", "status": "failed"}})
+        return await b.biztranspay_webhook(FakeReq(db, raw, headers))
+    async def concurrent():
+        return await asyncio.gather(notify("fail-1"), notify("fail-2"))
+    loop.run_until_complete(concurrent())
+    assert loop.run_until_complete(db.users.find_one({"id": "u1"}))["balance_profit"] == 1000

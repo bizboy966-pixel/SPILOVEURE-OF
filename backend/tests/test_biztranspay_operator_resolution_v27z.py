@@ -74,7 +74,11 @@ def _fake_db_with_wd_collection():
     return db
 
 
-def test_dispatch_unknown_operator_persists_gateway_error():
+def test_dispatch_unknown_operator_persists_gateway_error(monkeypatch):
+    import btp_catalog
+    monkeypatch.setattr(btp_catalog, "fetch_catalog", AsyncMock(return_value=[
+        {"country": "TG", "code": "tmoney_tg", "label": "Mixx By Yas", "currency": "XOF"}
+    ]))
     db = _fake_db_with_wd_collection()
     wd = {"id": "WD-1", "country": "TG", "operator": "Mystery Op",
           "phone": "91978352", "amount": 5000, "net_payout": 4900}
@@ -98,12 +102,16 @@ def test_dispatch_unknown_operator_persists_gateway_error():
     assert "Mystery Op" in setd["gateway_error"]
 
 
-def test_dispatch_mixx_by_yas_would_pass_operator_gate():
+def test_dispatch_mixx_by_yas_would_pass_operator_gate(monkeypatch):
     """The mapping test above proves 'Mixx By Yas' resolves to tmoney_tg
     (T-Money rebrand). We also assert the dispatcher passes the operator-
     code gate (it will still fail later at the operator_disabled_by_admin
     check with our fake DB that returns None, but the important thing is
     `operator_not_supported` is NOT the reason anymore)."""
+    import btp_catalog
+    monkeypatch.setattr(btp_catalog, "fetch_catalog", AsyncMock(return_value=[
+        {"country": "TG", "code": "tmoney_tg", "label": "Mixx By Yas", "currency": "XOF"}
+    ]))
     db = _fake_db_with_wd_collection()
     wd = {"id": "WD-2", "country": "TG", "operator": "Mixx By Yas",
           "phone": "91978352", "amount": 5000, "net_payout": 4900}

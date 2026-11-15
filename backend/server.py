@@ -1559,34 +1559,7 @@ def _register_payment_gateway_routes(router):
                 "crypto_enabled": bool(cfg.get("biztranspay_crypto_enabled", True)),
                 "crypto_refund_address": cfg.get("biztranspay_crypto_refund_address") or "",
                 "countries": cfg.get("biztranspay_countries") or {},
-                # Catalog of supported countries+operators so the admin UI
-                # renders toggles even before anything is saved.
-                # v27s — 3 pays confirmés par la doc v1 : TG / BJ / BF.
-                "catalog": {
-                    "TG": {
-                        "name": "Togo", "currency": "XOF",
-                        "operators": [
-                            {"code": "tmoney_tg", "label": "T-Money (TogoCom)"},
-                            {"code": "moov_tg",   "label": "Moov Money"},
-                        ],
-                    },
-                    "BJ": {
-                        "name": "Bénin", "currency": "XOF",
-                        "operators": [
-                            {"code": "tmoney_bj",  "label": "MTN Mobile Money"},
-                            {"code": "moov_bj",    "label": "Moov Money"},
-                            {"code": "celtiis_bj", "label": "Celtiis Cash"},
-                        ],
-                    },
-                    "BF": {
-                        "name": "Burkina Faso", "currency": "XOF",
-                        "operators": [
-                            {"code": "orange_bf", "label": "Orange Money"},
-                            {"code": "moov_bf",   "label": "Moov Money"},
-                            {"code": "coris_bf",  "label": "Coris Money"},
-                        ],
-                    },
-                },
+                "catalog_url": "/api/admin/biztranspay/catalog",
             },
         }
 
@@ -2267,6 +2240,7 @@ class ActivateIn(_PGBaseModel):
     # the user via `*144*4*6*{amount}#`. When the frontend re-submits with
     # the OTP code, we forward it to Biz-transPay.
     otp: Optional[str] = None
+    ussd_authorized: bool = False
 
 
 @api.post("/payments/activate")
@@ -2413,11 +2387,13 @@ async def payments_activate(
             from biztranspay import biztranspay_activation, BtpActivationIn  # type: ignore
             r = await biztranspay_activation(
                 BtpActivationIn(country_code=cc, operator=op, phone=phone,
-                                otp=getattr(body, "otp", None)),
+                                otp=getattr(body, "otp", None),
+                                ussd_authorized=body.ussd_authorized),
                 request, user,
             )
             return {"reference": r.get("reference"),
                     "gateway": "biztranspay", "method": "mobile",
+                    "redirect_url": r.get("redirect_url"), "message": r.get("message"),
                     "status": r.get("status") or "processing"}
         except HTTPException:
             raise
@@ -3886,6 +3862,8 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
+        if wd.get("gateway") == "biztranspay" and wd.get("btp_submission_claimed") and wd.get("gateway_status") != "not_submitted":
+            raise HTTPException(409, "Ce retrait a été envoyé à Biz-transPay. Vérifiez son résultat auprès du prestataire avant toute action manuelle.")
         if wd.get("gateway") == "moneyfusion":
             from moneyfusion import manual_withdrawal_action_allowed
             if not await manual_withdrawal_action_allowed(db, wd_id):
@@ -4005,6 +3983,8 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
     reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
+        if wd.get("gateway") == "biztranspay" and wd.get("btp_submission_claimed") and wd.get("gateway_status") != "not_submitted":
+            raise HTTPException(409, "Ce retrait a été envoyé à Biz-transPay. Son résultat doit être confirmé avant tout remboursement.")
         if wd.get("gateway") == "moneyfusion":
             from moneyfusion import manual_withdrawal_action_allowed
             if not await manual_withdrawal_action_allowed(db, wd_id):

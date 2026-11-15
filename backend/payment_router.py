@@ -257,6 +257,10 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
             info = BTP_OPS.get(cc) or {}
             for op in info.get("operators") or []:
                 await _mirror_btp_operator_to_legacy(db, cc, op["code"], enabled)
+            async for op in db.payment_provider_operators.find(
+                {"provider_id": provider_id, "country_code": cc}, {"operator_code": 1}
+            ):
+                await _mirror_btp_operator_to_legacy(db, cc, op["operator_code"], enabled)
         except Exception as e:
             log.warning("mirror BTP country toggle failed: %s", e)
     return True
