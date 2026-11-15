@@ -68,8 +68,11 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
   </View>;
 }
 
-type FeedProps = { userId: string; version?: number };
-export function FeedPanel({ userId, version = 0 }: FeedProps) {
+type FeedProps = {
+  userId: string; version?: number; requestedStatusAuthor?: string | null;
+  onStatusRequestConsumed?: () => void; onStatusViewerClose?: () => void;
+};
+export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState("");
   const [visibility, setVisibility] = useState<"contacts" | "public">("contacts");
@@ -110,7 +113,7 @@ export function FeedPanel({ userId, version = 0 }: FeedProps) {
     input.click();
   };
   return <View style={styles.panel}>
-    <StatusStories userId={userId} version={version} />
+    <StatusStories userId={userId} version={version} requestedAuthorId={requestedStatusAuthor} onRequestConsumed={onStatusRequestConsumed} onViewerClose={onStatusViewerClose} />
     <Text style={styles.panelTitle}>Actualités SPILOVEURE</Text>
     {error ? <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>

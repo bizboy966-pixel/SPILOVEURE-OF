@@ -15,6 +15,7 @@ import VoiceMessage from "@/src/components/VoiceMessage";
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
   onDetails: () => void; onViewPhoto: (uri: string, label: string) => void;
+  hasActiveStatus?: boolean; onOpenStatus?: () => void;
   version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
   readReceipts?: ReadReceipts;
 };
@@ -50,7 +51,7 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
   return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
 }
 
-export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, version, typing, scheduledEnabled = true, readReceipts }: Props) {
+export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
     if (!readReceipts) return;
@@ -368,8 +369,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       <View style={styles.threadHead}>
         <TouchableOpacity onPress={onBack} style={styles.back} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
         <View style={styles.identity}>
-          <TouchableOpacity onPress={() => otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={styles.avatar} accessibilityRole="button" accessibilityLabel={otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
-            {otherPhoto ? <Image source={{ uri: otherPhoto }} style={styles.avatarPhoto} /> : <Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text>}
+          <TouchableOpacity onPress={() => hasActiveStatus ? onOpenStatus?.() : otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={[styles.avatar, hasActiveStatus && styles.avatarStoryRing]} accessibilityRole="button" accessibilityLabel={hasActiveStatus ? `Voir le statut de ${conversation.title}` : otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
+            {otherPhoto ? <Image source={{ uri: otherPhoto }} style={[styles.avatarPhoto, hasActiveStatus && styles.avatarPhotoStory]} /> : <Text style={styles.avatarText}>{conversation.title.slice(0, 1).toUpperCase()}</Text>}
           </TouchableOpacity>
           <TouchableOpacity onPress={onDetails} style={styles.identityText} activeOpacity={0.75} accessibilityRole="button">
             <Text style={styles.name} numberOfLines={1}>{conversation.title}</Text><Text style={[styles.presence, typing && styles.typing]}>{typing ? `${typing.username || "Quelqu’un"} écrit…` : presence}</Text>
@@ -476,7 +477,7 @@ const styles = StyleSheet.create({
   thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0, position: "relative" },
   threadHead: { minHeight: 68, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 12, gap: 7 },
   back: { padding: 7 }, identity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }, identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
-  avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarPhoto: { width: 43, height: 43, borderRadius: 24 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
+  avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarStoryRing: { width: 49, height: 49, borderRadius: 26, padding: 2, borderWidth: 2, borderColor: "#f2a934" }, avatarPhoto: { width: 43, height: 43, borderRadius: 24 }, avatarPhotoStory: { width: 39, height: 39, borderRadius: 20 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
   name: { fontSize: 16, color: ink, fontWeight: "800" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, typing: { color: blue, fontWeight: "700" },
   headerIcon: { padding: 9 }, searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: ink },
@@ -484,11 +485,11 @@ const styles = StyleSheet.create({
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
-  bubbleWrap: { alignItems: "flex-start" }, ownWrap: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 120, borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
+  bubbleWrap: { alignItems: "flex-start", maxWidth: "100%", minWidth: 0 }, ownWrap: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
   ownBubble: { backgroundColor: "#e3efff", borderColor: "#d7e7ff", borderBottomRightRadius: 5 }, otherBubble: { backgroundColor: "#fff", borderBottomLeftRadius: 5 },
-  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3 }, messageText: { color: ink, fontSize: 15, lineHeight: 21 }, linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
-  replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7 },
-  replyQuoteSender: { color: blue, fontSize: 11, fontWeight: "800" }, replyQuotePreview: { color: muted, fontSize: 11, marginTop: 2 },
+  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: ink, fontSize: 16, lineHeight: 22, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
+  replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7, maxWidth: "100%", minWidth: 0 },
+  replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
   fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260 }, voiceCard: { maxWidth: 280, minWidth: 220, borderRadius: 14, paddingHorizontal: 8, marginTop: 4 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: muted }, receipt: { color: blue, fontSize: 11 }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
@@ -496,7 +497,7 @@ const styles = StyleSheet.create({
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
   composer: { position: "absolute", bottom: 10, left: 10, right: 10, flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 9, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 28, gap: 7, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, zIndex: 10 },
-  composerIcon: { width: 40, height: 42, alignItems: "center", justifyContent: "center" }, input: { flex: 1, maxHeight: 110, minHeight: 42, borderRadius: 23, backgroundColor: "#f2f5f9", paddingHorizontal: 16, paddingTop: 11, paddingBottom: 9, color: ink, fontSize: 15, outlineStyle: "none" as any },
+  composerIcon: { width: 40, height: 42, alignItems: "center", justifyContent: "center" }, input: { flex: 1, flexShrink: 1, minWidth: 0, maxHeight: 110, minHeight: 42, borderRadius: 23, backgroundColor: "#f2f5f9", paddingHorizontal: 16, paddingTop: 11, paddingBottom: 9, color: ink, fontSize: 16, outlineStyle: "none" as any },
   sendButton: { width: 44, height: 44, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden" }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" }, silentActive: { borderRadius: 20, backgroundColor: "#eaf1ff" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" },
 });

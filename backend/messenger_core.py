@@ -57,6 +57,8 @@ async def initialize(db):
     await db.spv_statuses.create_index("id", unique=True)
     await db.spv_statuses.create_index([("author_id", 1), ("expires_at", 1)])
     await db.spv_statuses.create_index("expires_at", expireAfterSeconds=0)
+    await db.spv_invite_links.create_index("token_hash", unique=True)
+    await db.spv_invite_links.create_index([("conversation_id", 1), ("revoked", 1)])
     await db.spv_scheduled.create_index("id", unique=True)
     await db.spv_scheduled.create_index(
         [("conversation_id", 1), ("sender_id", 1), ("client_id", 1)], unique=True,
@@ -89,6 +91,14 @@ async def member(db, cid, user):
 def administrator(conv, user):
     if user["id"] not in conv["admins"]:
         raise HTTPException(403, "Action réservée aux administrateurs de cette discussion.")
+
+
+def default_permissions(kind):
+    return {
+        "send_messages": "admins" if kind == "channel" else "all",
+        "add_members": False,
+        "edit_info": False,
+    }
 
 
 async def allowed_pair(db, uid, peer):
@@ -141,6 +151,7 @@ async def conversation_view(db, conv, uid):
     return {
         **clean(conv), "kind": "private" if is_saved else conv["kind"],
         "is_saved": is_saved, "title": title, "member_profiles": profiles,
+        "permissions": conv.get("permissions") or default_permissions(conv["kind"]),
         "last_message": clean(last), "unread": unread,
         **{key: pref.get(key, default) for key, default in [
             ("muted", False), ("archived", False), ("pinned", False), ("draft", ""), ("read_at", ""),
@@ -170,6 +181,7 @@ class ConversationPatch(BaseModel):
     pinned: bool | None = None
     draft: str | None = Field(default=None, max_length=8000)
     is_public: bool | None = None
+    permissions: dict[str, str | bool] | None = None
 
 
 class Attachment(BaseModel):

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet,
+  ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,9 +12,12 @@ const blue = "#1769e8";
 const ink = "#102042";
 const muted = "#7d879a";
 
-type Props = { userId: string; version?: number };
+type Props = {
+  userId: string; version?: number; requestedAuthorId?: string | null;
+  onRequestConsumed?: () => void; onViewerClose?: () => void;
+};
 
-export default function StatusStories({ userId, version = 0 }: Props) {
+export default function StatusStories({ userId, version = 0, requestedAuthorId, onRequestConsumed, onViewerClose }: Props) {
   const [items, setItems] = useState<ChatStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -26,6 +29,10 @@ export default function StatusStories({ userId, version = 0 }: Props) {
   const [openAuthorId, setOpenAuthorId] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [mediaUrl, setMediaUrl] = useState("");
+  const [paused, setPaused] = useState(false);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const progressRef = useRef(0);
+  const videoElement = useRef<HTMLVideoElement | null>(null);
   const uploadInput = useRef<HTMLInputElement | null>(null);
   const videoHost = useRef<View | null>(null);
 
@@ -54,6 +61,25 @@ export default function StatusStories({ userId, version = 0 }: Props) {
   const selectedGroup = groups.find(group => group.authorId === openAuthorId);
   const story = selectedGroup?.statuses[activeIndex];
   const media = story?.attachments?.[0];
+  const holdStory = () => { setPaused(true); videoElement.current?.pause(); };
+  const resumeStory = () => {
+    setPaused(false);
+    if (videoElement.current) void videoElement.current.play().catch(() => undefined);
+  };
+
+  useEffect(() => {
+    if (!requestedAuthorId || loading) return;
+    if (groups.some(group => group.authorId === requestedAuthorId)) {
+      setOpenAuthorId(requestedAuthorId);
+      setActiveIndex(0);
+      setPaused(false);
+      progressRef.current = 0;
+      setStoryProgress(0);
+    } else {
+      onViewerClose?.();
+    }
+    onRequestConsumed?.();
+  }, [requestedAuthorId, loading, groups]);
 
   useEffect(() => {
     if (!media) { setMediaUrl(""); return; }
@@ -74,6 +100,7 @@ export default function StatusStories({ userId, version = 0 }: Props) {
     const host = videoHost.current as unknown as HTMLElement | null;
     if (!story || !mediaUrl || !media?.mime.startsWith("video/") || Platform.OS !== "web" || !host) return;
     const video = document.createElement("video");
+    videoElement.current = video;
     video.src = mediaUrl;
     video.controls = true;
     video.autoplay = true;
@@ -91,13 +118,24 @@ export default function StatusStories({ userId, version = 0 }: Props) {
     };
   }, [story?.id, media?.mime, mediaUrl]);
 
-  const closeViewer = () => { setOpenAuthorId(null); setActiveIndex(0); };
+  const closeViewer = () => {
+    setOpenAuthorId(null);
+    setActiveIndex(0);
+    setPaused(false);
+    progressRef.current = 0;
+    setStoryProgress(0);
+    onViewerClose?.();
+  };
   const advance = () => {
     if (!selectedGroup) return;
     if (activeIndex + 1 >= selectedGroup.statuses.length) closeViewer();
     else setActiveIndex(index => index + 1);
   };
-  const goBack = () => setActiveIndex(index => Math.max(0, index - 1));
+  const goBack = () => {
+    progressRef.current = 0;
+    setStoryProgress(0);
+    setActiveIndex(index => Math.max(0, index - 1));
+  };
   useEffect(() => {
     if (!story || !openAuthorId) return;
     if (story.author_id !== userId && !story.viewed_by_me) {
@@ -105,15 +143,30 @@ export default function StatusStories({ userId, version = 0 }: Props) {
         setItems(previous => previous.map(item => item.id === story.id ? { ...item, viewed_by_me: true } : item));
       }).catch(() => {});
     }
-    if (!media?.mime.startsWith("video/")) {
-      const timer = setTimeout(advance, 6000);
-      return () => clearTimeout(timer);
-    }
-  }, [story?.id, openAuthorId, activeIndex, media?.mime]);
+    progressRef.current = 0;
+    setStoryProgress(0);
+  }, [story?.id]);
+  useEffect(() => {
+    if (!story || !openAuthorId || paused || media?.mime.startsWith("video/")) return;
+    const startedAt = Date.now() - progressRef.current * 6000;
+    const timer = setInterval(() => {
+      const next = Math.min(1, (Date.now() - startedAt) / 6000);
+      progressRef.current = next;
+      setStoryProgress(next);
+      if (next >= 1) {
+        clearInterval(timer);
+        advance();
+      }
+    }, 80);
+    return () => clearInterval(timer);
+  }, [story?.id, openAuthorId, activeIndex, paused, media?.mime]);
 
   const openGroup = (authorId: string) => {
     setOpenAuthorId(authorId);
     setActiveIndex(0);
+    setPaused(false);
+    progressRef.current = 0;
+    setStoryProgress(0);
   };
 
   const chooseMedia = () => {
@@ -223,7 +276,7 @@ export default function StatusStories({ userId, version = 0 }: Props) {
     <Modal visible={!!story} transparent animationType="fade" onRequestClose={closeViewer}>
       <View style={styles.viewer}>
         <View style={styles.viewerTop}>
-          <View style={styles.progressRow}>{selectedGroup?.statuses.map((item, index) => <View key={item.id} style={styles.progressTrack}><View style={[styles.progressFill, index <= activeIndex && styles.progressFilled]} /></View>)}</View>
+          <View style={styles.progressRow}>{selectedGroup?.statuses.map((item, index) => <View key={item.id} style={styles.progressTrack}><View style={[styles.progressFill, { width: index < activeIndex ? "100%" : index === activeIndex ? `${storyProgress * 100}%` : "0%" }]} /></View>)}</View>
           <View style={styles.viewerHeader}>
             <View style={styles.viewerAvatar}>{story?.author_avatar ? <Image source={{ uri: story.author_avatar }} style={styles.viewerAvatarImage} /> : <Text style={styles.viewerInitial}>{story?.author_name.slice(0, 1).toUpperCase()}</Text>}</View>
             <View style={{ flex: 1 }}><Text style={styles.viewerName}>{story?.author_name}</Text><Text style={styles.viewerTime}>{story?.created_at ? new Date(story.created_at).toLocaleString() : ""}</Text></View>
@@ -231,14 +284,19 @@ export default function StatusStories({ userId, version = 0 }: Props) {
             <TouchableOpacity onPress={closeViewer} accessibilityLabel="Fermer le statut"><Ionicons name="close" size={25} color="#fff" /></TouchableOpacity>
           </View>
         </View>
-        <View style={styles.storyContent}>
+        <Pressable
+          style={styles.storyContent}
+          onPressIn={holdStory}
+          onPressOut={resumeStory}
+        >
           {media?.mime.startsWith("image/") && mediaUrl ? <Image source={{ uri: mediaUrl }} style={styles.storyMedia} resizeMode="contain" /> : null}
           {media?.mime.startsWith("video/") && <View ref={videoHost} style={styles.videoHost}>{!mediaUrl && <ActivityIndicator color="#fff" />}</View>}
           {!media && <Text style={styles.storyText}>{story?.text}</Text>}
           {!!story?.text && !!media && <Text style={styles.storyCaption}>{story.text}</Text>}
           <TouchableOpacity style={styles.leftTap} onPress={goBack} accessibilityLabel="Statut précédent" />
           <TouchableOpacity style={styles.rightTap} onPress={advance} accessibilityLabel="Statut suivant" />
-        </View>
+          {paused && <View pointerEvents="none" style={styles.pauseMark}><Ionicons name="pause" size={22} color="#fff" /></View>}
+        </Pressable>
         {story?.author_id === userId && <Text style={styles.viewCount}><Ionicons name="eye-outline" size={16} color="#fff" /> {story.views_count || 0} vues</Text>}
       </View>
     </Modal>
@@ -286,5 +344,6 @@ const styles = StyleSheet.create({
   storyText: { color: "#fff", fontSize: 27, lineHeight: 36, fontWeight: "800", textAlign: "center", paddingHorizontal: 24 },
   storyCaption: { color: "#fff", fontSize: 15, lineHeight: 21, textAlign: "center", paddingHorizontal: 12, paddingTop: 10 },
   leftTap: { position: "absolute", top: 0, bottom: 0, left: 0, width: "35%" }, rightTap: { position: "absolute", top: 0, bottom: 0, right: 0, width: "65%" },
+  pauseMark: { position: "absolute", alignSelf: "center", top: "46%", width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(0,0,0,.48)", alignItems: "center", justifyContent: "center" },
   viewCount: { color: "#fff", alignSelf: "center", paddingBottom: 28, fontSize: 12, fontWeight: "700" },
 });

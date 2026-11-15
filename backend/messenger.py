@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
@@ -12,7 +13,7 @@ from pymongo.errors import DuplicateKeyError
 from messenger_core import (
     ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
     administrator, allowed_pair, attachments_checked, chat_user, clean,
-    conversation_view, event, get_message, identifier, member, notify, now,
+    conversation_view, default_permissions, event, get_message, identifier, member, notify, now,
     person, rate_limit, ticket,
 )
 
@@ -88,6 +89,7 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
         "photo": "", "members": [uid, *ids], "admins": [uid], "owner_id": uid,
         "created_at": stamp, "updated_at": stamp,
         "is_public": body.is_public if body.kind == "channel" else False,
+        "permissions": default_permissions(body.kind),
     }
     if private_key:
         conv["private_key"] = private_key
@@ -110,11 +112,28 @@ async def update_conversation(cid: str, body: ConversationPatch, request: Reques
     db = request.app.state.db
     conv = await member(db, cid, user)
     changes = body.model_dump(exclude_none=True)
+    permission_changes = changes.pop("permissions", None)
     meta = {k: v for k, v in changes.items() if k in ("title", "photo", "is_public")}
+    if permission_changes is not None:
+        if conv["kind"] not in ("group", "channel"):
+            raise HTTPException(400, "Les permissions sont réservées aux groupes et canaux.")
+        administrator(conv, user)
+        allowed_keys = {"send_messages", "add_members", "edit_info"}
+        if set(permission_changes) - allowed_keys:
+            raise HTTPException(400, "Permission non reconnue.")
+        merged = default_permissions(conv["kind"]) | (conv.get("permissions") or {}) | permission_changes
+        if merged.get("send_messages") not in ("all", "admins"):
+            raise HTTPException(400, "Choisissez qui peut envoyer des messages.")
+        if not isinstance(merged.get("add_members"), bool) or not isinstance(merged.get("edit_info"), bool):
+            raise HTTPException(400, "Les permissions doivent être activées ou désactivées.")
+        meta["permissions"] = merged
     if meta:
         if conv["kind"] not in ("group", "channel"):
             raise HTTPException(400, "Cette conversation ne peut pas être renommée.")
-        administrator(conv, user)
+        is_admin = user["id"] in conv["admins"] or user["id"] == conv["owner_id"]
+        can_edit_info = is_admin or (conv["kind"] == "group" and bool((conv.get("permissions") or {}).get("edit_info")))
+        if not can_edit_info or (("is_public" in meta or "permissions" in meta) and not is_admin):
+            administrator(conv, user)
         if "is_public" in meta and conv["kind"] != "channel":
             raise HTTPException(400, "La découverte publique est réservée aux canaux.")
         if "title" in meta and not meta["title"].strip():
@@ -133,13 +152,65 @@ async def update_conversation(cid: str, body: ConversationPatch, request: Reques
     return await conversation_view(db, conv, user["id"])
 
 
+@api.post("/conversations/{cid}/invite-link")
+async def create_invite_link(cid: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    conv = await member(db, cid, user)
+    can_invite = uid in conv["admins"] or uid == conv["owner_id"] or bool((conv.get("permissions") or {}).get("add_members"))
+    if conv["kind"] not in ("group", "channel") or not can_invite:
+        raise HTTPException(403, "Vous n’avez pas le droit de créer un lien d’invitation.")
+    token = secrets.token_urlsafe(24)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    await db.spv_invite_links.update_many(
+        {"conversation_id": cid, "revoked": False}, {"$set": {"revoked": True}},
+    )
+    await db.spv_invite_links.insert_one({
+        "id": identifier(), "conversation_id": cid, "token_hash": token_hash,
+        "created_by": uid, "created_at": now(), "revoked": False,
+    })
+    return {"token": token}
+
+
+@api.delete("/conversations/{cid}/invite-link")
+async def revoke_invite_link(cid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    conv = await member(db, cid, user)
+    administrator(conv, user)
+    await db.spv_invite_links.update_many(
+        {"conversation_id": cid, "revoked": False}, {"$set": {"revoked": True}},
+    )
+    return {"ok": True}
+
+
+@api.post("/invites/{token}/join")
+async def join_invite(token: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    invite = await db.spv_invite_links.find_one({"token_hash": token_hash, "revoked": False})
+    if not invite:
+        raise HTTPException(404, "Ce lien d’invitation est invalide ou a été désactivé.")
+    conv = await db.spv_conversations.find_one({"id": invite["conversation_id"]})
+    if not conv or conv["kind"] not in ("group", "channel"):
+        raise HTTPException(404, "Le groupe ou canal n’est plus disponible.")
+    if uid not in conv["members"]:
+        if len(conv["members"]) >= 200:
+            raise HTTPException(400, "Ce groupe ou canal a atteint sa limite de membres.")
+        await db.spv_conversations.update_one({"id": conv["id"]}, {"$addToSet": {"members": uid}})
+        conv = await db.spv_conversations.find_one({"id": conv["id"]})
+        await notify(db, conv)
+        await event(db, conv["members"], {"type": "updated", "conversation_id": conv["id"]})
+    return await conversation_view(db, conv, uid)
+
+
 @api.post("/conversations/{cid}/members")
 async def members(cid: str, body: MemberIn, request: Request, user=Depends(chat_user)):
     db = request.app.state.db
     conv = await member(db, cid, user)
-    administrator(conv, user)
     if conv["kind"] not in ("group", "channel"):
         raise HTTPException(400, "Action réservée aux groupes et canaux.")
+    is_admin = user["id"] in conv["admins"] or user["id"] == conv["owner_id"]
+    if not is_admin and not (body.action == "add" and (conv.get("permissions") or {}).get("add_members")):
+        administrator(conv, user)
     peer = body.user_id
     if peer == conv["owner_id"]:
         raise HTTPException(400, "Le propriétaire conserve son rôle.")
@@ -225,6 +296,8 @@ async def deliver_message(db, cid, body, user):
     uid = user["id"]
     conv = await member(db, cid, user)
     if conv["kind"] == "channel":
+        administrator(conv, user)
+    if conv["kind"] == "group" and (conv.get("permissions") or {}).get("send_messages") == "admins":
         administrator(conv, user)
     if conv["kind"] == "private":
         for peer in conv["members"]:

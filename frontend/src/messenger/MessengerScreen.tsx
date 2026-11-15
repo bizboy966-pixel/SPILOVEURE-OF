@@ -1,14 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
 import { storage } from "@/src/utils/storage";
 import { messengerApi } from "./api";
 import { useConversations } from "./useConversations";
-import type { Conversation, MessengerCapabilities, Person } from "./types";
+import type { ChatStatus, Conversation, MessengerCapabilities, Person } from "./types";
 import ConversationThread from "./ConversationThread";
 import ConversationDetails from "./ConversationDetails";
 import PublicChannelsModal from "./PublicChannelsModal";
@@ -24,6 +24,9 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ invite?: string | string[] }>();
+  const inviteParam = Array.isArray(params.invite) ? params.invite[0] : params.invite;
+  const handledInvite = useRef<string | null>(null);
   const { user, loading: chatLoading, sessionExpired, refresh: refreshChat } = useChat();
   const navTransition = useNavigationTransition();
   const { items, loading, error, refresh, archived, setArchived, version, feedVersion, typingByConversation, readReceipts } = useConversations(user?.id);
@@ -52,9 +55,36 @@ export default function MessengerScreen() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [statusAuthorIds, setStatusAuthorIds] = useState<Set<string>>(new Set());
+  const [requestedStatusAuthor, setRequestedStatusAuthor] = useState<string | null>(null);
+  const [statusReturnTab, setStatusReturnTab] = useState<Tab | null>(null);
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
   const filterStorageKey = user?.id ? `spv_messenger_filter_v1:${user.id}` : "";
+  useEffect(() => {
+    if (!user?.id || !inviteParam || handledInvite.current === inviteParam) return;
+    handledInvite.current = inviteParam;
+    void api.post<Conversation>(`/messenger/invites/${encodeURIComponent(inviteParam)}/join`, {})
+      .then(joined => {
+        setSelected(joined);
+        setTab("Échanges");
+        setActionError("");
+        void refresh();
+        router.replace("/messenger" as any);
+      })
+      .catch((e: any) => {
+        setActionError(e?.detail || "Le lien d’invitation ne fonctionne plus.");
+        router.replace("/messenger" as any);
+      });
+  }, [inviteParam, user?.id, refresh, router]);
+  useEffect(() => {
+    if (!user?.id) { setStatusAuthorIds(new Set()); return; }
+    let active = true;
+    api.get<ChatStatus[]>("/messenger/statuses")
+      .then(rows => { if (active) setStatusAuthorIds(new Set(rows.map(status => status.author_id))); })
+      .catch(() => { if (active) setStatusAuthorIds(new Set()); });
+    return () => { active = false; };
+  }, [user?.id, feedVersion]);
   useEffect(() => {
     if (!user?.id) { setFilter("Tous"); setFilterReadyFor(null); return; }
     let active = true;
@@ -161,18 +191,34 @@ export default function MessengerScreen() {
     setFilter(name);
     if (user?.id) void storage.setItem(`spv_messenger_filter_v1:${user.id}`, name);
   };
+  const openStatusFor = (authorId: string) => {
+    setStatusReturnTab(tab === "Actus" ? null : tab);
+    setRequestedStatusAuthor(authorId);
+    if (tab !== "Actus") setTab("Actus");
+  };
+  const closeRequestedStatus = () => {
+    if (statusReturnTab) setTab(statusReturnTab);
+    setStatusReturnTab(null);
+  };
   const renderConversation = (item: Conversation) => {
     const preview = item.last_message?.deleted ? "Message supprimé" : item.last_message?.text || item.draft || (item.last_message?.attachments?.length ? "Pièce jointe" : "");
     const otherPerson = item.is_saved
       ? item.member_profiles.find(person => person.id === user?.id)
       : item.member_profiles.find(person => person.id !== user?.id);
     const photo = item.photo || (item.kind === "private" ? otherPerson?.avatar : undefined);
+    const statusAuthorId = item.kind === "private" && !item.is_saved ? otherPerson?.id : undefined;
+    const hasActiveStatus = !!statusAuthorId && statusAuthorIds.has(statusAuthorId);
     const openConversation = () => setSelected(item);
     return <View key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} testID={`messenger-conversation-${item.id}`}>
-      <TouchableOpacity style={styles.rowAvatar} onPress={() => photo && setPhotoPreview({ uri: photo, label: item.title })} disabled={!photo} activeOpacity={photo ? 0.8 : 1} accessibilityRole={photo ? "button" : undefined} accessibilityLabel={photo ? `Afficher la photo de ${item.title}` : `Profil de ${item.title}`} testID={`messenger-conversation-avatar-${item.id}`}>
-        {photo ? <Image source={{ uri: photo }} style={styles.rowPhoto} /> : <Text style={styles.rowAvatarLetter}>{item.title.slice(0, 1).toUpperCase()}</Text>}
-        {item.kind === "private" && otherPerson?.online && <View style={styles.onlineDot} />}
-      </TouchableOpacity>
+      <View style={[styles.avatarRing, hasActiveStatus && styles.avatarRingActive]}>
+        <TouchableOpacity style={[styles.rowAvatar, hasActiveStatus && styles.rowAvatarInside]} onPress={() => {
+          if (hasActiveStatus && statusAuthorId) openStatusFor(statusAuthorId);
+          else if (photo) setPhotoPreview({ uri: photo, label: item.title });
+        }} disabled={!photo && !hasActiveStatus} activeOpacity={0.8} accessibilityRole={photo || hasActiveStatus ? "button" : undefined} accessibilityLabel={hasActiveStatus ? `Voir le statut de ${item.title}` : photo ? `Afficher la photo de ${item.title}` : `Profil de ${item.title}`} testID={`messenger-conversation-avatar-${item.id}`}>
+          {photo ? <Image source={{ uri: photo }} style={[styles.rowPhoto, hasActiveStatus && styles.rowPhotoInside]} /> : <Text style={styles.rowAvatarLetter}>{item.title.slice(0, 1).toUpperCase()}</Text>}
+          {item.kind === "private" && otherPerson?.online && <View style={styles.onlineDot} />}
+        </TouchableOpacity>
+      </View>
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
           <TouchableOpacity style={styles.rowOpenTitle} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
@@ -249,9 +295,9 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-        {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+        {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={() => { const authorId = selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel user={user} />}
+       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} onStatusRequestConsumed={() => setRequestedStatusAuthor(null)} onStatusViewerClose={closeRequestedStatus} /> : <ProfilePanel user={user} />}
     </View>
     {!selected && !navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>
@@ -315,10 +361,11 @@ const styles = StyleSheet.create({
   discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
   filter: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0, borderRadius: 21, paddingHorizontal: 8, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" },
   filterBadge: { minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
-  conversationRow: { minHeight: 82, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
-  rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
-  rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
-   rowMain: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  conversationRow: { minHeight: 82, minWidth: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
+  avatarRing: { width: 54, height: 54, alignItems: "center", justifyContent: "center" }, avatarRingActive: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
+  rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowAvatarInside: { width: 50, height: 50, borderRadius: 25 }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowPhotoInside: { width: 50, height: 50, borderRadius: 25 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
+  rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
+   rowMain: { flex: 1, minWidth: 0 }, rowTop: { minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, flexShrink: 1, minWidth: 0, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { flexShrink: 0, color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   rowQuickActions: { flexDirection: "row", gap: 12, paddingTop: 5, opacity: .82 }, quickText: { color: blue, fontSize: 10, fontWeight: "700" },
   fab: { position: "absolute", right: 19, bottom: 18, width: 62, height: 62, borderRadius: 34, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .3, shadowRadius: 9 },
   loading: { padding: 18, gap: 18 }, skeleton: { height: 64, borderRadius: 30, backgroundColor: "#f0f3f8" }, emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 }, emptyCircle: { width: 62, height: 62, borderRadius: 32, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" }, emptyTitle: { color: ink, fontSize: 16, fontWeight: "800", textAlign: "center", marginTop: 13 }, emptyCopy: { color: muted, fontSize: 13, textAlign: "center", marginTop: 7 }, emptyLink: { color: blue, fontSize: 13, fontWeight: "800", marginTop: 10 }, emptyButton: { marginTop: 17, backgroundColor: blue, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 17 }, emptyButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
