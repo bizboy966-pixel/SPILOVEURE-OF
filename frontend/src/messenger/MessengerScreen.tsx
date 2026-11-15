@@ -163,7 +163,9 @@ export default function MessengerScreen() {
   };
   const renderConversation = (item: Conversation) => {
     const preview = item.last_message?.deleted ? "Message supprimé" : item.last_message?.text || item.draft || (item.last_message?.attachments?.length ? "Pièce jointe" : "");
-    const otherPerson = item.member_profiles.find(person => person.id !== user?.id);
+    const otherPerson = item.is_saved
+      ? item.member_profiles.find(person => person.id === user?.id)
+      : item.member_profiles.find(person => person.id !== user?.id);
     const photo = item.photo || (item.kind === "private" ? otherPerson?.avatar : undefined);
     const openConversation = () => setSelected(item);
     return <View key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} testID={`messenger-conversation-${item.id}`}>
@@ -238,24 +240,24 @@ export default function MessengerScreen() {
     <TouchableOpacity style={styles.fab} onPress={() => openCreate()} accessibilityLabel="Nouvelle conversation"><Ionicons name="add" size={31} color="#fff" /></TouchableOpacity>
   </View>;
 
-  const navItems: { key: Tab; icon: any }[] = [
-    { key: "Échanges", icon: "chatbubbles" }, { key: "Contacts", icon: "people" },
-    { key: "Actus", icon: "megaphone" }, { key: "Profil", icon: "person" },
+  const navItems: { key: Tab; icon: any; label: string }[] = [
+    { key: "Échanges", icon: "chatbubbles", label: "Échanges" }, { key: "Contacts", icon: "people", label: "Contacts" },
+    { key: "Actus", icon: "megaphone", label: "Statuts" }, { key: "Profil", icon: "person", label: "Profil" },
   ];
   if (chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
   return <View style={styles.page}>
-    <View style={[styles.workspace, wide && styles.workspaceWide]}>
+    <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-      </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel username={user?.username || "Membre"} />}
+       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} /> : <ProfilePanel user={user} />}
     </View>
-    {!navTransition.active && <View style={styles.bottomDock}>
+    {!selected && !navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>
-      {navItems.slice(0, 2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={24} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
+       {navItems.slice(0, 2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={24} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.label}</Text></TouchableOpacity>)}
         <TouchableOpacity style={styles.centerLogoWrap} onPress={goHome} accessibilityLabel="Retour à l’accueil"><View style={styles.centerLogo}><Image source={logo} style={styles.centerLogoImage} resizeMode="contain" /></View></TouchableOpacity>
-      {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.key}</Text></TouchableOpacity>)}
+       {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.label}</Text></TouchableOpacity>)}
       </View>
     </View>}
     {detailsOpen && selected && <ConversationDetails conversation={selected} userId={user?.id || ""} onClose={() => setDetailsOpen(false)} onChanged={() => { refresh(); messengerApi.conversation(selected.id).then(setSelected).catch(() => setSelected(null)); }} />}
@@ -292,6 +294,7 @@ export default function MessengerScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, minHeight: "100%", backgroundColor: "#f5f7fa" },
   workspace: { flex: 1, minHeight: 0, paddingBottom: 84 },
+  workspaceThread: { paddingBottom: 0 },
   workspaceWide: { width: "100%", maxWidth: 1180, alignSelf: "center", flexDirection: "row", borderLeftWidth: 1, borderRightWidth: 1, borderColor: "#e7ebf1" },
   listPanel: { flex: 1, minHeight: 0, backgroundColor: "#fff", position: "relative" },
   wideList: { flexGrow: 0, flexShrink: 0, flexBasis: 375, width: 375, borderRightWidth: 1, borderColor: "#e9edf2" },

@@ -95,9 +95,14 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
     elif row["owner_id"] != user["id"]:
         from messenger_social import visible_post
         post = await db.spv_posts.find_one({"attachments.id": fid})
-        if not post:
-            raise HTTPException(404, "Fichier introuvable.")
-        await visible_post(db, post["id"], user)
+        if post:
+            await visible_post(db, post["id"], user)
+        else:
+            status = await db.spv_statuses.find_one({"attachments.id": fid})
+            if not status:
+                raise HTTPException(404, "Fichier introuvable.")
+            from messenger_social import visible_status
+            await visible_status(db, status["id"], user)
     if row["scope"] != "feed" and row["owner_id"] != user["id"]:
         if not await db.spv_messages.find_one({
             "conversation_id": row["scope"], "attachments.id": fid, "deleted": False,

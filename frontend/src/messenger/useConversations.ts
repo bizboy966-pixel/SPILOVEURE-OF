@@ -67,8 +67,11 @@ export function useConversations(currentUserId?: string) {
               return;
             }
             if (data.type === "message" || data.type === "updated") setVersion(v => v + 1);
-            if (["message", "updated", "read", "presence"].includes(data.type)) refresh();
-            if (data.type === "feed") setFeedVersion(v => v + 1);
+            if (["message", "updated", "read", "presence", "profile"].includes(data.type)) refresh();
+            if (data.type === "feed" || data.type === "status" || data.type === "profile") {
+              setFeedVersion(v => v + 1);
+            }
+            if (data.type === "profile") setVersion(v => v + 1);
           } catch { /* ignore malformed event */ }
         };
         socket.onclose = event => {

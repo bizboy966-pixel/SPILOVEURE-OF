@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, Pla
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { useChat } from "@/src/chat/ChatContext";
 import { theme } from "@/src/theme";
 
 /**
@@ -18,6 +19,7 @@ import { theme } from "@/src/theme";
 type Props = {
   visible: boolean;
   onClose: () => void;
+  mode?: "main" | "chat";
 };
 
 async function fileToResizedDataURI(file: File, maxDim = 512, quality = 0.85): Promise<string> {
@@ -46,8 +48,11 @@ async function fileToResizedDataURI(file: File, maxDim = 512, quality = 0.85): P
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-export default function ProfilePhotoManager({ visible, onClose }: Props) {
-  const { user, refresh } = useAuth();
+export default function ProfilePhotoManager({ visible, onClose, mode = "main" }: Props) {
+  const mainSession = useAuth();
+  const chatSession = useChat();
+  const user = mode === "chat" ? chatSession.user : mainSession.user;
+  const refresh = mode === "chat" ? chatSession.refresh : mainSession.refresh;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -70,7 +75,7 @@ export default function ProfilePhotoManager({ visible, onClose }: Props) {
     setBusy(true); setErr(null);
     try {
       const dataURI = await fileToResizedDataURI(file, 512, 0.85);
-      await api.post("/me/profile-photo", { data: dataURI });
+      await api.post(mode === "chat" ? "/messenger/profile-photo" : "/me/profile-photo", { data: dataURI });
       await refresh();
       onClose();
     } catch (e: any) {
@@ -85,7 +90,7 @@ export default function ProfilePhotoManager({ visible, onClose }: Props) {
     if (typeof window !== "undefined" && !window.confirm("Supprimer votre photo de profil ?")) return;
     setBusy(true); setErr(null);
     try {
-      await api.delete("/me/profile-photo");
+      await api.delete(mode === "chat" ? "/messenger/profile-photo" : "/me/profile-photo");
       await refresh();
       onClose();
     } catch (e: any) {

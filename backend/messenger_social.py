@@ -144,6 +144,14 @@ class PostIn(BaseModel):
     visibility: str = Field(default="contacts", pattern="^(contacts|public)$")
     attachments: list[Attachment] = Field(default_factory=list, max_length=8)
 
+class StatusIn(BaseModel):
+    text: str = Field(default="", max_length=800)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=1)
+
+
+class ChatProfilePhotoIn(BaseModel):
+    data: str = Field(min_length=20, max_length=500_000)
+
 
 async def visible_post(db, post_id, user):
     post = await db.spv_posts.find_one({"id": post_id})
@@ -226,6 +234,133 @@ async def delete_post(post_id: str, request: Request, user=Depends(chat_user)):
     result = await request.app.state.db.spv_posts.delete_one({"id": post_id, "author_id": user["id"]})
     if not result.deleted_count:
         raise HTTPException(404, "Publication introuvable.")
+    return {"ok": True}
+
+
+@api.get("/statuses")
+async def statuses(request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    contacts = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
+    blocked = await db.spv_blocks.find({"$or": [{"user_id": uid}, {"peer_id": uid}]}).to_list(1000)
+    excluded = {row["peer_id"] if row["user_id"] == uid else row["user_id"] for row in blocked}
+    authors = {uid, *(row["peer_id"] for row in contacts)} - excluded
+    expires_after = datetime.now(timezone.utc)
+    rows = await db.spv_statuses.find({
+        "author_id": {"$in": list(authors)}, "expires_at": {"$gt": expires_after},
+    }).sort("created_at", -1).limit(500).to_list(500)
+    profile_rows = await profile_list(db, list({row["author_id"] for row in rows}))
+    profiles = {profile["id"]: profile for profile in profile_rows}
+    result = []
+    for row in rows:
+        item = clean(row)
+        profile = profiles.get(row["author_id"], {})
+        viewers = row.get("viewed_by") or []
+        item.update({
+            "author_name": profile.get("username") or row.get("author_name", "Membre"),
+            "author_avatar": profile.get("avatar", ""),
+            "viewed_by_me": uid in viewers,
+            "views_count": len(viewers),
+        })
+        if row["author_id"] == uid:
+            item["viewed_by"] = viewers
+        else:
+            item.pop("viewed_by", None)
+        result.append(item)
+    return result
+
+
+async def visible_status(db, status_id, user):
+    row = await db.spv_statuses.find_one({
+        "id": status_id, "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not row:
+        raise HTTPException(404, "Statut introuvable ou expiré.")
+    if row["author_id"] != user["id"]:
+        await allowed_pair(db, user["id"], row["author_id"])
+        if not await db.spv_contacts.find_one({
+            "user_id": user["id"], "peer_id": row["author_id"], "status": "accepted",
+        }):
+            raise HTTPException(404, "Statut introuvable ou expiré.")
+    return row
+
+
+@api.post("/statuses")
+async def publish_status(body: StatusIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    if not body.text.strip() and not body.attachments:
+        raise HTTPException(400, "Ajoutez un texte, une photo ou une vidéo.")
+    if any(not item.mime.startswith(("image/", "video/")) for item in body.attachments):
+        raise HTTPException(400, "Un statut accepte uniquement une photo ou une vidéo.")
+    await rate_limit(db, uid, "spv_statuses", 10)
+    attachments = await attachments_checked(db, body.attachments, user, "feed")
+    stamp = now()
+    row = {
+        "id": identifier(), "author_id": uid, "sender_id": uid,
+        "author_name": user.get("username", "Membre"), "text": body.text.strip(),
+        "attachments": attachments, "created_at": stamp,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24), "viewed_by": [],
+    }
+    await db.spv_statuses.insert_one(row)
+    peers = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
+    await event(db, [uid, *[item["peer_id"] for item in peers]], {"type": "status"})
+    result = clean(row)
+    result.update({"author_avatar": user.get("profile_photo", ""), "viewed_by_me": False, "views_count": 0})
+    return result
+
+
+@api.post("/statuses/{status_id}/view")
+async def view_status(status_id: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    row = await visible_status(db, status_id, user)
+    if row["author_id"] != uid:
+        await db.spv_statuses.update_one({"id": status_id}, {"$addToSet": {"viewed_by": uid}})
+        row = await db.spv_statuses.find_one({"id": status_id})
+        await event(db, [row["author_id"]], {"type": "status"})
+    return {"ok": True, "views_count": len(row.get("viewed_by") or [])}
+
+
+@api.delete("/statuses/{status_id}")
+async def delete_status(status_id: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    result = await db.spv_statuses.delete_one({"id": status_id, "author_id": uid})
+    if not result.deleted_count:
+        raise HTTPException(404, "Statut introuvable.")
+    peers = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
+    await event(db, [uid, *[item["peer_id"] for item in peers]], {"type": "status"})
+    return {"ok": True}
+
+
+@api.post("/profile-photo")
+async def upload_chat_profile_photo(body: ChatProfilePhotoIn, request: Request, user=Depends(chat_user)):
+    raw = body.data.strip()
+    if not raw.startswith("data:image/"):
+        raise HTTPException(400, "Format d'image invalide.")
+    try:
+        header, encoded = raw.split(",", 1)
+        mime = header.split(";")[0].removeprefix("data:")
+        if mime not in {"image/jpeg", "image/png", "image/webp"}:
+            raise ValueError("unsupported image")
+        import base64
+        decoded = base64.b64decode(encoded, validate=True)
+    except Exception:
+        raise HTTPException(400, "Image invalide. Utilisez JPEG, PNG ou WEBP.") from None
+    if len(decoded) > 300 * 1024:
+        raise HTTPException(400, "Photo trop lourde. La limite est de 300 Ko.")
+    db, uid = request.app.state.db, user["id"]
+    await db.users.update_one({"id": uid}, {"$set": {
+        "profile_photo": raw, "profile_photo_updated_at": now(),
+    }})
+    peers = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
+    await event(db, [uid, *[item["peer_id"] for item in peers]], {"type": "profile"})
+    return {"ok": True, "profile_photo": raw}
+
+
+@api.delete("/profile-photo")
+async def delete_chat_profile_photo(request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    await db.users.update_one({"id": uid}, {"$unset": {"profile_photo": "", "profile_photo_updated_at": ""}})
+    peers = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
+    await event(db, [uid, *[item["peer_id"] for item in peers]], {"type": "profile"})
     return {"ok": True}
 
 

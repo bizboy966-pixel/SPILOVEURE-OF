@@ -11,12 +11,17 @@ export type Conversation = {
   id: string; kind: "private" | "group" | "channel" | "saved"; title: string; photo?: string;
   members: string[]; admins: string[]; owner_id: string; created_at: string; updated_at: string;
   last_message?: Message; unread: number; muted: boolean; archived: boolean; pinned: boolean;
-  draft: string; read_at?: string; member_profiles: Person[]; is_public?: boolean;
+  draft: string; read_at?: string; member_profiles: Person[]; is_public?: boolean; is_saved?: boolean;
 };
 export type Post = {
   id: string; author_id: string; author_name: string; text: string; attachments: Attachment[];
   visibility: "contacts" | "public"; created_at: string;
   reactions: Record<string, string[]>; comments: { id: string; user_id: string; username: string; text: string; created_at: string }[];
+};
+export type ChatStatus = {
+  id: string; author_id: string; author_name: string; author_avatar?: string; text: string;
+  attachments: Attachment[]; created_at: string; expires_at: string; viewed_by_me?: boolean;
+  views_count?: number; viewed_by?: string[];
 };
 export type ContactState = { contacts: Person[]; blocked: Person[]; requests: Person[]; sent: string[] };
 export type PublicChannel = { id: string; title: string; member_count: number; joined: boolean };

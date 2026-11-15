@@ -3,10 +3,12 @@ import { ActivityIndicator, Image, Linking, Modal, Platform, ScrollView, StyleSh
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
+import { protectedFileUrl } from "./api";
 import type { Attachment, ContactState, Conversation, Message, Person, ReadReceipts } from "./types";
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
 import SwipeToReply from "@/src/components/SwipeToReply";
+import VoiceMessage from "@/src/components/VoiceMessage";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
@@ -23,6 +25,27 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
   existing.forEach(message => byKey.set(messageKey(message), message));
   incoming.forEach(message => byKey.set(messageKey(message), message));
   return [...byKey.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean }) {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let url = "";
+    protectedFileUrl(file.id).then(value => {
+      url = value;
+      if (active) setSrc(value);
+      else URL.revokeObjectURL(value);
+    }).catch(() => { if (active) setError(true); });
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [file.id]);
+  if (error) return <Text style={styles.fileLabel}>Vocal indisponible</Text>;
+  if (!src) return <ActivityIndicator size="small" color={own ? "#fff" : blue} />;
+  return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
 }
 
 export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, version, typing, scheduledEnabled = true, readReceipts }: Props) {
@@ -50,7 +73,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
   const [recording, setRecording] = useState(false);
-  const [recordBlob, setRecordBlob] = useState<Blob | null>(null);
+  const [voiceSending, setVoiceSending] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [failedIds, setFailedIds] = useState<string[]>([]);
   const [sharingContact, setSharingContact] = useState(false);
@@ -61,6 +84,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const recorder = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const discardRecording = useRef(false);
+  const sendRecordingAfterStop = useRef(false);
+  const sendVoiceRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
   const scroll = useRef<ScrollView>(null);
   const saveDraft = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftValue = useRef(conversation.draft || "");
@@ -144,9 +169,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       setMessages(prev => mergeMessages(prev, result.items)); setMore(result.has_more);
     } catch (e: any) { setMessageError(e?.detail || "Impossible de charger les anciens messages."); }
   };
-  const send = async (extra: Partial<{ attachments: Attachment[]; forwarded_from: string }> = {}) => {
-    if (!canSend || (!text.trim() && !extra.attachments?.length)) return;
-    const content = text.trim(), client_id = makeId(), silentSend = silent;
+  const send = async (extra: Partial<{ attachments: Attachment[]; forwarded_from: string; text: string }> = {}) => {
+    const content = (extra.text ?? text).trim();
+    if (!canSend || (!content && !extra.attachments?.length)) return;
+    const client_id = makeId(), silentSend = silent;
     const optimistic: Message = {
       id: `pending:${client_id}`, client_id, conversation_id: conversation.id, sender_id: userId,
       sender_name: "Vous", text: content, created_at: new Date().toISOString(), deleted: false,
@@ -230,22 +256,29 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     };
     input.click();
   };
+  const sendVoiceBlob = async (blob: Blob) => {
+    setVoiceSending(true);
+    try {
+      const mime = blob.type || "audio/webm";
+      const extension = mime.includes("ogg") ? ".ogg" : mime.includes("mp4") ? ".m4a" : mime.includes("mpeg") ? ".mp3" : ".webm";
+      const file = new File([blob], `message-vocal-${Date.now()}${extension}`, { type: mime });
+      if (file.size > 20 * 1024 * 1024) throw new Error("Le message vocal dépasse 20 Mo.");
+      const attachment = await messengerApi.file(conversation.id, file);
+      await send({ attachments: [attachment], text: "" });
+    } catch (e: any) {
+      if (typeof window !== "undefined") window.alert(e?.detail || e?.message || "Envoi vocal impossible.");
+    } finally { setVoiceSending(false); }
+  };
+  sendVoiceRef.current = sendVoiceBlob;
   const voice = async () => {
     if (!canSend) return;
     if (recording) {
-      recorder.current?.stop(); setRecording(false); streamRef.current?.getTracks().forEach(t => t.stop()); return;
-    }
-    if (recordBlob) {
-      const mime = recordBlob.type || "audio/webm";
-      const extension = mime.includes("ogg") ? ".ogg" : mime.includes("mp4") ? ".m4a" : mime.includes("mpeg") ? ".mp3" : ".webm";
-      const file = new File([recordBlob], `message-vocal-${Date.now()}${extension}`, { type: mime });
-      try {
-        if (file.size > 20 * 1024 * 1024) throw new Error("Le message vocal dépasse 20 Mo.");
-        const attachment = await messengerApi.file(conversation.id, file); await send({ attachments: [attachment] }); setRecordBlob(null);
-      }
-      catch (e: any) { window.alert(e?.detail || "Envoi vocal impossible."); }
+      sendRecordingAfterStop.current = true;
+      recorder.current?.stop();
+      setRecording(false);
       return;
     }
+    if (voiceSending) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       if (typeof window !== "undefined") window.alert("L’enregistrement vocal n’est pas disponible sur ce navigateur.");
       return;
@@ -259,7 +292,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       discardRecording.current = false;
       rec.onstop = () => {
         const recordedType = rec.mimeType || chunks.find(chunk => chunk instanceof Blob)?.type || "audio/webm";
-        if (!discardRecording.current) setRecordBlob(new Blob(chunks, { type: recordedType }));
+        if (!discardRecording.current && sendRecordingAfterStop.current) {
+          sendRecordingAfterStop.current = false;
+          void sendVoiceRef.current(new Blob(chunks, { type: recordedType }));
+        }
         stream.getTracks().forEach(t => t.stop());
       };
       recorder.current = rec; setRecordSeconds(0); setRecording(true); rec.start();
@@ -302,10 +338,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       : <Text key={`${index}-${part}`}>{part}</Text>,
   );
   const otherPerson = conversation.member_profiles.find(person => person.id !== userId);
-  const otherPhoto = otherPerson?.avatar || conversation.photo;
+  const otherPhoto = (conversation.is_saved
+    ? conversation.member_profiles.find(person => person.id === userId)?.avatar
+    : otherPerson?.avatar) || conversation.photo;
   const isChannelAdmin = conversation.admins.includes(userId) || conversation.owner_id === userId;
   const canSend = conversation.kind !== "channel" || isChannelAdmin;
-  const presence = otherPerson?.online ? "En ligne" : otherPerson?.last_seen
+  const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
     ? `Vu ${new Date(otherPerson.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
     : conversation.kind === "private" ? "Membre SPILOVEURE" : `${conversation.member_profiles.length} membres`;
 
@@ -342,10 +380,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                   <Text numberOfLines={2} style={styles.replyQuotePreview}>{quoted?.deleted ? "Message supprimé" : quoted?.text || quoted?.attachments?.[0]?.name || "Pièce jointe"}</Text>
                 </View>}
                 {!!message.text && <Text style={styles.messageText}>{renderText(message.text)}</Text>}
-                {message.attachments?.map(file => <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={styles.fileChip}>
-                  {file.mime.startsWith("image/") ? <Ionicons name="image-outline" size={17} color={blue} /> : <Ionicons name="document-outline" size={17} color={blue} />}
-                  <Text style={styles.fileLabel} numberOfLines={1}>{file.name}</Text><Ionicons name="download-outline" size={16} color={blue} />
-                </TouchableOpacity>)}
+                {message.attachments?.map(file => file.mime.startsWith("audio/")
+                  ? <View key={file.id} style={styles.voiceCard}><ProtectedVoicePlayer file={file} own={own} /></View>
+                  : <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={styles.fileChip}>
+                    {file.mime.startsWith("image/") ? <Ionicons name="image-outline" size={17} color={blue} /> : <Ionicons name="document-outline" size={17} color={blue} />}
+                    <Text style={styles.fileLabel} numberOfLines={1}>{file.name}</Text><Ionicons name="download-outline" size={16} color={blue} />
+                  </TouchableOpacity>)}
               </>}
               <View style={styles.meta}><Text style={styles.time}>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{message.edited_at ? " · modifié" : ""}</Text>{own && <Text style={styles.receipt}>{message.read_by?.length > 1 ? "✓✓" : "✓"}</Text>}
                 {message.client_id && failedIds.includes(message.client_id) && <TouchableOpacity onPress={() => retrySend(message.client_id!)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity>}
@@ -362,7 +402,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               </View>}
             </View>;
           return <View key={message.id} style={[styles.bubbleWrap, own && styles.ownWrap]}>
-            {!own && !message.deleted
+            {!message.deleted
               ? <SwipeToReply direction="left" onReply={() => { setReply(message); setExpanded(null); }}><View testID={`messenger-swipe-reply-${message.id}`}>{bubble}</View></SwipeToReply>
               : bubble}
           </View>;
@@ -373,15 +413,18 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <TouchableOpacity onPress={() => setReply(null)} accessibilityLabel="Annuler la réponse"><Ionicons name="close" size={19} color={blue} /></TouchableOpacity>
       </View>}
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
-      {(recording || recordBlob) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : `Vocal prêt · ${recordSeconds}s`}</Text><TouchableOpacity onPress={() => { discardRecording.current = true; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); setRecordBlob(null); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View>}
+      {(recording || voiceSending) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
       {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
       <View style={styles.composer}>
         <TouchableOpacity onPress={attachFile} style={[styles.composerIcon, !canSend && styles.disabled]} disabled={!canSend} accessibilityLabel="Joindre un fichier"><Ionicons name="attach" size={23} color={canSend ? blue : muted} /></TouchableOpacity>
         <TouchableOpacity onPress={openContactShare} style={[styles.composerIcon, !canSend && styles.disabled]} disabled={!canSend} accessibilityLabel="Partager un contact"><Ionicons name="person-add-outline" size={20} color={canSend ? blue : muted} /></TouchableOpacity>
         <TextInput value={text} onChangeText={updateComposer} editable={canSend} placeholder={canSend ? "Message" : "Lecture seule"} multiline style={[styles.input, !canSend && styles.readOnlyInput]} onSubmitEditing={() => { if (Platform.OS === "web" && canSend) editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send(); }} />
         {canSend && <TouchableOpacity onPress={() => setSilent(value => !value)} style={[styles.composerIcon, silent && styles.silentActive]} accessibilityRole="checkbox" accessibilityState={{ checked: silent }} accessibilityLabel="Envoi silencieux" testID="messenger-silent-toggle"><Ionicons name={silent ? "notifications-off" : "notifications-outline"} size={19} color={silent ? blue : muted} /></TouchableOpacity>}
-        {canSend && (text.trim() || editing ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Image source={logo} style={styles.sendLogo} resizeMode="contain" testID="messenger-send-brand" /></TouchableOpacity>
-          : <TouchableOpacity onPress={voice} style={styles.composerIcon} accessibilityLabel="Enregistrer ou envoyer un message vocal"><Ionicons name={recording ? "stop-circle" : recordBlob ? "send" : "mic"} size={23} color={recording ? "#d44" : blue} /></TouchableOpacity>)}
+        {canSend && (recording || voiceSending
+          ? <TouchableOpacity style={[styles.sendButton, voiceSending && styles.disabled]} onPress={voice} disabled={voiceSending} accessibilityLabel="Terminer et envoyer le message vocal" testID="messenger-send-voice"><Image source={logo} style={styles.sendLogo} resizeMode="contain" /></TouchableOpacity>
+          : text.trim() || editing
+            ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Image source={logo} style={styles.sendLogo} resizeMode="contain" testID="messenger-send-brand" /></TouchableOpacity>
+            : <TouchableOpacity onPress={voice} style={styles.composerIcon} accessibilityLabel="Enregistrer un message vocal" testID="messenger-record-voice"><Ionicons name="mic" size={23} color={blue} /></TouchableOpacity>)}
       </View>
       <Modal visible={!!forwarding} transparent animationType="fade" onRequestClose={() => setForwarding(null)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
@@ -402,14 +445,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 }
 
 const styles = StyleSheet.create({
-  thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0 },
+  thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0, position: "relative" },
   threadHead: { minHeight: 68, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 12, gap: 7 },
   back: { padding: 7 }, identity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }, identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
   avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarPhoto: { width: 43, height: 43, borderRadius: 24 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
   name: { fontSize: 16, color: ink, fontWeight: "800" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, typing: { color: blue, fontWeight: "700" },
   headerIcon: { padding: 9 }, searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: ink },
-  history: { flex: 1 }, historyContent: { padding: 14, paddingBottom: 24, gap: 8 },
+  history: { flex: 1 }, historyContent: { padding: 14, paddingBottom: 106, gap: 8 },
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
@@ -418,13 +461,13 @@ const styles = StyleSheet.create({
   sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3 }, messageText: { color: ink, fontSize: 15, lineHeight: 21 }, linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
   replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7 },
   replyQuoteSender: { color: blue, fontSize: 11, fontWeight: "800" }, replyQuotePreview: { color: muted, fontSize: 11, marginTop: 2 },
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, voiceCard: { maxWidth: 280, minWidth: 220, borderRadius: 14, paddingHorizontal: 8, marginTop: 4 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: muted }, receipt: { color: blue, fontSize: 11 }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
-  composer: { flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 9, borderTopWidth: 1, borderColor: "#e7ecf3", gap: 7 },
+  composer: { position: "absolute", bottom: 10, left: 10, right: 10, flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 9, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 28, gap: 7, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, zIndex: 10 },
   composerIcon: { width: 40, height: 42, alignItems: "center", justifyContent: "center" }, input: { flex: 1, maxHeight: 110, minHeight: 42, borderRadius: 23, backgroundColor: "#f2f5f9", paddingHorizontal: 16, paddingTop: 11, paddingBottom: 9, color: ink, fontSize: 15, outlineStyle: "none" as any },
   sendButton: { width: 44, height: 44, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden" }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" }, silentActive: { borderRadius: 20, backgroundColor: "#eaf1ff" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" },

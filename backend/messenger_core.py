@@ -54,6 +54,9 @@ async def initialize(db):
     await db.spv_comment_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.spv_files.create_index("id", unique=True)
     await db.spv_posts.create_index("id", unique=True)
+    await db.spv_statuses.create_index("id", unique=True)
+    await db.spv_statuses.create_index([("author_id", 1), ("expires_at", 1)])
+    await db.spv_statuses.create_index("expires_at", expireAfterSeconds=0)
     await db.spv_scheduled.create_index("id", unique=True)
     await db.spv_scheduled.create_index(
         [("conversation_id", 1), ("sender_id", 1), ("client_id", 1)], unique=True,
@@ -131,11 +134,13 @@ async def conversation_view(db, conv, uid):
         "conversation_id": conv["id"], "sender_id": {"$ne": uid},
         "created_at": {"$gt": pref.get("read_at", "")}, "deleted": False,
     })
-    title = conv["title"]
-    if conv["kind"] == "private":
+    is_saved = bool(conv.get("is_saved") or conv.get("kind") == "saved")
+    title = "Messages enregistrés" if is_saved else conv["title"]
+    if conv["kind"] == "private" and not is_saved:
         title = next((p["username"] for p in profiles if p["id"] != uid), "Conversation privée")
     return {
-        **clean(conv), "title": title, "member_profiles": profiles,
+        **clean(conv), "kind": "private" if is_saved else conv["kind"],
+        "is_saved": is_saved, "title": title, "member_profiles": profiles,
         "last_message": clean(last), "unread": unread,
         **{key: pref.get(key, default) for key, default in [
             ("muted", False), ("archived", False), ("pinned", False), ("draft", ""), ("read_at", ""),

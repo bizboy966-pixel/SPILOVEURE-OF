@@ -1,7 +1,7 @@
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, setChatUnauthorizedHandler } from "@/src/api";
 
-export type ChatUser = { id: string; username: string; email?: string };
+export type ChatUser = { id: string; username: string; email?: string; profile_photo?: string };
 type ChatContextType = { user: ChatUser | null; loading: boolean; sessionExpired: boolean; refresh: () => Promise<ChatUser | null>; logout: () => Promise<void> };
 const ChatContext = createContext<ChatContextType | null>(null);
 

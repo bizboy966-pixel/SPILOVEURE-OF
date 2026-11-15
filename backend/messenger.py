@@ -52,7 +52,8 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
         raise HTTPException(400, "Choisissez un seul destinataire.")
     if body.kind in ("group", "channel") and not body.title.strip():
         raise HTTPException(400, "Le nom est obligatoire.")
-    if body.kind == "saved":
+    saved = body.kind == "saved"
+    if saved:
         ids = []
     if ids:
         existing = await db.users.count_documents({"id": {"$in": ids}, "status": {"$nin": ["banned", "blocked"]}})
@@ -68,6 +69,12 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
     if private_key:
         previous = await db.spv_conversations.find_one({"private_key": private_key})
         if previous:
+            if saved:
+                await db.spv_conversations.update_one(
+                    {"id": previous["id"]},
+                    {"$set": {"kind": "private", "is_saved": True, "title": "Messages enregistrés"}},
+                )
+                previous.update({"kind": "private", "is_saved": True, "title": "Messages enregistrés"})
             await db.spv_preferences.update_one(
                 {"user_id": uid, "conversation_id": previous["id"]},
                 {"$set": {"archived": False}}, upsert=True,
@@ -75,7 +82,9 @@ async def create_conversation(body: ConversationIn, request: Request, user=Depen
             return await conversation_view(db, previous, uid)
     stamp = now()
     conv = {
-        "id": identifier(), "kind": body.kind, "title": body.title.strip() if body.kind != "saved" else "Messages enregistrés",
+        "id": identifier(), "kind": "private" if saved else body.kind,
+        "is_saved": saved,
+        "title": body.title.strip() if not saved else "Messages enregistrés",
         "photo": "", "members": [uid, *ids], "admins": [uid], "owner_id": uid,
         "created_at": stamp, "updated_at": stamp,
         "is_public": body.is_public if body.kind == "channel" else False,

@@ -6,6 +6,8 @@ import { messengerApi } from "./api";
 import type { Attachment, ContactState, MessengerCapabilities, Person, Post } from "./types";
 import { useChat } from "@/src/chat/ChatContext";
 import { useRouter } from "expo-router";
+import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
+import StatusStories from "./StatusStories";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
@@ -108,7 +110,8 @@ export function FeedPanel({ userId, version = 0 }: FeedProps) {
     input.click();
   };
   return <View style={styles.panel}>
-    <Text style={styles.panelTitle}>Actus SPILOVEURE</Text>
+    <StatusStories userId={userId} version={version} />
+    <Text style={styles.panelTitle}>Actualités SPILOVEURE</Text>
     {error ? <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
       <View style={styles.composeCard}>
@@ -131,10 +134,11 @@ export function FeedPanel({ userId, version = 0 }: FeedProps) {
   </View>;
 }
 
-type ProfileProps = { username: string };
-export function ProfilePanel({ username }: ProfileProps) {
+type ProfileProps = { user: { username: string; profile_photo?: string } };
+export function ProfilePanel({ user }: ProfileProps) {
   const router = useRouter();
   const { logout } = useChat();
+  const [photoOpen, setPhotoOpen] = useState(false);
   const [settings, setSettings] = useState({ show_presence: true, allow_contacts: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -153,8 +157,15 @@ export function ProfilePanel({ username }: ProfileProps) {
     const next = { ...settings, [key]: !settings[key] }; setSettings(next);
     try { setSettings(await api.patch("/messenger/settings", next)); } catch (e: any) { setSettings(settings); setError(e?.detail || "Modification impossible."); }
   };
-  return <View style={styles.panel}><Text style={styles.panelTitle}>Profil</Text>
-    <View style={styles.profileCard}><View style={styles.profileAvatar}><Text style={styles.profileLetter}>{username.slice(0, 1).toUpperCase()}</Text></View><Text style={styles.profileName}>{username}</Text><Text style={styles.personMeta}>Membre SPILOVEURE</Text></View>
+   return <View style={styles.panel}><Text style={styles.panelTitle}>Profil</Text>
+     <View style={styles.profileCard}>
+       <TouchableOpacity style={styles.profileAvatar} onPress={() => setPhotoOpen(true)} accessibilityRole="button" accessibilityLabel="Importer ou modifier ma photo de profil">
+         {user.profile_photo ? <Image source={{ uri: user.profile_photo }} style={styles.profileAvatarImage} /> : <Text style={styles.profileLetter}>{user.username.slice(0, 1).toUpperCase()}</Text>}
+         <View style={styles.profileCamera}><Ionicons name="camera" size={14} color="#fff" /></View>
+       </TouchableOpacity>
+       <Text style={styles.profileName}>{user.username}</Text><Text style={styles.personMeta}>Membre SPILOVEURE</Text>
+     </View>
+     <ProfilePhotoManager mode="chat" visible={photoOpen} onClose={() => setPhotoOpen(false)} />
     <Text style={styles.sectionTitle}>Confidentialité</Text>
     {loading ? <ActivityIndicator color={blue} /> : <>
       <TouchableOpacity onPress={() => toggle("show_presence")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Afficher ma présence</Text><Text style={styles.personMeta}>Autoriser les membres à voir quand vous êtes en ligne</Text></View><View style={[styles.switch, settings.show_presence && styles.switchOn]}><View style={[styles.switchKnob, settings.show_presence && styles.switchKnobOn]} /></View></TouchableOpacity>
@@ -198,7 +209,7 @@ const styles = StyleSheet.create({
   visibility: { flexDirection: "row", gap: 5, alignItems: "center" }, visibilityText: { color: blue, fontSize: 12, fontWeight: "700" }, publish: { backgroundColor: blue, borderRadius: 17, paddingVertical: 8, paddingHorizontal: 16 }, publishText: { color: "#fff", fontSize: 12, fontWeight: "800" }, disabled: { opacity: .45 },
   postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e9edf3", borderRadius: 15, padding: 13, marginBottom: 12 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, postText: { color: ink, fontSize: 14, lineHeight: 21, marginTop: 11, marginBottom: 10 }, postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 9 },
   postAction: { paddingVertical: 4 }, comment: { borderTopWidth: 1, borderColor: "#f0f2f5", paddingVertical: 7 }, commentText: { color: ink, fontSize: 12, lineHeight: 18 }, commentRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f4f6f9", borderRadius: 19, paddingHorizontal: 12, marginTop: 8 }, commentInput: { flex: 1, height: 38, color: ink, outlineStyle: "none" as any, fontSize: 12 },
-  profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10 }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
+   profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10, overflow: "visible" }, profileAvatarImage: { width: 72, height: 72, borderRadius: 40 }, profileCamera: { position: "absolute", right: -2, bottom: -2, width: 25, height: 25, borderRadius: 13, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
   settingRow: { minHeight: 66, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderColor: "#eef1f5", gap: 12 }, settingTitle: { color: ink, fontSize: 14, fontWeight: "700" }, switch: { width: 40, height: 23, borderRadius: 14, backgroundColor: "#d3d9e2", padding: 3, justifyContent: "center" }, switchOn: { backgroundColor: blue }, switchKnob: { width: 17, height: 17, backgroundColor: "#fff", borderRadius: 9 }, switchKnobOn: { alignSelf: "flex-end" },
   notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#eef5ff", padding: 12, borderRadius: 12, marginTop: 20 }, noticeText: { flex: 1, color: "#52637e", fontSize: 12, lineHeight: 18 },
   capabilityCard: { backgroundColor: "#f7f9fc", borderRadius: 13, padding: 13, gap: 4, marginTop: 4 }, capabilityTitle: { color: ink, fontSize: 13, fontWeight: "800", marginTop: 8 },
