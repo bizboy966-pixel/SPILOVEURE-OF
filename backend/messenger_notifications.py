@@ -18,6 +18,8 @@ class NotificationSettingsIn(BaseModel):
     sound_enabled: bool | None = None
     preview: bool | None = None
     sound: Literal["default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba", "custom"] | None = None
+    sound_private: Literal["default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba", "custom"] | None = None
+    sound_group: Literal["default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba", "custom"] | None = None
     custom_name: str | None = Field(default=None, max_length=120)
     inherit: bool | None = None
 
@@ -25,12 +27,20 @@ class NotificationSettingsIn(BaseModel):
 async def notification_settings(db, uid, cid=None):
     global_row = await db.spv_settings.find_one({"user_id": uid}) or {}
     general = DEFAULTS | global_row.get("notifications", {})
+    # Existing users keep their former general sound until they choose
+    # separate defaults for private chats and groups/channels.
+    general["sound_private"] = general.get("sound_private", general["sound"])
+    general["sound_group"] = general.get("sound_group", general["sound"])
     if not cid:
         return general
+    conversation = await db.spv_conversations.find_one({"id": cid}, {"kind": 1}) or {}
     pref = await db.spv_preferences.find_one({"user_id": uid, "conversation_id": cid}) or {}
     custom = pref.get("notifications", {})
     inherited = custom.get("inherit", True)
     effective = general if inherited else DEFAULTS | custom
+    if inherited:
+        sound_key = "sound_private" if conversation.get("kind") in ("private", "saved") else "sound_group"
+        effective = {**effective, "sound": general[sound_key]}
     return {**effective, "inherit": inherited}
 
 

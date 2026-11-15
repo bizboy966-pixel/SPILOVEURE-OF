@@ -17,7 +17,13 @@ import {
 import { useI18n } from "@/src/i18n";
 
 type Props = { userId: string; conversationId?: string };
-type Settings = NotificationSoundSettings & { custom_name?: string };
+type SoundChoice = NotificationSoundSettings["sound"];
+type SoundField = "sound" | "sound_private" | "sound_group";
+type Settings = NotificationSoundSettings & {
+  sound_private?: SoundChoice;
+  sound_group?: SoundChoice;
+  custom_name?: string;
+};
 const defaults: Settings = { enabled: true, sound_enabled: true, preview: true, sound: "default", inherit: true };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 const SOUND_LABEL_KEYS: Record<Settings["sound"], string> = {
@@ -58,6 +64,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
   const [importing, setImporting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [playingSound, setPlayingSound] = useState<Settings["sound"] | null>(null);
+  const [activeSoundField, setActiveSoundField] = useState<SoundField>(conversationId ? "sound" : "sound_private");
   const notificationAvailability = chatNotificationAvailability();
 
   const controlsDisabled = isConversation && settings.inherit === true;
@@ -99,6 +106,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
   };
 
   useEffect(() => {
+    setActiveSoundField(isConversation ? "sound" : "sound_private");
     void load();
     void loadCapabilities();
     void checkCustom();
@@ -126,10 +134,20 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     setNotice("");
     try {
       if (!loaded) throw new Error("Chargez les paramètres avant de les modifier.");
-      if (settings.sound === "custom" && !controlsDisabled && !(await getCustomNotificationSound(userId, scope))) {
+      const usesCustomSound = isConversation
+        ? settings.sound === "custom"
+        : settings.sound_private === "custom" || settings.sound_group === "custom";
+      if (usesCustomSound && !controlsDisabled && !(await getCustomNotificationSound(userId, scope))) {
         throw new Error("Importez le son personnalisé sur cet appareil avant d’enregistrer.");
       }
-      const payload = settings.sound === "custom"
+      const payload: Partial<Settings> = isConversation ? {
+        enabled: settings.enabled,
+        sound_enabled: settings.sound_enabled,
+        preview: settings.preview,
+        sound: settings.sound,
+        custom_name: settings.custom_name,
+        inherit: settings.inherit,
+      } : usesCustomSound
         ? { ...settings, custom_name: settings.custom_name || customName || undefined }
         : settings;
       const saved = await api.patch<Settings>(endpoint, payload);
@@ -143,13 +161,15 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     }
   };
 
-  const previewSound = async () => {
+  const selectedSound = (field: SoundField): SoundChoice => settings[field] || "default";
+
+  const previewSound = async (field: SoundField = activeSoundField) => {
     setError("");
     setNotice("");
     setTesting(true);
     unlockNotificationAudio();
     try {
-      const trial = { ...effectiveSettings, enabled: true, sound_enabled: true };
+      const trial = { ...effectiveSettings, sound: selectedSound(field), enabled: true, sound_enabled: true };
       await playNotificationSound(userId, scope, trial);
       setNotice("Lecture terminée.");
     } catch (e: any) {
@@ -157,10 +177,11 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     } finally { setTesting(false); }
   };
 
-  const chooseSound = async (sound: Settings["sound"]) => {
+  const chooseSound = async (sound: SoundChoice, field: SoundField) => {
+    setActiveSoundField(field);
     if (sound === "custom") {
       if (!customAvailable) {
-        importSound();
+        importSound(field);
         return;
       }
       const trial = { ...effectiveSettings, sound, enabled: true, sound_enabled: true };
@@ -169,8 +190,8 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
       try {
         unlockNotificationAudio();
         await playNotificationSound(userId, scope, trial);
-        const saved = await api.patch<Settings>(endpoint, { sound });
-        setSettings(current => ({ ...current, sound: saved.sound, custom_name: saved.custom_name || current.custom_name }));
+        const saved = await api.patch<Settings>(endpoint, { [field]: sound });
+        setSettings(current => ({ ...current, [field]: saved[field] || sound, custom_name: saved.custom_name || current.custom_name }));
         if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("spv-notification-settings-changed"));
         setNotice(t("chat.notifications.sound_selected"));
       } catch (e: any) { setError(errorText(e, "Lecture du son impossible.")); }
@@ -185,8 +206,8 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
       await playNotificationSound(userId, scope, {
         ...effectiveSettings, sound, enabled: true, sound_enabled: true,
       });
-      const saved = await api.patch<Settings>(endpoint, { sound });
-      setSettings(current => ({ ...current, sound: saved.sound, inherit: isConversation ? saved.inherit !== false : undefined }));
+      const saved = await api.patch<Settings>(endpoint, { [field]: sound });
+      setSettings(current => ({ ...current, [field]: saved[field] || sound, inherit: isConversation ? saved.inherit !== false : undefined }));
       if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("spv-notification-settings-changed"));
       setNotice(t("chat.notifications.sound_selected"));
     } catch (e: any) {
@@ -194,7 +215,8 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     } finally { setPlayingSound(null); }
   };
 
-  const importSound = () => {
+  const importSound = (field: SoundField = activeSoundField) => {
+    setActiveSoundField(field);
     if (typeof document === "undefined") {
       setError("L’import de son personnalisé est disponible sur le Web.");
       return;
@@ -212,7 +234,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
         const prepared = await prepareNotificationSound(file);
         const name = prepared.trimmed ? `${file.name.replace(/\.[^.]+$/, "").slice(0, 100)}-extrait.wav` : file.name;
         await storeCustomNotificationSound(userId, scope, prepared.blob, name);
-        const next = { ...settings, sound: "custom" as const, custom_name: name.slice(0, 120) };
+        const next = { ...settings, [field]: "custom" as const, custom_name: name.slice(0, 120) };
         setSettings(next);
         setCustomAvailable(true);
         setCustomName(name);
@@ -267,6 +289,43 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     </TouchableOpacity>
   );
 
+  const renderSoundPicker = (field: SoundField, label: string) => (
+    <View key={field}>
+      <Text style={[styles.label, controlsDisabled && styles.faded]}>{label}</Text>
+      <View style={[styles.soundList, controlsDisabled && styles.disabled]} testID={field === "sound" ? "messenger-notification-sound-options" : `messenger-notification-sound-options-${field}`}>
+        {BUILT_IN_NOTIFICATION_SOUNDS.map(sound => <TouchableOpacity
+          key={sound}
+          onPress={() => void chooseSound(sound, field)}
+          disabled={controlsDisabled || !!playingSound || importing}
+          style={styles.soundRow}
+          accessibilityRole="radio"
+          accessibilityState={{ checked: selectedSound(field) === sound, disabled: controlsDisabled || !!playingSound }}
+          testID={field === "sound" ? `messenger-notification-sound-${sound}` : `messenger-notification-${field}-${sound}`}
+        >
+          <View style={styles.soundName}>
+            {playingSound === sound ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-circle-outline" size={22} color={blue} />}
+            <Text style={styles.soundRowText}>{t(SOUND_LABEL_KEYS[sound])}</Text>
+          </View>
+          <Ionicons name={selectedSound(field) === sound ? "radio-button-on" : "radio-button-off"} size={21} color={selectedSound(field) === sound ? "#20b879" : "#96a0ae"} />
+        </TouchableOpacity>)}
+        <TouchableOpacity
+          onPress={() => void chooseSound("custom", field)}
+          disabled={controlsDisabled || !!playingSound || importing}
+          style={styles.soundRow}
+          accessibilityRole="radio"
+          accessibilityState={{ checked: selectedSound(field) === "custom", disabled: controlsDisabled }}
+          testID={field === "sound" ? "messenger-notification-sound-custom" : `messenger-notification-${field}-custom`}
+        >
+          <View style={styles.soundName}>
+            {playingSound === "custom" ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-circle-outline" size={22} color={blue} />}
+            <Text style={styles.soundRowText}>{t(SOUND_LABEL_KEYS.custom)}</Text>
+          </View>
+          <Ionicons name={selectedSound(field) === "custom" ? "radio-button-on" : "radio-button-off"} size={21} color={selectedSound(field) === "custom" ? "#20b879" : "#96a0ae"} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return <View style={styles.wrapper} testID={isConversation ? "messenger-conversation-notification-settings" : "messenger-global-notification-settings"}>
     <TouchableOpacity onPress={() => setOpen(value => !value)} style={styles.collapsible} accessibilityRole="button" accessibilityState={{ expanded: open }} testID={isConversation ? "messenger-conversation-notification-settings-toggle" : "messenger-global-notification-settings-toggle"}>
       <View style={styles.headingIcon}><Ionicons name="notifications-outline" size={17} color={blue} /></View>
@@ -281,53 +340,29 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
         {toggleRow(t("chat.notifications.play_sound"), t("chat.notifications.play_sound_desc"), settings.sound_enabled, () => change({ sound_enabled: !settings.sound_enabled }), "messenger-notification-sound-enabled")}
         {toggleRow(t("chat.notifications.preview"), t("chat.notifications.preview_desc"), settings.preview, () => change({ preview: !settings.preview }), "messenger-notification-preview")}
 
-        <Text style={[styles.label, controlsDisabled && styles.faded]}>{t("chat.notifications.sound")}</Text>
-        <View style={[styles.soundList, controlsDisabled && styles.disabled]} testID="messenger-notification-sound-options">
-          {BUILT_IN_NOTIFICATION_SOUNDS.map(sound => <TouchableOpacity
-            key={sound}
-            onPress={() => void chooseSound(sound)}
-            disabled={controlsDisabled || !!playingSound || importing}
-            style={styles.soundRow}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: settings.sound === sound, disabled: controlsDisabled || !!playingSound }}
-            testID={`messenger-notification-sound-${sound}`}
-          >
-            <View style={styles.soundName}>
-              {playingSound === sound ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-circle-outline" size={22} color={blue} />}
-              <Text style={styles.soundRowText}>{t(SOUND_LABEL_KEYS[sound])}</Text>
-            </View>
-            <Ionicons name={settings.sound === sound ? "radio-button-on" : "radio-button-off"} size={21} color={settings.sound === sound ? "#20b879" : "#96a0ae"} />
-          </TouchableOpacity>)}
-          <TouchableOpacity
-            onPress={() => void chooseSound("custom")}
-            disabled={controlsDisabled || !!playingSound || importing}
-            style={styles.soundRow}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: settings.sound === "custom", disabled: controlsDisabled }}
-            testID="messenger-notification-sound-custom"
-          >
-            <View style={styles.soundName}>
-              {playingSound === "custom" ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-circle-outline" size={22} color={blue} />}
-              <Text style={styles.soundRowText}>{t(SOUND_LABEL_KEYS.custom)}</Text>
-            </View>
-            <Ionicons name={settings.sound === "custom" ? "radio-button-on" : "radio-button-off"} size={21} color={settings.sound === "custom" ? "#20b879" : "#96a0ae"} />
-          </TouchableOpacity>
-        </View>
+        {isConversation
+          ? renderSoundPicker("sound", t("chat.notifications.sound"))
+          : <>
+            {renderSoundPicker("sound_private", t("chat.notifications.sound_private"))}
+            {renderSoundPicker("sound_group", t("chat.notifications.sound_group"))}
+          </>}
         <Text style={styles.disclaimer}>{t("chat.notifications.sound_web_note")}</Text>
-        {settings.sound === "custom" && <View style={styles.customBox}>
+        {(isConversation ? settings.sound === "custom" : settings.sound_private === "custom" || settings.sound_group === "custom") && <View style={styles.customBox}>
           <Text style={styles.help}>{customAvailable ? t("chat.notifications.custom_available", { name: customName || settings.custom_name || t("chat.notifications.sound_custom") }) : t("chat.notifications.custom_missing")}</Text>
           <Text style={styles.help}>{t("chat.notifications.custom_limit")}</Text>
-          <TouchableOpacity onPress={importSound} disabled={controlsDisabled || importing} style={styles.secondaryButton} testID="messenger-notification-import-sound">{importing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="attach-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{importing ? t("chat.notifications.custom_prepare") : customAvailable ? t("chat.notifications.custom_replace") : t("chat.notifications.custom_import")}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => importSound(activeSoundField)} disabled={controlsDisabled || importing} style={styles.secondaryButton} testID="messenger-notification-import-sound">{importing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="attach-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{importing ? t("chat.notifications.custom_prepare") : customAvailable ? t("chat.notifications.custom_replace") : t("chat.notifications.custom_import")}</Text></TouchableOpacity>
           {customAvailable && <TouchableOpacity onPress={async () => {
             try {
               await removeCustomNotificationSound(userId, scope);
               setCustomAvailable(false); setCustomName("");
-              change({ sound: "default", custom_name: "" });
+              change(isConversation
+                ? { sound: "default", custom_name: "" }
+                : { sound_private: "default", sound_group: "default", custom_name: "" });
               setNotice("Son retiré de cet appareil. Enregistrez les paramètres pour appliquer le changement.");
             } catch (e: any) { setError(errorText(e, "Suppression impossible.")); }
           }} disabled={controlsDisabled} style={styles.removeButton} testID="messenger-notification-remove-sound"><Text style={styles.removeText}>{t("chat.notifications.custom_remove")}</Text></TouchableOpacity>}
         </View>}
-        <TouchableOpacity onPress={previewSound} disabled={controlsDisabled || testing || importing} style={[styles.secondaryButton, styles.testButton, controlsDisabled && styles.disabled]} testID="messenger-notification-test-sound">{testing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{testing ? t("chat.notifications.testing") : t("chat.notifications.test")}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => previewSound(activeSoundField)} disabled={controlsDisabled || testing || importing} style={[styles.secondaryButton, styles.testButton, controlsDisabled && styles.disabled]} testID="messenger-notification-test-sound">{testing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{testing ? t("chat.notifications.testing") : t("chat.notifications.test")}</Text></TouchableOpacity>
 
         <View style={styles.pushBox}>
           <Text style={styles.rowTitle}>Notifications du navigateur</Text>

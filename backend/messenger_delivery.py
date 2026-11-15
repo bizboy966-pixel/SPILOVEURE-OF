@@ -238,6 +238,7 @@ async def deliver_push_once(db):
                 body=body[:300] if settings["preview"] else "Vous avez reçu un nouveau message.",
                 link="/messenger?conversation=" + conv["id"],
                 data={"conversation_id": conv["id"], "message_id": row["id"], "kind": "chat",
+                      "notification_sound": settings["sound"],
                       "silent": "false" if settings["sound_enabled"] else "true"},
                 tag="chat-" + conv["id"], silent=not settings["sound_enabled"], data_only=True,
             ))

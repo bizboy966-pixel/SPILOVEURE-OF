@@ -38,7 +38,10 @@ messaging.onBackgroundMessage(async (payload) => {
     body: preview?.body || n.body || data.body || "",
     icon: preview?.avatar || "/icon-192.png",
     badge: "/icon-192.png",
-    data: { url: link, conversation_id: data.conversation_id, kind: data.kind },
+    data: {
+      url: link, conversation_id: data.conversation_id, kind: data.kind,
+      notification_sound: preview?.settings?.sound || data.notification_sound || "default",
+    },
     tag: (payload.data && payload.data.tag) || "spiloveure",
     ...(data.kind === "chat" ? {
       silent: preview ? !preview.settings.sound_enabled : data.silent === "true",

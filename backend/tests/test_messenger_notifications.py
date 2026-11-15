@@ -64,7 +64,10 @@ def test_settings_persist_privately_and_validate_sound(chat):
     assert call(chat, "get", "/notification-settings", "bob").json()["enabled"] is True
     assert call(chat, "patch", "/notification-settings", json={"sound": "invalid"}).status_code == 422
     assert call(chat, "patch", "/notification-settings", json={"sound": "pulse"}).status_code == 200
-    assert call(chat, "get", "/notification-settings").json()["sound"] == "pulse"
+    legacy = call(chat, "get", "/notification-settings").json()
+    assert legacy["sound"] == "pulse"
+    assert legacy["sound_private"] == "pulse"
+    assert legacy["sound_group"] == "pulse"
     assert call(chat, "patch", "/notification-settings", json={"custom_name": "x" * 121}).status_code == 422
     assert chat[0].get("/api/messenger/notification-settings").status_code == 401
 
@@ -84,6 +87,29 @@ def test_conversation_settings_inherit_override_and_master_off(chat):
     call(chat, "patch", "/notification-settings", "bob", json={"enabled": True})
     call(chat, "patch", f"/conversations/{cid}", "bob", json={"muted": True})
     assert asyncio.run(effective_notifications(chat[1], "bob", cid))["enabled"] is False
+
+
+def test_private_and_group_sounds_inherit_distinct_defaults(chat):
+    private_id, _ = setup_message(chat)
+    group = call(chat, "post", "/conversations", json={
+        "kind": "group", "member_ids": ["bob"], "title": "Team",
+    })
+    assert group.status_code == 200, group.text
+    group_id = group.json()["id"]
+
+    saved = call(chat, "patch", "/notification-settings", "bob", json={
+        "sound_private": "bell", "sound_group": "marimba",
+    })
+    assert saved.status_code == 200
+    assert call(chat, "get", f"/conversations/{private_id}/notification-settings", "bob").json()["sound"] == "bell"
+    assert call(chat, "get", f"/conversations/{group_id}/notification-settings", "bob").json()["sound"] == "marimba"
+
+    call(chat, "patch", f"/conversations/{private_id}/notification-settings", "bob", json={
+        "inherit": False, "sound": "bright",
+    })
+    assert asyncio.run(effective_notifications(chat[1], "bob", private_id))["sound"] == "bright"
+    call(chat, "patch", f"/conversations/{private_id}/notification-settings", "bob", json={"inherit": True})
+    assert asyncio.run(effective_notifications(chat[1], "bob", private_id))["sound"] == "bell"
 
 
 def test_preview_respects_privacy_mute_and_membership(chat):
@@ -138,7 +164,9 @@ def test_background_send_honors_preview_and_sound(chat, monkeypatch):
     import firebase_admin
     import push_helper
     cid, mid = setup_message(chat)
-    call(chat, "patch", "/notification-settings", "bob", json={"preview": False, "sound_enabled": False})
+    call(chat, "patch", "/notification-settings", "bob", json={
+        "preview": False, "sound_enabled": False, "sound_private": "marimba",
+    })
     asyncio.run(chat[1].push_tokens.insert_one({
         "user_id": "bob", "chat_session_id": "bob", "token": "fake-token",
     }))
@@ -156,4 +184,5 @@ def test_background_send_honors_preview_and_sound(chat, monkeypatch):
     assert sent[0][1]["title"] == "SPILOVEURE Chat"
     assert "Bonjour" not in sent[0][1]["body"]
     assert sent[0][1]["data"]["message_id"] == mid
+    assert sent[0][1]["data"]["notification_sound"] == "marimba"
     assert cid in sent[0][1]["link"]
