@@ -14,3 +14,9 @@ L’utilisateur confirme mettre à jour le site sur le VPS Hostinger manuellemen
 **Why:** L’utilisateur veut préparer Android sans perturber son site en service et demande à être prévenu avant une action pouvant affecter Hostinger.
 
 **How to apply:** Un push GitHub n’est pas une autorisation de déployer sur Hostinger. Ne pas exécuter les commandes de mise à jour du VPS sans demande explicite ; revérifier les déclenchements si une automatisation est ajoutée ultérieurement.
+
+Pour les vérifications navigateur locales, préférer le Chromium déjà disponible dans le `PATH` au navigateur téléchargé automatiquement par Playwright.
+
+**Why:** Le binaire Playwright en cache peut exister sans trouver ses bibliothèques natives sous NixOS, alors que le Chromium système est autonome et fonctionne. Cela évite des installations inutiles.
+
+**How to apply:** Détecter `command -v chromium` et le passer comme `executablePath` aux vérifications locales, sans imposer ce chemin Nix au code applicatif ou au VPS.

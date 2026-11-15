@@ -9,6 +9,7 @@ import type { Attachment, ContactState, Conversation, Message, Person, ReadRecei
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
 import MediaComposer from "./MediaComposer";
+import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
@@ -323,15 +324,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const input = document.createElement("input"); input.type = "file"; input.multiple = true;
     input.accept = "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt";
     input.onchange = async () => {
-      const files = Array.from(input.files || []);
-      if (files.some(file => file.type.startsWith("image/") || file.type.startsWith("video/"))) {
-        setPendingMedia(files);
-        return;
-      }
       try {
+        const files = Array.from(input.files || []).map(normalizeMediaFile);
+        if (!files.length) return;
+        validateChatFiles(files);
+        if (files.some(file => file.type.startsWith("image/") || file.type.startsWith("video/"))) {
+          setPendingMedia(files);
+          return;
+        }
         const attached: Attachment[] = [];
         for (const file of files) {
-          if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} dépasse 20 Mo.`);
           attached.push(await messengerApi.file(conversation.id, file));
         }
         await send({ attachments: attached });
@@ -340,9 +342,9 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     input.click();
   };
   const sendSelectedMedia = async (files: File[], caption: string) => {
+    validateChatFiles(files);
     const attached: Attachment[] = [];
     for (const file of files) {
-      if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} dépasse 20 Mo.`);
       attached.push(await messengerApi.file(conversation.id, file));
     }
     await send({ attachments: attached, text: caption });

@@ -16,6 +16,7 @@ MAX_DAILY = 100 * 1024 * 1024
 ALLOWED = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif",
     ".webp": "image/webp", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+    ".m4v": "video/mp4", ".3gp": "video/3gpp", ".3g2": "video/3gpp2",
     ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".wav": "audio/wav",
     ".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/csv",
     ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

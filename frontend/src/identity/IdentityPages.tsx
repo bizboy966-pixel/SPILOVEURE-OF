@@ -157,10 +157,26 @@ export function AccountAccessPage() {
   const submit = async () => { setBusy(true); setError(""); try { let result: { access_token: string; user: any }; if (mustCreatePassword) { if (!password || password !== confirm) throw { detail: "Les deux mots de passe doivent être identiques." }; result = await api.post<{ access_token: string; user: any }>(`/identity/password${source}`, { password, password_confirm: confirm }, { credentials: "include" }); } else { result = await api.post<{ access_token: string; user: any }>(`/identity/unlock${source}`, { password }, { credentials: "include" }); } await adoptSession(result.access_token, result.user); await refreshChat(); router.replace("/(app)/dashboard" as any); } catch (e: any) { setError(e?.detail || "Impossible d’accéder au compte."); } finally { setBusy(false); } };
   if (state && !state.activated) return <Page title="Paiement requis" subtitle="Votre compte principal reste protégé jusqu’à son activation."><ErrorText>{error}</ErrorText><Action label="Continuer vers le paiement" onPress={() => router.replace("/(app)/pay" as any)} /></Page>;
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}><Page title={mustCreatePassword ? "Créer mon mot de passe" : "Accéder à mon compte"} subtitle={mustCreatePassword ? "Choisissez un mot de passe pour votre compte activé." : "Saisissez votre mot de passe existant pour ouvrir votre espace principal."}>
+    <TouchableOpacity
+      onPress={() => router.replace("/messenger" as any)}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel="Retour au Chat"
+      testID="account-access-back-chat"
+      style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, marginBottom: 12 }}
+    ><Ionicons name="arrow-back" size={20} color={theme.colors.primary} /><Text style={s.link}>Retour au Chat</Text></TouchableOpacity>
     {!state && <><ErrorText>{error || "L’état de ce compte n’est pas disponible."}</ErrorText><Action label="Vérifier mon adresse e-mail" onPress={() => router.push(`/verify-email?source=${p.source === "chat" ? "chat&returnTo=%2Faccount-access%3Fsource%3Dchat" : ""}` as any)} /></>}
     {state && <>
     <TextInput testID="main-password" accessibilityLabel="Mot de passe" value={password} onChangeText={setPassword} secureTextEntry placeholder="Mot de passe" style={s.input} />
     {mustCreatePassword && <TextInput testID="main-password-confirm" accessibilityLabel="Confirmer le mot de passe" value={confirm} onChangeText={setConfirm} secureTextEntry placeholder="Confirmer le mot de passe" style={s.input} />}
+    {!mustCreatePassword && <TouchableOpacity
+      onPress={() => router.push("/forgot-password" as any)}
+      disabled={busy}
+      accessibilityRole="link"
+      accessibilityLabel="Mot de passe oublié ?"
+      testID="account-access-forgot-password"
+      style={{ alignSelf: "flex-end", paddingVertical: 12 }}
+    ><Text style={s.link}>Mot de passe oublié ?</Text></TouchableOpacity>}
     <ErrorText>{error}</ErrorText><Action label={busy ? "Patientez…" : "Accéder à mon compte"} testID="main-account-submit" disabled={busy || !state} onPress={submit} />
     </>}
   </Page></KeyboardAvoidingView>;

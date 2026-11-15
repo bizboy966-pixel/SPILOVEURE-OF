@@ -35,16 +35,16 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
     const timer = setTimeout(() => messengerApi.people(q).then(rows => active && setResults(rows)).catch(e => active && setError(e?.detail || "Recherche impossible.")), 250);
     return () => { active = false; clearTimeout(timer); };
   }, [query]);
-  const run = async (fn: () => Promise<any>) => { try { await fn(); await refresh(); } catch (e: any) { setError(e?.detail || "Action impossible."); } };
-  const personRow = (person: Person, label?: string) => <View key={person.id} style={styles.personRow} testID={`messenger-contact-row-${person.id}`}>
+  const run = async (fn: () => Promise<any>) => { try { await fn(); await refresh(); } catch (e: any) { setError(e?.detail || "Action impossible."); } finally { setMenu(null); } };
+  const personRow = (person: Person, label?: string) => <View key={person.id} style={[styles.personRow, menu === person.id && styles.personRowMenuOpen]} testID={`messenger-contact-row-${person.id}`}>
     <TouchableOpacity onPress={() => onStart(person)} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-contact-open-${person.id}`} style={styles.personIdentity}>
       <View style={styles.avatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View>
       <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.personName} numberOfLines={1}>{person.username}</Text><Text style={styles.personMeta}>{label || (person.online ? "En ligne" : "Membre SPILOVEURE")}</Text></View>
     </TouchableOpacity>
     <TouchableOpacity onPress={() => onStart(person)} style={styles.smallAction}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
     {onSave && <TouchableOpacity onPress={() => run(() => onSave(person))} style={styles.saveAction} accessibilityRole="button" accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`} testID={`messenger-contact-save-${person.id}`}><Ionicons name="bookmark-outline" size={17} color={blue} /><Text style={styles.saveActionText}>Enregistrer</Text></TouchableOpacity>}
-    <TouchableOpacity onPress={() => setMenu(menu === person.id ? null : person.id)} style={styles.smallAction}><Ionicons name="ellipsis-horizontal" size={19} color={muted} /></TouchableOpacity>
-    {menu === person.id && <View style={styles.personActions}>
+    <TouchableOpacity onPress={() => setMenu(menu === person.id ? null : person.id)} style={styles.smallAction} accessibilityRole="button" accessibilityLabel={`Options pour ${person.username}`} accessibilityState={{ expanded: menu === person.id }} testID={`messenger-contact-menu-toggle-${person.id}`}><Ionicons name="ellipsis-horizontal" size={19} color={muted} /></TouchableOpacity>
+    {menu === person.id && <View style={styles.personActions} testID={`messenger-contact-menu-${person.id}`}>
       {state.contacts.some(p => p.id === person.id)
         ? <TouchableOpacity onPress={() => run(() => api.delete(`/messenger/contacts/${encodeURIComponent(person.id)}`))}><Text style={[styles.action, { color: "#c43e48" }]}>Retirer des contacts</Text></TouchableOpacity>
         : state.sent.includes(person.id)
@@ -242,6 +242,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
   sectionTitle: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 17, marginBottom: 9, textTransform: "uppercase", letterSpacing: .5 },
   personRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderColor: "#eef1f5", position: "relative" },
+  personRowMenuOpen: { zIndex: 10, overflow: "visible" },
   personIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
   avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center", overflow: "hidden" }, avatarImage: { width: 43, height: 43, borderRadius: 23 }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
   personName: { color: ink, fontSize: 14, fontWeight: "800" }, personMeta: { color: muted, fontSize: 11, marginTop: 3 },
