@@ -3,6 +3,7 @@ export type ReadReceipts = Record<string, string>;
 export type Attachment = {
   id: string; name: string; mime: string; size: number; url: string; duration_seconds?: number;
   view_once?: boolean; view_once_opened?: boolean;
+  local_url?: string; uploading?: boolean; upload_failed?: boolean;
 };
 export type Message = {
   id: string; conversation_id: string; sender_id: string; sender_name: string; text: string;

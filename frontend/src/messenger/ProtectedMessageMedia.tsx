@@ -5,15 +5,15 @@ import { protectedFileUrl } from "./api";
 import type { Attachment } from "./types";
 
 export default function ProtectedMessageMedia({
-  file, onOpen, compact = false, autoLoad = true,
-}: { file: Attachment; onOpen: () => void; compact?: boolean; autoLoad?: boolean }) {
+  file, onOpen, compact = false, autoLoad = true, maxWidth = 260,
+}: { file: Attachment; onOpen: () => void; compact?: boolean; autoLoad?: boolean; maxWidth?: number }) {
   const [url, setUrl] = useState("");
   const [aspect, setAspect] = useState(4 / 3);
   const [error, setError] = useState(false);
   const [requested, setRequested] = useState(autoLoad);
   const videoHost = useRef<View | null>(null);
   const isVideo = file.mime.startsWith("video/");
-  const width = compact ? 132 : 250;
+  const width = Math.max(1, Math.min(compact ? 132 : 260, maxWidth));
   const height = Math.min(compact ? 144 : 320, Math.max(112, width / aspect));
 
   useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);

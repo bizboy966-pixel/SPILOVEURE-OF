@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import type { Message } from "./types";
 
 type Props = {
@@ -25,11 +26,19 @@ type Props = {
 };
 
 const quickReactions = ["⭐", "❤️", "👍", "🔥", "🥰", "👋", "😁"];
+const emojiStorage = createMemoryAdapter();
+const emojiTranslation: Record<CategoryTypes, string> = {
+  smileys_emotion: "Visages", people_body: "Personnes", animals_nature: "Animaux et nature",
+  food_drink: "Nourriture", travel_places: "Voyages", activities: "Activités",
+  objects: "Objets", symbols: "Symboles", flags: "Drapeaux", favorites: "Favoris",
+  recently_used: "Récents", search: "Recherche",
+};
 
 export default function MessageContextMenu({
   message, left, top, screenWidth, screenHeight, canPin, canEdit, canDelete,
   onClose, onReply, onReact, onCopy, onCopyLink, onForward, onPin, onEdit, onDelete, onSave,
 }: Props) {
+  const [showAllEmoji, setShowAllEmoji] = useState(false);
   if (!message) return null;
   const media = message.attachments?.some(file => !file.view_once &&
     (file.mime.startsWith("image/") || file.mime.startsWith("video/") || !file.mime.startsWith("audio/")),
@@ -60,6 +69,15 @@ export default function MessageContextMenu({
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
               </TouchableOpacity>
             ))}
+            <TouchableOpacity
+              onPress={() => setShowAllEmoji(value => !value)}
+              style={styles.moreReactionButton}
+              accessibilityRole="button"
+              accessibilityLabel="Afficher tous les emojis"
+              testID="messenger-context-more-reactions"
+            >
+              <Ionicons name="add-circle-outline" size={27} color="#1769e8" />
+            </TouchableOpacity>
           </ScrollView>
         </View>
         <View
@@ -89,6 +107,32 @@ export default function MessageContextMenu({
             ))}
           </ScrollView>
         </View>
+        {showAllEmoji && <View style={[styles.emojiSheet, { height: Math.min(430, Math.max(250, screenHeight * 0.56)) }]} testID="messenger-context-emoji-picker">
+          <View style={styles.emojiSheetHeader}>
+            <Text style={styles.emojiSheetTitle}>Choisir une réaction</Text>
+            <TouchableOpacity onPress={() => setShowAllEmoji(false)} accessibilityLabel="Fermer le sélecteur d’emojis">
+              <Ionicons name="close" size={22} color="#202833" />
+            </TouchableOpacity>
+          </View>
+          <EmojiKeyboard
+            onEmojiSelected={item => { setShowAllEmoji(false); onReact(item.emoji); }}
+            enableRecentlyUsed
+            storage={emojiStorage}
+            enableSearchBar
+            categoryPosition="top"
+            defaultHeight={Math.min(430, Math.max(250, screenHeight * 0.56)) - 48}
+            hideHeader
+            disableSafeArea
+            colorScheme="light"
+            translation={emojiTranslation}
+            theme={{
+              container: "#ffffff", header: "#ffffff",
+              category: { icon: "#64748b", iconActive: "#1769e8", container: "#f3f6fb", containerActive: "#e3efff" },
+              search: { background: "#f2f5f9", text: "#102042", placeholder: "#7d879a", icon: "#7d879a" },
+              emoji: { selected: "#e3efff" },
+            }}
+          />
+        </View>}
       </View>
     </Modal>
   );
@@ -101,8 +145,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2, shadowRadius: 12, elevation: 12,
   },
-  reactionRow: { alignItems: "center", gap: 3 },
+  reactionRow: { alignItems: "center", gap: 3, paddingRight: 4 },
   reactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
+  moreReactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
   reactionEmoji: { fontSize: 25 },
   menu: {
     position: "absolute", overflow: "hidden", borderRadius: 18, backgroundColor: "#fff",
@@ -112,4 +157,7 @@ const styles = StyleSheet.create({
   action: { minHeight: 47, flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 17 },
   actionText: { color: "#202833", fontSize: 15, fontWeight: "500" },
   dangerText: { color: "#d73546" },
+  emojiSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden", paddingTop: 8 },
+  emojiSheetHeader: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
+  emojiSheetTitle: { color: "#202833", fontSize: 14, fontWeight: "700" },
 });

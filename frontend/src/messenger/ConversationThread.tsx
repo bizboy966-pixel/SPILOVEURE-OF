@@ -170,6 +170,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [searching, setSearching] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [contextMessage, setContextMessage] = useState<Message | null>(null);
+  const [deletePromptMessage, setDeletePromptMessage] = useState<Message | null>(null);
   const [contextPosition, setContextPosition] = useState({ left: 12, top: 100 });
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
@@ -191,6 +192,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const recordingElapsed = useRef({ activeMs: 0, segmentStartedAt: 0 });
+  const localVoiceUrls = useRef(new Set<string>());
   const discardRecording = useRef(false);
   const sendRecordingAfterStop = useRef(false);
   const recordingViewOnceRef = useRef(false);
@@ -339,6 +341,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     streamRef.current?.getTracks().forEach(track => track.stop());
     audioContextRef.current?.close().catch(() => {});
   }, []);
+  useEffect(() => () => {
+    localVoiceUrls.current.forEach(url => URL.revokeObjectURL(url));
+    localVoiceUrls.current.clear();
+  }, []);
   const read = () => api.post(`/messenger/conversations/${encodeURIComponent(conversation.id)}/read`).catch(() => {});
   useEffect(() => { if (!loading) read(); }, [loading, conversation.id]);
   const fetchOlder = async () => {
@@ -416,26 +422,49 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const retrySend = async (clientId: string) => {
     const retry = retries.current[clientId];
     if (!retry) return;
+    const pendingUrls = messages
+      .find(message => message.client_id === clientId)?.attachments
+      .map(file => file.local_url)
+      .filter((url): url is string => Boolean(url)) || [];
     setFailedIds(prev => prev.filter(id => id !== clientId));
+    setMessages(previous => previous.map(message => message.client_id === clientId ? {
+      ...message,
+      attachments: message.attachments.map(file => file.local_url
+        ? { ...file, uploading: true, upload_failed: false }
+        : file),
+    } : message));
     try {
       const sent = await retry();
       setMessages(prev => prev.map(m => m.client_id === clientId ? sent : m));
-      delete retries.current[clientId]; onChanged();
-    } catch { setFailedIds(prev => [...prev, clientId]); }
+      delete retries.current[clientId];
+      pendingUrls.forEach(url => {
+        URL.revokeObjectURL(url);
+        localVoiceUrls.current.delete(url);
+      });
+      onChanged();
+    } catch {
+      setFailedIds(prev => [...prev, clientId]);
+      setMessages(previous => previous.map(message => message.client_id === clientId ? {
+        ...message,
+        attachments: message.attachments.map(file => file.local_url
+          ? { ...file, uploading: false, upload_failed: true }
+          : file),
+      } : message));
+    }
   };
   const action = async (message: Message, kind: string, body?: any) => {
-    if (kind === "delete" && typeof window !== "undefined" && !window.confirm("Supprimer ce message ?")) return;
     const root = `/messenger/conversations/${encodeURIComponent(conversation.id)}/messages/${encodeURIComponent(message.id)}`;
     try {
       let updated: Message | undefined;
       if (kind === "edit") updated = await messengerApiPatch(root, body);
-      if (kind === "delete") await fetchAction(root, "DELETE");
+      if (kind === "delete") await fetchAction(`${root}?scope=${body?.scope === "me" ? "me" : "everyone"}`, "DELETE");
       if (kind === "reaction") updated = await fetchAction(`${root}/reaction`, "POST", body);
       if (kind === "pin") updated = await fetchAction(`${root}/pin`, "POST");
       if (kind === "edit" && updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
-      else if (kind === "delete") setMessages(prev => prev.map(m => m.id === message.id ? { ...m, deleted: true, text: "", attachments: [] } : m));
+      else if (kind === "delete") setMessages(prev => prev.filter(m => m.id !== message.id));
       else if (updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
       setContextMessage(null);
+      setDeletePromptMessage(null);
       return true;
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e?.detail || "Action impossible."); return false; }
   };
@@ -517,17 +546,62 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     setPendingMedia(null);
   };
   const sendVoiceBlob = async (blob: Blob, durationSeconds: number, viewOnce: boolean) => {
-    setVoiceSending(true);
+    const client_id = makeId();
     try {
       const mime = blob.type || "audio/webm";
       const extension = mime.includes("ogg") ? ".ogg" : mime.includes("mp4") ? ".m4a" : mime.includes("mpeg") ? ".mp3" : ".webm";
       const file = new File([blob], `message-vocal-${Date.now()}${extension}`, { type: mime });
       if (file.size > 20 * 1024 * 1024) throw new Error("Le message vocal dépasse 20 Mo.");
-      const attachment = await messengerApi.file(conversation.id, file, durationSeconds, viewOnce);
-      await send({ attachments: [attachment], text: "" });
+      const localUrl = URL.createObjectURL(blob);
+      localVoiceUrls.current.add(localUrl);
+      const localAttachment: Attachment = {
+        id: `pending:${client_id}`, name: file.name, mime, size: file.size, url: localUrl,
+        duration_seconds: durationSeconds, view_once: viewOnce, local_url: localUrl, uploading: true,
+      };
+      const silentSend = silent;
+      const replyTo = reply?.id;
+      const optimistic: Message = {
+        id: `pending:${client_id}`, client_id, conversation_id: conversation.id, sender_id: userId,
+        sender_name: "Vous", text: "", created_at: new Date().toISOString(), deleted: false,
+        attachments: [localAttachment], reactions: {}, pinned: false, read_by: [], reply_to: replyTo,
+      };
+      nearBottom.current = true;
+      setMessages(previous => [...previous, optimistic]);
+      setReply(null);
+      changeDraft("");
+      setSilent(false);
+      setVoiceSending(false);
+
+      let uploaded: Attachment | null = null;
+      const transmit = async () => {
+        if (!uploaded) uploaded = await messengerApi.file(conversation.id, file, durationSeconds, viewOnce);
+        return messengerApi.send(conversation.id, {
+          text: "", client_id, attachments: [uploaded], reply_to: replyTo,
+          silent: silentSend || undefined,
+        });
+      };
+      retries.current[client_id] = transmit;
+      try {
+        const sent = await transmit();
+        setMessages(previous => previous.map(message => message.client_id === client_id ? sent : message));
+        setFailedIds(previous => previous.filter(id => id !== client_id));
+        delete retries.current[client_id];
+        localVoiceUrls.current.delete(localUrl);
+        URL.revokeObjectURL(localUrl);
+        onChanged();
+      } catch {
+        setFailedIds(previous => previous.includes(client_id) ? previous : [...previous, client_id]);
+        setMessages(previous => previous.map(message => message.client_id === client_id ? {
+          ...message,
+          attachments: message.attachments.map(item => item.local_url === localUrl
+            ? { ...item, uploading: false, upload_failed: true }
+            : item),
+        } : message));
+      }
     } catch (e: any) {
+      setVoiceSending(false);
       if (typeof window !== "undefined") window.alert(e?.detail || e?.message || "Envoi vocal impossible.");
-    } finally { setVoiceSending(false); }
+    }
   };
   sendVoiceRef.current = sendVoiceBlob;
   const releaseVoiceResources = () => {
@@ -710,6 +784,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const darkMode = visualSettings.appearance === "dark";
   const chatSurface = darkMode ? "#111827" : "transparent";
   const ownBubbleColor = messageColors[visualSettings.message_color || "green"];
+  const mediaMaxWidth = Math.max(120, Math.min(260, Math.floor((windowWidth - 56) * 0.78)));
   const textScale = Math.min(1.4, Math.max(0.9, Number(visualSettings.font_scale) || 1));
   const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
     ? `Vu ${new Date(otherPerson.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
@@ -772,16 +847,21 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                       <ProtectedMessageMedia key={file.id} file={file} compact onOpen={() => openAttachment(file)} />)}
                   </View>}
                 </View>}
-                {!!message.attachments?.some(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")) && <View style={[styles.mediaGroup, own && styles.ownAttachment]}>
+                {!!message.attachments?.some(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")) && <View style={[styles.mediaGroup, own ? styles.ownMediaGroup : styles.otherMediaGroup]}>
                   {message.attachments.filter(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")).map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} onOpen={() => openAttachment(file)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={() => openAttachment(file)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!message.text && <Text style={[
                   styles.messageText,
                   { fontSize: 17 * textScale, color: visualSettings.high_contrast ? (darkMode && !own ? "#fff" : "#0b111b") : darkMode && !own ? "#f5f7fa" : undefined },
                 ]}>{renderText(message.text, message)}</Text>}
                 {message.attachments?.filter(file => file.mime.startsWith("audio/")).map(file =>
-                  <View key={file.id} style={[styles.voiceCard, own && styles.ownAttachment]}><ProtectedVoicePlayer file={file} own={own} autoLoad={visualSettings.auto_load_media !== false} /></View>)}
+                  <View key={file.id} style={[styles.voiceCard, own && styles.ownAttachment]}>
+                    {file.local_url
+                      ? <VoiceMessage src={file.local_url} durationSeconds={file.duration_seconds} tint="own" testID={`messenger-pending-voice-${message.client_id}`} />
+                      : <ProtectedVoicePlayer file={file} own={own} autoLoad={visualSettings.auto_load_media !== false} />}
+                    {file.uploading && <Text style={styles.uploadingText}>Envoi du vocal…</Text>}
+                  </View>)}
                 {message.attachments?.filter(file => !file.mime.startsWith("audio/") && !file.mime.startsWith("image/") && !file.mime.startsWith("video/")).map(file =>
                   <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={[styles.fileChip, own && styles.ownAttachment]}>
                     <Ionicons name="document-outline" size={17} color={blue} />
@@ -796,7 +876,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               })()}
                 {message.client_id && failedIds.includes(message.client_id) && <TouchableOpacity onPress={() => retrySend(message.client_id!)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity>}
               </View>
-              {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <Text key={emoji} style={styles.reaction}>{emoji} {ids.length}</Text>)}
+              {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <TouchableOpacity
+                key={emoji}
+                onPress={() => void action(message, "reaction", { emoji })}
+                accessibilityRole="button"
+                accessibilityLabel={`${ids.includes(userId) ? "Retirer" : "Ajouter"} la réaction ${emoji}`}
+                testID={`messenger-message-reaction-${message.id}-${emoji}`}
+                style={[styles.reactionChip, ids.includes(userId) && styles.reactionChipMine]}
+              ><Text style={styles.reaction}>{emoji} {ids.length}</Text></TouchableOpacity>)}
               <View pointerEvents="none" style={[styles.bubbleTail, own ? styles.ownBubbleTail : styles.otherBubbleTail]}>
                 <Svg width={11} height={14} viewBox="0 0 11 14">
                  <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? ownBubbleColor : "#fff"} />
