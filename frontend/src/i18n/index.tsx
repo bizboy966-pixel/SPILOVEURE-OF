@@ -32,6 +32,10 @@ export function I18nProvider({ children, initialLang }: { children: React.ReactN
   const [lang, setLangState] = useState<Lang>(initialLang || DEFAULT_LANG);
   const [ready, setReady] = useState(false);
 
+  useEffect(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = lang;
+  }, [lang]);
+
   // Boot: read the cached preference from AsyncStorage so the UI doesn't flash.
   useEffect(() => {
     (async () => {

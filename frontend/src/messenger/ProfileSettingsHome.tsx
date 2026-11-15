@@ -1,6 +1,7 @@
 import React from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useI18n } from "@/src/i18n";
 
 type ProfileSettingsHomeProps = {
   username: string;
@@ -87,8 +88,15 @@ export default function ProfileSettingsHome({
   dark = false,
 }: ProfileSettingsHomeProps) {
   const { width } = useWindowDimensions();
+  const { t } = useI18n();
   const compact = width < 420;
   const initials = username.trim().slice(0, 1).toLocaleUpperCase() || "?";
+  const sectionKeys: Record<string, string> = {
+    "appareils-connectes": "connected_devices", compte: "account", confidentialite: "privacy",
+    listes: "lists", discussions: "chats", apparence: "appearance", diffusions: "broadcasts",
+    accessibilite: "accessibility", "langue-de-l-application": "language",
+    notifications: "notifications", "stockage-et-donnees": "storage",
+  };
 
   return (
     <ScrollView
@@ -100,7 +108,7 @@ export default function ProfileSettingsHome({
       <View style={[styles.content, compact && styles.contentCompact]}>
         <View style={styles.headingBlock}>
           <Text style={[styles.eyebrow, dark && styles.textBright]}>SPILOVEURE CHAT</Text>
-          <Text style={[styles.title, dark && styles.textBright]}>Paramètres</Text>
+          <Text style={[styles.title, dark && styles.textBright]}>{t("chat.profile.settings")}</Text>
         </View>
 
         <View style={[styles.identityCard, dark && styles.cardDark]}>
@@ -128,7 +136,7 @@ export default function ProfileSettingsHome({
             ) : null}
           </Pressable>
           <View style={styles.identityCopy}>
-            <Text style={[styles.identityLabel, dark && styles.textMutedDark]}>Votre profil</Text>
+            <Text style={[styles.identityLabel, dark && styles.textMutedDark]}>{t("chat.profile.your_profile")}</Text>
             <Text style={[styles.username, dark && styles.textBright]} numberOfLines={1}>{username}</Text>
           </View>
           <View style={styles.identityMark}>
@@ -143,7 +151,7 @@ export default function ProfileSettingsHome({
               testID={`profile-settings-row-${section.slug}`}
               onPress={() => onOpen(section.name)}
               accessibilityRole="button"
-              accessibilityLabel={`${section.name}. ${section.description}`}
+              accessibilityLabel={`${t(`chat.profile.${sectionKeys[section.slug]}`)}. ${t(`chat.profile.${sectionKeys[section.slug]}_desc`)}`}
               style={({ pressed }) => [
                 styles.row,
                 dark && styles.rowDark,
@@ -155,8 +163,8 @@ export default function ProfileSettingsHome({
                 <Ionicons name={section.icon} size={20} color={colors.blue} />
               </View>
               <View style={styles.rowCopy}>
-                <Text style={[styles.rowTitle, dark && styles.textBright]} numberOfLines={1}>{section.name}</Text>
-                <Text style={[styles.rowDescription, dark && styles.textMutedDark]} numberOfLines={2}>{section.description}</Text>
+                <Text style={[styles.rowTitle, dark && styles.textBright]} numberOfLines={1}>{t(`chat.profile.${sectionKeys[section.slug]}`)}</Text>
+                <Text style={[styles.rowDescription, dark && styles.textMutedDark]} numberOfLines={2}>{t(`chat.profile.${sectionKeys[section.slug]}_desc`)}</Text>
               </View>
               <Ionicons name="chevron-forward" size={17} color={colors.chevron} />
             </Pressable>

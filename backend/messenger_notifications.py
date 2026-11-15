@@ -17,7 +17,7 @@ class NotificationSettingsIn(BaseModel):
     enabled: bool | None = None
     sound_enabled: bool | None = None
     preview: bool | None = None
-    sound: Literal["default", "chime", "bell", "custom"] | None = None
+    sound: Literal["default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba", "custom"] | None = None
     custom_name: str | None = Field(default=None, max_length=120)
     inherit: bool | None = None
 

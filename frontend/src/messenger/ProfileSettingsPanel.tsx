@@ -48,7 +48,7 @@ const isProfileSection = (name: string): name is ProfileSection => [
 export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats, onAppearanceChange, onReduceMotionChange, onHighContrastChange }: Props) {
   const router = useRouter();
   const { logout } = useChat();
-  const { lang, setLang } = useI18n();
+  const { lang, setLang, t } = useI18n();
   const [section, setSection] = useState<ProfileSection | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
@@ -65,6 +65,13 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [storageLoading, setStorageLoading] = useState(false);
   const personalLink = chatProfileUrl(user.username);
+  const sectionTitleKey: Partial<Record<ProfileSection, string>> = {
+    "Appareils connectés": "connected_devices", "Compte": "account",
+    "Confidentialité": "privacy", "Listes": "lists", "Discussions": "chats",
+    "Apparence": "appearance", "Diffusions": "broadcasts",
+    "Accessibilité": "accessibility", "Langue de l’application": "language",
+    "Notifications": "notifications", "Stockage et données": "storage",
+  };
 
   const loadSessions = async () => {
     setSessionsLoading(true);
@@ -312,7 +319,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
         </>;
       case "Langue de l’application":
         return <>
-          {info("Langue enregistrée sur cet appareil", "Le choix est conservé. Certaines parties de SPILOVEURE Chat restent actuellement en français.")}
+          {info(t("chat.profile.language_saved_title"), t("chat.profile.language_saved_desc"))}
           {(["fr", "en"] as Lang[]).map(value => <TouchableOpacity key={value} onPress={() => void setLang(value)} accessibilityRole="radio" accessibilityState={{ selected: lang === value }} testID={`profile-language-${value}`} style={styles.settingRow}>
             <Text style={[styles.rowTitle, styles.infoCopy]}>{LANG_LABELS[value].flag}  {LANG_LABELS[value].native}</Text><Ionicons name={lang === value ? "radio-button-on" : "radio-button-off"} size={20} color={blue} />
           </TouchableOpacity>)}
@@ -320,7 +327,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
       case "Notifications":
         return <>
           <NotificationSettingsPanel userId={user.id} />
-          {info("Portée Web", "Les réglages ici concernent les alertes du navigateur. Les sonneries système et les appels nécessitent l’application native et les réglages du téléphone.")}
+          {info(t("chat.notifications.browser_scope"), t("chat.notifications.browser_scope_desc"))}
         </>;
       case "Stockage et données":
         return <>
@@ -351,7 +358,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
         <TouchableOpacity onPress={() => { setError(""); setSection(null); }} accessibilityRole="button" accessibilityLabel="Retour aux paramètres du profil" style={styles.back}>
           <Ionicons name="arrow-back" size={20} color={blue} />
         </TouchableOpacity>
-        <Text style={styles.title}>{section}</Text>
+         <Text style={styles.title}>{sectionTitleKey[section] ? t(`chat.profile.${sectionTitleKey[section]}`) : section}</Text>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {renderSection()}

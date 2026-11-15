@@ -2,9 +2,14 @@ export type NotificationSoundSettings = {
   enabled: boolean;
   sound_enabled: boolean;
   preview: boolean;
-  sound: "default" | "chime" | "bell" | "custom";
+  sound: "default" | "chime" | "bell" | "soft" | "bright" | "bubble" | "pulse" | "marimba" | "custom";
   inherit?: boolean;
 };
+
+export type BuiltInNotificationSound = Exclude<NotificationSoundSettings["sound"], "custom">;
+export const BUILT_IN_NOTIFICATION_SOUNDS: BuiltInNotificationSound[] = [
+  "default", "chime", "bell", "soft", "bright", "bubble", "pulse", "marimba",
+];
 
 const DB_NAME = "spiloveure-notification-sounds";
 const STORE_NAME = "sounds";
@@ -159,7 +164,7 @@ export async function removeCustomNotificationSound(userId: string, scope: strin
   }
 }
 
-function playOscillator(kind: "chime" | "bell" | "default"): Promise<void> {
+function playOscillator(kind: BuiltInNotificationSound): Promise<void> {
   return new Promise((resolve, reject) => {
     const context = getAudioContext();
     if (!context) {
@@ -169,21 +174,31 @@ function playOscillator(kind: "chime" | "bell" | "default"): Promise<void> {
     const start = () => {
       try {
         const now = context.currentTime;
-        const notes = kind === "bell" ? [880, 1174.66] : kind === "chime" ? [659.25, 880] : [740];
+        const patterns: Record<BuiltInNotificationSound, { notes: number[]; wave: OscillatorType; interval: number }> = {
+          default: { notes: [740], wave: "triangle", interval: 0.12 },
+          chime: { notes: [659.25, 880], wave: "triangle", interval: 0.12 },
+          bell: { notes: [880, 1174.66], wave: "sine", interval: 0.12 },
+          soft: { notes: [523.25], wave: "sine", interval: 0.12 },
+          bright: { notes: [784, 1046.5, 1318.5], wave: "triangle", interval: 0.1 },
+          bubble: { notes: [587.33, 783.99], wave: "sine", interval: 0.16 },
+          pulse: { notes: [880, 659.25, 880], wave: "square", interval: 0.09 },
+          marimba: { notes: [523.25, 659.25, 783.99], wave: "sine", interval: 0.14 },
+        };
+        const { notes, wave, interval } = patterns[kind];
         notes.forEach((frequency, index) => {
           const oscillator = context.createOscillator();
           const gain = context.createGain();
-          oscillator.type = kind === "bell" ? "sine" : "triangle";
-          oscillator.frequency.setValueAtTime(frequency, now + index * 0.12);
-          gain.gain.setValueAtTime(0.0001, now + index * 0.12);
-          gain.gain.exponentialRampToValueAtTime(0.075, now + index * 0.12 + 0.015);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.12 + 0.34);
+          oscillator.type = wave;
+          oscillator.frequency.setValueAtTime(frequency, now + index * interval);
+          gain.gain.setValueAtTime(0.0001, now + index * interval);
+          gain.gain.exponentialRampToValueAtTime(0.06, now + index * interval + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + index * interval + 0.28);
           oscillator.connect(gain);
           gain.connect(context.destination);
-          oscillator.start(now + index * 0.12);
-          oscillator.stop(now + index * 0.12 + 0.36);
+          oscillator.start(now + index * interval);
+          oscillator.stop(now + index * interval + 0.3);
         });
-        window.setTimeout(resolve, notes.length * 120 + 390);
+        window.setTimeout(resolve, notes.length * interval * 1000 + 340);
       } catch (error) {
         reject(error instanceof Error ? error : new Error("Lecture du son impossible."));
       }
@@ -221,5 +236,5 @@ export async function playNotificationSound(userId: string, scope: string, setti
     return;
   }
   await ready;
-  await playOscillator(settings.sound === "chime" || settings.sound === "bell" ? settings.sound : "default");
+  await playOscillator(settings.sound === "custom" ? "default" : settings.sound);
 }
