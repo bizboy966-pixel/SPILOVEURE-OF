@@ -1,6 +1,6 @@
 export type Person = { id: string; username: string; avatar?: string; online?: boolean; last_seen?: string };
 export type ReadReceipts = Record<string, string>;
-export type Attachment = { id: string; name: string; mime: string; size: number; url: string };
+export type Attachment = { id: string; name: string; mime: string; size: number; url: string; duration_seconds?: number };
 export type Message = {
   id: string; conversation_id: string; sender_id: string; sender_name: string; text: string;
   created_at: string; edited_at?: string; deleted: boolean; attachments: Attachment[];

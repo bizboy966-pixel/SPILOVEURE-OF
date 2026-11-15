@@ -204,6 +204,7 @@ class Attachment(BaseModel):
     mime: str = ""
     size: int = 0
     url: str = ""
+    duration_seconds: float | None = Field(default=None, ge=0, le=7200)
 
 
 class MessageIn(BaseModel):
@@ -245,7 +246,10 @@ async def attachments_checked(db, supplied, user, scope):
         stored = await db.spv_files.find_one({"id": item.id, "owner_id": user["id"], "scope": scope})
         if not stored:
             raise HTTPException(400, "Pièce jointe non autorisée.")
-        result.append({key: stored[key] for key in ["id", "name", "mime", "size", "url"]})
+        keys = ["id", "name", "mime", "size", "url"]
+        if "duration_seconds" in stored:
+            keys.append("duration_seconds")
+        result.append({key: stored[key] for key in keys})
     return result
 
 

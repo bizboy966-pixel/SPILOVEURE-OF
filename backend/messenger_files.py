@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from messenger_core import administrator, chat_user, clean, identifier, member, now
@@ -80,7 +81,7 @@ async def storage_usage(request: Request, user=Depends(chat_user)):
     }
 
 
-async def store(request, user, file, scope):
+async def store(request, user, file, scope, duration_seconds=None):
     db = request.app.state.db
     filename = Path((file.filename or "fichier").replace("\\", "/")).name[:180]
     suffix = Path(filename).suffix.lower()
@@ -113,21 +114,34 @@ async def store(request, user, file, scope):
             "id": fid, "owner_id": user["id"], "scope": scope, "name": filename,
             "size": size, "mime": mime, "url": "/api/messenger/files/" + fid, "created_at": now(),
         }
+        if duration_seconds is not None:
+            if not mime.startswith("audio/") or not math.isfinite(duration_seconds) or not 0 < duration_seconds <= 7200:
+                raise HTTPException(400, "La durée du message vocal est invalide.")
+            row["duration_seconds"] = duration_seconds
         await db.spv_files.insert_one(row)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
     finally:
         await file.close()
-    return {key: row[key] for key in ["id", "name", "mime", "size", "url"]}
+    keys = ["id", "name", "mime", "size", "url"]
+    if "duration_seconds" in row:
+        keys.append("duration_seconds")
+    return {key: row[key] for key in keys}
 
 
 @api.post("/conversations/{cid}/files")
-async def upload(cid: str, request: Request, file: UploadFile = File(...), user=Depends(chat_user)):
+async def upload(
+    cid: str,
+    request: Request,
+    file: UploadFile = File(...),
+    duration_seconds: float | None = Form(default=None, ge=0, le=7200),
+    user=Depends(chat_user),
+):
     conv = await member(request.app.state.db, cid, user)
     if conv["kind"] == "channel":
         administrator(conv, user)
-    return await store(request, user, file, cid)
+    return await store(request, user, file, cid, duration_seconds)
 
 
 @api.post("/feed/files")

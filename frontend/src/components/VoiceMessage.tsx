@@ -14,28 +14,24 @@
  *     an error hint below the bar so the user knows why nothing plays.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { voiceWaveform } from "./voiceWaveform";
+import { formatVoiceDuration } from "./voiceDuration";
 
 type Props = {
   src: string;
   tint?: "own" | "other";
   testID?: string;
+  durationSeconds?: number;
+  loading?: boolean;
 };
 
-function fmt(seconds: number) {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-export default function VoiceMessage({ src, testID }: Props) {
+export default function VoiceMessage({ src, testID, durationSeconds, loading = false }: Props) {
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationSeconds || 0);
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [waveform, setWaveform] = useState<number[]>(() => Array.from({ length: 36 }, () => 7));
@@ -43,6 +39,14 @@ export default function VoiceMessage({ src, testID }: Props) {
   const trackRef = useRef<View | null>(null);
 
   useEffect(() => {
+    const recordedDuration = Number.isFinite(durationSeconds) && (durationSeconds || 0) > 0
+      ? durationSeconds as number
+      : 0;
+    setDuration(recordedDuration);
+    setCurrent(0);
+    setLoaded(false);
+    setErr(null);
+    if (!src) return;
     if (Platform.OS !== "web") return;
     // eslint-disable-next-line no-undef
     const a = new Audio();
@@ -63,6 +67,10 @@ export default function VoiceMessage({ src, testID }: Props) {
         }).then(buffer => decodeContext!.decodeAudioData(buffer)).then(decoded => {
           if (disposed) return;
           setWaveform(voiceWaveform(decoded.getChannelData(0)));
+          if (!recordedDuration) {
+            setDuration(decoded.duration);
+            setLoaded(true);
+          }
         }).catch(() => {
           if (!disposed) setWaveform(Array.from({ length: 36 }, () => 7));
         }).finally(() => {
@@ -79,17 +87,9 @@ export default function VoiceMessage({ src, testID }: Props) {
 
     const onLoaded = () => {
       setErr(null);
+      if (recordedDuration) { setLoaded(true); return; }
       const d = a.duration;
       if (isFinite(d) && d > 0) { setDuration(d); setLoaded(true); return; }
-      try {
-        a.currentTime = 1e101;
-        const onFix = () => {
-          if (isFinite(a.duration)) { setDuration(a.duration); setLoaded(true); }
-          try { a.currentTime = 0; } catch {}
-          a.removeEventListener("timeupdate", onFix);
-        };
-        a.addEventListener("timeupdate", onFix);
-      } catch { /* silent */ }
     };
     const onTime = () => setCurrent(a.currentTime || 0);
     const onEnd = () => { setPlaying(false); setCurrent(0); };
@@ -126,7 +126,7 @@ export default function VoiceMessage({ src, testID }: Props) {
       audioRef.current = null;
       if (decodeContext && decodeContext.state !== "closed") void decodeContext.close().catch(() => {});
     };
-  }, [src]);
+  }, [src, durationSeconds]);
 
   const toggle = () => {
     const a = audioRef.current;
@@ -169,6 +169,28 @@ export default function VoiceMessage({ src, testID }: Props) {
   const textCol = "#66865e";
   const errCol = theme.colors.danger;
 
+  if (!src && loading) {
+    return <View style={styles.wrap} testID={testID}>
+      <Pressable disabled style={[styles.playBtn, { backgroundColor: btnBg, opacity: 0.75 }]} accessibilityLabel="Chargement du message vocal">
+        <Ionicons name="play" size={16} color={iconColor} />
+      </Pressable>
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <View style={[styles.track, { backgroundColor: trackBg }]}>
+          <View style={styles.waveform} pointerEvents="none">
+            {waveform.map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: "#a8c89e" }]} />)}
+          </View>
+        </View>
+        <View style={styles.loadingRow}>
+          <Text style={{ color: textCol, fontSize: 12, fontVariant: ["tabular-nums"] }}>
+            {durationSeconds ? formatVoiceDuration(durationSeconds) : "…"}
+          </Text>
+          <Text style={styles.loadingText}>Chargement du vocal</Text>
+          <ActivityIndicator size="small" color={btnBg} />
+        </View>
+      </View>
+    </View>;
+  }
+
   return (
     <View style={styles.wrap} testID={testID}>
       <Pressable
@@ -206,7 +228,7 @@ export default function VoiceMessage({ src, testID }: Props) {
         </Pressable>
         <View style={{ flexDirection: "row" }}>
           <Text style={{ color: textCol, fontSize: 12, fontVariant: ["tabular-nums"] }}>
-            {fmt(playing || current > 0 ? current : duration)}
+            {formatVoiceDuration(playing || current > 0 ? current : duration)}
           </Text>
         </View>
         {err ? (
@@ -239,6 +261,8 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "web" ? { cursor: "pointer" as any } : {}),
   },
   waveform: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", height: "100%", gap: 2 },
+  loadingRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  loadingText: { color: "#66865e", fontSize: 11, flex: 1 },
   waveBar: {
     width: 2,
     minWidth: 1,

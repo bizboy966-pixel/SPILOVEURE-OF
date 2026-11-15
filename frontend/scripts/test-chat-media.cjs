@@ -36,6 +36,18 @@ test("voice recordings and nonmedia never become videos by inference", () => {
   assert.equal(files.inferredMediaType({ name: "unsafe.svg", type: "image/svg+xml" }), "image/svg+xml");
 });
 
+test("voice durations stay in seconds and format with a clear mm:ss label", () => {
+  const exports = {};
+  const source = fs.readFileSync(path.join(__dirname, "../src/components/voiceDuration.ts"), "utf8");
+  vm.runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText, { exports });
+  assert.equal(exports.formatVoiceDuration(3), "00:03");
+  assert.equal(exports.formatVoiceDuration(3.6), "00:04");
+  assert.equal(exports.formatVoiceDuration(64), "01:04");
+  assert.equal(exports.elapsedVoiceSeconds(1000, 4321), 3.321);
+});
+
 test("empty and oversized files are rejected before any upload", () => {
   assert.throws(() => files.validateChatFiles([{ name: "empty.mp4", size: 0 }]), /est vide/);
   assert.throws(() => files.validateChatFiles([{ name: "large.mp4", size: files.CHAT_FILE_LIMIT + 1 }]), /20 Mo/);

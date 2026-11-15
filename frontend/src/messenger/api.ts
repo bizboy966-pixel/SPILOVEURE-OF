@@ -21,7 +21,13 @@ export const messengerApi = {
     api.post<Message>(`/messenger/conversations/${encodeURIComponent(id)}/messages`, payload),
   markConversationDelivered: (conversationId: string) =>
     api.post(`/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`, {}),
-  file: async (id: string, file: File) => api.upload<Attachment>(`/messenger/conversations/${encodeURIComponent(id)}/files`, file),
+  file: async (id: string, file: File, durationSeconds?: number) =>
+    api.upload<Attachment>(
+      `/messenger/conversations/${encodeURIComponent(id)}/files`,
+      file,
+      "file",
+      durationSeconds === undefined ? {} : { duration_seconds: durationSeconds },
+    ),
   people: (q: string) => api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}`),
   publicChannels: (q = "") => api.get<PublicChannel[]>(`/messenger/channels?q=${encodeURIComponent(q)}`),
   joinChannel: (id: string) => api.post<Conversation>(`/messenger/channels/${encodeURIComponent(id)}/join`),
@@ -36,10 +42,19 @@ export const messengerApi = {
 export async function protectedFileUrl(fileId: string): Promise<string> {
   if (typeof window === "undefined" || typeof URL === "undefined") throw new Error("Fichier indisponible");
   const base = process.env.EXPO_PUBLIC_BACKEND_URL || "";
-  const response = await fetch(`${base}/api/messenger/files/${encodeURIComponent(fileId)}`, {
-    credentials: "include", cache: "no-store",
-  });
-  if (response.status === 401) reportChatUnauthorized();
-  if (!response.ok) throw new Error("Impossible d’ouvrir ce fichier.");
-  return URL.createObjectURL(await response.blob());
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 30_000) : null;
+  try {
+    const response = await fetch(`${base}/api/messenger/files/${encodeURIComponent(fileId)}`, {
+      credentials: "include", cache: "no-store", signal: controller?.signal,
+    });
+    if (response.status === 401) reportChatUnauthorized();
+    if (!response.ok) throw new Error("Impossible d’ouvrir ce fichier.");
+    return URL.createObjectURL(await response.blob());
+  } catch (error: any) {
+    if (controller?.signal.aborted) throw new Error("Le chargement du fichier a expiré. Réessayez.");
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }

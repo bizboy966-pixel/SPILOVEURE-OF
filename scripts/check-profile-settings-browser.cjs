@@ -23,9 +23,11 @@ const assert = require("node:assert/strict");
     fixture("seed");
     browser = await chromium.launch({
       executablePath: execFileSync("bash", ["-c", "command -v chromium"], { encoding: "utf8" }).trim(),
-      args: ["--no-sandbox"], headless: true,
+      args: ["--no-sandbox", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"], headless: true,
     });
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 }, serviceWorkers: "block", permissions: ["microphone"],
+    });
     const login = await context.request.post(base + "/api/auth/login", { data: { email: id + "@example.com", password } });
     assert.equal(login.status(), 200);
     const opened = await context.request.post(base + "/api/identity/chat/open", {
@@ -66,6 +68,24 @@ const assert = require("node:assert/strict");
     await page.goto(base + "/messenger");
     await page.getByTestId("messenger-search-toggle").waitFor({ timeout: 90000 });
     await page.getByTestId("animated-splash").waitFor({ state: "hidden", timeout: 30000 });
+    await page.getByText("qa_contact_" + peerId.slice(-8), { exact: true }).click();
+    await page.getByTestId("messenger-record-voice").click();
+    await page.getByText(/Enregistrement ·/).waitFor();
+    await page.waitForTimeout(1600);
+    const voiceUpload = page.waitForResponse(response =>
+      response.request().method() === "POST" && response.url().includes(`/api/messenger/conversations/${testConversation.id}/files`));
+    await page.getByTestId("messenger-send-voice").click();
+    const voiceUploadResponse = await voiceUpload;
+    assert.equal(voiceUploadResponse.status(), 200);
+    const voiceAttachment = await voiceUploadResponse.json();
+    assert.ok(voiceAttachment.duration_seconds > 1 && voiceAttachment.duration_seconds < 10, "Voice duration must reflect a few seconds, not minutes.");
+    const totalVoiceSeconds = Math.round(voiceAttachment.duration_seconds);
+    const voiceDurationLabel = `${String(Math.floor(totalVoiceSeconds / 60)).padStart(2, "0")}:${String(totalVoiceSeconds % 60).padStart(2, "0")}`;
+    await page.getByTestId(`messenger-voice-${voiceAttachment.id}`).waitFor({ timeout: 15000 });
+    await page.getByText("Chargement du vocal", { exact: true }).waitFor({ state: "detached", timeout: 30000 });
+    await page.getByText(voiceDurationLabel, { exact: true }).waitFor();
+    await page.screenshot({ path: "/tmp/spv-voice-loaded.png" });
+    await page.getByTestId("messenger-back").click();
     await page.getByTestId("messenger-tab-Profil").click();
     const sections = [
       "appareils-connectes", "compte", "confidentialite", "listes", "discussions",

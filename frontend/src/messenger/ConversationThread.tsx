@@ -14,6 +14,7 @@ import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
+import { elapsedVoiceSeconds } from "@/src/components/voiceDuration";
 import { chatProfileUrl } from "./userLinks";
 
 type Props = {
@@ -66,6 +67,7 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
 function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment; own: boolean; autoLoad?: boolean }) {
   const [src, setSrc] = useState("");
   const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [requested, setRequested] = useState(autoLoad);
   useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);
   useEffect(() => {
@@ -81,13 +83,20 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [file.id, requested]);
+  }, [file.id, requested, attempt]);
   if (!requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le vocal ${file.name}`} testID={`messenger-voice-load-${file.id}`} style={styles.voiceLoad}>
     <Ionicons name="download-outline" size={20} color={blue} /><Text style={styles.fileLabel}>Charger le vocal</Text>
   </TouchableOpacity>;
-  if (error) return <Text style={styles.fileLabel}>Vocal indisponible</Text>;
-  if (!src) return <ActivityIndicator size="small" color={blue} />;
-  return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
+  if (error) return <TouchableOpacity onPress={() => { setError(false); setAttempt(value => value + 1); }} accessibilityRole="button" accessibilityLabel="Réessayer de charger le vocal" testID={`messenger-voice-retry-${file.id}`} style={styles.voiceLoad}>
+    <Ionicons name="refresh-outline" size={18} color={blue} /><Text style={styles.fileLabel}>Vocal indisponible · Réessayer</Text>
+  </TouchableOpacity>;
+  return <VoiceMessage
+    src={src}
+    durationSeconds={file.duration_seconds}
+    loading={!src}
+    tint={own ? "own" : "other"}
+    testID={`messenger-voice-${file.id}`}
+  />;
 }
 
 export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts, focusComposer = false }: Props) {
@@ -140,9 +149,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [contactsLoading, setContactsLoading] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingStartedAt = useRef(0);
   const discardRecording = useRef(false);
   const sendRecordingAfterStop = useRef(false);
-  const sendVoiceRef = useRef<(blob: Blob) => Promise<void>>(async () => {});
+  const sendVoiceRef = useRef<(blob: Blob, durationSeconds: number) => Promise<void>>(async () => {});
   const scroll = useRef<ScrollView>(null);
   const nearBottom = useRef(true);
   const initialScrollPending = useRef(true);
@@ -373,14 +383,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     await send({ attachments: attached, text: caption });
     setPendingMedia(null);
   };
-  const sendVoiceBlob = async (blob: Blob) => {
+  const sendVoiceBlob = async (blob: Blob, durationSeconds: number) => {
     setVoiceSending(true);
     try {
       const mime = blob.type || "audio/webm";
       const extension = mime.includes("ogg") ? ".ogg" : mime.includes("mp4") ? ".m4a" : mime.includes("mpeg") ? ".mp3" : ".webm";
       const file = new File([blob], `message-vocal-${Date.now()}${extension}`, { type: mime });
       if (file.size > 20 * 1024 * 1024) throw new Error("Le message vocal dépasse 20 Mo.");
-      const attachment = await messengerApi.file(conversation.id, file);
+      const attachment = await messengerApi.file(conversation.id, file, durationSeconds);
       await send({ attachments: [attachment], text: "" });
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert(e?.detail || e?.message || "Envoi vocal impossible.");
@@ -407,15 +417,24 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); const chunks: BlobPart[] = [];
       rec.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       discardRecording.current = false;
+      sendRecordingAfterStop.current = false;
       rec.onstop = () => {
         const recordedType = rec.mimeType || chunks.find(chunk => chunk instanceof Blob)?.type || "audio/webm";
+        const durationSeconds = Math.max(0.1, elapsedVoiceSeconds(recordingStartedAt.current, Date.now()));
+        recordingStartedAt.current = 0;
         if (!discardRecording.current && sendRecordingAfterStop.current) {
           sendRecordingAfterStop.current = false;
-          void sendVoiceRef.current(new Blob(chunks, { type: recordedType }));
+          const blob = new Blob(chunks, { type: recordedType });
+          if (blob.size) void sendVoiceRef.current(blob, durationSeconds);
+          else if (typeof window !== "undefined") window.alert("Aucun son n’a été enregistré. Réessayez.");
         }
         stream.getTracks().forEach(t => t.stop());
       };
-      recorder.current = rec; setRecordSeconds(0); setRecording(true); rec.start();
+      recorder.current = rec;
+      recordingStartedAt.current = Date.now();
+      setRecordSeconds(0);
+      setRecording(true);
+      rec.start();
     } catch { if (typeof window !== "undefined") window.alert("Autorisez le microphone pour enregistrer."); }
   };
   const forward = async (target: Conversation) => {
