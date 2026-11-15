@@ -1939,6 +1939,31 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
         "amount": p.get("amount"),
         "currency": p.get("currency"),
     }
+    # Apply provider-confirmed service purchases without sending them through
+    # the account-activation path.
+    if (p.get("kind") in ("ads", "special_task", "lottery_entry")
+            and p.get("status") in ("paid", "validated")
+            and not p.get("activation_done")):
+        try:
+            from payment_purchases import complete_paid_purchase
+            result = await complete_paid_purchase(db, p, source=str(gw or "gateway"))
+            await db.payments.update_one(
+                {"reference": reference},
+                {"$set": {"status": result.get("status", "paid"),
+                          "activation_done": True,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+            out.update({
+                "status": p.get("status"),
+                "activation_done": bool(p.get("activation_done")),
+                "registered": result.get("registered", False),
+                "already_registered": result.get("already_registered", False),
+                "manual_refund_required": result.get("manual_refund_required", False),
+            })
+        except Exception as exc:
+            log.exception("service payment reconciliation failed ref=%s: %s", reference, exc)
+
     # ── Auto-activate any paid/validated payment that hasn't been activated
     #    yet (webhook lost, first-time hit, etc.).
     if (p.get("status") in ("paid", "validated")) and not p.get("activation_done"):
@@ -4859,6 +4884,10 @@ from moneyfusion import api as moneyfusion_api, webhooks as moneyfusion_webhooks
 app.include_router(moneyfusion_api)
 app.include_router(moneyfusion_webhooks)
 app.include_router(moneyfusion_admin)
+
+# Shared checkout for ads, special tasks, and direct Jackpot tickets.
+from payment_purchases import router as purchase_payment_router  # noqa: E402
+app.include_router(purchase_payment_router)
 
 # Telegram group publication moderation. The bot token is read from server
 # environment; callbacks are verified using a token-derived webhook secret.

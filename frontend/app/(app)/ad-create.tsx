@@ -64,9 +64,10 @@ function AdCreateScreenInner() {
   useEffect(() => {
     (async () => {
       try {
-        const f = await api.get<any>("/settings/payments", { auth: false });
-        setAshtecEnabled(!!f.ashtec_enabled);
-        setCryptoEnabledLocal(!!f.crypto_enabled);
+        const catalog = await api.get<any>("/payments/activation-catalog");
+        const operators = (catalog.countries || []).flatMap((c: any) => c.operators || []);
+        setAshtecEnabled(operators.some((o: any) => !["izichange", "biztranspay_crypto"].includes(o.gateway)));
+        setCryptoEnabledLocal(operators.some((o: any) => ["izichange", "biztranspay_crypto"].includes(o.gateway)));
       } catch {}
     })();
   }, []);
@@ -163,13 +164,13 @@ function AdCreateScreenInner() {
 
   const startPayment = async () => {
     if (!adId) return;
-    setSaving(true); setPayErr(null);
-    try {
-      const r = await api.post<PayInit>(`/ads/${adId}/pay`, { method: "crypto" });
-      setPayInit(r);
-    } catch (e: any) {
-      setPayErr(e?.detail || "Impossible de démarrer le paiement.");
-    } finally { setSaving(false); }
+    router.push({
+      pathname: "/(app)/purchase-payment" as any,
+      params: {
+        kind: "ads", target_id: adId, amount: String(pricing?.price_per_day && duration ? pricing.price_per_day * duration : 0),
+        title: "Paiement de la publicité", return_to: "/(app)/ads",
+      },
+    });
   };
 
   const copyAddr = async () => {
@@ -392,7 +393,7 @@ function AdCreateScreenInner() {
                 <TouchableOpacity
                   style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
                   onPress={() => router.push({
-                    pathname: "/(app)/pay-ashtec" as any,
+                    pathname: "/(app)/purchase-payment" as any,
                     params: {
                       kind: "ads",
                       target_id: adId!,
@@ -404,7 +405,7 @@ function AdCreateScreenInner() {
                   testID="ad-pay-mobile-money"
                 >
                   <Ionicons name="phone-portrait" size={18} color="#FBBF24" />
-                  <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
+                  <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money</Text>
                 </TouchableOpacity>
                 )}
 

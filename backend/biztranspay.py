@@ -444,6 +444,9 @@ class BtpActivationIn(BaseModel):
     phone: str = Field(..., min_length=6)
     otp: Optional[str] = None
     ussd_authorized: bool = False
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
 
 
 def _btp_error_detail(resp) -> tuple[str, dict]:
@@ -480,10 +483,13 @@ async def biztranspay_activation(
     """Level-1 activation via Biz-transPay (new doc): catalog → quote → (OTP) → deposit.
     fee_bearer=receiver : the user pays exactly the activation price."""
     from ashtec_activation import ACTIVATION_LEVEL
-    from btp_catalog import (activation_amount_for, currency_label, e164, find_entry, flow_steps,
+    from btp_catalog import (amount_for_xof, currency_label, e164, find_entry, flow_steps,
                              idem, render_ussd)
     db = request.app.state.db
-    if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement Biz-transPay non pris en charge.")
+    if kind == "activation" and int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
         raise HTTPException(400, "Votre compte est déjà activé.")
     cc = data.country_code.upper()
     if not await is_payin_enabled(db):
@@ -492,16 +498,18 @@ async def biztranspay_activation(
     if not secret_key or not public_key:
         raise HTTPException(503, "Biz-transPay non configuré (clés publique/secrète manquantes).")
     pending = await db.payments.find_one({
-        "provider": "biztranspay", "kind": "activation", "user_id": user["id"],
+        "provider": "biztranspay", "kind": kind, "user_id": user["id"],
+        "target_id": data.target_id,
         "status": {"$in": ["pending", "processing", "unknown"]},
     }, {"_id": 0})
     if pending:
         return {"reference": pending["reference"], "status": "pending",
                 "redirect_url": pending.get("redirect_url"),
                 "message": "Un paiement est déjà en cours de vérification. Ne le renvoyez pas."}
+    active_key = user["id"] if kind == "activation" else f"{user['id']}:{kind}:{data.target_id or ''}"
     await db.payments.update_many(
         {"provider": "biztranspay", "user_id": user["id"], "status": "failed",
-         "activation_done": {"$ne": True}},
+         "kind": kind, "target_id": data.target_id, "activation_done": {"$ne": True}},
         {"$unset": {"btp_active_key": ""}},
     )
 
@@ -518,9 +526,10 @@ async def biztranspay_activation(
     from payment_exclusivity import assert_assignment
     await assert_assignment(db, "biztranspay", cc, entry["code"], entry["label"])
     currency = entry["currency"]
-    amount = await activation_amount_for(db, currency)
+    amount_xof = 2650.0 if kind == "activation" else float(data.amount_xof or 0)
+    amount = await amount_for_xof(db, currency, amount_xof)
     if not amount:
-        raise HTTPException(400, f"Prix d'activation indisponible en {currency} pour le moment.")
+        raise HTTPException(400, f"Montant indisponible en {currency} pour le moment.")
     phone = e164(data.phone, cc)
     base_body = {"amount": amount, "country": cc, "operator": entry["code"],
                  "currency": currency, "fee_bearer": "receiver"}
@@ -583,16 +592,22 @@ async def biztranspay_activation(
     now = datetime.now(timezone.utc)
     try:
         await db.payments.insert_one({
-        "reference": ref, "provider": "biztranspay", "kind": "activation",
-        "btp_active_key": user["id"],
+        "reference": ref, "provider": "biztranspay", "kind": kind,
+        "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
+        "btp_active_key": active_key,
         "user_id": user["id"], "username": user.get("username"),
-        "amount": amount, "charged_amount": charged, "currency": currency,
+        "amount": amount, "base_amount_xof": amount_xof,
+        "charged_amount": charged, "currency": currency,
         "phone": phone, "phone_original": data.phone.strip(), "country_code": cc,
-        "operator": entry["code"], "level": ACTIVATION_LEVEL, "payment_flow": flow,
+        "operator": entry["code"], "level": ACTIVATION_LEVEL if kind == "activation" else None,
+        "payment_flow": flow,
         "status": "pending", "activation_done": False, "created_at": now, "updated_at": now,
         })
     except DuplicateKeyError:
-        raise HTTPException(409, "Un paiement est déjà en cours de vérification pour ce compte.")
+        raise HTTPException(409, "Un paiement est déjà en cours de vérification pour cet élément.")
     body = {**base_body, **payer, "reference": ref}
     if flow.get("kind") == "ussd" and flow.get("before_submit"):
         body["ussd_authorized"] = True
@@ -1123,11 +1138,14 @@ async def _resolve_crypto_asset(db) -> str:
 
 class BtpCryptoCreate(BaseModel):
     level: int = 1  # activation is always L1
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
 
 
 @api.post("/activations/biztranspay-crypto/create")
 async def biztranspay_crypto_create(
-    _data: BtpCryptoCreate, request: Request, user=Depends(get_current_user),
+    data: BtpCryptoCreate, request: Request, user=Depends(get_current_user),
 ):
     """Create a fresh USDT.BEP20 deposit intent on BTP for account activation.
 
@@ -1137,7 +1155,10 @@ async def biztranspay_crypto_create(
     db = request.app.state.db
     from ashtec_activation import ACTIVATION_LEVEL
 
-    if int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement crypto Biz-transPay non pris en charge.")
+    if kind == "activation" and int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
         raise HTTPException(400, "Votre compte est déjà activé.")
     if not await is_crypto_enabled(db):
         raise HTTPException(503, "Biz-transPay Crypto n'est pas disponible actuellement.")
@@ -1153,7 +1174,8 @@ async def biztranspay_crypto_create(
     fresh_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
     existing = await db.payments.find_one({
         "user_id": user["id"], "provider": "biztranspay",
-        "kind": "activation_crypto",
+        "kind": "activation_crypto" if kind == "activation" else kind,
+        "target_id": data.target_id,
         "status": {"$in": ["pending", "processing"]},
         "activation_done": {"$ne": True},
         "created_at": {"$gte": fresh_cutoff},
@@ -1175,8 +1197,12 @@ async def biztranspay_crypto_create(
     if not refund_address:
         raise HTTPException(503, "Paiement crypto indisponible : adresse de remboursement non configurée par l'administrateur.")
     asset_code = await _resolve_crypto_asset(db)
+    amount_xof = 2650.0 if kind == "activation" else float(data.amount_xof or 0)
+    if amount_xof <= 0:
+        raise HTTPException(400, "Montant de paiement invalide.")
+    amount_usdt = round(BTP_CRYPTO_AMOUNT * amount_xof / 2650.0, 6)
     payload = {
-        "amount": BTP_CRYPTO_AMOUNT,
+        "amount": amount_usdt,
         "asset_code": asset_code,
         "full_name": (user.get("full_name") or user.get("username") or "SPILOVEURE User")[:160].ljust(2, "."),
         "email": user.get("email") or f"{user['id']}@spiloveure.internal",
@@ -1212,7 +1238,7 @@ async def biztranspay_crypto_create(
         or pf.get("address") or pf.get("deposit_address")
     )
     amount_to_send = float(
-        dep.get("amount_to_send") or instr.get("amount") or dep.get("amount") or BTP_CRYPTO_AMOUNT
+        dep.get("amount_to_send") or instr.get("amount") or dep.get("amount") or amount_usdt
     )
     memo = dep.get("memo") or instr.get("memo") or pf.get("memo")
     expires_at = dep.get("pending_expires_at") or dep.get("expires_at")
@@ -1226,10 +1252,15 @@ async def biztranspay_crypto_create(
     await db.payments.insert_one({
         "reference": ref,
         "provider": "biztranspay",
-        "kind": "activation_crypto",
+        "kind": "activation_crypto" if kind == "activation" else kind,
+        "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
         "user_id": user["id"],
         "username": user.get("username"),
-        "amount": BTP_CRYPTO_AMOUNT,
+        "amount": amount_usdt,
+        "base_amount_xof": amount_xof,
         "amount_to_send": amount_to_send,
         "currency": "USDT",
         "asset_code": asset_code,
@@ -1238,25 +1269,26 @@ async def biztranspay_crypto_create(
         "memo": memo,
         "expires_at": expires_at,
         "provider_intent_id": provider_id,
-        "level": 1,
+        "level": 1 if kind == "activation" else None,
         "status": "pending",
         "activation_done": False,
         "created_at": now,
         "updated_at": now,
     })
     # Also mirror to activations table for the admin dashboard.
-    await db.activations.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "reference": ref,
-        "level": 1,
-        "amount": BTP_CRYPTO_AMOUNT,
-        "currency": "USDT",
-        "payment_method": "crypto_auto",
-        "gateway": "biztranspay",
-        "status": "pending",
-        "created_at": now,
-    })
+    if kind == "activation":
+        await db.activations.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "reference": ref,
+            "level": 1,
+            "amount": amount_usdt,
+            "currency": "USDT",
+            "payment_method": "crypto_auto",
+            "gateway": "biztranspay",
+            "status": "pending",
+            "created_at": now,
+        })
     return {
         "reference": ref,
         "deposit_address": address,
@@ -1412,7 +1444,10 @@ async def _poll_once(db) -> dict:
         if not intent_id:
             continue
         # v27w — crypto deposits use a different status endpoint.
-        is_crypto = (p.get("kind") == "activation_crypto")
+        is_crypto = (
+            p.get("kind") == "activation_crypto"
+            or str(p.get("currency") or "").upper() == "USDT"
+        )
         status_path = f"/crypto/deposits/{intent_id}" if is_crypto else f"/deposits/{intent_id}"
         try:
             r = await _get(status_path, secret_key, public_key)

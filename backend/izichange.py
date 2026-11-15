@@ -168,6 +168,9 @@ async def create_payout(db, *, reference: str, amount_usdt: float, destination_a
 
 class CryptoCreate(BaseModel):
     level: int = 1
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
 
 
 @api.post("/activations/crypto-auto/create")
@@ -178,20 +181,28 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
     code directly, keeping the user inside SPILIVERE.
     """
     db = request.app.state.db
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement crypto non pris en charge.")
     if not await feature_enabled(db, "crypto_auto"):
         raise HTTPException(503, "Activation automatique (Crypto) momentanément désactivée par l'administrateur.")
-    if data.level != 1:
+    if kind == "activation" and data.level != 1:
         raise HTTPException(400, "Cette méthode ne supporte que l'activation au niveau 1.")
-    if user.get("max_level", 0) >= 1:
+    if kind == "activation" and user.get("max_level", 0) >= 1:
         raise HTTPException(400, "Votre compte est déjà activé.")
     if not API_KEY:
         raise HTTPException(500, "Passerelle Crypto non configurée.")
+    amount_xof = 2650.0 if kind == "activation" else float(data.amount_xof or 0)
+    if amount_xof <= 0:
+        raise HTTPException(400, "Montant de paiement invalide.")
+    amount_usdt = round(AMOUNT_USDT * amount_xof / 2650.0, 6)
 
     # Dedupe: if the user already has a FRESH pending crypto_auto activation
     # (< 15 min old), return that one instead of creating a new intent.
     fresh_cutoff = datetime.now(timezone.utc).timestamp() - 15 * 60
     existing = await db.payments.find_one({
         "user_id": user["id"], "provider": "izichange", "status": "pending",
+        "kind": kind, "target_id": data.target_id,
     }, sort=[("created_at", -1)])
     if existing and existing.get("deposit_address") \
             and existing.get("created_at") \
@@ -199,13 +210,13 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         return {
             "reference": existing["reference"],
             "deposit_address": existing["deposit_address"],
-            "amount_to_send": existing.get("amount_to_send") or AMOUNT_USDT,
+            "amount_to_send": existing.get("amount_to_send") or amount_usdt,
             "coin": "USDT", "network": "BEP20",
             "memo": existing.get("memo"),
             "expires_at": existing.get("expires_at"),
         }
 
-    reference = f"SPLV_ACT_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
+    reference = f"SPLV_{kind[:4].upper()}_{user['id'][:8]}_{uuid.uuid4().hex[:8]}"
     email = user.get("email") or "user@spiloveure.com"
     username = user.get("username") or "SPILOVEURE"
     first_name = (user.get("first_name") or username or "SPILOVEURE")[:32]
@@ -216,13 +227,16 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         r = await _api_post("/v1/payment-intents", {
             "requestedCurrencyType": "crypto",
             "currencyRequested": ASSET_CODE,
-            "amountRequested": f"{AMOUNT_USDT:g}",
+            "amountRequested": f"{amount_usdt:g}",
             "acceptedCoins": [ASSET_CODE],
             "merchantReference": reference,
             "customerEmail": email,
             "metadata": {
                 "user_id": user["id"],
-                "activation_level": 1,
+                "activation_level": 1 if kind == "activation" else None,
+                "kind": kind,
+                "target_id": data.target_id,
+                "amount_xof": amount_xof,
                 "username": username,
             },
         }, idempotency_key=reference)
@@ -252,7 +266,7 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         raise HTTPException(400, "La passerelle Crypto n'a pas généré l'adresse. Réessayez plus tard.")
     sel = sr.json()
     deposit_address = sel.get("depositAddress")
-    amount_to_send = sel.get("amountToSend") or sel.get("amountCryptoExpected") or AMOUNT_USDT
+    amount_to_send = sel.get("amountToSend") or sel.get("amountCryptoExpected") or amount_usdt
     memo = sel.get("memo")
     expires_at = sel.get("expiresAt")
     if not deposit_address:
@@ -267,9 +281,15 @@ async def create_crypto_charge(data: CryptoCreate, request: Request, user=Depend
         "reference": reference,
         "provider": "izichange",
         "provider_intent_id": intent_id,
-        "user_id": user["id"], "level": 1,
+        "user_id": user["id"], "level": 1 if kind == "activation" else None,
+        "kind": kind,
+        "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
         "status": "pending",
-        "amount": AMOUNT_USDT,
+        "amount": amount_usdt,
+        "base_amount_xof": amount_xof,
         "currency": "USDT",
         "network": "BEP20",
         "deposit_address": deposit_address,
@@ -589,6 +609,10 @@ async def _handle_payment_intent_event(db, event_type: str, data: dict):
             except Exception as notify_exc:
                 log.warning("Special-task payment notification failed (%s)", type(notify_exc).__name__)
         return {"ok": True, "task_paid": True, "task_id": pay["special_task_id"]}
+    if pay.get("kind") == "lottery_entry" and pay.get("draw_id"):
+        from payment_purchases import complete_paid_purchase
+        result = await complete_paid_purchase(db, pay, source="izichange")
+        return {"ok": True, "lottery_entry": True, **result}
     try:
         await activate_level(db, pay["user_id"], 1, source="izichange")
         return {"ok": True, "activated": True}

@@ -60,9 +60,10 @@ function SpecialTaskCreateInner() {
     (async () => { try { const r = await api.get<any>("/special-tasks/config"); setCfg(r.action_types || {}); } catch {} })();
     (async () => {
       try {
-        const f = await api.get<any>("/settings/payments", { auth: false });
-        setAshtecEnabled(!!f.ashtec_enabled);
-        setCryptoPayEnabled(!!f.crypto_enabled);
+        const catalog = await api.get<any>("/payments/activation-catalog");
+        const operators = (catalog.countries || []).flatMap((c: any) => c.operators || []);
+        setAshtecEnabled(operators.some((o: any) => !["izichange", "biztranspay_crypto"].includes(o.gateway)));
+        setCryptoPayEnabled(operators.some((o: any) => ["izichange", "biztranspay_crypto"].includes(o.gateway)));
       } catch {}
     })();
   }, []);
@@ -107,15 +108,13 @@ function SpecialTaskCreateInner() {
 
   const payCrypto = async () => {
     if (!taskId) return;
-    setSaving(true);
-    try {
-      const r = await api.post<any>(`/special-tasks/${taskId}/pay`, { method: "crypto" });
-      // Show deposit info via alert (short-term). For nicer UX, could route to a dedicated screen.
-      const msg = `📮 Envoyez ${r.amount_to_send} ${r.coin} sur le réseau ${r.network} à l'adresse suivante :\n\n${r.deposit_address}\n\nRéférence : ${r.reference}\n\nLa tâche s'active automatiquement dès confirmation on-chain.`;
-      window.alert(msg);
-      router.replace("/(app)/tasks" as any);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec paiement Crypto"}`); }
-    finally { setSaving(false); }
+    router.push({
+      pathname: "/(app)/purchase-payment" as any,
+      params: {
+        kind: "special_task", target_id: taskId, amount: String(totalPrice),
+        title: "Paiement de la tâche spéciale", return_to: "/(app)/tasks",
+      },
+    });
   };
 
   return (
@@ -236,7 +235,7 @@ function SpecialTaskCreateInner() {
             <Text style={styles.section}>💳 Paiement</Text>
             <Text style={styles.priceTot}>{totalPrice} FCFA</Text>
             <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>
-              Choisissez votre mode de paiement — la tâche s'active automatiquement dès réception.
+              Après confirmation du paiement, la tâche est envoyée à l'équipe pour validation.
             </Text>
 
             {/* Mobile Money (Ashtech) — priority */}
@@ -244,7 +243,7 @@ function SpecialTaskCreateInner() {
             <TouchableOpacity
               style={[styles.next, { backgroundColor: "#0F172A", borderWidth: 2, borderColor: "#F59E0B" }]}
               onPress={() => router.push({
-                pathname: "/(app)/pay-ashtec" as any,
+                pathname: "/(app)/purchase-payment" as any,
                 params: {
                   kind: "special_task",
                   target_id: taskId!,
@@ -256,7 +255,7 @@ function SpecialTaskCreateInner() {
               testID="stc-pay-mobile-money"
             >
               <Ionicons name="phone-portrait" size={16} color="#FBBF24" />
-              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money — Ashtech Pay</Text>
+              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money</Text>
             </TouchableOpacity>
             )}
 

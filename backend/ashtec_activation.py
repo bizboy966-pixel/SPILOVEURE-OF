@@ -937,6 +937,28 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
             )
         return
 
+    if kind == "lottery_entry":
+        try:
+            from payment_purchases import complete_paid_purchase
+            result = await complete_paid_purchase(db, p, source=source)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": result.get("status", "paid"),
+                          "activation_done": True, "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)},
+                 "$unset": {"activation_error": ""}},
+            )
+            return
+        except Exception as exc:
+            log.exception("ashtec Jackpot payment confirm failed ref=%s: %s", ref, exc)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {"status": "paid", "activation_error": str(exc)[:300],
+                          "ashtecpay_status": sp_status,
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            return
+
     if kind == "recharge":
         # ── Atomic idempotent credit of balance_recharge ──────────────
         # Use find_one_and_update with `activation_done: {"$ne": True}`

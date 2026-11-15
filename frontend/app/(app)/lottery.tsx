@@ -29,7 +29,7 @@ function useCountdown(endsAtISO: string | null) {
 
 export default function LotteryPage() {
   const router = useRouter();
-  const { user, refresh } = useAuth() as any;
+  const { refresh } = useAuth() as any;
   const [enabled, setEnabled] = useState(true);
   const [active, setActive] = useState<any>(null);
   const [announced, setAnnounced] = useState<any>(null);
@@ -51,16 +51,21 @@ export default function LotteryPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  const myBalance = Number(user?.balance_profit) || 0;
-  const balanceRecharge = Number(user?.balance_recharge) || 0;
   const entry = Number(active?.entry_amount) || 0;
-  const canAfford = (myBalance + balanceRecharge) >= entry;
   const isFull = !!(active?.max_participants && active?.participants_count >= active?.max_participants);
   const isOpen = active?.status === "open";
   const isRunning = active?.status === "running";
 
   const onJoin = async () => {
     if (!active) return;
+    if (active.payment_pending) {
+      if (typeof window !== "undefined") window.alert("Un paiement de ticket est déjà en cours de vérification.");
+      return;
+    }
+    if (active.already_joined) {
+      if (typeof window !== "undefined") window.alert("Vous participez déjà à ce tirage.");
+      return;
+    }
     if (!isOpen) {
       if (typeof window !== "undefined") window.alert("❌ Ce tirage n'accepte plus de participation.");
       return;
@@ -69,26 +74,20 @@ export default function LotteryPage() {
       if (typeof window !== "undefined") window.alert("❌ Nombre maximal de participants atteint.");
       return;
     }
-    if (!canAfford) {
-      if (typeof window !== "undefined") {
-        const go = window.confirm(`❌ Solde insuffisant\n\nSolde retirable : ${fmt(myBalance)}\nSolde recharge : ${fmt(balanceRecharge)}\nMontant requis : ${fmt(entry)}\n\nSouhaitez-vous recharger ${fmt(entry)} maintenant via Ashtech Pay pour participer ?`);
-        if (go) {
-          router.push({
-            pathname: "/(app)/pay-ashtec",
-            params: {
-              kind: "recharge",
-              amount: String(entry),
-              title: `Recharge ${fmt(entry)} — Jackpot`,
-              return_to: "/(app)/lottery",
-            },
-          } as any);
-        }
-      }
+    if (typeof window !== "undefined" && !window.confirm(
+      `Payer directement le ticket du tirage « ${active.name} » ?\n\nMontant : ${fmt(entry)}`
+    )) return;
+    if (entry > 0) {
+      router.push({
+        pathname: "/(app)/purchase-payment" as any,
+        params: {
+          kind: "lottery_entry", target_id: active.id,
+          amount: String(entry), title: `Ticket Jackpot — ${active.name}`,
+          return_to: "/(app)/lottery",
+        },
+      });
       return;
     }
-    if (typeof window !== "undefined" && !window.confirm(
-      `Confirmer la participation au tirage « ${active.name} » ?\n\nMontant débité : ${fmt(entry)} (depuis votre solde retirable, ou recharge en complément)`
-    )) return;
     setJoining(true);
     try {
       await api.post(`/lottery/draws/${active.id}/join`, {});
@@ -189,18 +188,19 @@ export default function LotteryPage() {
               ))}
             </View>
           ) : null}
-          <View style={styles.balanceBox}>
-            <Text style={styles.balanceL}>Votre solde retirable</Text>
-            <Text style={[styles.balanceV, { color: canAfford ? theme.colors.success : theme.colors.danger }]}>{fmt(myBalance)}</Text>
-          </View>
           {active.already_joined ? (
             <View style={styles.joinedBadge} testID="lottery-already-joined">
               <Ionicons name="checkmark-circle" size={18} color="#fff" />
               <Text style={styles.joinedTxt}>✓ Vous participez à ce tirage</Text>
             </View>
+          ) : active.payment_pending ? (
+            <View style={styles.joinedBadge}>
+              <Ionicons name="time" size={18} color="#fff" />
+              <Text style={styles.joinedTxt}>Paiement du ticket en cours de vérification</Text>
+            </View>
           ) : isOpen && !isFull ? (
             <TouchableOpacity
-              style={[styles.joinBtn, !canAfford && styles.joinBtnDisabled]}
+              style={styles.joinBtn}
               onPress={onJoin}
               disabled={joining}
               testID="lottery-join-btn"

@@ -295,6 +295,17 @@ async def pay_ad(ad_id: str, data: AdPayIn, request: Request, user=Depends(get_c
     """Initiate payment for an ad — supports Crypto (USDT.BEP20) via
     IziChangePay OR Mobile Money via Ashtech Pay.
     """
+    from payment_purchases import PurchasePaymentIn, start_purchase
+    return await start_purchase(
+        request, user,
+        PurchasePaymentIn(
+            kind="ads", target_id=ad_id, method=data.method or "crypto",
+            country_code=data.country_code, operator=data.operator, phone=data.phone,
+            provider=getattr(data, "provider", None),
+            otp=getattr(data, "otp", None),
+            ussd_authorized=bool(getattr(data, "ussd_authorized", False)),
+        ),
+    )
     db = request.app.state.db
     ad = await _get_ad(db, ad_id, user["id"])
     if ad["status"] not in ("pending_payment", "draft"):

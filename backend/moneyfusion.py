@@ -443,6 +443,28 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
     if claim.modified_count == 0:
         latest = await db.payments.find_one({"reference": payment["reference"]}, {"_id": 0})
         return {"status": "paid" if latest and latest.get("activation_done") else "pending"}
+    if (payment.get("kind") or "activation") != "activation":
+        try:
+            from payment_purchases import complete_paid_purchase
+            result = await complete_paid_purchase(db, payment, source="moneyfusion")
+            await db.payments.update_one(
+                {"reference": payment["reference"]},
+                {"$set": {"status": result.get("status", "paid"),
+                          "activation_done": True, "activation_claimed": False,
+                          "paid_at": _now(), "updated_at": _now()},
+                 "$unset": {"activation_error": ""}},
+            )
+            return {"status": result.get("status", "paid"),
+                    "activation_done": True, **result}
+        except Exception as exc:
+            log.exception("MoneyFusion purchase reconciliation failed for reference=%s",
+                          payment["reference"])
+            await db.payments.update_one(
+                {"reference": payment["reference"]},
+                {"$set": {"status": "paid", "activation_claimed": False,
+                          "activation_error": str(exc)[:300], "updated_at": _now()}},
+            )
+            return {"status": "paid", "activation_done": False}
     try:
         await activate_level(db, payment["user_id"], int(payment.get("level") or 1),
                              source="moneyfusion")
@@ -467,6 +489,9 @@ class PayInRequest(BaseModel):
     level: int = 1
     phone: str = Field(min_length=6, max_length=32)
     country_code: str = Field(min_length=2, max_length=3)
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
 
 
 @api.get("/catalog")
@@ -546,13 +571,19 @@ async def initiate_payin(data: PayInRequest, request: Request,
     for operator in country_methods["operators"]:
         await assert_assignment(db, PAYIN_PROVIDER, country_code, operator["code"], operator["label"])
     currency = country_methods["currency"]
-    amount = _amount_from_xof(cfg, ACTIVATION_FEE_XOF, currency)
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement MoneyFusion non pris en charge.")
+    amount_xof = ACTIVATION_FEE_XOF if kind == "activation" else float(data.amount_xof or 0)
+    if not math.isfinite(amount_xof) or amount_xof <= 0:
+        raise HTTPException(400, "Montant de paiement invalide.")
+    amount = _amount_from_xof(cfg, amount_xof, currency)
     if amount is None:
         raise HTTPException(400, f"Le taux de conversion {currency}/XOF n’est pas configuré.")
     level = int(data.level)
-    if level != 1:
+    if kind == "activation" and level != 1:
         raise HTTPException(400, "MoneyFusion est configuré uniquement pour l’activation du Niveau 1.")
-    if level <= int(user.get("max_level") or 0):
+    if kind == "activation" and level <= int(user.get("max_level") or 0):
         raise HTTPException(400, "Ce niveau est déjà activé.")
     if not re.fullmatch(r"\d{6,15}", _local_phone(data.phone, country_code)):
         raise HTTPException(400, "Numéro Mobile Money invalide.")
@@ -565,13 +596,21 @@ async def initiate_payin(data: PayInRequest, request: Request,
     payment = {
         "reference": reference, "provider": PAYIN_PROVIDER,
         "user_id": user["id"], "username": user.get("username"),
-        "level": level, "amount": amount, "currency": currency,
-        "base_amount_xof": ACTIVATION_FEE_XOF,
+        "kind": kind, "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
+        "level": level if kind == "activation" else None,
+        "amount": amount, "currency": currency,
+        "base_amount_xof": amount_xof,
         "fx_rate_per_xof": _rate_for(cfg, currency),
         "phone": _local_phone(data.phone, country_code),
         "country_code": country_code, "status": "pending",
         "activation_done": False, "created_at": now, "updated_at": now,
-        "moneyfusion_active_key": f"{user['id']}:1",
+        "moneyfusion_active_key": (
+            f"{user['id']}:1" if kind == "activation"
+            else f"{user['id']}:{kind}:{data.target_id or ''}"
+        ),
     }
     try:
         await db.payments.insert_one(payment)
@@ -584,14 +623,20 @@ async def initiate_payin(data: PayInRequest, request: Request,
                     "amount": existing["amount"], "currency": existing["currency"],
                     "status": existing.get("status") or "pending"}
         raise HTTPException(409, "Un paiement MoneyFusion est déjà en cours de création ou de vérification. Ne le renvoyez pas.")
+    article_label = {
+        "activation": "Activation SPILOVEURE Niveau 1",
+        "ads": "Publicité SPILOVEURE",
+        "special_task": "Tâche spéciale SPILOVEURE",
+        "lottery_entry": "Ticket Jackpot SPILOVEURE",
+    }[kind]
     payload = {
         "totalPrice": amount,
-        "article": [{"Activation SPILOVEURE Niveau 1": amount}],
+        "article": [{article_label: amount}],
         "numeroSend": payment["phone"],
         "nomclient": str(user.get("full_name") or user.get("username") or "SPILOVEURE user")[:120],
         "personal_Info": [{"userId": user["id"], "orderId": reference,
                            "country": country_code, "currency": currency}],
-        "return_url": f"{public_url}/pay?moneyfusion_reference={reference}",
+        "return_url": f"{public_url}/purchase-payment?reference={reference}",
         "webhook_url": f"{public_url}/api/webhooks/moneyfusion/payin",
     }
     try:

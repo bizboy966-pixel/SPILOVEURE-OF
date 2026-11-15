@@ -286,19 +286,28 @@ async def get_active_lottery(request: Request, user=Depends(get_current_user)):
     )
     active = None
     if active_doc:
+        from payment_purchases import _expire_stale_lottery_reservations
+        await _expire_stale_lottery_reservations(db, active_doc["id"])
         # Auto-complete if the running countdown has expired.
         active_doc = await _auto_complete_if_due(db, active_doc)
         if active_doc.get("status") in ("open", "running"):
             active_doc.setdefault("entry_amount", 500.0)
             participants_count = await db.lottery_participants.count_documents(
-                {"draw_id": active_doc["id"]}
+                {"draw_id": active_doc["id"],
+                 "status": {"$nin": ["failed", "expired", "refund_required", "cancelled"]}}
             )
-            already_joined = await db.lottery_participants.find_one(
-                {"draw_id": active_doc["id"], "user_id": user["id"]}, {"_id": 1}
-            ) is not None
+            user_entry = await db.lottery_participants.find_one(
+                {"draw_id": active_doc["id"], "user_id": user["id"]},
+                {"_id": 0, "id": 1, "status": 1},
+            )
+            payment_pending = bool(user_entry and user_entry.get("status") == "pending_payment")
+            already_joined = bool(user_entry and not payment_pending and user_entry.get("status") not in (
+                "failed", "expired", "refund_required", "cancelled"
+            ))
             active = _serialize_draw(active_doc)
             active["participants_count"] = participants_count
             active["already_joined"] = already_joined
+            active["payment_pending"] = payment_pending
 
     # 2) Find any announced draw whose results are still visible.
     now = datetime.now(timezone.utc)
@@ -342,6 +351,8 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
         raise HTTPException(409, "Vous participez déjà à ce tirage.")
 
     entry_amount = float(d.get("entry_amount") or 0)
+    if entry_amount > 0:
+        raise HTTPException(400, "Les tickets payants doivent être réglés directement avec un prestataire de paiement.")
     debited_from: Optional[str] = None
     if entry_amount > 0:
         # Try balance_profit first, then balance_recharge as fallback.
@@ -375,8 +386,12 @@ async def join_lottery(draw_id: str, request: Request, user=Depends(get_current_
         "username": user.get("username"),
         "paid_amount": entry_amount,
         "debited_from": debited_from,
+        "status": "joined",
         "entered_at": now,
     })
+    await db.lottery_draws.update_one(
+        {"id": draw_id}, {"$inc": {"participants_count": 1}},
+    )
     # Track the debit in db.commissions (kind=lottery_entry, negative profit_share)
     if entry_amount > 0:
         await db.commissions.insert_one({
@@ -429,7 +444,10 @@ async def admin_list_draws(request: Request, _=Depends(require_admin)):
     async for d in db.lottery_draws.find({}, {"_id": 0}).sort("created_at", -1):
         # Auto-complete any draw whose countdown has expired before returning.
         d = await _auto_complete_if_due(db, d)
-        d["participants_count"] = await db.lottery_participants.count_documents({"draw_id": d["id"]})
+        d["participants_count"] = await db.lottery_participants.count_documents({
+            "draw_id": d["id"],
+            "status": {"$nin": ["failed", "expired", "refund_required", "cancelled"]},
+        })
         items.append(_serialize_draw(d))
     return items
 
@@ -462,6 +480,8 @@ async def admin_create_draw(body: DrawCreateIn, request: Request, who=Depends(re
         # Open immediately — visible to users, no countdown yet.
         "status": "open",
         "launched": False,
+        "participants_count": 0,
+        "pending_payment_count": 0,
         "ends_at": None,
         "launched_at": None,
         "created_at": now,
@@ -531,7 +551,9 @@ async def admin_select_winners(
     enriched: List[dict] = []
     for m in models:
         part = await db.lottery_participants.find_one(
-            {"draw_id": draw_id, "user_id": m.user_id}, {"_id": 0}
+            {"draw_id": draw_id, "user_id": m.user_id,
+             "status": {"$nin": ["pending_payment", "failed", "expired", "refund_required", "cancelled"]}},
+            {"_id": 0}
         )
         if not part:
             raise HTTPException(
@@ -573,7 +595,16 @@ async def admin_launch_draw(
     if d.get("status") != "open":
         raise HTTPException(400, f"Impossible de lancer un tirage au statut « {d.get('status')} ». Seuls les tirages 'open' peuvent être lancés.")
 
-    participants_count = await db.lottery_participants.count_documents({"draw_id": draw_id})
+    from payment_purchases import _expire_stale_lottery_reservations
+    await _expire_stale_lottery_reservations(db, draw_id)
+    pending_count = await db.lottery_participants.count_documents(
+        {"draw_id": draw_id, "status": "pending_payment"}
+    )
+    if pending_count:
+        raise HTTPException(409, "Un paiement de ticket est encore en cours. Attendez sa confirmation ou son expiration avant de lancer le tirage.")
+    participants_count = await db.lottery_participants.count_documents(
+        {"draw_id": draw_id, "status": {"$nin": ["failed", "expired", "refund_required", "cancelled"]}}
+    )
     if participants_count <= 0:
         raise HTTPException(400, "Impossible de lancer un tirage sans participant.")
 
@@ -588,7 +619,9 @@ async def admin_launch_draw(
     # Sanity: ensure every preset winner is still a participant.
     for w in preset:
         ok = await db.lottery_participants.find_one(
-            {"draw_id": draw_id, "user_id": w.get("user_id")}, {"_id": 1}
+            {"draw_id": draw_id, "user_id": w.get("user_id"),
+             "status": {"$nin": ["pending_payment", "failed", "expired", "refund_required", "cancelled"]}},
+            {"_id": 1}
         )
         if not ok:
             raise HTTPException(

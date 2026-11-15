@@ -173,6 +173,22 @@ async def activation_amount_for(db, currency: str) -> Optional[int]:
     return int(v) if v else None
 
 
+async def amount_for_xof(db, currency: str, amount_xof: float) -> Optional[int]:
+    """Convert a service price using the same XOF rate as activation."""
+    from ashtec_activation import ACTIVATION_AMOUNT_BY_CURRENCY
+    try:
+        amount = float(amount_xof)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(amount) or amount <= 0:
+        return None
+    base_xof = float(ACTIVATION_AMOUNT_BY_CURRENCY["XOF"])
+    base = await activation_amount_for(db, currency)
+    if not base or base_xof <= 0:
+        return None
+    return max(1, int(math.ceil(float(base) * amount / base_xof)))
+
+
 def render_ussd(flow: dict, amount) -> str:
     tpl = (flow or {}).get("ussd_template") or ""
     return tpl.replace("{amount}", str(int(amount))) if tpl else ""

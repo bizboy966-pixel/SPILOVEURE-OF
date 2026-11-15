@@ -449,6 +449,20 @@ async def pay_task(task_id: str, data: TaskPayIn, request: Request, user=Depends
     Crypto USDT (IziChangePay). The task moves to `active` only when the
     corresponding webhook fires.
     """
+    from payment_purchases import PurchasePaymentIn, start_purchase
+    return await start_purchase(
+        request, user,
+        PurchasePaymentIn(
+            kind="special_task", target_id=task_id,
+            method=getattr(data, "method", None) or "crypto",
+            country_code=getattr(data, "country_code", None),
+            operator=getattr(data, "operator", None),
+            phone=getattr(data, "phone", None),
+            provider=getattr(data, "provider", None),
+            otp=getattr(data, "otp", None),
+            ussd_authorized=bool(getattr(data, "ussd_authorized", False)),
+        ),
+    )
     db = request.app.state.db
     t = await _get_task(db, task_id, user["id"])
     if t["status"] != "pending_payment":
