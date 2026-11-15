@@ -154,7 +154,7 @@ async def conversation_view(db, conv, uid):
         **clean(conv), "kind": "private" if is_saved else conv["kind"],
         "is_saved": is_saved, "title": title, "member_profiles": profiles,
         "permissions": conv.get("permissions") or default_permissions(conv["kind"]),
-        "last_message": clean(last), "unread": unread,
+        "last_message": clean(last), "unread": max(unread, 1) if pref.get("force_unread") else unread,
         **{key: pref.get(key, default) for key, default in [
             ("muted", False), ("archived", False), ("pinned", False), ("draft", ""), ("read_at", ""),
         ]},

@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Conversation, ConversationPermissions, Person } from "./types";
+import NotificationSettingsPanel from "./NotificationSettingsPanel";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 export default function ConversationDetails({ conversation, userId, onClose, onChanged }: {
@@ -85,6 +86,7 @@ export default function ConversationDetails({ conversation, userId, onClose, onC
           <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { muted: !conversation.muted }))} style={styles.preference}><Ionicons name={conversation.muted ? "notifications-off-outline" : "notifications-outline"} size={20} color={blue} /><Text style={styles.preferenceText}>{conversation.muted ? "Activer le son" : "Mettre en sourdine"}</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { archived: !conversation.archived }))} style={styles.preference}><Ionicons name="archive-outline" size={20} color={blue} /><Text style={styles.preferenceText}>{conversation.archived ? "Désarchiver" : "Archiver"}</Text></TouchableOpacity>
         </View>
+        <NotificationSettingsPanel userId={userId} conversationId={conversation.id} />
         {conversation.kind === "channel" && <View style={styles.publicSection}>
           {isAdmin ? <TouchableOpacity onPress={() => run(() => messengerApi.patchConversation(conversation.id, { is_public: !conversation.is_public }))} style={styles.publicToggle} accessibilityRole="checkbox" accessibilityState={{ checked: !!conversation.is_public }} testID="messenger-channel-public-toggle">
             <Ionicons name={conversation.is_public ? "checkbox" : "square-outline"} size={20} color={conversation.is_public ? blue : muted} />

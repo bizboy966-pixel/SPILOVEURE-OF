@@ -20,6 +20,7 @@ type Props = {
   hasActiveStatus?: boolean; onOpenStatus?: (authorId?: string, statusId?: string) => void;
   version: number; typing?: { username?: string }; scheduledEnabled?: boolean;
   readReceipts?: ReadReceipts;
+  focusComposer?: boolean;
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 const logo = require("../../assets/images/spiloveure-logo.png");
@@ -73,7 +74,7 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
   return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
 }
 
-export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts }: Props) {
+export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts, focusComposer = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
     if (!readReceipts) return;
@@ -126,6 +127,9 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const lastVersion = useRef(version);
   const lastTypingAt = useRef(0);
   const composerInput = useRef<TextInput>(null);
+  useEffect(() => {
+    if (focusComposer) requestAnimationFrame(() => composerInput.current?.focus());
+  }, [focusComposer, conversation.id]);
   const composerTextWidth = useRef(190);
   const changeDraft = (value: string) => {
     draftValue.current = value;

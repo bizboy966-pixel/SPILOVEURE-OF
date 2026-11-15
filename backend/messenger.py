@@ -18,6 +18,8 @@ from messenger_core import (
 )
 
 api = APIRouter(prefix="/api/messenger", tags=["messenger"])
+from messenger_notifications import api as notification_api
+api.include_router(notification_api)
 
 
 @api.get("/people")
@@ -158,6 +160,8 @@ async def update_conversation(cid: str, body: ConversationPatch, request: Reques
     pref = {k: v for k, v in changes.items() if k not in ("title", "photo", "is_public")}
     if pref:
         await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid}, {"$set": pref}, upsert=True)
+        if "muted" in pref:
+            await event(db, [user["id"]], {"type": "notification_preferences", "conversation_id": cid})
     return await conversation_view(db, conv, user["id"])
 
 
@@ -500,7 +504,7 @@ async def mark_read(cid: str, request: Request, user=Depends(chat_user)):
     conv = await member(db, cid, user)
     stamp = now()
     await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid},
-                                       {"$set": {"read_at": stamp}}, upsert=True)
+                                       {"$set": {"read_at": stamp, "force_unread": False}}, upsert=True)
     changed = await db.spv_messages.update_many({"conversation_id": cid, "created_at": {"$lte": stamp}},
                                                {"$addToSet": {
                                                    "read_by": user["id"],

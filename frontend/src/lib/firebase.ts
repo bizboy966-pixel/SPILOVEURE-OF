@@ -136,17 +136,21 @@ export async function setupWebPush(
         await api.post("/push/tokens", registrationPayload);
       }
     } catch (e) {
-      // Non-fatal — token is still valid in the browser; the next login
-      // attempt will re-post it.
+      // Permission alone is not a successful registration with this application.
       console.warn("[FCM] token upload failed", e);
+      return null;
     }
 
     // Foreground handler — re-subscribe on every setup so we don't leak.
     if (_unsubscribeForeground) _unsubscribeForeground();
     _unsubscribeForeground = onMessage(messaging, (payload) => {
-      const title = payload.notification?.title || "Notification";
-      const body = payload.notification?.body || "";
+      const title = payload.notification?.title || payload.data?.title || "Notification";
+      const body = payload.notification?.body || payload.data?.body || "";
       const data = (payload.data || {}) as Record<string, string>;
+      if (data.kind === "chat" && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("spv-chat-push", { detail: data }));
+        return;
+      }
       try {
         onToast(title, body, data);
       } catch {

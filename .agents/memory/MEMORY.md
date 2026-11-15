@@ -8,3 +8,4 @@
 - [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.
 - [Routage exclusif Mobile Money](payment-routing-policy.md) — un prestataire par pays + opérateur physique ; suivi conservé chez le prestataire d’origine.
 - [Modération du groupe Telegram](telegram-moderation-policy.md) — tous les membres du groupe lié peuvent voter ; le rejet d’une tâche payée signale un remboursement manuel.
+- [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.

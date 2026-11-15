@@ -74,6 +74,8 @@ async def _send(
     db, tokens: list[str], *, title: str, body: str,
     link: Optional[str] = None, data: Optional[dict] = None,
     tag: Optional[str] = None,
+    silent: bool = False,
+    data_only: bool = False,
 ) -> dict:
     if not tokens:
         log.info("push %r: no tokens registered — skipping", title)
@@ -94,8 +96,8 @@ async def _send(
 
     webpush = messaging.WebpushConfig(
         fcm_options=messaging.WebpushFCMOptions(link=abs_link) if abs_link else None,
-        notification=messaging.WebpushNotification(
-            title=title, body=body, icon="/icon-192.png", tag=tag or "spiloveure",
+        notification=None if data_only else messaging.WebpushNotification(
+            title=title, body=body, icon="/icon-192.png", tag=tag or "spiloveure", silent=silent,
         ),
     )
 
@@ -108,8 +110,8 @@ async def _send(
             resp = messaging.send_each_for_multicast(
                 messaging.MulticastMessage(
                     tokens=batch,
-                    notification=messaging.Notification(title=title, body=body),
-                    data=data_payload,
+                    notification=None if data_only else messaging.Notification(title=title, body=body),
+                    data={**data_payload, **({"title": title, "body": body} if data_only else {})},
                     webpush=webpush,
                 )
             )

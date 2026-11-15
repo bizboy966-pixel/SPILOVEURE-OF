@@ -11,6 +11,7 @@ import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 import { GlobalFonts } from "@/src/components/GlobalFonts";
 import { ChatProvider } from "@/src/chat/ChatContext";
+import ChatPushBootstrap from "@/src/components/ChatPushBootstrap";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -62,7 +63,13 @@ export default function RootLayout() {
     ensureMeta("application-name", "SPILOVEURE");
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+      navigator.serviceWorker.getRegistration("/").then(existing => {
+        // Both workers use root scope: never replace an active push subscription
+        // with the installability-only worker on the next page load.
+        const worker = existing?.active || existing?.waiting || existing?.installing;
+        if (worker?.scriptURL.includes("/firebase-messaging-sw.js")) return existing;
+        return navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      }).catch(() => {
         /* installabilité facultative — ne jamais bloquer l'app */
       });
     }
@@ -90,6 +97,7 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
             <AnimatedSplash />
             <WelcomeSplash />
+            <ChatPushBootstrap />
           </FeaturesProvider>
           </ChatProvider>
         </AuthProvider>

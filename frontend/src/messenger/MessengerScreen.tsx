@@ -16,6 +16,7 @@ import ProfilePhotoViewer from "./ProfilePhotoViewer";
 import { ContactsPanel, FeedPanel, ProfilePanel } from "./CommunityPanels";
 import { useNavigationTransition } from "./NavigationTransition";
 import { normalizeSpvUsername } from "./userLinks";
+import { setActiveNotificationConversation } from "./notificationRuntime";
 
 const logo = require("../../assets/images/spiloveure-logo.png");
 const blue = "#1769e8", ink = "#102042", muted = "#8993a4";
@@ -25,7 +26,10 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[] }>();
+  const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[]; conversation?: string | string[]; notificationAction?: string | string[] }>();
+  const conversationParam = Array.isArray(params.conversation) ? params.conversation[0] : params.conversation;
+  const notificationAction = Array.isArray(params.notificationAction) ? params.notificationAction[0] : params.notificationAction;
+  const handledNotification = useRef<string | null>(null);
   const inviteParam = Array.isArray(params.invite) ? params.invite[0] : params.invite;
   const directUsernameParam = Array.isArray(params.username) ? params.username[0] : params.username;
   const handledInvite = useRef<string | null>(null);
@@ -50,6 +54,52 @@ export default function MessengerScreen() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Conversation | null>(null);
+  const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
+  useEffect(() => {
+    setActiveNotificationConversation(tab === "Échanges" ? selected?.id || null : null);
+    return () => setActiveNotificationConversation(null);
+  }, [tab, selected?.id]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onUnread = (event: Event) => {
+      const cid = (event as CustomEvent).detail?.conversationId;
+      setSelected(previous => previous?.id === cid ? null : previous);
+    };
+    const onRefresh = () => { void refresh(); };
+    window.addEventListener("spv-chat-mark-unread", onUnread);
+    window.addEventListener("spv-chat-inbox-refresh", onRefresh);
+    return () => {
+      window.removeEventListener("spv-chat-mark-unread", onUnread);
+      window.removeEventListener("spv-chat-inbox-refresh", onRefresh);
+    };
+  }, [refresh]);
+  useEffect(() => {
+    if (!conversationParam) { handledNotification.current = null; return; }
+    if (!user?.id) return;
+    const key = `${conversationParam}:${notificationAction || "open"}`;
+    if (handledNotification.current === key) return;
+    handledNotification.current = key;
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (notificationAction === "unread") {
+          setSelected(null);
+          await api.post(`/messenger/conversations/${encodeURIComponent(conversationParam)}/unread`, {});
+          await refresh();
+        } else {
+          const conversation = await messengerApi.conversation(conversationParam);
+          if (cancelled) return;
+          setNotificationReplyTarget(notificationAction === "reply" ? conversationParam : null);
+          setSelected(conversation);
+          setTab("Échanges");
+        }
+        if (!cancelled) router.setParams({ conversation: "", notificationAction: "" });
+      } catch (failure: any) {
+        if (!cancelled) setActionError(failure?.detail || "La discussion demandée est indisponible.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [conversationParam, notificationAction, user?.id, refresh, router]);
   const [creationOpen, setCreationOpen] = useState(false);
   const [kind, setKind] = useState<"private" | "group" | "channel">("private");
   const [isPublic, setIsPublic] = useState(false);
@@ -385,7 +435,7 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} focusComposer={notificationReplyTarget === selected.id} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
         </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} requestedStatusId={requestedStatusId} onStatusRequestConsumed={() => { setRequestedStatusAuthor(null); setRequestedStatusId(null); }} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} />}
     </View>

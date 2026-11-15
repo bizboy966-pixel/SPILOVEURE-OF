@@ -138,6 +138,7 @@ async def cancel_schedule(cid: str, sid: str, request: Request, user=Depends(cha
 
 
 async def enqueue_push(db, conv, message):
+    from messenger_notifications import effective_notifications
     recipients = []
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=70)).isoformat()
     for uid in conv["members"]:
@@ -147,7 +148,8 @@ async def enqueue_push(db, conv, message):
         online = await db.spv_presence.find_one({
             "user_id": uid, "last_seen": {"$gte": cutoff}, "online_count": {"$ne": 0},
         })
-        if not pref.get("muted", False) and not online:
+        settings = await effective_notifications(db, uid, conv["id"])
+        if settings["enabled"] and not online:
             recipients.append(uid)
     if not recipients:
         return
@@ -186,6 +188,7 @@ async def deliver_scheduled_once(db):
 async def deliver_push_once(db):
     from push_helper import _send
     from identity_core import digest
+    from messenger_notifications import effective_notifications
     import firebase_admin
     row = await db.spv_push_outbox.find_one({"status": "pending"})
     if not row:
@@ -201,7 +204,8 @@ async def deliver_push_once(db):
         if not conv or uid not in conv["members"]:
             continue
         pref = await db.spv_preferences.find_one({"user_id": uid, "conversation_id": conv["id"]}) or {}
-        if not pref.get("muted", False):
+        settings = await effective_notifications(db, uid, conv["id"])
+        if settings["enabled"]:
             recipients.append(uid)
     users = {u["id"]: u async for u in db.users.find({
         "id": {"$in": recipients}, "email_verified": True,
@@ -212,13 +216,37 @@ async def deliver_push_once(db):
         "expires_at": {"$gt": datetime.now(timezone.utc)},
         "absolute_expires_at": {"$gt": datetime.now(timezone.utc)},
     }) if s["email_digest"] == digest(users[s["user_id"]]["email"].lower())]
-    tokens = [t["token"] async for t in db.push_tokens.find({
+    tokens = [t async for t in db.push_tokens.find({
         "user_id": {"$in": recipients}, "chat_session_id": {"$in": sessions},
     })]
-    result = await _send(
-        db, tokens, title="SPILOVEURE Chat", body="Vous avez reçu un nouveau message.",
-        link="/messenger", data={"conversation_id": row["conversation_id"]}, tag="chat-" + row["conversation_id"],
-    )
+    message = await db.spv_messages.find_one({"id": row["id"], "deleted": False})
+    results = []
+    if message and not message.get("silent"):
+        sender = await db.users.find_one({"id": message["sender_id"]}) or {}
+        for uid in recipients:
+            try:
+                await allowed_pair(db, uid, message["sender_id"])
+            except HTTPException:
+                continue
+            settings = await effective_notifications(db, uid, conv["id"])
+            if not settings["enabled"]:
+                continue
+            body = message.get("text") or ("Pièce jointe" if message.get("attachments") else "Nouveau message")
+            results.append(await _send(
+                db, [token["token"] for token in tokens if token["user_id"] == uid],
+                title=sender.get("username", "SPILOVEURE Chat") if settings["preview"] else "SPILOVEURE Chat",
+                body=body[:300] if settings["preview"] else "Vous avez reçu un nouveau message.",
+                link="/messenger?conversation=" + conv["id"],
+                data={"conversation_id": conv["id"], "message_id": row["id"], "kind": "chat",
+                      "silent": "false" if settings["sound_enabled"] else "true"},
+                tag="chat-" + conv["id"], silent=not settings["sound_enabled"], data_only=True,
+            ))
+    result = {
+        "requested": sum(r.get("requested", 0) for r in results),
+        "success": sum(r.get("success", 0) for r in results),
+        "failure": sum(r.get("failure", 0) for r in results),
+        "error": next((r["error"] for r in results if r.get("error")), None),
+    }
     await db.spv_push_outbox.update_one({"id": row["id"]}, {"$set": {
         "status": "failed" if result.get("error") or result.get("failure") else "sent",
         "result": result,

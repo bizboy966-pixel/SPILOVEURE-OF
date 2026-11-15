@@ -11,6 +11,7 @@ import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import StatusStories from "./StatusStories";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import { chatProfileUrl } from "./userLinks";
+import NotificationSettingsPanel from "./NotificationSettingsPanel";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
@@ -152,7 +153,7 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, requeste
   </View>;
 }
 
-type ProfileProps = { user: { username: string; profile_photo?: string } };
+type ProfileProps = { user: { id: string; username: string; profile_photo?: string } };
 export function ProfilePanel({ user }: ProfileProps) {
   const router = useRouter();
   const { logout } = useChat();
@@ -218,6 +219,7 @@ export function ProfilePanel({ user }: ProfileProps) {
         </View>
       </View>
      <ProfilePhotoManager mode="chat" visible={photoOpen} onClose={() => setPhotoOpen(false)} />
+     <NotificationSettingsPanel userId={user.id} />
     <Text style={styles.sectionTitle}>Confidentialité</Text>
     {loading ? <ActivityIndicator color={blue} /> : <>
       <TouchableOpacity onPress={() => toggle("show_presence")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Afficher ma présence</Text><Text style={styles.personMeta}>Autoriser les membres à voir quand vous êtes en ligne</Text></View><View style={[styles.switch, settings.show_presence && styles.switchOn]}><View style={[styles.switchKnob, settings.show_presence && styles.switchKnobOn]} /></View></TouchableOpacity>
