@@ -7,6 +7,8 @@ import { protectedFileUrl } from "./api";
 import type { Attachment, ContactState, Conversation, Message, Person, ReadReceipts } from "./types";
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
+import MediaComposer from "./MediaComposer";
+import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
 
@@ -64,6 +66,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [loading, setLoading] = useState(true);
   const [messageError, setMessageError] = useState("");
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
+  const [pendingMedia, setPendingMedia] = useState<File[] | null>(null);
   const [text, setText] = useState(conversation.draft || "");
   const [reply, setReply] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
@@ -245,6 +248,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     input.accept = "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt";
     input.onchange = async () => {
       const files = Array.from(input.files || []);
+      if (files.some(file => file.type.startsWith("image/") || file.type.startsWith("video/"))) {
+        setPendingMedia(files);
+        return;
+      }
       try {
         const attached: Attachment[] = [];
         for (const file of files) {
@@ -255,6 +262,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       } catch (e: any) { window.alert(e?.detail || e.message || "Envoi du fichier impossible."); }
     };
     input.click();
+  };
+  const sendSelectedMedia = async (files: File[], caption: string) => {
+    const attached: Attachment[] = [];
+    for (const file of files) {
+      if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} dépasse 20 Mo.`);
+      attached.push(await messengerApi.file(conversation.id, file));
+    }
+    await send({ attachments: attached, text: caption });
+    setPendingMedia(null);
   };
   const sendVoiceBlob = async (blob: Blob) => {
     setVoiceSending(true);
@@ -379,11 +395,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                   <Text style={styles.replyQuoteSender}>{quoted?.sender_name || "Message précédent"}</Text>
                   <Text numberOfLines={2} style={styles.replyQuotePreview}>{quoted?.deleted ? "Message supprimé" : quoted?.text || quoted?.attachments?.[0]?.name || "Pièce jointe"}</Text>
                 </View>}
+                {!!message.attachments?.some(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")) && <View style={styles.mediaGroup}>
+                  {message.attachments.filter(file => file.mime.startsWith("image/") || file.mime.startsWith("video/")).map(file =>
+                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} onOpen={() => openAttachment(file)} />)}
+                </View>}
                 {!!message.text && <Text style={styles.messageText}>{renderText(message.text)}</Text>}
-                {message.attachments?.map(file => file.mime.startsWith("audio/")
-                  ? <View key={file.id} style={styles.voiceCard}><ProtectedVoicePlayer file={file} own={own} /></View>
-                  : <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={styles.fileChip}>
-                    {file.mime.startsWith("image/") ? <Ionicons name="image-outline" size={17} color={blue} /> : <Ionicons name="document-outline" size={17} color={blue} />}
+                {message.attachments?.filter(file => file.mime.startsWith("audio/")).map(file =>
+                  <View key={file.id} style={styles.voiceCard}><ProtectedVoicePlayer file={file} own={own} /></View>)}
+                {message.attachments?.filter(file => !file.mime.startsWith("audio/") && !file.mime.startsWith("image/") && !file.mime.startsWith("video/")).map(file =>
+                  <TouchableOpacity key={file.id} onPress={() => openAttachment(file)} style={styles.fileChip}>
+                    <Ionicons name="document-outline" size={17} color={blue} />
                     <Text style={styles.fileLabel} numberOfLines={1}>{file.name}</Text><Ionicons name="download-outline" size={16} color={blue} />
                   </TouchableOpacity>)}
               </>}
@@ -430,6 +451,13 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
       <ProtectedAttachmentViewer preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
+      <MediaComposer
+        visible={!!pendingMedia}
+        files={pendingMedia || []}
+        initialCaption={text}
+        onClose={() => setPendingMedia(null)}
+        onConfirm={sendSelectedMedia}
+      />
       {canSend && scheduledEnabled && <ScheduledMessages conversationId={conversation.id} visible={scheduleOpen} onClose={() => setScheduleOpen(false)} />}
       <Modal visible={sharingContact} transparent animationType="slide" onRequestClose={() => setSharingContact(false)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Partager un contact</Text>
@@ -461,7 +489,7 @@ const styles = StyleSheet.create({
   sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3 }, messageText: { color: ink, fontSize: 15, lineHeight: 21 }, linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
   replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7 },
   replyQuoteSender: { color: blue, fontSize: 11, fontWeight: "800" }, replyQuotePreview: { color: muted, fontSize: 11, marginTop: 2 },
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, voiceCard: { maxWidth: 280, minWidth: 220, borderRadius: 14, paddingHorizontal: 8, marginTop: 4 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260 }, voiceCard: { maxWidth: 280, minWidth: 220, borderRadius: 14, paddingHorizontal: 8, marginTop: 4 }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: muted }, receipt: { color: blue, fontSize: 11 }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
