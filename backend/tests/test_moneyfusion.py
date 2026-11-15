@@ -236,7 +236,7 @@ def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
     assert response.json()["amount"] == 2650
     payload = calls[0][2]["json"]
     assert payload["totalPrice"] == 2650
-    assert payload["return_url"] == "https://example.invalid/pay"
+    assert payload["return_url"] == f"https://example.invalid/pay?moneyfusion_reference={ref}"
     assert payload["webhook_url"].endswith("/moneyfusion/payin")
     assert "currency" not in payload
     assert initiate(env).json()["reference"] == ref
@@ -244,7 +244,7 @@ def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
     assert env.client.get("/api/payments/moneyfusion/status/" + ref,
                           headers=headers("other", "user")).status_code == 404
     assert run(env.db.users.find_one({"id": "member"}))["max_level"] == 0
-    assert run(_provider_ready(env.db, "moneyfusion", "payin"))[0] is False
+    assert run(_provider_ready(env.db, "moneyfusion", "payin"))[0] is True
 
 
 def test_spoofed_webhook_never_activates_without_provider_paid(env):

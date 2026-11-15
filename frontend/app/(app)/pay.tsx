@@ -15,7 +15,7 @@ import {
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
@@ -57,6 +57,7 @@ type Catalog = {
 
 export default function Pay() {
   const router = useRouter();
+  const { moneyfusion_reference: moneyfusionReference } = useLocalSearchParams<{ moneyfusion_reference?: string }>();
   const { refresh, user } = useAuth();
   const { user: chatUser, refresh: refreshChat } = useChat();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -170,6 +171,13 @@ export default function Pay() {
   // The frontend routes verify calls to the correct endpoint based on which
   // crypto gateway created the deposit.
   const [currentGateway, setCurrentGateway] = useState<string>("");
+  useEffect(() => {
+    if (typeof moneyfusionReference === "string" && /^SPV-MF-[A-Z0-9]+$/.test(moneyfusionReference)) {
+      setRef(moneyfusionReference);
+      setCurrentGateway("moneyfusion");
+      setPhase("pending");
+    }
+  }, [moneyfusionReference]);
   // Country picker helper — show "mixte" when a country has both a mobile
   // operator AND USDT_BEP20.
   const countryHasMobile = (c: CountryEntry) =>
@@ -328,7 +336,7 @@ export default function Pay() {
           <Text style={styles.amountSub}>Montant fixe · frais inclus · non modifiable</Text>
         </View>
 
-        <MoneyFusionActivation />
+        <MoneyFusionActivation pendingOnly />
 
         {catalogErr && <Text style={styles.err}>❌ {catalogErr}</Text>}
         {!catalog && !catalogErr && (

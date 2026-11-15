@@ -542,6 +542,9 @@ async def initiate_payin(data: PayInRequest, request: Request,
     )
     if enabled_ops != len(country_methods["operators"]) or enabled_ops == 0:
         raise HTTPException(400, "Activez tous les opérateurs du pays dans le panneau administrateur : le choix final se fait sur la page MoneyFusion.")
+    from payment_exclusivity import assert_assignment
+    for operator in country_methods["operators"]:
+        await assert_assignment(db, PAYIN_PROVIDER, country_code, operator["code"], operator["label"])
     currency = country_methods["currency"]
     amount = _amount_from_xof(cfg, ACTIVATION_FEE_XOF, currency)
     if amount is None:
@@ -588,7 +591,7 @@ async def initiate_payin(data: PayInRequest, request: Request,
         "nomclient": str(user.get("full_name") or user.get("username") or "SPILOVEURE user")[:120],
         "personal_Info": [{"userId": user["id"], "orderId": reference,
                            "country": country_code, "currency": currency}],
-        "return_url": f"{public_url}/pay",
+        "return_url": f"{public_url}/pay?moneyfusion_reference={reference}",
         "webhook_url": f"{public_url}/api/webhooks/moneyfusion/payin",
     }
     try:
@@ -723,6 +726,8 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
     )
     if not selected:
         return {"auto_dispatched": False, "reason": "operator_disabled_or_unmapped"}
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, PAYIN_PROVIDER, cc, selected["operator_code"], selected.get("operator_label", ""))
     catalog_country = next((c for c in methods if c["country_code"] == cc), None)
     if not catalog_country:
         return {"auto_dispatched": False, "reason": "country_unsupported"}
@@ -1017,7 +1022,11 @@ async def admin_get(request: Request):
     }
 
 
+from payment_exclusivity import configuration_write
+
+
 @admin.put("")
+@configuration_write
 async def admin_update(request: Request, body: AdminConfigUpdate):
     db = request.app.state.db
     cfg = await load_config(db)
@@ -1072,6 +1081,8 @@ async def admin_update(request: Request, body: AdminConfigUpdate):
         raise HTTPException(400, "Pour activer le Pay-in, configurez l’URL API, les pays confirmés, la devise locale et une page MoneyFusion limitée au Mobile Money.")
     if cfg.get("payout_enabled") and (not cred.get("payout_private_key") or not cfg.get("payout_ip_confirmed")):
         raise HTTPException(400, "Configurez la clé privée et confirmez l’enregistrement de l’IP du VPS dans MoneyFusion avant d’activer les retraits.")
+    from payment_exclusivity import validate_change
+    await validate_change(db, mf_config=cfg)
     try:
         enc_doc = {
             "payin_api_url_enc": _encrypt(cred["payin_api_url"]) if cred.get("payin_api_url") else "",

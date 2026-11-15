@@ -6,3 +6,4 @@
 - [Contrat MoneyFusion](moneyfusion-contract.md) — Mobile Money uniquement ; devise et couverture Pay-in à confirmer, sans les déduire du catalogue Pay-out.
 - [Prestataire retiré](retired-provider-policy.md) — SoleasPay doit rester absent des paiements ; conserver les données financières historiques.
 - [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.
+- [Routage exclusif Mobile Money](payment-routing-policy.md) — un prestataire par pays + opérateur physique ; suivi conservé chez le prestataire d’origine.

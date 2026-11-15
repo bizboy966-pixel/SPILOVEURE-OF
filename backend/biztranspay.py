@@ -515,6 +515,8 @@ async def biztranspay_activation(
         entry = None
     if not entry or not _toggle_on(await _load_cfg(db), cc, entry):
         raise HTTPException(400, "Cet opérateur n'est pas disponible pour ce pays.")
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, "biztranspay", cc, entry["code"], entry["label"])
     currency = entry["currency"]
     amount = await activation_amount_for(db, currency)
     if not amount:
@@ -808,6 +810,8 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         return {"auto_dispatched": False, "reason": "operator_not_in_btp_catalog"}
     if not _toggle_on(await _load_cfg(db), country, entry):
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, "biztranspay", country, entry["code"], entry["label"])
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     if net <= 0:

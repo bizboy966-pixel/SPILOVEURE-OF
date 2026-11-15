@@ -140,10 +140,13 @@ async def sync_btp_catalog_rows(db, entries: list, cfg: Optional[dict] = None) -
              "$set": {"updated_at": now}},
             upsert=True)
         for code, e in ops.items():
+            from payment_exclusivity import available_for_new_operator
+            initial_enabled = bool(c_toggles.get(code, True)) and await available_for_new_operator(
+                db, "biztranspay", cc, code, e["label"])
             r = await db.payment_provider_operators.update_one(
                 {"provider_id": "biztranspay", "country_code": cc, "operator_code": code},
                 {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "operator_code": code,
-                                  "status": "active" if c_toggles.get(code, True) else "inactive",
+                                  "status": "active" if initial_enabled else "inactive",
                                   "source": "btp_catalog", "created_at": now},
                  "$set": {"operator_label": e["label"], "updated_at": now}},
                 upsert=True)
@@ -217,7 +220,8 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
             for op in (info.get("operators") or []):
                 label = op if isinstance(op, str) else (op.get("label") or op.get("code"))
                 code = op if isinstance(op, str) else (op.get("code") or op.get("label"))
-                await _upsert_operator(cc, code, label, enabled)
+                operator_enabled = enabled and (cfg.get("ashtec_operators") or {}).get(cc, {}).get(code, True)
+                await _upsert_operator(cc, code, label, operator_enabled)
 
     elif provider_id == "izichange":
         # Universal — no country/operator restriction. Represented as a

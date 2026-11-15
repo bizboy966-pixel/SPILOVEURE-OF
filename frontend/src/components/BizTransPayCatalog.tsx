@@ -44,7 +44,7 @@ export default function BizTransPayCatalog() {
   return (
     <View style={s.box}>
       <Text style={s.title}>Catalogue officiel Mobile Money</Text>
-      <Text style={s.hint}>Pays, devises, codes opérateurs et parcours fournis par Biz-transPay, séparément pour les encaissements et les retraits. Les interrupteurs locaux s’appliquent aux deux sens ; la disponibilité reste propre à chaque catalogue.</Text>
+      <Text style={s.hint}>Pays, devises, codes opérateurs et parcours fournis par Biz-transPay, séparément pour les encaissements et les retraits. Les interrupteurs locaux s’appliquent aux deux sens. Un opérateur déjà actif chez un autre prestataire doit d’abord y être désactivé.</Text>
       <View style={s.row}>
         {(["deposit", "payout"] as const).map(value => (
           <TouchableOpacity key={value} disabled={busy} accessibilityRole="button"

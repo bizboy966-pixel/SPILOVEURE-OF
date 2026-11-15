@@ -353,6 +353,8 @@ async def create_ashtec_payment(
         raise HTTPException(503, "AshtecPay est désactivé par l'administrateur.")
     cc = country_code.upper()
     info = validate_country_operator(cc, operator)
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, "ashtec", cc, operator)
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=COUNTDOWN_MINUTES)

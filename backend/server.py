@@ -1126,7 +1126,7 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     auto_result = {"auto_dispatched": False}
     dispatched_gateway = None
     country_upper = (wallet.get("country") or "").upper()
-    preferred = await pick_payout_gateway_for_country(db, country_upper)
+    preferred = await pick_payout_gateway_for_country(db, country_upper, wd_doc.get("operator"))
     if preferred == "moneyfusion" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
         try:
             from moneyfusion import dispatch_withdrawal
@@ -1423,6 +1423,7 @@ _PG_DEFAULTS = {
     # Ashtech Pay Direct v1.2 webhook — HMAC-SHA256 shared secret set on the
     # Ashtech merchant dashboard. Required to authenticate incoming webhooks.
     "ashtec_webhook_secret": "",
+    "ashtec_operators": {},
     # Country matrix for pay-IN gateway selection.
     "country_matrix": {},
     # v27h (2026-02-20) — Biz-transPay (SoftPay) integration, TG only.
@@ -1513,6 +1514,9 @@ class PaymentGatewayUpdate(_PGBaseModel):
 # right after the admin_router instantiation.
 
 
+from payment_exclusivity import configuration_write
+
+
 def _register_payment_gateway_routes(router):
     @router.get("/payment-gateways")
     async def admin_get_payment_gateways(request: Request):
@@ -1564,6 +1568,7 @@ def _register_payment_gateway_routes(router):
         }
 
     @router.put("/payment-gateways/country-matrix")
+    @configuration_write
     async def admin_update_country_matrix(request: Request, admin=Depends(require_admin)):
         """Persist a per-gateway country toggle map:
            { "ashtec": { "TG": true, "BJ": true, "CI": false, ... } }"""
@@ -1576,6 +1581,8 @@ def _register_payment_gateway_routes(router):
         db = request.app.state.db
         current = await _load_payment_gateway(db)
         current["country_matrix"] = matrix
+        from payment_exclusivity import validate_change
+        await validate_change(db, flat_config=current)
         await db.app_settings.update_one(
             {"key": "payment_gateway"},
             {"$set": {
@@ -1589,6 +1596,7 @@ def _register_payment_gateway_routes(router):
         return {"ok": True, "country_matrix": matrix}
 
     @router.put("/payment-gateways")
+    @configuration_write
     async def admin_update_payment_gateways(
         body: PaymentGatewayUpdate, request: Request, admin=Depends(require_admin),
     ):
@@ -1676,6 +1684,8 @@ def _register_payment_gateway_routes(router):
             first_enabled = next((k for k, en in chain if en), None)
             if first_enabled:
                 new["active"] = first_enabled
+        from payment_exclusivity import validate_change
+        await validate_change(db, flat_config=new)
         await db.app_settings.update_one(
             {"key": "payment_gateway"},
             {"$set": {
@@ -1884,6 +1894,12 @@ async def user_payment_status(reference: str, request: Request, user=Depends(get
         raise HTTPException(403, "Ce paiement n'appartient pas à votre compte")
 
     gw = p.get("gateway") or p.get("provider")
+    if gw == "moneyfusion":
+        from moneyfusion import payin_status
+        return await payin_status(reference, request, user)
+    if gw == "biztranspay" and p.get("kind") != "activation_crypto":
+        from biztranspay import biztranspay_status
+        return await biztranspay_status(reference, request, user)
     current_status = str(p.get("status") or "").lower()
     # Biz-transPay live status poll.
     if gw == "biztranspay" and current_status in ("processing", "pending"):
@@ -2024,13 +2040,18 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
     return None
 
 
-async def pick_payout_gateway_for_country(db, country: str) -> Optional[str]:
+async def pick_payout_gateway_for_country(db, country: str, operator: Optional[str] = None) -> Optional[str]:
     """Return the P-Out gateway to use for a given country, or None.
 
     v27j (Phase 2) — délègue au PaymentProviderRouter. Fallback legacy si le
     router échoue.
     """
     country = (country or "").upper()
+    if operator:
+        from payment_router import pick_provider, log_decision
+        result = await pick_provider(db, kind="payout", country=country, operator=operator)
+        await log_decision(db, kind="payout", country=country, operator=operator, result=result)
+        return (result or {}).get("provider_id")
 
     try:
         from payment_router import pick_provider, log_decision
@@ -2315,29 +2336,33 @@ async def payments_activate(
     phone = (body.phone or "").strip()
     if not cc or not op or not phone:
         raise HTTPException(400, "Pays, opérateur et numéro requis.")
-    gw = await pick_gateway_for_country(db, cc)
-    try:
-        from biztranspay import is_payin_enabled as _btp_on
-        from btp_catalog import find_entry as _btp_find
-        if await _btp_on(db) and await _btp_find(db, "deposit", cc, op):
-            gw = "biztranspay"
-    except Exception as _e:
-        log.warning("btp routing check failed: %s", _e)
+    pending = await db.payments.find_one({
+        "user_id": user["id"], "activation_done": {"$ne": True},
+        "status": {"$in": ["pending", "processing", "unknown", "paid", "validated", "pending_manual_review"]},
+        "$or": [{"kind": "activation"}, {"provider": "moneyfusion", "level": 1}],
+    }, {"_id": 0})
+    if pending:
+        return {
+            "reference": pending["reference"],
+            "gateway": pending.get("gateway") or pending.get("provider"),
+            "method": "mobile", "status": pending.get("status") or "pending",
+            "redirect_url": pending.get("payment_url") or pending.get("redirect_url"),
+            "message": "Un paiement est déjà en cours. Son prestataire d’origine poursuit la vérification ; aucun nouveau paiement n’a été envoyé.",
+        }
+    from payment_router import pick_provider, log_decision
+    _routed = await pick_provider(db, kind="payin", country=cc, operator=op)
+    await log_decision(db, kind="payin", country=cc, operator=op, result=_routed, user_id=user["id"])
+    gw = (_routed or {}).get("provider_id")
+    op = (_routed or {}).get("operator_code") or op
     if not gw:
-        raise HTTPException(400, "Aucun opérateur de paiement disponible pour ce pays.")
+        raise HTTPException(400, "Aucun prestataire actif et configuré pour ce pays et cet opérateur.")
 
     # v27l (Phase 4) — Manual mode dispatch.
     # If the router picked a provider whose country_row.mode == "manual",
     # we DO NOT hit the gateway. We create a `pending_manual_review`
     # payment doc that admin then validates from the Activations tab.
-    try:
-        from payment_router import pick_provider as _pp
-        _routed = await _pp(db, kind="payin", country=cc, operator=op)
-        _mode = (_routed or {}).get("mode") or "automatic"
-        _routed_pid = (_routed or {}).get("provider_id")
-    except Exception:
-        _mode = "automatic"
-        _routed_pid = None
+    _mode = (_routed or {}).get("mode") or "automatic"
+    _routed_pid = gw
     if _mode == "manual" and _routed_pid:
         order_id = _new_order_id()
         now = datetime.now(timezone.utc)
@@ -2355,6 +2380,13 @@ async def payments_activate(
                 "method": "mobile", "status": "pending_manual_review",
                 "manual": True,
                 "message": "Paiement en attente de validation manuelle par l'administration."}
+
+    if gw == "moneyfusion":
+        from moneyfusion import initiate_payin, PayInRequest
+        result = await initiate_payin(PayInRequest(country_code=cc, phone=phone), request, user)
+        return {"reference": result["reference"], "gateway": "moneyfusion", "method": "mobile",
+                "status": result.get("status") or "pending", "redirect_url": result["url"],
+                "message": "Terminez le paiement sur la page sécurisée MoneyFusion."}
 
     if (gw == "ashtec"):
         try:
@@ -2559,7 +2591,32 @@ async def activation_catalog(request: Request):
                 "otp_ussd_template": e["flow"].get("ussd_template") or "",
                 "steps": _btp_steps(e["flow"], label_amt, ussd),
             })
-        mobile_lookup.update(_btp_by_cc)
+        for cc, operators in _btp_by_cc.items():
+            mobile_lookup.setdefault(cc, []).extend(operators)
+
+    # The same country/operator selector also exposes hosted MoneyFusion.
+    from moneyfusion import public_catalog as _mf_catalog
+    mf_catalog = await _mf_catalog(request)
+    for country in mf_catalog.get("countries", []):
+        for operator in country["operators"]:
+            mobile_lookup.setdefault(country["country_code"], []).append({
+                **operator, "currency": country["currency"], "gateway": "moneyfusion",
+                "amount": country["amount"],
+                "amount_label": f"{country['amount']} {country['currency']}",
+            })
+    from payment_router import pick_provider
+    for cc, operators in mobile_lookup.items():
+        eligible = []
+        for operator in operators:
+            try:
+                route = await pick_provider(db, kind="payin", country=cc, operator=operator["code"])
+            except HTTPException as exc:
+                if exc.status_code == 409:
+                    continue  # Hide conflicting pairs until an administrator resolves them.
+                raise
+            if (route or {}).get("provider_id") == operator.get("gateway"):
+                eligible.append(operator)
+        mobile_lookup[cc] = eligible
 
     # Crypto availability — same rule as /payments/catalog.
     crypto_available = False

@@ -2482,7 +2482,7 @@ export default function AdminHome() {
             <View style={{ padding: 12, borderRadius: 14, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE", marginBottom: 12 }}>
               <Text style={{ fontSize: 15, fontWeight: "900", color: "#1E1B4B" }}>💳 Prestataires de paiement</Text>
               <Text style={{ fontSize: 11, color: "#312E81", marginTop: 4, lineHeight: 15 }}>
-                Vue unifiée : chaque prestataire → statut, dépôt/retrait auto, priorité, pays et opérateurs. Le router central choisit dynamiquement le prestataire selon le pays, l'opérateur et la priorité.
+                Plusieurs prestataires peuvent être actifs, mais chaque couple pays + opérateur doit appartenir à un seul prestataire. Désactivez l’opérateur chez l’ancien prestataire avant de le transférer. Une transaction déjà lancée reste suivie par son prestataire d’origine.
               </Text>
             </View>
             <MoneyFusionSettings

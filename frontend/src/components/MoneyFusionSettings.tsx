@@ -194,7 +194,7 @@ export default function MoneyFusionSettings({
   return (
     <Card style={styles.card} testID="moneyfusion-settings">
       <Heading />
-      <Text style={styles.intro}>Contrôles distincts pour les paiements d’activation et les retraits. Aucun paiement de test n’est lancé depuis ce panneau.</Text>
+      <Text style={styles.intro}>Contrôles distincts pour les paiements d’activation et les retraits. Un même pays + opérateur ne peut pas être actif chez plusieurs prestataires. Aucun paiement de test n’est lancé depuis ce panneau.</Text>
 
       {(error || message) ? (
         <View accessibilityRole={error ? "alert" : undefined} accessibilityLiveRegion="polite" style={[styles.notice, error ? styles.errorNotice : styles.successNotice]}>

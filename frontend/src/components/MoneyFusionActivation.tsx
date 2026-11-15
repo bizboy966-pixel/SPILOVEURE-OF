@@ -24,7 +24,7 @@ const muted = "#60777A";
 const line = "#D5E3DF";
 const keyForUser = (id: string) => `moneyfusion_pending_activation_${id}`;
 
-export default function MoneyFusionActivation() {
+export default function MoneyFusionActivation({ pendingOnly = false }: { pendingOnly?: boolean }) {
   const router = useRouter();
   const { user, refresh } = useAuth();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -216,6 +216,7 @@ export default function MoneyFusionActivation() {
     }
   };
 
+  if (pendingOnly && !pending) return null;
   if (catalogLoading || !storageReady) {
     return <Card style={styles.card}><View style={styles.loading}><ActivityIndicator color={teal} /><Text style={styles.muted}>Chargement du paiement Mobile Money…</Text></View></Card>;
   }
