@@ -55,11 +55,12 @@ def cookie_secure(request):
 
 
 async def initialize(db):
-    for collection in ("identity_chat_sessions", "identity_email_codes", "identity_rate_limits"):
+    for collection in ("identity_chat_sessions", "identity_email_codes", "identity_rate_limits", "identity_password_resets"):
         await db[collection].create_index("expires_at", expireAfterSeconds=0)
     await db.identity_chat_sessions.create_index("digest", unique=True)
     await db.identity_chat_sessions.create_index([("user_id", 1), ("revoked", 1)])
     await db.identity_email_codes.create_index("id", unique=True)
+    await db.identity_password_resets.create_index("id", unique=True)
     # A normalized identifier reservation prevents concurrent registration
     # without rewriting or indexing potentially inconsistent legacy users.
     await db.identity_registration_keys.create_index("key", unique=True)
@@ -93,6 +94,8 @@ async def bearer_identity(request):
             return None
         user = await request.app.state.db.users.find_one({"id": claims.get("sub")})
         if not available(user):
+            return None
+        if claims.get("auth_version", 0) != user.get("auth_version", 0):
             return None
         return user, claims
     except Exception:

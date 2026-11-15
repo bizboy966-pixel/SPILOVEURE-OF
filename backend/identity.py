@@ -24,12 +24,14 @@ from identity_policy import activated, password_created, email_verified
 from levels import COUNTRIES
 from push_notifications import TokenIn, register_push_token
 from referral_defaults import registration_sponsor
+from password_recovery import router as recovery_router
 
 def no_store(response: Response):
     response.headers["Cache-Control"] = "no-store, private"
 
 
 router = APIRouter(prefix="/api/identity", dependencies=[Depends(check_origin), Depends(no_store)])
+router.include_router(recovery_router, prefix="")
 
 
 async def register_account(data, request):
@@ -265,7 +267,7 @@ async def register_chat_push(body: TokenIn, request: Request, user=Depends(requi
 @router.post("/onboarding-session")
 async def onboarding_session(request: Request):
     user, _ = await identity(request)
-    return {"access_token": create_access_token(user["id"], user.get("role", "user"), scope="onboarding"),
+    return {"access_token": create_access_token(user["id"], user.get("role", "user"), scope="onboarding", auth_version=user.get("auth_version", 0)),
             "user": {**safe_user(user), "session_scope": "onboarding"}, "token_type": "bearer"}
 
 
@@ -286,7 +288,7 @@ class UnlockIn(BaseModel):
 
 
 def main_token(user):
-    return {"access_token": create_access_token(user["id"], user.get("role", "user")),
+    return {"access_token": create_access_token(user["id"], user.get("role", "user"), auth_version=user.get("auth_version", 0)),
             # Preserve the original main-account response (balances, referral,
             # levels, etc.). The Chat state continues to use its minimal view.
             "token_type": "bearer", "user": {

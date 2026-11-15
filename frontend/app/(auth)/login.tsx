@@ -114,7 +114,12 @@ export default function Login() {
               testID="login-password"
             />
 
-            <TouchableOpacity style={{ alignSelf: "flex-end", marginBottom: 16 }}>
+            <TouchableOpacity
+              style={{ alignSelf: "flex-end", marginBottom: 16 }}
+              onPress={() => router.push("/(auth)/forgot-password" as any)}
+              accessibilityRole="button"
+              testID="forgot-password-link"
+            >
               <Text style={styles.link}>Mot de passe oublié ?</Text>
             </TouchableOpacity>
 

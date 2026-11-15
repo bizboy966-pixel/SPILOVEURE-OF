@@ -28,12 +28,13 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, role: str, scope: str | None = None) -> str:
+def create_access_token(user_id: str, role: str, scope: str | None = None, auth_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "role": role,
         "type": "access",
+        "auth_version": auth_version,
         "iat": now,
         "exp": now + timedelta(minutes=JWT_ACCESS_EXP_MINUTES),
     }
@@ -42,11 +43,12 @@ def create_access_token(user_id: str, role: str, scope: str | None = None) -> st
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def create_pwd_confirm_token(user_id: str) -> str:
+def create_pwd_confirm_token(user_id: str, auth_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "type": "pwd_confirm",
+        "auth_version": auth_version,
         "iat": now,
         "exp": now + timedelta(minutes=JWT_PWD_CONFIRM_EXP_MINUTES),
     }
@@ -78,6 +80,8 @@ async def get_current_user(
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Utilisateur introuvable.")
+    if payload.get("auth_version", 0) != user.get("auth_version", 0):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expirée.")
     if user.get("status") == "banned":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte banni.")
     from identity_policy import main_ready, onboarding_path_allowed
@@ -130,6 +134,7 @@ async def require_pwd_confirm(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Confirmation expirée, veuillez recommencer.")
     except Exception:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de confirmation invalide.")
-    if payload.get("type") != "pwd_confirm" or payload.get("sub") != user["id"]:
+    if payload.get("type") != "pwd_confirm" or payload.get("sub") != user["id"] \
+            or payload.get("auth_version", 0) != user.get("auth_version", 0):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Confirmation invalide.")
     return user

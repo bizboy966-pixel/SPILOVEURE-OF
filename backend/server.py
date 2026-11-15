@@ -365,7 +365,7 @@ async def login(data: LoginIn, request: Request):
     if user.get("status") == "banned":
         raise HTTPException(403, "Compte banni.")
     scope = "onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
-    token = create_access_token(user["id"], user.get("role", "user"), scope=scope)
+    token = create_access_token(user["id"], user.get("role", "user"), scope=scope, auth_version=user.get("auth_version", 0))
     user.pop("password_hash", None)
     user.pop("_id", None)
     user["session_scope"] = scope or "main"
@@ -465,7 +465,7 @@ async def confirm_password(data: ConfirmPasswordIn, request: Request, user=Depen
     full = await db.users.find_one({"id": user["id"]})
     if not verify_password(data.password, full["password_hash"]):
         raise HTTPException(400, "Mot de passe incorrect.")
-    return {"confirm_token": create_pwd_confirm_token(user["id"]), "expires_in_minutes": 10}
+    return {"confirm_token": create_pwd_confirm_token(user["id"], auth_version=user.get("auth_version", 0)), "expires_in_minutes": 10}
 
 
 @api.post("/auth/update-profile")

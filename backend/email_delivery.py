@@ -52,8 +52,6 @@ class VerificationEmailSender:
         return False
 
     def send_verification(self, recipient, code):
-        if not self.configured():
-            raise MailUnavailable()
         subject = "Votre code de vérification SPILOVEURE"
         text = (
             f"Votre code SPILOVEURE est : {code}\n\n"
@@ -61,6 +59,20 @@ class VerificationEmailSender:
             "Ne communiquez jamais ce code à une autre personne.\n"
             "Si vous n’avez pas demandé ce code, ignorez ce message."
         )
+        self._send_message(recipient, subject, text)
+
+    def send_password_reset(self, recipient, code):
+        self._send_message(recipient, "Réinitialisation de votre mot de passe SPILOVEURE", (
+            f"Votre code de réinitialisation SPILOVEURE est : {code}\n\n"
+            "Saisissez-le sur la page « Mot de passe oublié », puis choisissez un nouveau mot de passe.\n"
+            "Ce code expire dans 10 minutes et ne peut être utilisé qu’une fois.\n"
+            "Ne partagez jamais ce code. L’équipe SPILOVEURE ne vous le demandera pas.\n"
+            "Si vous n’avez pas demandé cette réinitialisation, ignorez ce message : votre mot de passe ne sera pas modifié."
+        ))
+
+    def _send_message(self, recipient, subject, text):
+        if not self.configured():
+            raise MailUnavailable()
         provider = os.getenv("MAIL_PROVIDER", "").lower()
         try:
             if provider in ("resend", "resend_connector"):

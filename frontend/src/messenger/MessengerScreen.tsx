@@ -393,24 +393,46 @@ export default function MessengerScreen() {
     </View>;
   };
   const chatList = <View style={[styles.listPanel, wide && styles.wideList]}>
-    <LinearGradient colors={["#075fdf", "#0647b4"]} style={styles.header}>
+    <LinearGradient colors={["#063ba8", "#0057ee"]} style={styles.header}>
       <View pointerEvents="none" style={styles.goldSwoop} testID="messenger-header-gold-swoop">
-        <Svg width="100%" height="100%" viewBox="0 0 100 84" preserveAspectRatio="none">
+        <Svg width="100%" height="100%" viewBox="0 0 575 94" preserveAspectRatio="none">
           <Defs>
-            <SvgLinearGradient id="messenger-header-panel-gradient" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#0b5fca" />
-              <Stop offset="1" stopColor="#0745a7" />
+            <SvgLinearGradient
+              id="messenger-header-panel-gradient"
+              gradientUnits="userSpaceOnUse"
+              x1="315"
+              y1="47"
+              x2="575"
+              y2="47"
+            >
+              <Stop offset="0" stopColor="#003ea3" />
+              <Stop offset=".4" stopColor="#033ea6" />
+              <Stop offset=".52" stopColor="#0040ab" />
+              <Stop offset="1" stopColor="#004cbf" />
             </SvgLinearGradient>
-            <SvgLinearGradient id="messenger-header-gold-gradient" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#c99b39" />
-              <Stop offset=".48" stopColor="#f0d27b" />
-              <Stop offset="1" stopColor="#d2a33c" />
+            <SvgLinearGradient
+              id="messenger-header-gold-gradient"
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="94"
+              gradientUnits="userSpaceOnUse"
+            >
+              <Stop offset="0" stopColor="#d7e0eb" />
+              <Stop offset=".18" stopColor="#d7d8c8" />
+              <Stop offset=".36" stopColor="#ead79b" />
+              <Stop offset=".62" stopColor="#e2bd68" />
+              <Stop offset="1" stopColor="#d2a13d" />
             </SvgLinearGradient>
           </Defs>
-          <Path d="M 61 84 C 66 60 74 24 80 0 L 100 0 L 100 84 Z" fill="url(#messenger-header-panel-gradient)" />
-          <Path d="M 62 86 C 67 59 75 22 81 -2" fill="none" stroke="#063c91" strokeWidth="4" opacity=".42" />
-          <Path d="M 58 84 C 63 58 73 22 79 0 C 77 25 68 62 62 84 C 61 88 58.8 88 58 84 Z" fill="url(#messenger-header-gold-gradient)" />
-          <Path d="M 58.5 83 C 64 57 73.5 22 79 0" fill="none" stroke="#fff0b8" strokeWidth="1" opacity=".78" />
+          <Path
+            d="M 315 94 C 317.5 93.33 326.5 91.33 330 90 C 333.5 88.67 332.83 88 336 86 C 339.17 84 345.33 80.67 349 78 C 352.67 75.33 355 72.67 358 70 C 361 67.33 364.33 64.67 367 62 C 369.67 59.33 371.17 56.67 374 54 C 376.83 51.33 380.67 48.67 384 46 C 387.33 43.33 391.33 39.83 394 38 C 396.67 36.17 397.67 36.33 400 35 C 402.33 33.67 405.33 31.67 408 30 C 410.67 28.33 412.83 26.67 416 25 C 419.17 23.33 423 21.67 427 20 C 431 18.33 435.33 16.67 440 15 C 444.67 13.33 452.5 10.83 455 10 C 466 6.5 481 0 490 0 L 575 0 L 575 94 Z"
+            fill="url(#messenger-header-panel-gradient)"
+          />
+          <Path
+            d="M 315 94 C 317.5 93.33 326.5 91.33 330 90 C 333.5 88.67 332.83 88 336 86 C 339.17 84 345.33 80.67 349 78 C 352.67 75.33 355 72.67 358 70 C 361 67.33 364.33 64.67 367 62 C 369.67 59.33 371.17 56.67 374 54 C 376.83 51.33 380.67 48.67 384 46 C 387.33 43.33 391.33 39.83 394 38 C 396.67 36.17 397.67 36.33 400 35 C 402.33 33.67 405.33 31.67 408 30 C 410.67 28.33 412.83 26.67 416 25 C 419.17 23.33 423 21.67 427 20 C 431 18.33 435.33 16.67 440 15 C 444.67 13.33 452.5 10.83 455 10 C 455.5 10 447.33 13.33 443 15 C 438.67 16.67 433.17 18.33 429 20 C 424.83 21.67 421.17 23.33 418 25 C 414.83 26.67 412.67 28.33 410 30 C 407.33 31.67 404 33.67 402 35 C 400 36.33 400 36.17 398 38 C 396 39.83 392.67 43.33 390 46 C 387.33 48.67 384.83 51.33 382 54 C 379.17 56.67 375.67 59.33 373 62 C 370.33 64.67 368.5 67.33 366 70 C 363.5 72.67 361.17 75.33 358 78 C 354.83 80.67 350.5 84 347 86 C 343.5 88 340.67 88.67 337 90 C 333.33 91.33 328.67 93.33 325 94 C 321.33 94.67 314.17 94.67 315 94 Z"
+            fill="url(#messenger-header-gold-gradient)"
+          />
         </Svg>
       </View>
       <TouchableOpacity onPress={goHome} style={styles.brand} accessibilityLabel="Retourner à SPILOVEURE">

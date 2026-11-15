@@ -120,7 +120,7 @@ async def support_login(data: LoginIn, request: Request):
             raise HTTPException(403, "Accès révoqué. Contactez l'administrateur.")
         if st != "authorized":
             raise HTTPException(403, "Compte non autorisé.")
-    token = create_access_token(user["id"], role)
+    token = create_access_token(user["id"], role, auth_version=user.get("auth_version", 0))
     return {
         "token": token, "access_token": token,
         "user": {"id": user["id"], "email": user["email"], "username": user["username"], "role": role,
