@@ -145,7 +145,10 @@ function permissionModule(windowOverrides = {}, notification = { permission: "de
   const source = fs.readFileSync(path.join(root, "src/messenger/browserNotificationPermission.ts"), "utf8");
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS },
-  }).outputText, { exports, window: { self: top, top, isSecureContext: true, ...windowOverrides }, Notification: notification });
+  }).outputText, {
+    exports, window: { self: top, top, isSecureContext: true, ...windowOverrides },
+    ...(notification === null ? {} : { Notification: notification }),
+  });
   return exports;
 }
 
@@ -164,6 +167,61 @@ test("blocked permissions and embedded previews explain the real restriction", a
   await assert.rejects(permissionModule({}, { permission: "denied" }).requestChatNotificationPermission(), /paramètres du navigateur/);
   await assert.rejects(permissionModule({ self: {}, top: {} }).requestChatNotificationPermission(), /nouvel onglet/);
   await assert.rejects(permissionModule({ isSecureContext: false }).requestChatNotificationPermission(), /HTTPS/);
+});
+
+test("availability prevents impossible permission prompts and allows granted access", () => {
+  assert.equal(permissionModule({}, null).chatNotificationAvailability().canRequest, false);
+  assert.match(permissionModule({}, null).chatNotificationAvailability().message, /écran d’accueil/);
+  assert.equal(permissionModule({}, { permission: "denied" }).chatNotificationAvailability().canRequest, false);
+  assert.equal(permissionModule({ self: {}, top: {} }).chatNotificationAvailability().canRequest, false);
+  assert.equal(permissionModule({ self: {}, top: {} }, { permission: "granted" }).chatNotificationAvailability().canRequest, true);
+  assert.equal(permissionModule().chatNotificationAvailability().canRequest, true);
+});
+
+test("floating support is limited to the principal dashboard", () => {
+  const source = fs.readFileSync(path.join(root, "app/(app)/_layout.tsx"), "utf8");
+  assert.match(source, /const isDashboard = inAppGroup && currentSeg === "dashboard"/);
+  assert.match(source, /isDashboard && isActivated && <TelegramFab/);
+  assert.doesNotMatch(source, /!isMessenger && isActivated && <TelegramFab/);
+});
+
+test("status reply input yields space to the like, microphone and send buttons", () => {
+  const text = fs.readFileSync(path.join(root, "src/messenger/StatusStories.tsx"), "utf8");
+  const parsed = ts.createSourceFile("StatusStories.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let declaration;
+  const walk = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(parsed) === "styles") declaration = node;
+    ts.forEachChild(node, walk);
+  };
+  walk(parsed);
+  assert.ok(declaration);
+  const exported = {};
+  const compiled = ts.transpileModule(`exports.styles = ${declaration.initializer.getText(parsed)};`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  vm.runInNewContext(compiled, {
+    exports: exported,
+    StyleSheet: { create: value => value, absoluteFillObject: {} },
+    blue: "#1769e8", ink: "#102042", muted: "#7d879a",
+  });
+  const styles = exported.styles;
+  assert.equal(styles.replyInput.minWidth, 0, "Avoid the browser's intrinsic input width");
+  assert.equal(styles.replyInput.flexBasis, 0);
+  assert.equal(styles.replyInput.flexShrink, 1);
+  for (const control of ["likeButton", "replySecondaryButton", "replySend"]) {
+    assert.equal(styles[control].flexShrink, 0, `${control} must retain its visible width`);
+  }
+  assert.equal(styles.replyActions.flexWrap, "nowrap");
+  for (const width of [280, 320, 360, 390, 430, 720]) {
+    const padding = styles.replyActions.paddingHorizontal;
+    const gap = styles.replyActions.gap;
+    const input = width - 2 * padding - 3 * gap
+      - styles.likeButton.width - styles.replySecondaryButton.width - styles.replySend.width;
+    assert.ok(input >= 80, `A readable input must fit at ${width}px`);
+    const sendEdge = padding + styles.likeButton.width + gap + input + gap
+      + styles.replySecondaryButton.width + gap + styles.replySend.width;
+    assert.ok(sendEdge <= width - padding, `The entire send button must fit at ${width}px`);
+  }
 });
 
 test("emoji keyboard is below the composer and outside hidden modals", () => {

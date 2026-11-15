@@ -3,7 +3,7 @@ import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInpu
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import Svg, { Path } from "react-native-svg";
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from "react-native-svg";
 import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
 import { storage } from "@/src/utils/storage";
@@ -395,8 +395,22 @@ export default function MessengerScreen() {
   const chatList = <View style={[styles.listPanel, wide && styles.wideList]}>
     <LinearGradient colors={["#075fdf", "#0647b4"]} style={styles.header}>
       <View pointerEvents="none" style={styles.goldSwoop} testID="messenger-header-gold-swoop">
-        <Svg width="100%" height="100%" viewBox="0 0 574 94" preserveAspectRatio="none">
-          <Path d="M 310 95 C 339 94 353 70 377 46 C 411 13 441 6 485 7 C 438 7 412 18 381 49 C 360 71 347 95 326 95 Z" fill="#d9ad42" />
+        <Svg width="100%" height="100%" viewBox="0 0 100 84" preserveAspectRatio="none">
+          <Defs>
+            <SvgLinearGradient id="messenger-header-panel-gradient" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#0b5fca" />
+              <Stop offset="1" stopColor="#0745a7" />
+            </SvgLinearGradient>
+            <SvgLinearGradient id="messenger-header-gold-gradient" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor="#c99b39" />
+              <Stop offset=".48" stopColor="#f0d27b" />
+              <Stop offset="1" stopColor="#d2a33c" />
+            </SvgLinearGradient>
+          </Defs>
+          <Path d="M 61 84 C 66 60 74 24 80 0 L 100 0 L 100 84 Z" fill="url(#messenger-header-panel-gradient)" />
+          <Path d="M 62 86 C 67 59 75 22 81 -2" fill="none" stroke="#063c91" strokeWidth="4" opacity=".42" />
+          <Path d="M 58 84 C 63 58 73 22 79 0 C 77 25 68 62 62 84 C 61 88 58.8 88 58 84 Z" fill="url(#messenger-header-gold-gradient)" />
+          <Path d="M 58.5 83 C 64 57 73.5 22 79 0" fill="none" stroke="#fff0b8" strokeWidth="1" opacity=".78" />
         </Svg>
       </View>
       <TouchableOpacity onPress={goHome} style={styles.brand} accessibilityLabel="Retourner à SPILOVEURE">
@@ -406,16 +420,16 @@ export default function MessengerScreen() {
       <TouchableOpacity onPress={openSearch} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel="Rechercher"><Ionicons name="search" size={23} color="#fff" /></TouchableOpacity>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerIcon}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
     </LinearGradient>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={styles.filterContent}>
+    <View style={styles.filters} testID="messenger-filter-row">
        {filters.map(name => {
          const disabledFeature = name === "Groupes" || name === "Canaux";
          const unread = disabledFeature ? 0 : unreadConversationCount(name);
-        return <TouchableOpacity key={name} onPress={() => chooseFilter(name)} style={[styles.filter, filter === name && styles.filterActive]} accessibilityRole="button" accessibilityState={{ selected: filter === name }} accessibilityLabel={`${name}${unread ? `, ${unread} conversation${unread > 1 ? "s" : ""} non lue${unread > 1 ? "s" : ""}` : ""}`} testID={`messenger-filter-${name}`}>
+         return <TouchableOpacity key={name} onPress={() => chooseFilter(name)} style={[styles.filter, name === "Messages privés" && styles.filterPrivate, filter === name && styles.filterActive]} accessibilityRole="button" accessibilityState={{ selected: filter === name }} accessibilityLabel={`${name}${unread ? `, ${unread} conversation${unread > 1 ? "s" : ""} non lue${unread > 1 ? "s" : ""}` : ""}`} testID={`messenger-filter-${name}`}>
            <Text style={[styles.filterText, filter === name && styles.filterActiveText, disabledFeature && styles.filterSoon]}>{name}</Text>
           {unread > 0 && <View style={styles.filterBadge} testID={`messenger-filter-unread-${name}`}><Text style={styles.filterBadgeText}>{unread > 99 ? "99+" : unread}</Text></View>}
         </TouchableOpacity>;
       })}
-    </ScrollView>
+    </View>
     {filter === "Canaux" && capabilities?.public_channels !== false && <TouchableOpacity onPress={() => setPublicChannelsOpen(true)} style={styles.discoverChannels} testID="messenger-channel-discovery" accessibilityLabel="Découvrir les canaux publics"><Ionicons name="compass-outline" size={17} color={blue} /><Text style={styles.discoverText}>Découvrir les canaux publics</Text></TouchableOpacity>}
     {archived && <View style={styles.archiveBanner}><Text style={styles.archiveText}>Conversations archivées</Text><TouchableOpacity onPress={() => setArchived(false)}><Text style={styles.quickText}>Retour</Text></TouchableOpacity></View>}
     {actionError ? <TouchableOpacity onPress={() => setActionError("")} style={styles.errorBanner}><Text style={styles.errorText}>{actionError}  ×</Text></TouchableOpacity> : null}
@@ -544,8 +558,7 @@ const styles = StyleSheet.create({
   goldSwoop: { ...StyleSheet.absoluteFillObject, zIndex: 0, opacity: .95 },
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
   headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" },
-  filters: { flexGrow: 0, flexShrink: 0, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
-  filterContent: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8 },
+  filters: { flexGrow: 0, flexShrink: 0, height: 60, flexDirection: "row", alignItems: "center", paddingHorizontal: 6, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
   searchModalPage: { flex: 1, backgroundColor: "#f5f7fa" },
   searchModalHeader: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e9edf3" },
   searchClose: { width: 38, height: 42, alignItems: "center", justifyContent: "center" },
@@ -562,8 +575,8 @@ const styles = StyleSheet.create({
   memberSearchName: { flex: 1, color: ink, fontSize: 13, fontWeight: "800" }, searchAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#eef4ff" },
   memberSearchEmpty: { color: muted, fontSize: 12, paddingVertical: 10 },
   discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
-  filter: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0, borderRadius: 21, paddingHorizontal: 8, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" }, filterSoon: { color: "#8692a6" },
-  filterBadge: { minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
+  filter: { flex: 1, flexBasis: 0, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, borderRadius: 21, marginHorizontal: 1, paddingHorizontal: 3, paddingVertical: 8, backgroundColor: "#f2f4f8" }, filterPrivate: { flexGrow: 1.55 }, filterActive: { backgroundColor: blue }, filterText: { flexShrink: 1, textAlign: "center", color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" }, filterSoon: { color: "#8692a6" },
+  filterBadge: { flexShrink: 0, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
   conversationRow: { minHeight: 82, minWidth: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
   avatarRing: { width: 54, height: 54, alignItems: "center", justifyContent: "center" }, avatarRingUnread: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#13b981" }, avatarRingSeen: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowAvatarInside: { width: 50, height: 50, borderRadius: 25 }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowPhotoInside: { width: 50, height: 50, borderRadius: 25 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },

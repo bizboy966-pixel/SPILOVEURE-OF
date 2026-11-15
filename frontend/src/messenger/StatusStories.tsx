@@ -520,7 +520,7 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
                <Ionicons name="eye-outline" size={17} color="#fff" />
                <Text style={styles.viewCountText}>{story.views_count || 0} vues</Text>
              </TouchableOpacity>
-             : <View style={styles.replyActions}>
+             : <View style={styles.replyActions} testID="status-reply-actions">
                 {recordingReply ? <>
                 <View style={styles.recordingReplyCopy}><View style={styles.recordingReplyDot} /><Text style={styles.recordingReplyText}>Enregistrement · {recordingSeconds}s</Text></View>
                 <TouchableOpacity style={styles.replySecondaryButton} onPress={cancelReplyVoice} accessibilityLabel="Annuler l’enregistrement vocal"><Ionicons name="trash-outline" size={19} color="#fff" /></TouchableOpacity>
@@ -530,7 +530,7 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
                 </> : <>
                <TouchableOpacity style={styles.likeButton} onPress={toggleLike} accessibilityLabel={story?.liked_by_me ? "Retirer le j’aime" : "Aimer ce statut"}>
                  <Ionicons name={story?.liked_by_me ? "heart" : "heart-outline"} size={23} color={story?.liked_by_me ? "#ff5570" : "#fff"} />
-                 <Text style={styles.replyActionCount}>{story?.likes_count || 0}</Text>
+                 <Text numberOfLines={1} style={styles.replyActionCount}>{story?.likes_count || 0}</Text>
                </TouchableOpacity>
                <TextInput
                  value={replyText}
@@ -619,15 +619,15 @@ const styles = StyleSheet.create({
   pauseMark: { position: "absolute", alignSelf: "center", top: "46%", width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(0,0,0,.48)", alignItems: "center", justifyContent: "center" },
   viewCount: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, alignSelf: "center", paddingHorizontal: 14, paddingBottom: 28 },
   viewCountText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  replyActions: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingBottom: 22, backgroundColor: "#0b1220" },
-  likeButton: { width: 46, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
-  replyActionCount: { color: "#fff", fontSize: 11, fontWeight: "800" },
-  replyInput: { flex: 1, height: 42, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#253149", color: "#fff", fontSize: 14, outlineStyle: "none" as any },
+  replyActions: { alignSelf: "stretch", minWidth: 0, maxWidth: "100%", minHeight: 70, flexDirection: "row", flexWrap: "nowrap", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingBottom: 22, backgroundColor: "#0b1220" },
+  likeButton: { width: 46, height: 42, flexShrink: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
+  replyActionCount: { flexShrink: 1, minWidth: 0, color: "#fff", fontSize: 11, fontWeight: "800" },
+  replyInput: { flex: 1, flexBasis: 0, flexShrink: 1, minWidth: 0, height: 42, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#253149", color: "#fff", fontSize: 14, outlineStyle: "none" as any },
   recordingReplyCopy: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
   recordingReplyDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#f45b67" },
-  recordingReplyText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  replySecondaryButton: { width: 38, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#253149" },
-  replySend: { width: 42, height: 42, borderRadius: 21, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
+  recordingReplyText: { flexShrink: 1, minWidth: 0, color: "#fff", fontSize: 13, fontWeight: "700" },
+  replySecondaryButton: { width: 38, height: 42, flexShrink: 0, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#253149" },
+  replySend: { width: 42, height: 42, flexShrink: 0, borderRadius: 21, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
   viewersBackdrop: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", zIndex: 10 },
   viewersScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,.52)" },
   viewersSheet: { height: "68%", minHeight: 270, backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 20 },

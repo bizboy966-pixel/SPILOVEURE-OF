@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "rea
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { setupWebPush, currentPermission, isWebPushConfigured } from "@/src/lib/firebase";
-import { requestChatNotificationPermission } from "./browserNotificationPermission";
+import { chatNotificationAvailability, requestChatNotificationPermission } from "./browserNotificationPermission";
 import {
   getCustomNotificationSound,
   playNotificationSound,
@@ -47,6 +47,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
   const [pushBusy, setPushBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const notificationAvailability = chatNotificationAvailability();
 
   const controlsDisabled = isConversation && settings.inherit === true;
   const effectiveSettings = useMemo(() => settings, [settings]);
@@ -91,6 +92,16 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     void loadCapabilities();
     void checkCustom();
   }, [endpoint, userId, scope]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updatePermission = () => setPermission(currentPermission());
+    window.addEventListener("focus", updatePermission);
+    document.addEventListener("visibilitychange", updatePermission);
+    return () => {
+      window.removeEventListener("focus", updatePermission);
+      document.removeEventListener("visibilitychange", updatePermission);
+    };
+  }, []);
 
   const change = (patch: Partial<Settings>) => {
     setSettings(current => ({ ...current, ...patch }));
@@ -173,10 +184,14 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     setError("");
     setNotice("");
     try {
+      const availability = chatNotificationAvailability();
+      if (!availability.canRequest) { setNotice(availability.message); return; }
       const allowed = await requestChatNotificationPermission();
       setPermission(allowed);
       if (allowed !== "granted") {
-        setError("L’autorisation n’a pas été accordée. Vous pouvez réessayer ; les bannières dans le Chat restent actives.");
+        setNotice(allowed === "denied"
+          ? chatNotificationAvailability().message
+          : "La demande a été fermée sans autorisation. Cliquez à nouveau sur « Activer », puis choisissez « Autoriser » dans le navigateur. Les bannières dans le Chat restent actives.");
         return;
       }
       if (!pushConfigured || !isWebPushConfigured()) {
@@ -189,7 +204,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
       setPermission(currentPermission());
       if (currentPermission() === "granted" && token) setNotice("Notifications du navigateur autorisées et appareil enregistré.");
       else if (currentPermission() === "granted") setError("Autorisation accordée, mais l’enregistrement push a échoué. Réessayez l’activation.");
-      else setError("L’autorisation n’a pas été accordée ou les notifications Web ne sont pas disponibles.");
+      else setNotice(chatNotificationAvailability().message);
     } catch (e: any) {
       setError(errorText(e, "Activation des notifications impossible."));
     } finally {
@@ -244,10 +259,11 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
         <View style={styles.pushBox}>
           <Text style={styles.rowTitle}>Notifications du navigateur</Text>
           <Text style={styles.help}>Autorisation : {permission === "granted" ? "accordée" : permission === "denied" ? "refusée dans le navigateur" : permission === "default" ? "non demandée" : "non prise en charge"}.</Text>
+          <Text style={styles.help} testID="messenger-notification-availability">{notificationAvailability.message}</Text>
           <Text style={styles.help}>{pushConfigured === null ? "État du service push indisponible." : pushConfigured && isWebPushConfigured() ? "Le service push est configuré. La réception dépend aussi des autorisations du navigateur." : "Les bannières fonctionnent site ouvert. La configuration des notifications site fermé reste à compléter."}</Text>
-          {<TouchableOpacity onPress={enableBrowserNotifications} disabled={pushBusy} style={styles.secondaryButton} testID="messenger-notification-enable-browser">
+          {<TouchableOpacity onPress={enableBrowserNotifications} disabled={pushBusy || !notificationAvailability.canRequest} style={[styles.secondaryButton, !notificationAvailability.canRequest && styles.disabled]} testID="messenger-notification-enable-browser">
             {pushBusy ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="notifications-outline" size={17} color={blue} />}
-            <Text style={styles.secondaryText}>{pushBusy ? "Activation…" : permission === "granted" ? "Réenregistrer cet appareil" : "Activer les notifications du navigateur"}</Text>
+            <Text style={[styles.secondaryText, { flexShrink: 1 }]}>{pushBusy ? "Activation…" : notificationAvailability.action}</Text>
           </TouchableOpacity>}
         </View>
         <TouchableOpacity onPress={() => {

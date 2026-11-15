@@ -20,3 +20,9 @@ Le panneau d’emojis se place sous le champ de message, comme un clavier ; le c
 **Why:** L’utilisateur a répété cette disposition après un affichage incorrect des emojis au-dessus du champ.
 
 **How to apply:** Garder le panneau dans la disposition principale de la discussion, sous la saisie, et préserver le bouton emoji/clavier.
+
+Le bouton flottant Support doit être visible uniquement sur la page d’accueil, le dashboard principal, et absent des autres pages.
+
+**Why:** L’utilisateur a explicitement restreint l’affichage de ce bouton au dashboard.
+
+**How to apply:** Cette règle concerne le bouton flottant ; ne pas supprimer les autres accès au support sans demande.

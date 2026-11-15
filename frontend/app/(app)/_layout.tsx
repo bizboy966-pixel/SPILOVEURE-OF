@@ -68,6 +68,7 @@ export default function AppLayout() {
   const inAppGroup = segments[0] === "(app)";
   const currentSeg = inAppGroup ? (segments[1] || "") : "";
   const isMessenger = currentSeg === "messenger";
+  const isDashboard = inAppGroup && currentSeg === "dashboard";
   useEffect(() => {
     if (loading || user || currentSeg !== "pay") {
       if (user || currentSeg !== "pay") setPayChatStatus("idle");
@@ -129,7 +130,7 @@ export default function AppLayout() {
                 {!isMessenger && isActivated && <SupportGroupPopup enabled={communityDone} />}
                 {!isMessenger && <NotificationToaster />}
                 {!isMessenger && <PushBootstrap />}
-                {!isMessenger && isActivated && <TelegramFab />}
+                {isDashboard && isActivated && <TelegramFab />}
               </>
             )}
           </>
