@@ -147,7 +147,7 @@ async def settings(request: Request, user=Depends(chat_user)):
         "show_presence": row.get("show_presence", True),
         "allow_contacts": row.get("allow_contacts", True),
         "appearance": row.get("appearance", "light"),
-        "message_color": row.get("message_color", "blue"),
+        "message_color": row.get("message_color", "green"),
         "font_scale": row.get("font_scale", 1),
         "high_contrast": row.get("high_contrast", False),
         "reduce_motion": row.get("reduce_motion", False),

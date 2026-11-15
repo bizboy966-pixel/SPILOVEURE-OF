@@ -21,6 +21,7 @@ def no_store(response: Response):
 
 router = APIRouter(prefix="/password-reset", dependencies=[Depends(check_origin), Depends(no_store)])
 INVALID = "Code incorrect, expiré ou déjà utilisé. Demandez un nouveau code si nécessaire."
+ACCOUNT_EMAIL_INCORRECT = "ACCOUNT_EMAIL_INCORRECT"
 
 
 class RequestReset(BaseModel):
@@ -55,34 +56,45 @@ async def request_reset(body: RequestReset, request: Request):
         )
     except DuplicateKeyError:
         raise HTTPException(429, "Patientez 60 secondes avant de demander un nouveau code.") from None
-    sender = getattr(request.app.state, "email_sender", None) or VerificationEmailSender()
-    if not await asyncio.to_thread(sender.configured):
-        raise HTTPException(503, "L’envoi des e-mails est indisponible. Veuillez réessayer plus tard.")
     matches = await db.users.find({
         "email": {"$regex": "^" + re.escape(email) + "$", "$options": "i"},
         "status": {"$nin": ["banned", "blocked", "deleted"]},
     }).limit(2).to_list(2)
     # Never choose one account silently when legacy users share an address.
-    user = matches[0] if len(matches) == 1 and matches[0].get("password_hash") and password_created(matches[0]) else None
+    if not matches or len(matches) != 1:
+        raise HTTPException(400, ACCOUNT_EMAIL_INCORRECT)
+    user = matches[0] if matches[0].get("password_hash") and password_created(matches[0]) else None
+    if not user:
+        # Keep the neutral, non-actionable response for accounts that cannot
+        # yet reset a password (for example, unfinished onboarding).
+        challenge, code = secrets.token_urlsafe(24), f"{secrets.randbelow(1_000_000):06d}"
+        await db.identity_password_resets.insert_one({
+            "id": challenge, "user_id": None,
+            "email_digest": digest(email), "code_digest": digest(challenge + ":" + code),
+            "password_digest": None, "attempts": 0, "used": False, "status": "sent",
+            "created_at": now(), "expires_at": now() + timedelta(minutes=10),
+        })
+        return {"challenge_id": challenge, "expires_in": 600, "resend_after": 60}
+    sender = getattr(request.app.state, "email_sender", None) or VerificationEmailSender()
+    if not await asyncio.to_thread(sender.configured):
+        raise HTTPException(503, "L’envoi des e-mails est indisponible. Veuillez réessayer plus tard.")
     challenge, code = secrets.token_urlsafe(24), f"{secrets.randbelow(1_000_000):06d}"
     await db.identity_password_resets.insert_one({
-        "id": challenge, "user_id": user["id"] if user else None,
+        "id": challenge, "user_id": user["id"],
         "email_digest": digest(email), "code_digest": digest(challenge + ":" + code),
-        "password_digest": digest(user["password_hash"]) if user else None,
+        "password_digest": digest(user["password_hash"]),
         "attempts": 0, "used": False, "status": "pending", "created_at": now(),
         "expires_at": now() + timedelta(minutes=10),
     })
-    if user:
-        try:
-            await asyncio.to_thread(sender.send_password_reset, email, code)
-        except Exception:
-            await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "failed"}})
-            raise HTTPException(503, "L’e-mail n’a pas pu être envoyé. Veuillez réessayer plus tard.") from None
+    try:
+        await asyncio.to_thread(sender.send_password_reset, email, code)
+    except Exception:
+        await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "failed"}})
+        raise HTTPException(503, "L’e-mail n’a pas pu être envoyé. Veuillez réessayer plus tard.") from None
     await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "sent"}})
-    if user:
-        await db.identity_password_resets.update_many({
-            "user_id": user["id"], "id": {"$ne": challenge}, "used": False,
-        }, {"$set": {"status": "superseded"}})
+    await db.identity_password_resets.update_many({
+        "user_id": user["id"], "id": {"$ne": challenge}, "used": False,
+    }, {"$set": {"status": "superseded"}})
     return {"challenge_id": challenge, "expires_in": 600, "resend_after": 60}
 
 

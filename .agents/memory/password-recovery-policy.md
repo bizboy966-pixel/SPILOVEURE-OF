@@ -5,6 +5,8 @@ description: Pourquoi la récupération d’accès révoque les sessions par ver
 
 La réinitialisation doit permettre de définir un nouveau mot de passe, jamais de récupérer l’ancien, et invalider les accès antérieurs.
 
-**Why:** Un seuil basé uniquement sur la date d’émission des JWT ne distingue pas correctement un ancien et un nouveau jeton émis dans la même seconde. Une version de sécurité du compte évite cette ambiguïté sans bloquer une reconnexion immédiate.
+Seule l’adresse enregistrée sur un compte admissible peut recevoir un code de récupération. Une adresse absente ou partagée par plusieurs comptes ne reçoit aucun code et affiche « Email du compte incorrect ».
 
-**How to apply:** Tout chemin qui émet ou vérifie un jeton pour un compte existant doit respecter cette version, y compris le support et les confirmations sensibles. Les codes de récupération restent distincts des codes de vérification e-mail ; leur possession ne doit pas contourner les étapes d’activation.
+**Why:** L’utilisateur a précisé que seul l’e-mail utilisé à la création du compte doit permettre sa récupération. Une version de sécurité du compte évite aussi de confondre d’anciens et de nouveaux jetons émis dans la même seconde.
+
+**How to apply:** Tout chemin qui émet ou vérifie un jeton pour un compte existant doit respecter cette version, y compris le support et les confirmations sensibles. Les codes de récupération restent distincts des codes de vérification e-mail ; leur possession ne doit pas contourner les étapes d’activation. Conserver les limites de requêtes lors de la vérification de l’adresse, car la réponse explicite permet de distinguer une adresse de compte d’une adresse inconnue.

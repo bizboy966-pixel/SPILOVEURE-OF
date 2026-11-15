@@ -53,7 +53,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
   const [photoOpen, setPhotoOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
     show_presence: true, allow_contacts: true, appearance: "light",
-    message_color: "blue", font_scale: 1, high_contrast: false,
+    message_color: "green", font_scale: 1, high_contrast: false,
     reduce_motion: false, auto_load_media: true, default_disappearing_seconds: 0,
   });
   const [settingsLoading, setSettingsLoading] = useState(false);

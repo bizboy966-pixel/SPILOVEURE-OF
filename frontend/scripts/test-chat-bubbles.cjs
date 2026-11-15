@@ -13,10 +13,21 @@ const { voiceWaveform } = exported;
 
 test("sent bubbles use the reference green and received bubbles stay white", () => {
   const source = read("messenger/ConversationThread.tsx");
+  assert.match(source, /const messageColors = \{ blue: "#dbeafe", green: "#efffde", gold: "#fff1cc" \}/);
+  assert.match(source, /visualSettings\.message_color \|\| "green"/);
   assert.match(source, /ownBubble: \{[^}]*backgroundColor: "#efffde"/);
   assert.match(source, /otherBubble: \{[^}]*backgroundColor: "#fff"/);
   assert.match(source, /own \? styles\.ownBubble : styles\.otherBubble/);
   assert.match(source, /own \? styles\.ownBubbleTail : styles\.otherBubbleTail/);
+});
+test("light conversations use the mint-to-blue doodle wallpaper", () => {
+  const source = read("messenger/ConversationThread.tsx");
+  const wallpaper = read("messenger/ChatWallpaper.tsx");
+  assert.match(source, /const chatSurface = darkMode \? "#111827" : "transparent";/);
+  assert.match(source, /!\s*darkMode\s*&&\s*<ChatWallpaper\s*\/>/);
+  assert.match(wallpaper, /#c8f1e7/);
+  assert.match(wallpaper, /#aebbe7/);
+  assert.match(wallpaper, /stroke="#6d98ad"/);
 });
 test("text stays multiline and wrapping while receipt meanings stay unchanged", () => {
   const source = read("messenger/ConversationThread.tsx");

@@ -16,6 +16,7 @@ import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
 import { elapsedVoiceSeconds } from "@/src/components/voiceDuration";
 import { chatProfileUrl } from "./userLinks";
+import ChatWallpaper from "./ChatWallpaper";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
@@ -33,7 +34,7 @@ type ChatVisualSettings = {
   high_contrast?: boolean;
   auto_load_media?: boolean;
 };
-const messageColors = { blue: "#dbeafe", green: "#dcfce7", gold: "#fff1cc" };
+const messageColors = { blue: "#dbeafe", green: "#efffde", gold: "#fff1cc" };
 const logo = require("../../assets/images/spiloveure-logo.png");
 const emojiStorage = createMemoryAdapter();
 const emojiTranslation: Record<CategoryTypes, string> = {
@@ -485,16 +486,17 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const isChannelAdmin = conversation.admins.includes(userId) || conversation.owner_id === userId;
   const canSend = conversation.kind !== "channel" || isChannelAdmin;
   const darkMode = visualSettings.appearance === "dark";
-  const chatSurface = darkMode ? "#111827" : "#b9e3d9";
-  const ownBubbleColor = messageColors[visualSettings.message_color || "blue"];
+  const chatSurface = darkMode ? "#111827" : "transparent";
+  const ownBubbleColor = messageColors[visualSettings.message_color || "green"];
   const textScale = Math.min(1.4, Math.max(0.9, Number(visualSettings.font_scale) || 1));
   const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
     ? `Vu ${new Date(otherPerson.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
     : conversation.kind === "private" ? "Membre SPILOVEURE" : `${conversation.member_profiles.length} membres`;
 
   return (
-    <View style={[styles.thread, { backgroundColor: chatSurface }]}>
-      <View style={[styles.threadHead, darkMode && styles.threadHeadDark]}>
+    <View style={[styles.thread, { backgroundColor: darkMode ? "#111827" : "#b9e3d9" }]}>
+      {!darkMode && <ChatWallpaper />}
+      <View style={[styles.threadHead, { backgroundColor: chatSurface }, darkMode && styles.threadHeadDark]}>
         <TouchableOpacity onPress={onBack} style={[styles.backButton, darkMode && styles.headerPillDark]} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
         <View style={[styles.identityPill, darkMode && styles.headerPillDark]}>
           <TouchableOpacity onPress={() => conversation.is_saved ? onDetails() : hasActiveStatus ? onOpenStatus?.() : otherPhoto ? onViewPhoto(otherPhoto, conversation.title) : onDetails()} style={[styles.avatar, conversation.is_saved && styles.savedAvatar, hasActiveStatus && styles.avatarStoryRing]} accessibilityRole="button" accessibilityLabel={hasActiveStatus ? `Voir le statut de ${conversation.title}` : conversation.is_saved ? "Messages enregistrés" : otherPhoto ? `Afficher la photo de ${conversation.title}` : `Détails de ${conversation.title}`} testID="messenger-thread-avatar">
@@ -583,7 +585,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               </View>}
               <View pointerEvents="none" style={[styles.bubbleTail, own ? styles.ownBubbleTail : styles.otherBubbleTail]}>
                 <Svg width={11} height={14} viewBox="0 0 11 14">
-                  <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? "#efffde" : "#fff"} />
+                 <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? ownBubbleColor : "#fff"} />
                 </Svg>
               </View>
             </View>;
@@ -707,7 +709,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 
 const styles = StyleSheet.create({
   thread: { flex: 1, backgroundColor: "#b9e3d9", minHeight: 0, position: "relative" },
-  threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "#b9e3d9", paddingHorizontal: 11, gap: 8 },
+  threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "transparent", paddingHorizontal: 11, gap: 8 },
   threadHeadDark: { backgroundColor: "#111827" },
   backButton: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   identityPill: { flex: 1, minWidth: 0, height: 54, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 30, backgroundColor: "#fff", paddingHorizontal: 6, paddingVertical: 4 },

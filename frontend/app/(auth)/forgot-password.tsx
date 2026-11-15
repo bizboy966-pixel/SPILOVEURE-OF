@@ -40,8 +40,9 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-function safeError(error: unknown, fallback: string): string {
+function safeError(error: unknown, fallback: string, accountEmailIncorrect: string): string {
   const detail = (error as { detail?: unknown } | null)?.detail;
+  if (detail === "ACCOUNT_EMAIL_INCORRECT") return accountEmailIncorrect;
   return typeof detail === "string" && detail.trim()
     ? detail.trim().slice(0, 200)
     : fallback;
@@ -126,7 +127,7 @@ export default function ForgotPassword() {
       setRequestSent(true);
       setStage("confirm");
     } catch (e) {
-      setError(safeError(e, t("auth.reset_send_failed")));
+      setError(safeError(e, t("auth.reset_send_failed"), t("auth.reset_account_email_incorrect")));
     } finally {
       endBusy();
     }
@@ -168,7 +169,7 @@ export default function ForgotPassword() {
       setPasswordConfirm("");
       setRequestSent(true);
     } catch (e) {
-      setError(safeError(e, t("auth.reset_resend_failed")));
+      setError(safeError(e, t("auth.reset_resend_failed"), t("auth.reset_account_email_incorrect")));
     } finally {
       endBusy();
     }
@@ -217,7 +218,7 @@ export default function ForgotPassword() {
       setPasswordConfirm("");
       setError("");
     } catch (e) {
-      setError(safeError(e, t("auth.reset_failed")));
+      setError(safeError(e, t("auth.reset_failed"), t("auth.reset_account_email_incorrect")));
     } finally {
       endBusy();
     }

@@ -63,18 +63,22 @@ def test_recovery_resets_password_revokes_sessions_and_preserves_account(recover
     assert confirm(recovery, challenge).status_code == 400
 
 
-def test_unknown_and_ambiguous_addresses_have_same_neutral_response(recovery):
+def test_unknown_and_ambiguous_addresses_are_rejected_without_sending_a_code(recovery):
     known = request_code(recovery)
     messages = len(recovery[0].state.email_sender.messages)
-    unknown = request_code(recovery, "unknown@example.com")
+    unknown = recovery[1].post("/api/identity/password-reset/request", json={"email": "unknown@example.com"})
+    assert unknown.status_code == 400
+    assert unknown.json()["detail"] == "ACCOUNT_EMAIL_INCORRECT"
     assert len(recovery[0].state.email_sender.messages) == messages
-    assert confirm(recovery, unknown, "123456").status_code == 400
-    assert known != unknown
+    assert run(recovery[0].state.db.identity_password_resets.count_documents({})) == 1
+    assert known
     run(recovery[0].state.db.users.insert_one({
         "id": "duplicate", "email": "LEGACY@example.com", "password_hash": "not-a-real-hash",
     }))
     run(recovery[0].state.db.identity_rate_limits.delete_one({"_id": "reset-cooldown:" + digest("legacy@example.com")}))
-    request_code(recovery)
+    ambiguous = recovery[1].post("/api/identity/password-reset/request", json={"email": "legacy@example.com"})
+    assert ambiguous.status_code == 400
+    assert ambiguous.json()["detail"] == "ACCOUNT_EMAIL_INCORRECT"
     assert len(recovery[0].state.email_sender.messages) == messages
 
 
