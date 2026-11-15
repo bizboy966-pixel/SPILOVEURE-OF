@@ -19,6 +19,9 @@ export function useConversations(currentUserId?: string) {
     try {
       const rows = await messengerApi.conversations(archived);
       setItems(rows); setError("");
+      rows.filter(row => row.unread > 0).forEach(row => {
+        void messengerApi.markConversationDelivered(row.id).catch(() => undefined);
+      });
     } catch (e: any) { setError(e?.detail || "Impossible de charger les conversations."); }
     finally { setLoading(false); }
   }, [archived]);
@@ -66,8 +69,8 @@ export function useConversations(currentUserId?: string) {
               }
               return;
             }
-            if (data.type === "message" || data.type === "updated") setVersion(v => v + 1);
-            if (["message", "updated", "read", "presence", "profile"].includes(data.type)) refresh();
+            if (["message", "updated", "delivered"].includes(data.type)) setVersion(v => v + 1);
+            if (["message", "updated", "read", "delivered", "presence", "profile"].includes(data.type)) refresh();
             if (data.type === "feed" || data.type === "status" || data.type === "profile") {
               setFeedVersion(v => v + 1);
             }

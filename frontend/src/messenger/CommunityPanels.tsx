@@ -72,12 +72,12 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
 }
 
 type FeedProps = {
-  userId: string; version?: number; requestedStatusAuthor?: string | null;
+  userId: string; version?: number; requestedStatusAuthor?: string | null; requestedStatusId?: string | null;
   onStatusRequestConsumed?: () => void; onStatusViewerClose?: () => void;
   onUnreadCount?: (count: number) => void;
-  onStatusReply?: (authorId: string, text: string, statusText: string) => Promise<void>;
+  onStatusReply?: (authorId: string, text: string, statusId: string, voice?: Blob) => Promise<void>;
 };
-export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose, onUnreadCount, onStatusReply }: FeedProps) {
+export function FeedPanel({ userId, version = 0, requestedStatusAuthor, requestedStatusId, onStatusRequestConsumed, onStatusViewerClose, onUnreadCount, onStatusReply }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState("");
   const [canPublish, setCanPublish] = useState(false);
@@ -127,7 +127,7 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatus
     input.click();
   };
   return <View style={styles.panel}>
-    <StatusStories userId={userId} version={version} requestedAuthorId={requestedStatusAuthor} onRequestConsumed={onStatusRequestConsumed} onViewerClose={onStatusViewerClose} onReply={onStatusReply} />
+    <StatusStories userId={userId} version={version} requestedAuthorId={requestedStatusAuthor} requestedStatusId={requestedStatusId} onRequestConsumed={onStatusRequestConsumed} onViewerClose={onStatusViewerClose} onReply={onStatusReply} />
     <Text style={styles.panelTitle}>Actualités SPILOVEURE</Text>
     {error ? <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>

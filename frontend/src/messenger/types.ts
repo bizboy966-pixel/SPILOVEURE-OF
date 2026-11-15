@@ -5,6 +5,10 @@ export type Message = {
   id: string; conversation_id: string; sender_id: string; sender_name: string; text: string;
   created_at: string; edited_at?: string; deleted: boolean; attachments: Attachment[];
   reply_to?: string; reactions: Record<string, string[]>; pinned: boolean; read_by: string[];
+  delivered_by?: string[]; status_reply?: {
+    status_id: string; author_id: string; author_name: string; text: string;
+    attachments: Attachment[]; created_at?: string;
+  };
   client_id?: string; forwarded_from?: string;
 };
 export type Conversation = {

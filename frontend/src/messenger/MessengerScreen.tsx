@@ -65,7 +65,9 @@ export default function MessengerScreen() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [statusAuthorIds, setStatusAuthorIds] = useState<Set<string>>(new Set());
+  const [statusUnreadAuthorIds, setStatusUnreadAuthorIds] = useState<Set<string>>(new Set());
   const [requestedStatusAuthor, setRequestedStatusAuthor] = useState<string | null>(null);
+  const [requestedStatusId, setRequestedStatusId] = useState<string | null>(null);
   const [statusReturnTab, setStatusReturnTab] = useState<Tab | null>(null);
   const [unreadNewsCount, setUnreadNewsCount] = useState(0);
   const [rowMenu, setRowMenu] = useState<string | null>(null);
@@ -87,14 +89,22 @@ export default function MessengerScreen() {
         router.replace("/messenger" as any);
       });
   }, [inviteParam, user?.id, refresh, router]);
-  useEffect(() => {
-    if (!user?.id) { setStatusAuthorIds(new Set()); return; }
-    let active = true;
-    api.get<ChatStatus[]>("/messenger/statuses")
-      .then(rows => { if (active) setStatusAuthorIds(new Set(rows.map(status => status.author_id))); })
-      .catch(() => { if (active) setStatusAuthorIds(new Set()); });
-    return () => { active = false; };
-  }, [user?.id, feedVersion]);
+  const refreshStatusAuthors = useCallback(async () => {
+    if (!user?.id) {
+      setStatusAuthorIds(new Set());
+      setStatusUnreadAuthorIds(new Set());
+      return;
+    }
+    try {
+      const rows = await api.get<ChatStatus[]>("/messenger/statuses");
+      setStatusAuthorIds(new Set(rows.map(status => status.author_id)));
+      setStatusUnreadAuthorIds(new Set(rows.filter(status => status.author_id !== user.id && !status.viewed_by_me).map(status => status.author_id)));
+    } catch {
+      setStatusAuthorIds(new Set());
+      setStatusUnreadAuthorIds(new Set());
+    }
+  }, [user?.id]);
+  useEffect(() => { void refreshStatusAuthors(); }, [refreshStatusAuthors, feedVersion]);
   useEffect(() => {
     if (!user?.id) { setUnreadNewsCount(0); return; }
     let active = true;
@@ -152,6 +162,16 @@ export default function MessengerScreen() {
     return matchesFilter && (!q || item.title.toLowerCase().includes(q) || item.last_message?.text?.toLowerCase().includes(q));
   }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()), [items, filter, query]);
 
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    setSearchPeople([]);
+  };
+  const openSearch = () => {
+    setQuery("");
+    setSearchPeople([]);
+    setSearchOpen(true);
+  };
   const goHome = () => {
     navTransition.toHome(() => router.replace("/account-access?source=chat" as any));
   };
@@ -161,20 +181,20 @@ export default function MessengerScreen() {
       setSelected(result); setCreationOpen(false); setChosen([]); setPersonQuery(""); setSearchOpen(false); setQuery(""); setTab("Échanges"); refresh();
     }).catch((e: any) => setActionError(e?.detail || "Conversation impossible à créer.")).finally(() => setBusy(false));
   };
-  const replyToStatus = async (authorId: string, text: string, statusText: string) => {
+  const replyToStatus = async (authorId: string, text: string, statusId: string, voice?: Blob) => {
     const conversation = await messengerApi.createConversation({ kind: "private", member_ids: [authorId] });
-    const context = statusText.trim()
-      ? `Réponse à votre statut : « ${statusText.trim().slice(0, 180)} »\n\n${text}`
-      : text;
+    const attachments = voice ? [await messengerApi.file(
+      conversation.id,
+      new File([voice], `reponse-statut-${Date.now()}.${voice.type.includes("ogg") ? "ogg" : voice.type.includes("mp4") ? "m4a" : "webm"}`, {
+        type: voice.type || "audio/webm",
+      }),
+    )] : [];
     await messengerApi.send(conversation.id, {
-      text: context,
+      text,
+      attachments,
+      status_reply_id: statusId,
       client_id: `status-reply-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     });
-    const updated = await messengerApi.conversation(conversation.id).catch(() => conversation);
-    setSelected(updated);
-    setTab("Échanges");
-    setRequestedStatusAuthor(null);
-    setStatusReturnTab(null);
     await refresh();
   };
   const openSpvUser = useCallback(async (rawUsername: string) => {
@@ -264,16 +284,20 @@ export default function MessengerScreen() {
     setFilter(name);
     if (user?.id) void storage.setItem(`spv_messenger_filter_v1:${user.id}`, name);
   };
-  const openStatusFor = (authorId: string) => {
+  const openStatusFor = (authorId: string, statusId?: string) => {
     setStatusReturnTab(tab === "Actus" ? null : tab);
     setRequestedStatusAuthor(authorId);
+    setRequestedStatusId(statusId || null);
     if (tab !== "Actus") setTab("Actus");
   };
   const closeRequestedStatus = () => {
     if (statusReturnTab) setTab(statusReturnTab);
     setStatusReturnTab(null);
+    setRequestedStatusAuthor(null);
+    setRequestedStatusId(null);
+    void refreshStatusAuthors();
   };
-  const renderConversation = (item: Conversation) => {
+  const renderConversation = (item: Conversation, onSelect?: () => void) => {
     const preview = item.last_message?.deleted ? "Message supprimé" : item.last_message?.text || item.draft || (item.last_message?.attachments?.length ? "Pièce jointe" : "");
     const otherPerson = item.is_saved
       ? item.member_profiles.find(person => person.id === user?.id)
@@ -281,9 +305,10 @@ export default function MessengerScreen() {
     const photo = item.photo || (item.kind === "private" ? otherPerson?.avatar : undefined);
     const statusAuthorId = item.kind === "private" && !item.is_saved ? otherPerson?.id : undefined;
     const hasActiveStatus = !!statusAuthorId && statusAuthorIds.has(statusAuthorId);
-    const openConversation = () => setSelected(item);
+    const hasUnreadStatus = !!statusAuthorId && statusUnreadAuthorIds.has(statusAuthorId);
+    const openConversation = () => onSelect ? onSelect() : setSelected(item);
     return <View key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} testID={`messenger-conversation-${item.id}`}>
-      <View style={[styles.avatarRing, hasActiveStatus && styles.avatarRingActive]}>
+      <View style={[styles.avatarRing, hasActiveStatus && (hasUnreadStatus ? styles.avatarRingUnread : styles.avatarRingSeen)]}>
         <TouchableOpacity style={[styles.rowAvatar, hasActiveStatus && styles.rowAvatarInside]} onPress={() => {
           if (hasActiveStatus && statusAuthorId) openStatusFor(statusAuthorId);
           else if (photo) setPhotoPreview({ uri: photo, label: item.title });
@@ -294,7 +319,7 @@ export default function MessengerScreen() {
       </View>
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <TouchableOpacity style={styles.rowOpenTitle} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
+          <TouchableOpacity style={styles.rowOpenTitle} onPress={() => openConversation()} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
             <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
             <Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text>
           </TouchableOpacity>
@@ -303,7 +328,7 @@ export default function MessengerScreen() {
             <TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity>
           </View>
         </View>
-        <TouchableOpacity style={styles.rowOpenPreview} onPress={openConversation} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion ${item.title}`}>
+        <TouchableOpacity style={styles.rowOpenPreview} onPress={() => openConversation()} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion ${item.title}`}>
           <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
             <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread} accessibilityLabel={`${item.unread} messages non lus`} testID={`messenger-conversation-unread-${item.id}`}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
           </View>
@@ -323,8 +348,7 @@ export default function MessengerScreen() {
         <Image source={logo} style={styles.logo} resizeMode="contain" />
         <View><Text style={styles.brandTitle}>SPILOVEURE</Text><Text style={styles.brandSub}>Chat</Text></View>
       </TouchableOpacity>
-      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher" autoFocus autoCapitalize="none" returnKeyType="search" style={styles.headerSearch} testID="messenger-global-search" /> : null}
-      <TouchableOpacity onPress={() => { setSearchOpen(v => !v); setQuery(""); }} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher"}><Ionicons name={searchOpen ? "close" : "search"} size={23} color="#fff" /></TouchableOpacity>
+      <TouchableOpacity onPress={openSearch} style={styles.headerIcon} testID="messenger-search-toggle" accessibilityLabel="Rechercher"><Ionicons name="search" size={23} color="#fff" /></TouchableOpacity>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerIcon}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
     </LinearGradient>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={styles.filterContent}>
@@ -337,19 +361,6 @@ export default function MessengerScreen() {
         </TouchableOpacity>;
       })}
     </ScrollView>
-    {searchOpen && query.trim().length >= 2 && <View style={styles.memberSearchPanel}>
-      <Text style={styles.memberSearchTitle}>Membres SPILOVEURE</Text>
-      {searchPeopleLoading ? <ActivityIndicator color={blue} style={{ padding: 10 }} /> : searchPeople.length
-        ? searchPeople.slice(0, 5).map(person => <View key={person.id} style={styles.memberSearchRow}>
-          <TouchableOpacity onPress={() => createPrivate(person)} style={styles.memberSearchIdentity} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-search-person-${person.id}`}>
-            <View style={styles.searchAvatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.searchPhoto} /> : <Text style={styles.searchAvatarText}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View>
-            <Text style={styles.memberSearchName} numberOfLines={1}>{person.username}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => createPrivate(person)} style={styles.searchAction} accessibilityLabel={`Discuter avec ${person.username}`}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
-          <TouchableOpacity onPress={() => saveContactAndConversation(person)} style={styles.searchAction} accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`}><Ionicons name="bookmark-outline" size={18} color={blue} /></TouchableOpacity>
-        </View>)
-        : <Text style={styles.memberSearchEmpty}>Aucun membre ne correspond à cette recherche.</Text>}
-    </View>}
     {filter === "Canaux" && capabilities?.public_channels !== false && <TouchableOpacity onPress={() => setPublicChannelsOpen(true)} style={styles.discoverChannels} testID="messenger-channel-discovery" accessibilityLabel="Découvrir les canaux publics"><Ionicons name="compass-outline" size={17} color={blue} /><Text style={styles.discoverText}>Découvrir les canaux publics</Text></TouchableOpacity>}
     {archived && <View style={styles.archiveBanner}><Text style={styles.archiveText}>Conversations archivées</Text><TouchableOpacity onPress={() => setArchived(false)}><Text style={styles.quickText}>Retour</Text></TouchableOpacity></View>}
     {actionError ? <TouchableOpacity onPress={() => setActionError("")} style={styles.errorBanner}><Text style={styles.errorText}>{actionError}  ×</Text></TouchableOpacity> : null}
@@ -360,8 +371,8 @@ export default function MessengerScreen() {
       <TouchableOpacity onPress={() => chooseFilter("Messages privés")} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Voir les messages privés</Text></TouchableOpacity>
     </View> : loading ? <View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View>
       : error ? <TouchableOpacity onPress={refresh} style={styles.emptyState}><Ionicons name="cloud-offline-outline" size={30} color={blue} /><Text style={styles.emptyTitle}>{error}</Text><Text style={styles.emptyLink}>Réessayer</Text></TouchableOpacity>
-        : visible.length ? <ScrollView contentContainerStyle={{ paddingBottom: 92 }}>{visible.map(renderConversation)}</ScrollView>
-        : <View style={styles.emptyState}><View style={styles.emptyCircle}><Ionicons name="chatbubbles-outline" size={30} color={blue} /></View><Text style={styles.emptyTitle}>{query ? "Aucun échange trouvé" : archived ? "Aucune conversation archivée" : "Aucune conversation pour le moment"}</Text><Text style={styles.emptyCopy}>{query ? "Essayez un autre nom ou choisissez un membre ci-dessus." : "Commencez une conversation avec un membre SPILOVEURE."}</Text><TouchableOpacity onPress={() => openCreate()} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Nouveau message</Text></TouchableOpacity></View>}
+         : visible.length ? <ScrollView contentContainerStyle={{ paddingBottom: 92 }}>{visible.map(item => renderConversation(item))}</ScrollView>
+         : <View style={styles.emptyState}><View style={styles.emptyCircle}><Ionicons name="chatbubbles-outline" size={30} color={blue} /></View><Text style={styles.emptyTitle}>{query ? "Aucun échange trouvé" : archived ? "Aucune conversation archivée" : "Aucune conversation pour le moment"}</Text><Text style={styles.emptyCopy}>{query ? "Essayez un autre nom." : "Commencez une conversation avec un membre SPILOVEURE."}</Text><TouchableOpacity onPress={() => openCreate()} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Nouveau message</Text></TouchableOpacity></View>}
     <TouchableOpacity style={styles.fab} onPress={() => openCreate()} accessibilityLabel="Nouvelle conversation"><Ionicons name="add" size={31} color="#fff" /></TouchableOpacity>
   </View>;
 
@@ -374,9 +385,9 @@ export default function MessengerScreen() {
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
-         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={() => { const authorId = selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
+         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} onOpenUsername={openSpvUser} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={(statusAuthorId, statusId) => { const authorId = statusAuthorId || selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId, statusId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} onStatusRequestConsumed={() => setRequestedStatusAuthor(null)} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} />}
+        </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} requestedStatusId={requestedStatusId} onStatusRequestConsumed={() => { setRequestedStatusAuthor(null); setRequestedStatusId(null); }} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} onStatusReply={replyToStatus} /> : <ProfilePanel user={user} />}
     </View>
     {!selected && !navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>
@@ -418,6 +429,52 @@ export default function MessengerScreen() {
     </Modal>
     <PublicChannelsModal visible={publicChannelsOpen} onClose={() => setPublicChannelsOpen(false)} onJoined={openJoinedChannel} />
     <ProfilePhotoViewer photo={photoPreview} onClose={() => setPhotoPreview(null)} />
+    <Modal visible={searchOpen} animationType="slide" onRequestClose={closeSearch}>
+      <View style={styles.searchModalPage} testID="messenger-search-modal">
+        <View style={styles.searchModalHeader}>
+          <TouchableOpacity onPress={closeSearch} style={styles.searchClose} accessibilityLabel="Fermer la recherche">
+            <Ionicons name="arrow-back" size={22} color={ink} />
+          </TouchableOpacity>
+          <View style={styles.searchModalField}>
+            <Ionicons name="search" size={18} color={muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Rechercher un membre ou une discussion"
+              autoFocus
+              autoCapitalize="none"
+              returnKeyType="search"
+              style={styles.searchModalInput}
+              testID="messenger-global-search"
+            />
+            {!!query && <TouchableOpacity onPress={() => setQuery("")} accessibilityLabel="Effacer la recherche"><Ionicons name="close-circle" size={19} color={muted} /></TouchableOpacity>}
+          </View>
+        </View>
+        {query.trim().length < 2
+          ? <View style={styles.searchModalEmpty}><Ionicons name="search-outline" size={27} color={blue} /><Text style={styles.searchModalHint}>Saisissez au moins deux caractères.</Text></View>
+          : <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.searchModalResults}>
+            {!!visible.length && <>
+              <Text style={styles.memberSearchTitle}>Discussions</Text>
+              {visible.slice(0, 20).map(item => renderConversation(item, () => {
+                setSelected(item);
+                setTab("Échanges");
+                closeSearch();
+              }))}
+            </>}
+            <Text style={styles.memberSearchTitle}>Membres SPILOVEURE</Text>
+            {searchPeopleLoading ? <ActivityIndicator color={blue} style={{ padding: 14 }} /> : searchPeople.length
+              ? searchPeople.slice(0, 10).map(person => <View key={person.id} style={styles.memberSearchRow}>
+                <TouchableOpacity onPress={() => { void createPrivate(person); }} style={styles.memberSearchIdentity} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion avec ${person.username}`} testID={`messenger-search-person-${person.id}`}>
+                  <View style={styles.searchAvatar}>{person.avatar ? <Image source={{ uri: person.avatar }} style={styles.searchPhoto} /> : <Text style={styles.searchAvatarText}>{person.username.slice(0, 1).toUpperCase()}</Text>}</View>
+                  <Text style={styles.memberSearchName} numberOfLines={1}>{person.username}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => { void createPrivate(person); }} style={styles.searchAction} accessibilityLabel={`Discuter avec ${person.username}`}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
+                <TouchableOpacity onPress={() => { void saveContactAndConversation(person); closeSearch(); }} style={styles.searchAction} accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`}><Ionicons name="bookmark-outline" size={18} color={blue} /></TouchableOpacity>
+              </View>)
+              : <Text style={styles.memberSearchEmpty}>{visible.length ? "Aucun autre membre correspondant." : "Aucun membre ni discussion ne correspond."}</Text>}
+          </ScrollView>}
+      </View>
+    </Modal>
   </View>;
 }
 
@@ -431,10 +488,17 @@ const styles = StyleSheet.create({
   header: { height: 84, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 3, borderBottomWidth: 1, borderColor: "#1d70ed", overflow: "hidden", position: "relative" },
   goldSwoop: { position: "absolute", width: 210, height: 150, right: -78, top: 14, borderTopWidth: 3, borderColor: "#d9ad42", borderRadius: 110, transform: [{ rotate: "-31deg" }], opacity: .95 },
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
-  headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" }, headerSearch: { flex: 1, color: "#fff", borderBottomWidth: 1, borderColor: "rgba(255,255,255,.7)", paddingVertical: 6, outlineStyle: "none" as any },
+  headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" },
   filters: { flexGrow: 0, flexShrink: 0, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
   filterContent: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8 },
-  memberSearchPanel: { backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e8edf5", paddingHorizontal: 13, paddingVertical: 7, maxHeight: 250 },
+  searchModalPage: { flex: 1, backgroundColor: "#f5f7fa" },
+  searchModalHeader: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e9edf3" },
+  searchClose: { width: 38, height: 42, alignItems: "center", justifyContent: "center" },
+  searchModalField: { flex: 1, minWidth: 0, height: 43, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 22, backgroundColor: "#f0f3f8" },
+  searchModalInput: { flex: 1, minWidth: 0, color: ink, fontSize: 14, outlineStyle: "none" as any },
+  searchModalEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
+  searchModalHint: { color: muted, fontSize: 13 },
+  searchModalResults: { paddingBottom: 30, backgroundColor: "#fff" },
   memberSearchTitle: { color: muted, fontSize: 10, fontWeight: "800", letterSpacing: .5, textTransform: "uppercase", paddingVertical: 4 },
   memberSearchRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#f0f2f6" },
   memberSearchIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 4 },
@@ -446,7 +510,7 @@ const styles = StyleSheet.create({
   filter: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0, borderRadius: 21, paddingHorizontal: 8, paddingVertical: 9, backgroundColor: "#f2f4f8" }, filterActive: { backgroundColor: blue }, filterText: { color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" }, filterSoon: { color: "#8692a6" },
   filterBadge: { minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
   conversationRow: { minHeight: 82, minWidth: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
-  avatarRing: { width: 54, height: 54, alignItems: "center", justifyContent: "center" }, avatarRingActive: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
+  avatarRing: { width: 54, height: 54, alignItems: "center", justifyContent: "center" }, avatarRingUnread: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#13b981" }, avatarRingSeen: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowAvatarInside: { width: 50, height: 50, borderRadius: 25 }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowPhotoInside: { width: 50, height: 50, borderRadius: 25 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
   rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
    rowMain: { flex: 1, minWidth: 0 }, rowTop: { minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, flexShrink: 1, minWidth: 0, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { flexShrink: 0, color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },

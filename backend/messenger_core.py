@@ -199,6 +199,7 @@ class MessageIn(BaseModel):
     client_id: str = Field(min_length=1, max_length=120)
     attachments: list[Attachment] = Field(default_factory=list, max_length=8)
     reply_to: str | None = None
+    status_reply_id: str | None = Field(default=None, max_length=100)
     forwarded_from: str | None = None
     silent: bool = False
 

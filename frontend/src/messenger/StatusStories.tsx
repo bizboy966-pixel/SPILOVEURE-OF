@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet,
+  ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,12 +13,12 @@ const ink = "#102042";
 const muted = "#7d879a";
 
 type Props = {
-  userId: string; version?: number; requestedAuthorId?: string | null;
+  userId: string; version?: number; requestedAuthorId?: string | null; requestedStatusId?: string | null;
   onRequestConsumed?: () => void; onViewerClose?: () => void;
-  onReply?: (authorId: string, text: string, statusText: string) => Promise<void>;
+  onReply?: (authorId: string, text: string, statusId: string, voice?: Blob) => Promise<void>;
 };
 
-export default function StatusStories({ userId, version = 0, requestedAuthorId, onRequestConsumed, onViewerClose, onReply }: Props) {
+export default function StatusStories({ userId, version = 0, requestedAuthorId, requestedStatusId, onRequestConsumed, onViewerClose, onReply }: Props) {
   const [items, setItems] = useState<ChatStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,11 +35,18 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const [viewersOpen, setViewersOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
+  const [recordingReply, setRecordingReply] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const progressRef = useRef(0);
   const videoElement = useRef<HTMLVideoElement | null>(null);
   const storyContentRef = useRef<View | null>(null);
   const heldStoryId = useRef<string | null>(null);
   const currentStoryId = useRef<string | null>(null);
+  const replyRecorder = useRef<MediaRecorder | null>(null);
+  const replyStream = useRef<MediaStream | null>(null);
+  const replyChunks = useRef<BlobPart[]>([]);
+  const discardReplyVoice = useRef(false);
+  const sendVoiceOnStop = useRef(false);
   const touchStartX = useRef<number | null>(null);
   const lastSwipeAt = useRef(0);
   const uploadInput = useRef<HTMLInputElement | null>(null);
@@ -86,12 +93,23 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   };
 
   useEffect(() => {
+    if (!recordingReply) return;
+    const timer = setInterval(() => setRecordingSeconds(seconds => seconds + 1), 1000);
+    return () => clearInterval(timer);
+  }, [recordingReply]);
+  useEffect(() => () => {
+    replyRecorder.current?.state === "recording" && replyRecorder.current.stop();
+    replyStream.current?.getTracks().forEach(track => track.stop());
+  }, []);
+
+  useEffect(() => {
     if (!requestedAuthorId || loading) return;
     const group = groups.find(item => item.authorId === requestedAuthorId);
     if (group) {
       setOpenAuthorId(requestedAuthorId);
       const firstUnseen = requestedAuthorId === userId ? -1 : group.statuses.findIndex(item => !item.viewed_by_me);
-      setActiveIndex(firstUnseen >= 0 ? firstUnseen : 0);
+      const requestedIndex = requestedStatusId ? group.statuses.findIndex(item => item.id === requestedStatusId) : -1;
+      setActiveIndex(requestedIndex >= 0 ? requestedIndex : firstUnseen >= 0 ? firstUnseen : 0);
       setPaused(false);
       heldStoryId.current = null;
       progressRef.current = 0;
@@ -100,7 +118,7 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
       onViewerClose?.();
     }
     onRequestConsumed?.();
-  }, [requestedAuthorId, loading, groups]);
+  }, [requestedAuthorId, requestedStatusId, loading, groups]);
   useEffect(() => {
     setReplyText("");
     setViewersOpen(false);
@@ -162,7 +180,85 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     };
   }, [story?.id]);
 
+  const cancelReplyVoice = () => {
+    const recorder = replyRecorder.current;
+    discardReplyVoice.current = true;
+    sendVoiceOnStop.current = false;
+    if (recorder?.state === "recording") recorder.stop();
+    replyStream.current?.getTracks().forEach(track => track.stop());
+    setRecordingReply(false);
+    resumeStory();
+  };
+  const startReplyVoice = async () => {
+    if (!story || story.author_id === userId || !onReply || replyBusy || recordingReply) return;
+    if (Platform.OS !== "web" || typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("L’enregistrement vocal est disponible dans le navigateur.");
+      return;
+    }
+    const voiceStory = story;
+    holdStory();
+    Keyboard.dismiss();
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (currentStoryId.current !== voiceStory.id) {
+        stream.getTracks().forEach(track => track.stop());
+        resumeStory();
+        return;
+      }
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm"].find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      replyStream.current = stream;
+      replyChunks.current = [];
+      discardReplyVoice.current = false;
+      sendVoiceOnStop.current = false;
+      recorder.ondataavailable = event => {
+        if (event.data?.size) replyChunks.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const shouldSend = sendVoiceOnStop.current && !discardReplyVoice.current;
+        const chunks = replyChunks.current.splice(0);
+        replyRecorder.current = null;
+        replyStream.current?.getTracks().forEach(track => track.stop());
+        replyStream.current = null;
+        setRecordingReply(false);
+        if (!shouldSend) return;
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        if (!blob.size) {
+          setError("L’enregistrement vocal est vide.");
+          return;
+        }
+        setReplyBusy(true);
+        void onReply(voiceStory.author_id, replyText.trim(), voiceStory.id, blob)
+          .then(() => {
+            setReplyText("");
+            Keyboard.dismiss();
+            resumeStory();
+          })
+          .catch((e: any) => setError(e?.detail || e?.message || "Envoi du vocal impossible."))
+          .finally(() => setReplyBusy(false));
+      };
+      replyRecorder.current = recorder;
+      setRecordingSeconds(0);
+      setRecordingReply(true);
+      recorder.start();
+    } catch (e: any) {
+      replyStream.current?.getTracks().forEach(track => track.stop());
+      replyStream.current = null;
+      replyRecorder.current = null;
+      setRecordingReply(false);
+      resumeStory();
+      setError(e?.message || "Autorisez le microphone pour enregistrer une réponse vocale.");
+    }
+  };
+  const sendRecordedReplyVoice = () => {
+    if (replyRecorder.current?.state !== "recording") return;
+    sendVoiceOnStop.current = true;
+    replyRecorder.current.stop();
+  };
+
   const closeViewer = () => {
+    cancelReplyVoice();
     setOpenAuthorId(null);
     setActiveIndex(0);
     setPaused(false);
@@ -313,15 +409,10 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     setReplyBusy(true);
     setError("");
     try {
-      await onReply(story.author_id, text, story.text || (story.attachments?.length ? "Photo" : ""));
+      await onReply(story.author_id, text, story.id);
       setReplyText("");
-      setOpenAuthorId(null);
-      setActiveIndex(0);
-      setPaused(false);
-      heldStoryId.current = null;
-      setViewersOpen(false);
-      progressRef.current = 0;
-      setStoryProgress(0);
+      Keyboard.dismiss();
+      resumeStory();
     } catch (e: any) { setError(e?.detail || e?.message || "Envoi de la réponse impossible."); }
     finally { setReplyBusy(false); }
   };
@@ -429,7 +520,14 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
                <Ionicons name="eye-outline" size={17} color="#fff" />
                <Text style={styles.viewCountText}>{story.views_count || 0} vues</Text>
              </TouchableOpacity>
-           : <View style={styles.replyActions}>
+             : <View style={styles.replyActions}>
+                {recordingReply ? <>
+                <View style={styles.recordingReplyCopy}><View style={styles.recordingReplyDot} /><Text style={styles.recordingReplyText}>Enregistrement · {recordingSeconds}s</Text></View>
+                <TouchableOpacity style={styles.replySecondaryButton} onPress={cancelReplyVoice} accessibilityLabel="Annuler l’enregistrement vocal"><Ionicons name="trash-outline" size={19} color="#fff" /></TouchableOpacity>
+                <TouchableOpacity style={styles.replySend} onPress={sendRecordedReplyVoice} disabled={replyBusy} accessibilityLabel="Envoyer la réponse vocale">
+                  {replyBusy ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
+                </TouchableOpacity>
+                </> : <>
                <TouchableOpacity style={styles.likeButton} onPress={toggleLike} accessibilityLabel={story?.liked_by_me ? "Retirer le j’aime" : "Aimer ce statut"}>
                  <Ionicons name={story?.liked_by_me ? "heart" : "heart-outline"} size={23} color={story?.liked_by_me ? "#ff5570" : "#fff"} />
                  <Text style={styles.replyActionCount}>{story?.likes_count || 0}</Text>
@@ -443,11 +541,16 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
                  maxLength={1200}
                  returnKeyType="send"
                  onSubmitEditing={submitReply}
+                  onFocus={holdStory}
                  testID="status-reply-input"
                />
-               <TouchableOpacity style={styles.replySend} onPress={submitReply} disabled={!replyText.trim() || replyBusy} accessibilityLabel="Envoyer la réponse en privé" testID="status-reply-send">
+                <TouchableOpacity style={styles.replySecondaryButton} onPress={startReplyVoice} disabled={replyBusy} accessibilityLabel="Enregistrer une réponse vocale">
+                  <Ionicons name="mic-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.replySend} onPress={submitReply} disabled={!replyText.trim() || replyBusy} accessibilityLabel="Envoyer la réponse en privé" testID="status-reply-send">
                  {replyBusy ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
                </TouchableOpacity>
+                </>}
              </View>}
          {viewersOpen && story?.author_id === userId && <View style={styles.viewersBackdrop}>
            <TouchableOpacity style={styles.viewersScrim} activeOpacity={1} onPress={() => setViewersOpen(false)} accessibilityLabel="Fermer la liste des vues" />
@@ -477,7 +580,7 @@ const styles = StyleSheet.create({
   storyPerson: { width: 62, alignItems: "center", position: "relative" },
   storyRingWrap: { width: 56, height: 56, alignItems: "center", justifyContent: "center", position: "relative" },
   storyRing: { width: 56, height: 56, borderRadius: 29, borderWidth: 2, padding: 3, alignItems: "center", justifyContent: "center" },
-  storyRingNew: { borderColor: "#13b981" }, storyRingSeen: { borderColor: "#c8d0dc" },
+  storyRingNew: { borderColor: "#13b981" }, storyRingSeen: { borderColor: "#f2a934" },
   storyCount: { position: "absolute", right: 0, top: -2, minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: "#1769e8", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fff" },
   storyCountText: { color: "#fff", fontSize: 9, fontWeight: "900" },
   storyAvatar: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -520,6 +623,10 @@ const styles = StyleSheet.create({
   likeButton: { width: 46, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
   replyActionCount: { color: "#fff", fontSize: 11, fontWeight: "800" },
   replyInput: { flex: 1, height: 42, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#253149", color: "#fff", fontSize: 14, outlineStyle: "none" as any },
+  recordingReplyCopy: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+  recordingReplyDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#f45b67" },
+  recordingReplyText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  replySecondaryButton: { width: 38, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#253149" },
   replySend: { width: 42, height: 42, borderRadius: 21, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
   viewersBackdrop: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", zIndex: 10 },
   viewersScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,.52)" },

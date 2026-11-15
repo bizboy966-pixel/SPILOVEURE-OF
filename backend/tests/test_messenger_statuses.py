@@ -129,6 +129,48 @@ def test_contact_can_open_status_media_but_noncontact_cannot(messenger_app):
     assert call(messenger_app, "get", file_path, "eve").status_code == 404
 
 
+def test_status_reply_snapshot_and_delivery_read_receipts(messenger_app):
+    status = call(messenger_app, "post", "/statuses", json={"text": "Mon statut d’aujourd’hui"}).json()
+    conversation = call(
+        messenger_app, "post", "/conversations",
+        json={"kind": "private", "member_ids": ["bob"]},
+    ).json()
+    sent = call(messenger_app, "post", f"/conversations/{conversation['id']}/messages", "bob", json={
+        "text": "Je réponds à ton statut",
+        "client_id": "status-reply-receipt-test",
+        "status_reply_id": status["id"],
+    })
+    assert sent.status_code == 200, sent.text
+    message = sent.json()
+    assert message["status_reply"]["status_id"] == status["id"]
+    assert message["status_reply"]["author_name"] == "Alice"
+    assert message["delivered_by"] == []
+
+    delivered = call(messenger_app, "post", f"/conversations/{conversation['id']}/delivered", "alice")
+    assert delivered.status_code == 200
+    assert call(messenger_app, "post", f"/conversations/{conversation['id']}/read", "alice").status_code == 200
+    stored = asyncio.run(messenger_app[1].spv_messages.find_one({"id": message["id"]}))
+    assert "alice" in stored["delivered_by"]
+    assert "alice" in stored["read_by"]
+
+
+def test_message_starts_as_delivered_when_peer_is_online(messenger_app):
+    conversation = call(
+        messenger_app, "post", "/conversations",
+        json={"kind": "private", "member_ids": ["bob"]},
+    ).json()
+    asyncio.run(messenger_app[1].spv_presence.insert_one({
+        "user_id": "bob", "online_count": 1,
+        "last_seen": datetime.now(timezone.utc),
+    }))
+    sent = call(messenger_app, "post", f"/conversations/{conversation['id']}/messages", json={
+        "text": "Tu es en ligne",
+        "client_id": "online-delivery-test",
+    })
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["delivered_by"] == ["bob"]
+
+
 def test_video_statuses_are_rejected(messenger_app):
     response = call(messenger_app, "post", "/statuses", json={
         "text": "", "attachments": [{

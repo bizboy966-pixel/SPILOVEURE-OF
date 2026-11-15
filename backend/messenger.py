@@ -340,9 +340,23 @@ async def preview_auto_reply(db, conv, sender, incoming):
         await db.spv_conversations.update_one(
             {"id": conv["id"]}, {"$set": {"updated_at": stamp}},
         )
-        await notify(db, conv, "message", message_id=reply["id"])
+        await notify(db, conv, "message", message_id=reply["id"], sender_id=peer_id)
         return reply
     return None
+
+
+async def online_recipients(db, conv, sender_id):
+    peer_ids = [member_id for member_id in conv.get("members", []) if member_id != sender_id]
+    if not peer_ids:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=70)
+    return [
+        row["user_id"] async for row in db.spv_presence.find({
+            "user_id": {"$in": peer_ids},
+            "online_count": {"$gt": 0},
+            "last_seen": {"$gt": cutoff},
+        }, {"user_id": 1})
+    ]
 
 
 async def deliver_message(db, cid, body, user):
@@ -362,6 +376,29 @@ async def deliver_message(db, cid, body, user):
         return clean(previous)
     if not body.text.strip() and not body.attachments:
         raise HTTPException(400, "Écrivez un message ou ajoutez un fichier.")
+    status_reply = None
+    if body.status_reply_id:
+        if conv["kind"] != "private":
+            raise HTTPException(400, "Une réponse de statut doit être envoyée en privé.")
+        status = await db.spv_statuses.find_one({
+            "id": body.status_reply_id,
+            "expires_at": {"$gt": datetime.now(timezone.utc)},
+        })
+        author_id = status.get("author_id") if status else None
+        if not status or author_id == uid or author_id not in conv["members"]:
+            raise HTTPException(404, "Ce statut n’est plus disponible.")
+        if not await db.spv_contacts.find_one({
+            "user_id": uid, "peer_id": author_id, "status": "accepted",
+        }):
+            raise HTTPException(404, "Ce statut n’est plus disponible.")
+        status_reply = {
+            "status_id": status["id"],
+            "author_id": author_id,
+            "author_name": status.get("author_name", "Membre"),
+            "text": status.get("text", ""),
+            "attachments": status.get("attachments") or [],
+            "created_at": status.get("created_at"),
+        }
     await rate_limit(db, uid)
     attachments = await attachments_checked(db, body.attachments, user, cid)
     if body.reply_to:
@@ -377,11 +414,14 @@ async def deliver_message(db, cid, body, user):
             raise HTTPException(400, "Téléchargez puis joignez les fichiers pour les transférer.")
         forwarded = source["id"]
     stamp = now()
+    delivered_by = await online_recipients(db, conv, uid)
     msg = {
         **key, "id": identifier(), "sender_name": user.get("username", "Membre"),
         "text": body.text.strip(), "attachments": attachments, "reply_to": body.reply_to,
-        "forwarded_from": forwarded, "silent": body.silent, "created_at": stamp,
+        "status_reply": status_reply, "forwarded_from": forwarded,
+        "silent": body.silent, "created_at": stamp,
         "edited_at": None, "deleted": False, "reactions": {}, "pinned": False, "read_by": [uid],
+        "delivered_by": delivered_by,
     }
     try:
         await db.spv_messages.insert_one(msg)
@@ -391,7 +431,7 @@ async def deliver_message(db, cid, body, user):
     await db.spv_preferences.update_one(
         {"user_id": uid, "conversation_id": cid}, {"$set": {"draft": "", "archived": False}}, upsert=True,
     )
-    await notify(db, conv, "message", message_id=msg["id"], silent=body.silent)
+    await notify(db, conv, "message", message_id=msg["id"], sender_id=uid, silent=body.silent)
     if not body.silent:
         from messenger_delivery import enqueue_push
         await enqueue_push(db, conv, msg)
@@ -462,9 +502,26 @@ async def mark_read(cid: str, request: Request, user=Depends(chat_user)):
     await db.spv_preferences.update_one({"user_id": user["id"], "conversation_id": cid},
                                        {"$set": {"read_at": stamp}}, upsert=True)
     changed = await db.spv_messages.update_many({"conversation_id": cid, "created_at": {"$lte": stamp}},
-                                               {"$addToSet": {"read_by": user["id"]}})
+                                               {"$addToSet": {
+                                                   "read_by": user["id"],
+                                                   "delivered_by": user["id"],
+                                               }})
     if changed.modified_count:
         await notify(db, conv, "read", user_id=user["id"], read_at=stamp)
+    return {"ok": True}
+
+
+@api.post("/conversations/{cid}/delivered")
+async def mark_delivered(cid: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    conv = await member(db, cid, user)
+    result = await db.spv_messages.update_many(
+        {"conversation_id": cid, "sender_id": {"$ne": uid}, "deleted": {"$ne": True},
+         "delivered_by": {"$ne": uid}},
+        {"$addToSet": {"delivered_by": uid}},
+    )
+    if result.modified_count:
+        await notify(db, conv, "delivered", user_id=uid)
     return {"ok": True}
 
 

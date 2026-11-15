@@ -14,8 +14,13 @@ export const messengerApi = {
     if (q) params.set("q", q);
     return api.get<{ items: Message[]; has_more: boolean }>(`/messenger/conversations/${encodeURIComponent(id)}/messages?${params}`);
   },
-  send: (id: string, payload: { text: string; client_id: string; attachments?: Attachment[]; reply_to?: string; forwarded_from?: string; silent?: boolean }) =>
+  send: (id: string, payload: {
+    text: string; client_id: string; attachments?: Attachment[]; reply_to?: string;
+    forwarded_from?: string; silent?: boolean; status_reply_id?: string;
+  }) =>
     api.post<Message>(`/messenger/conversations/${encodeURIComponent(id)}/messages`, payload),
+  markConversationDelivered: (conversationId: string) =>
+    api.post(`/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`, {}),
   file: async (id: string, file: File) => api.upload<Attachment>(`/messenger/conversations/${encodeURIComponent(id)}/files`, file),
   people: (q: string) => api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}`),
   publicChannels: (q = "") => api.get<PublicChannel[]>(`/messenger/channels?q=${encodeURIComponent(q)}`),
