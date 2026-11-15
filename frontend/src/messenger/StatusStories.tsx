@@ -33,6 +33,8 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const [storyProgress, setStoryProgress] = useState(0);
   const progressRef = useRef(0);
   const videoElement = useRef<HTMLVideoElement | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const lastSwipeAt = useRef(0);
   const uploadInput = useRef<HTMLInputElement | null>(null);
   const videoHost = useRef<View | null>(null);
 
@@ -128,14 +130,42 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   };
   const advance = () => {
     if (!selectedGroup) return;
-    if (activeIndex + 1 >= selectedGroup.statuses.length) closeViewer();
-    else setActiveIndex(index => index + 1);
+    if (activeIndex + 1 < selectedGroup.statuses.length) {
+      setActiveIndex(index => index + 1);
+      return;
+    }
+    const groupIndex = groups.findIndex(group => group.authorId === openAuthorId);
+    const nextGroup = groups[groupIndex + 1];
+    if (!nextGroup) closeViewer();
+    else { setOpenAuthorId(nextGroup.authorId); setActiveIndex(0); }
   };
   const goBack = () => {
     progressRef.current = 0;
     setStoryProgress(0);
-    setActiveIndex(index => Math.max(0, index - 1));
+    if (activeIndex > 0) { setActiveIndex(index => index - 1); return; }
+    const groupIndex = groups.findIndex(group => group.authorId === openAuthorId);
+    const previousGroup = groups[groupIndex - 1];
+    if (previousGroup) {
+      setOpenAuthorId(previousGroup.authorId);
+      setActiveIndex(previousGroup.statuses.length - 1);
+    }
   };
+  const handleStoryTouchStart = (event: any) => {
+    const touch = event.nativeEvent?.touches?.[0] || event.nativeEvent?.changedTouches?.[0];
+    touchStartX.current = touch?.pageX ?? event.nativeEvent?.pageX ?? null;
+  };
+  const handleStoryTouchEnd = (event: any) => {
+    const touch = event.nativeEvent?.changedTouches?.[0] || event.nativeEvent?.touches?.[0];
+    const endX = touch?.pageX ?? event.nativeEvent?.pageX;
+    const startX = touchStartX.current;
+    touchStartX.current = null;
+    if (typeof endX !== "number" || typeof startX !== "number" || Math.abs(endX - startX) < 45) return;
+    lastSwipeAt.current = Date.now();
+    if (endX < startX) advance();
+    else goBack();
+  };
+  const leftTap = () => { if (Date.now() - lastSwipeAt.current < 250) return; goBack(); };
+  const rightTap = () => { if (Date.now() - lastSwipeAt.current < 250) return; advance(); };
   useEffect(() => {
     if (!story || !openAuthorId) return;
     if (story.author_id !== userId && !story.viewed_by_me) {
@@ -288,13 +318,15 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
           style={styles.storyContent}
           onPressIn={holdStory}
           onPressOut={resumeStory}
+          onTouchStart={handleStoryTouchStart}
+          onTouchEnd={handleStoryTouchEnd}
         >
           {media?.mime.startsWith("image/") && mediaUrl ? <Image source={{ uri: mediaUrl }} style={styles.storyMedia} resizeMode="contain" /> : null}
           {media?.mime.startsWith("video/") && <View ref={videoHost} style={styles.videoHost}>{!mediaUrl && <ActivityIndicator color="#fff" />}</View>}
           {!media && <Text style={styles.storyText}>{story?.text}</Text>}
           {!!story?.text && !!media && <Text style={styles.storyCaption}>{story.text}</Text>}
-          <TouchableOpacity style={styles.leftTap} onPress={goBack} accessibilityLabel="Statut précédent" />
-          <TouchableOpacity style={styles.rightTap} onPress={advance} accessibilityLabel="Statut suivant" />
+          <TouchableOpacity style={styles.leftTap} onPress={leftTap} accessibilityLabel="Statut précédent" />
+          <TouchableOpacity style={styles.rightTap} onPress={rightTap} accessibilityLabel="Statut suivant" />
           {paused && <View pointerEvents="none" style={styles.pauseMark}><Ionicons name="pause" size={22} color="#fff" /></View>}
         </Pressable>
         {story?.author_id === userId && <Text style={styles.viewCount}><Ionicons name="eye-outline" size={16} color="#fff" /> {story.views_count || 0} vues</Text>}

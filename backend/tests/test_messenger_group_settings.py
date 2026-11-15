@@ -9,6 +9,7 @@ from mongomock_motor import AsyncMongoMockClient
 from identity_core import digest, initialize as identity_initialize, now
 from messenger import api as messenger_api
 from messenger_core import initialize as messenger_initialize
+from messenger_social import api as messenger_social_api
 
 
 @pytest.fixture
@@ -16,6 +17,7 @@ def messenger_app():
     app = FastAPI()
     app.state.db = AsyncMongoMockClient(tz_aware=True).group_settings_tests
     app.include_router(messenger_api)
+    app.include_router(messenger_social_api, prefix="/api/messenger")
 
     async def seed():
         db = app.state.db
@@ -24,7 +26,7 @@ def messenger_app():
         for uid in ("alice", "bob", "eve"):
             await db.users.insert_one({
                 "id": uid, "username": uid.title(), "email": f"{uid}@example.com",
-                "role": "user", "status": "active", "max_level": 1,
+                "role": "admin" if uid == "alice" else "user", "status": "active", "max_level": 1,
                 "email_verified": True, "email_verified_address": f"{uid}@example.com",
             })
             await db.identity_chat_sessions.insert_one({
@@ -106,3 +108,30 @@ def test_members_cannot_invite_without_the_group_permission(messenger_app):
     link = call(messenger_app, "post", f"/conversations/{cid}/invite-link", "bob")
     assert added.status_code == 403
     assert link.status_code == 403
+
+
+def test_only_admin_publishes_official_news_and_read_badge_clears(messenger_app):
+    refused = call(messenger_app, "post", "/feed", "bob", json={
+        "text": "Actualité non autorisée", "visibility": "public", "attachments": [],
+    })
+    assert refused.status_code == 403
+
+    published = call(messenger_app, "post", "/feed", json={
+        "text": "Annonce SPILOVEURE", "visibility": "contacts", "attachments": [],
+    })
+    assert published.status_code == 200, published.text
+    news = published.json()
+    assert news["is_official"] is True
+    assert news["visibility"] == "public"
+    assert news["author_name"] == "SPILOVEURE"
+
+    visible = call(messenger_app, "get", "/feed", "eve")
+    assert visible.status_code == 200
+    assert [post["id"] for post in visible.json()] == [news["id"]]
+    unread = call(messenger_app, "get", "/feed/unread-count", "eve").json()
+    assert unread == {"count": 1, "can_publish": False}
+
+    marked = call(messenger_app, "post", "/feed/read", "eve", json={"post_id": news["id"]})
+    assert marked.status_code == 200
+    assert marked.json()["count"] == 0
+    assert call(messenger_app, "get", "/feed/unread-count", "alice").json()["can_publish"] is True

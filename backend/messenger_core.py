@@ -37,6 +37,7 @@ async def initialize(db):
     await db.spv_conversations.create_index("id", unique=True)
     await db.spv_conversations.create_index("private_key", unique=True, sparse=True)
     await db.spv_conversations.create_index([("members", 1), ("updated_at", -1)])
+    await db.spv_posts.create_index([("is_official", 1), ("created_at", -1)])
     await db.spv_messages.create_index("id", unique=True)
     await db.spv_messages.create_index(
         [("conversation_id", 1), ("sender_id", 1), ("client_id", 1)], unique=True
@@ -57,6 +58,7 @@ async def initialize(db):
     await db.spv_statuses.create_index("id", unique=True)
     await db.spv_statuses.create_index([("author_id", 1), ("expires_at", 1)])
     await db.spv_statuses.create_index("expires_at", expireAfterSeconds=0)
+    await db.spv_feed_reads.create_index("user_id", unique=True)
     await db.spv_invite_links.create_index("token_hash", unique=True)
     await db.spv_invite_links.create_index([("conversation_id", 1), ("revoked", 1)])
     await db.spv_scheduled.create_index("id", unique=True)

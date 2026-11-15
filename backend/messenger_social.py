@@ -13,6 +13,14 @@ api = APIRouter()
 REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👎", "🎉", "👏"]
 
 
+async def notify_active_chat_users(db):
+    active_users = await db.identity_chat_sessions.distinct("user_id", {
+        "revoked": {"$ne": True}, "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if active_users:
+        await event(db, active_users, {"type": "feed"})
+
+
 async def toggle_reaction(collection, mid, emoji, uid):
     if emoji not in REACTIONS:
         raise HTTPException(400, "Réaction non prise en charge.")
@@ -144,6 +152,9 @@ class PostIn(BaseModel):
     visibility: str = Field(default="contacts", pattern="^(contacts|public)$")
     attachments: list[Attachment] = Field(default_factory=list, max_length=8)
 
+class FeedReadIn(BaseModel):
+    post_id: str = Field(min_length=1, max_length=100)
+
 class StatusIn(BaseModel):
     text: str = Field(default="", max_length=800)
     attachments: list[Attachment] = Field(default_factory=list, max_length=1)
@@ -157,7 +168,8 @@ async def visible_post(db, post_id, user):
     post = await db.spv_posts.find_one({"id": post_id})
     if not post:
         raise HTTPException(404, "Publication introuvable.")
-    await allowed_pair(db, user["id"], post["author_id"])
+    if not post.get("is_official"):
+        await allowed_pair(db, user["id"], post["author_id"])
     if post["visibility"] != "public" and post["author_id"] != user["id"]:
         if not await db.spv_contacts.find_one({
             "user_id": user["id"], "peer_id": post["author_id"], "status": "accepted",
@@ -168,34 +180,57 @@ async def visible_post(db, post_id, user):
 
 @api.get("/feed")
 async def feed(request: Request, user=Depends(chat_user)):
-    db, uid = request.app.state.db, user["id"]
-    related = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
-    blocked = await db.spv_blocks.find({"$or": [{"user_id": uid}, {"peer_id": uid}]}).to_list(1000)
-    excluded = [r["peer_id"] if r["user_id"] == uid else r["user_id"] for r in blocked]
-    rows = await db.spv_posts.find({
-        "$or": [{"author_id": {"$in": [uid, *[r["peer_id"] for r in related]]}}, {"visibility": "public"}],
-        "author_id": {"$nin": excluded},
-    }).sort("created_at", -1).limit(100).to_list(100)
+    rows = await request.app.state.db.spv_posts.find({"is_official": True}).sort("created_at", -1).limit(100).to_list(100)
     return [clean(row) for row in rows]
+
+
+async def feed_unread_count(db, uid):
+    read = await db.spv_feed_reads.find_one({"user_id": uid})
+    query = {"is_official": True}
+    if read and read.get("created_at") is not None:
+        query["created_at"] = {"$gt": read["created_at"]}
+    return await db.spv_posts.count_documents(query)
+
+
+@api.get("/feed/unread-count")
+async def unread_feed_count(request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    return {
+        "count": await feed_unread_count(db, uid),
+        "can_publish": user.get("role") == "admin",
+    }
+
+
+@api.post("/feed/read")
+async def mark_feed_read(body: FeedReadIn, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    post = await db.spv_posts.find_one({"id": body.post_id, "is_official": True})
+    if not post:
+        raise HTTPException(404, "Actualité introuvable.")
+    await db.spv_feed_reads.update_one(
+        {"user_id": user["id"]}, {"$max": {"created_at": post["created_at"]}}, upsert=True,
+    )
+    return {"count": await feed_unread_count(db, user["id"])}
 
 
 @api.post("/feed")
 async def publish(body: PostIn, request: Request, user=Depends(chat_user)):
     db = request.app.state.db
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Seuls les administrateurs peuvent publier une actualité SPILOVEURE.")
     if not body.text.strip() and not body.attachments:
         raise HTTPException(400, "Votre publication est vide.")
     await rate_limit(db, user["id"], "spv_posts", 5)
     attachments = await attachments_checked(db, body.attachments, user, "feed")
     row = {
         "id": identifier(), "author_id": user["id"], "sender_id": user["id"],
-        "author_name": user.get("username", "Membre"), "text": body.text.strip(),
-        "visibility": body.visibility, "attachments": attachments, "created_at": now(),
+        "author_name": "SPILOVEURE", "text": body.text.strip(),
+        "visibility": "public", "is_official": True,
+        "attachments": attachments, "created_at": now(),
         "reactions": {}, "comments": [],
     }
     await db.spv_posts.insert_one(row)
-    # Notifications target contacts only, even for a public post.
-    peers = await db.spv_contacts.find({"user_id": user["id"], "status": "accepted"}).to_list(500)
-    await event(db, [user["id"], *[p["peer_id"] for p in peers]], {"type": "feed"})
+    await notify_active_chat_users(db)
     return clean(row)
 
 
@@ -231,9 +266,13 @@ async def comment(post_id: str, body: TextIn, request: Request, user=Depends(cha
 
 @api.delete("/feed/{post_id}")
 async def delete_post(post_id: str, request: Request, user=Depends(chat_user)):
-    result = await request.app.state.db.spv_posts.delete_one({"id": post_id, "author_id": user["id"]})
-    if not result.deleted_count:
+    db = request.app.state.db
+    post = await db.spv_posts.find_one({"id": post_id, "author_id": user["id"]})
+    if not post:
         raise HTTPException(404, "Publication introuvable.")
+    await db.spv_posts.delete_one({"id": post_id, "author_id": user["id"]})
+    if post.get("is_official"):
+        await notify_active_chat_users(db)
     return {"ok": True}
 
 

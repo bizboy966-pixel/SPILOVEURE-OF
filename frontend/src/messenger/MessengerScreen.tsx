@@ -58,6 +58,7 @@ export default function MessengerScreen() {
   const [statusAuthorIds, setStatusAuthorIds] = useState<Set<string>>(new Set());
   const [requestedStatusAuthor, setRequestedStatusAuthor] = useState<string | null>(null);
   const [statusReturnTab, setStatusReturnTab] = useState<Tab | null>(null);
+  const [unreadNewsCount, setUnreadNewsCount] = useState(0);
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
   const filterStorageKey = user?.id ? `spv_messenger_filter_v1:${user.id}` : "";
@@ -83,6 +84,14 @@ export default function MessengerScreen() {
     api.get<ChatStatus[]>("/messenger/statuses")
       .then(rows => { if (active) setStatusAuthorIds(new Set(rows.map(status => status.author_id))); })
       .catch(() => { if (active) setStatusAuthorIds(new Set()); });
+    return () => { active = false; };
+  }, [user?.id, feedVersion]);
+  useEffect(() => {
+    if (!user?.id) { setUnreadNewsCount(0); return; }
+    let active = true;
+    api.get<{ count: number }>("/messenger/feed/unread-count")
+      .then(result => { if (active) setUnreadNewsCount(result.count || 0); })
+      .catch(() => { if (active) setUnreadNewsCount(0); });
     return () => { active = false; };
   }, [user?.id, feedVersion]);
   useEffect(() => {
@@ -297,13 +306,18 @@ export default function MessengerScreen() {
         {(!selected || wide) && chatList}
         {selected ? <ConversationThread key={selected.id} conversation={selected} userId={user?.id || ""} onBack={() => setSelected(null)} onChanged={refresh} onDetails={() => setDetailsOpen(true)} onViewPhoto={(uri, label) => setPhotoPreview({ uri, label })} hasActiveStatus={selected.kind === "private" && !selected.is_saved && selected.members.some(id => id !== user?.id && statusAuthorIds.has(id))} onOpenStatus={() => { const authorId = selected.members.find(id => id !== user?.id && statusAuthorIds.has(id)); if (authorId) openStatusFor(authorId); }} version={version} typing={typingByConversation[selected.id]} scheduledEnabled={capabilities?.scheduled_messages !== false} readReceipts={readReceipts[selected.id]} /> : null}
         {!selected && wide ? <View style={styles.welcome}><Image source={logo} style={styles.welcomeLogo} resizeMode="contain" /><Text style={styles.welcomeTitle}>SPILOVEURE Chat</Text><Text style={styles.welcomeText}>Vos échanges de communauté, au même endroit.</Text></View> : null}
-       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} onStatusRequestConsumed={() => setRequestedStatusAuthor(null)} onStatusViewerClose={closeRequestedStatus} /> : <ProfilePanel user={user} />}
+       </> : tab === "Contacts" ? <ContactsPanel onStart={createPrivate} onSave={saveContactAndConversation} /> : tab === "Actus" ? <FeedPanel userId={user?.id || ""} version={feedVersion} requestedStatusAuthor={requestedStatusAuthor} onStatusRequestConsumed={() => setRequestedStatusAuthor(null)} onStatusViewerClose={closeRequestedStatus} onUnreadCount={setUnreadNewsCount} /> : <ProfilePanel user={user} />}
     </View>
     {!selected && !navTransition.active && <View style={styles.bottomDock}>
       <View style={styles.bottomBar}>
        {navItems.slice(0, 2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={24} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.label}</Text></TouchableOpacity>)}
         <TouchableOpacity style={styles.centerLogoWrap} onPress={goHome} accessibilityLabel="Retour à l’accueil"><View style={styles.centerLogo}><Image source={logo} style={styles.centerLogoImage} resizeMode="contain" /></View></TouchableOpacity>
-       {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} /><Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.label}</Text></TouchableOpacity>)}
+       {navItems.slice(2).map(item => <TouchableOpacity key={item.key} style={styles.navItem} onPress={() => { setTab(item.key); setSelected(null); }} testID={`messenger-tab-${item.key}`} accessibilityLabel={item.key === "Actus" && unreadNewsCount ? `Statuts, ${unreadNewsCount} actualités officielles non lues` : item.label}>
+         <View style={styles.navIconWrap}><Ionicons name={item.icon} size={23} color={tab === item.key ? blue : "#9ca8b8"} />
+           {item.key === "Actus" && unreadNewsCount > 0 && <View style={styles.newsBadge} testID="messenger-official-news-unread"><Text style={styles.newsBadgeText}>{unreadNewsCount > 99 ? "99+" : unreadNewsCount}</Text></View>}
+         </View>
+         <Text style={[styles.navLabel, tab === item.key && styles.navActive]}>{item.label}</Text>
+       </TouchableOpacity>)}
       </View>
     </View>}
     {detailsOpen && selected && <ConversationDetails conversation={selected} userId={user?.id || ""} onClose={() => setDetailsOpen(false)} onChanged={() => { refresh(); messengerApi.conversation(selected.id).then(setSelected).catch(() => setSelected(null)); }} />}
@@ -370,7 +384,7 @@ const styles = StyleSheet.create({
   fab: { position: "absolute", right: 19, bottom: 18, width: 62, height: 62, borderRadius: 34, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .3, shadowRadius: 9 },
   loading: { padding: 18, gap: 18 }, skeleton: { height: 64, borderRadius: 30, backgroundColor: "#f0f3f8" }, emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 }, emptyCircle: { width: 62, height: 62, borderRadius: 32, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" }, emptyTitle: { color: ink, fontSize: 16, fontWeight: "800", textAlign: "center", marginTop: 13 }, emptyCopy: { color: muted, fontSize: 13, textAlign: "center", marginTop: 7 }, emptyLink: { color: blue, fontSize: 13, fontWeight: "800", marginTop: 10 }, emptyButton: { marginTop: 17, backgroundColor: blue, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 17 }, emptyButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   bottomDock: { position: "absolute", left: 10, right: 10, bottom: 8, zIndex: 5 }, bottomBar: { height: 75, borderRadius: 37, backgroundColor: "#fff", borderWidth: 1, borderColor: "#edf0f4", shadowColor: "#244067", shadowOffset: { width: 0, height: 6 }, shadowOpacity: .12, shadowRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingHorizontal: 4 },
-  navItem: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }, navLabel: { color: "#9ca8b8", fontSize: 10, fontWeight: "700" }, navActive: { color: blue }, centerLogoWrap: { width: 67, alignItems: "center", marginTop: -21 }, centerLogo: { width: 58, height: 58, borderRadius: 30, backgroundColor: "#fff", borderWidth: 4, borderColor: "#fff", elevation: 5, alignItems: "center", justifyContent: "center", shadowColor: blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: .2, shadowRadius: 8 }, centerLogoImage: { width: 52, height: 52, borderRadius: 27 }, 
+  navItem: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }, navIconWrap: { width: 29, height: 26, alignItems: "center", justifyContent: "center", position: "relative" }, newsBadge: { position: "absolute", right: -9, top: -6, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 9, backgroundColor: "#e3444b", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fff" }, newsBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" }, navLabel: { color: "#9ca8b8", fontSize: 10, fontWeight: "700" }, navActive: { color: blue }, centerLogoWrap: { width: 67, alignItems: "center", marginTop: -21 }, centerLogo: { width: 58, height: 58, borderRadius: 30, backgroundColor: "#fff", borderWidth: 4, borderColor: "#fff", elevation: 5, alignItems: "center", justifyContent: "center", shadowColor: blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: .2, shadowRadius: 8 }, centerLogoImage: { width: 52, height: 52, borderRadius: 27 },
   welcome: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f4f7fb" }, welcomeLogo: { height: 75, width: 75, borderRadius: 40 }, welcomeTitle: { color: ink, fontSize: 20, fontWeight: "900", marginTop: 12 }, welcomeText: { color: muted, fontSize: 13, marginTop: 6 },
   menuBackdrop: { flex: 1, backgroundColor: "rgba(5,15,34,.1)" }, menu: { position: "absolute", right: 11, top: 74, width: 225, backgroundColor: "#fff", borderRadius: 13, padding: 7, shadowColor: "#11243e", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .2, shadowRadius: 12, elevation: 8 }, menuRow: { height: 44, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 9 }, menuText: { color: ink, fontWeight: "700", fontSize: 13 },
   publicToggle: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 }, publicTitle: { color: ink, fontSize: 13, fontWeight: "800" }, publicHelp: { color: muted, fontSize: 11, marginTop: 2 },

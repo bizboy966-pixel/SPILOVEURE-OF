@@ -7,7 +7,15 @@ Cette note décrit les interactions ajoutées pour les conversations, les statut
 - Un contact ayant un statut actif reçoit un anneau autour de sa photo dans la liste des conversations et l’en-tête d’une conversation privée.
 - Toucher l’anneau ouvre le statut. La fermeture ramène à l’écran précédent.
 - Maintenir le doigt ou le pointeur sur un statut met sa progression en pause; le relâcher reprend la lecture. Les vidéos sont également mises en pause.
+- Les statuts personnels s’affichent de gauche à droite; le balayage horizontal passe au statut précédent ou suivant, y compris au statut d’un autre contact.
 - La durée de vie des statuts reste celle déjà définie par le service de statuts.
+
+## Actualités SPILOVEURE
+
+- Seuls les comptes ayant le rôle administrateur peuvent publier une actualité officielle avec du texte, une photo ou une vidéo.
+- Les actualités officielles sont visibles à tous les utilisateurs Chat, sans dépendre de leur liste de contacts. Les membres gardent leurs statuts personnels, distincts de ces actualités.
+- Un compteur apparaît sur l’onglet **Statuts** lorsqu’une actualité est non lue. L’ouvrir marque comme lues les actualités affichées jusqu’à la plus récente.
+- Les anciennes publications communautaires non officielles ne sont pas supprimées, mais ne s’affichent plus dans cette section.
 
 ## Conversations
 

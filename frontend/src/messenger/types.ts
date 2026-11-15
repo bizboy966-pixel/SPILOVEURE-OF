@@ -16,7 +16,7 @@ export type Conversation = {
 };
 export type Post = {
   id: string; author_id: string; author_name: string; text: string; attachments: Attachment[];
-  visibility: "contacts" | "public"; created_at: string;
+  visibility: "contacts" | "public"; created_at: string; is_official?: boolean;
   reactions: Record<string, string[]>; comments: { id: string; user_id: string; username: string; text: string; created_at: string }[];
 };
 export type ChatStatus = {

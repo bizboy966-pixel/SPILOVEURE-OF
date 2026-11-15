@@ -53,6 +53,10 @@ def call(chat, method, path, uid="alice", **kwargs):
     return getattr(chat[0], method)("/api/messenger" + path, headers=auth(uid), **kwargs)
 
 
+def make_admin(chat, uid="alice"):
+    asyncio.run(chat[1].users.update_one({"id": uid}, {"$set": {"role": "admin"}}))
+
+
 def conversation(chat, kind="private", members=None):
     result = call(chat, "post", "/conversations", json={
         "kind": kind, "title": "Équipe SPV", "member_ids": members if members is not None else ["bob"],
@@ -230,14 +234,13 @@ def test_channel_file_upload_permissions(chat):
                 files={"file": ("notes.txt", b"hi")}).status_code == 403
 
 
-def test_feed_visibility_comments_reactions_delete(chat):
-    private = call(chat, "post", "/feed", json={"text": "Contacts seulement", "visibility": "contacts"}).json()
-    assert call(chat, "get", "/feed", "bob").json() == []
-    path = "/feed/" + private["id"]
-    assert call(chat, "post", path + "/comments", "bob", json={"text": "Non autorisé"}).status_code == 404
-    call(chat, "post", "/contacts/bob")
-    call(chat, "post", "/contacts/alice/accept", "bob")
-    assert call(chat, "get", "/feed", "bob").json()[0]["id"] == private["id"]
+def test_official_feed_comments_reactions_delete(chat):
+    make_admin(chat)
+    official = call(chat, "post", "/feed", json={"text": "Actualité officielle", "visibility": "contacts"}).json()
+    assert official["is_official"] is True
+    assert official["visibility"] == "public"
+    path = "/feed/" + official["id"]
+    assert call(chat, "get", "/feed", "bob").json()[0]["id"] == official["id"]
     assert call(chat, "post", path + "/comments", "bob", json={"text": "Bonjour"}).json()["comments"][0]["username"] == "Bob"
     assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "❤️"}).status_code == 200
     assert call(chat, "delete", path, "bob").status_code == 404
@@ -245,12 +248,13 @@ def test_feed_visibility_comments_reactions_delete(chat):
 
 
 def test_feed_files_visibility(chat):
+    make_admin(chat)
     file = call(chat, "post", "/feed/files", files={"file": ("test.txt", b"private")}).json()
     assert chat[0].get(file["url"], headers=auth("bob")).status_code == 404
     call(chat, "post", "/feed", json={"text": "Fichier", "visibility": "public", "attachments": [file]})
     assert chat[0].get(file["url"], headers=auth("bob")).content == b"private"
     call(chat, "post", "/blocks/bob")
-    assert chat[0].get(file["url"], headers=auth("bob")).status_code == 403
+    assert chat[0].get(file["url"], headers=auth("bob")).status_code == 200
 
 
 def test_saved_messages(chat):

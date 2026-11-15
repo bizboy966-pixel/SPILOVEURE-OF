@@ -8,6 +8,7 @@ import { useChat } from "@/src/chat/ChatContext";
 import { useRouter } from "expo-router";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
 import StatusStories from "./StatusStories";
+import ProtectedMessageMedia from "./ProtectedMessageMedia";
 
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
@@ -71,25 +72,35 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
 type FeedProps = {
   userId: string; version?: number; requestedStatusAuthor?: string | null;
   onStatusRequestConsumed?: () => void; onStatusViewerClose?: () => void;
+  onUnreadCount?: (count: number) => void;
 };
-export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose }: FeedProps) {
+export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose, onUnreadCount }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState("");
-  const [visibility, setVisibility] = useState<"contacts" | "public">("contacts");
+  const [canPublish, setCanPublish] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [comment, setComment] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const load = async () => {
-    try { setPosts(await api.get<Post[]>("/messenger/feed")); setError(""); }
+    try {
+      const rows = await api.get<Post[]>("/messenger/feed");
+      setPosts(rows);
+      setError("");
+      const latest = rows.find(post => post.is_official);
+      if (latest) await api.post("/messenger/feed/read", { post_id: latest.id }).catch(() => {});
+      const state = await api.get<{ count: number; can_publish: boolean }>("/messenger/feed/unread-count");
+      setCanPublish(state.can_publish);
+      onUnreadCount?.(state.count);
+    }
     catch (e: any) { setError(e?.detail || "Impossible de charger les actus."); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
   useEffect(() => { if (version > 0) load(); }, [version]);
   const publish = async () => {
-    if (!text.trim()) return;
-    try { await api.post("/messenger/feed", { text: text.trim(), visibility, attachments }); setText(""); setAttachments([]); await load(); }
+    if (!canPublish || (!text.trim() && !attachments.length)) return;
+    try { await api.post("/messenger/feed", { text: text.trim(), visibility: "public", attachments }); setText(""); setAttachments([]); await load(); }
     catch (e: any) { setError(e?.detail || "Publication impossible."); }
   };
   const addComment = async (id: string) => {
@@ -117,18 +128,19 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatus
     <Text style={styles.panelTitle}>Actualités SPILOVEURE</Text>
     {error ? <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
-      <View style={styles.composeCard}>
-        <Text style={styles.composeTitle}>Partager une actualité</Text>
-        <TextInput value={text} onChangeText={setText} placeholder="Quoi de neuf ?" multiline style={styles.postInput} />
+      {canPublish ? <View style={styles.composeCard}>
+        <Text style={styles.composeTitle}>Publier une actualité officielle</Text>
+        <TextInput value={text} onChangeText={setText} placeholder="Message ou annonce SPILOVEURE…" multiline style={styles.postInput} />
         {attachments.map(file => <View key={file.id} style={styles.feedAttachment}><Text style={styles.feedAttachmentName}>{file.name}</Text><TouchableOpacity onPress={() => setAttachments(old => old.filter(a => a.id !== file.id))}><Ionicons name="close-circle" size={18} color={muted} /></TouchableOpacity></View>)}
         <View style={styles.composeFooter}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 13 }}><TouchableOpacity style={styles.visibility} onPress={() => setVisibility(v => v === "contacts" ? "public" : "contacts")}><Ionicons name={visibility === "public" ? "globe-outline" : "people-outline"} size={16} color={blue} /><Text style={styles.visibilityText}>{visibility === "public" ? "Public" : "Contacts"}</Text></TouchableOpacity><TouchableOpacity onPress={attachFeedFile} accessibilityLabel="Ajouter une photo ou vidéo"><Ionicons name="image-outline" size={19} color={blue} /></TouchableOpacity></View>
-          <TouchableOpacity onPress={publish} style={[styles.publish, !text.trim() && styles.disabled]}><Text style={styles.publishText}>Publier</Text></TouchableOpacity>
+          <TouchableOpacity onPress={attachFeedFile} accessibilityLabel="Ajouter une photo ou vidéo"><Ionicons name="image-outline" size={19} color={blue} /></TouchableOpacity>
+          <TouchableOpacity onPress={publish} style={[styles.publish, (!text.trim() && !attachments.length) && styles.disabled]} disabled={!text.trim() && !attachments.length}><Text style={styles.publishText}>Publier</Text></TouchableOpacity>
         </View>
-      </View>
+      </View> : <Text style={styles.officialHint}>Les actualités officielles publiées par SPILOVEURE apparaîtront ici.</Text>}
       {loading ? <ActivityIndicator color={blue} style={{ marginTop: 25 }} /> : posts.length === 0 ? <Text style={styles.empty}>Aucune actualité pour le moment.</Text> : posts.map(post => <View key={post.id} style={styles.postCard}>
-        <View style={styles.postHeader}><View style={styles.avatar}><Text style={styles.avatarText}>{post.author_name.slice(0, 1).toUpperCase()}</Text></View><View style={{ flex: 1 }}><Text style={styles.personName}>{post.author_name}</Text><Text style={styles.personMeta}>{new Date(post.created_at).toLocaleString()} · {post.visibility === "public" ? "Public" : "Contacts"}</Text></View>{post.author_id === userId && <TouchableOpacity onPress={async () => { if (typeof window === "undefined" || window.confirm("Supprimer cette publication ?")) { await api.delete(`/messenger/feed/${encodeURIComponent(post.id)}`).then(load).catch(e => setError(e?.detail || "Suppression impossible.")); } }}><Ionicons name="trash-outline" size={18} color={muted} /></TouchableOpacity>}</View>
-        <Text style={styles.postText}>{post.text}</Text>
+        <View style={styles.postHeader}><View style={styles.avatar}><Text style={styles.avatarText}>S</Text></View><View style={{ flex: 1 }}><View style={styles.officialTitle}><Text style={styles.personName}>{post.author_name}</Text><Ionicons name="checkmark-circle" size={16} color={blue} /></View><Text style={styles.personMeta}>{new Date(post.created_at).toLocaleString()} · Actualité officielle</Text></View>{post.author_id === userId && <TouchableOpacity onPress={async () => { if (typeof window === "undefined" || window.confirm("Supprimer cette actualité ?")) { await api.delete(`/messenger/feed/${encodeURIComponent(post.id)}`).then(load).catch(e => setError(e?.detail || "Suppression impossible.")); } }}><Ionicons name="trash-outline" size={18} color={muted} /></TouchableOpacity>}</View>
+        {!!post.text && <Text style={styles.postText}>{post.text}</Text>}
+        {post.attachments?.map(file => <ProtectedMessageMedia key={file.id} file={file} onOpen={() => {}} />)}
         <View style={styles.postActions}><TouchableOpacity onPress={() => api.post(`/messenger/feed/${encodeURIComponent(post.id)}/reaction`, { emoji: "👍" }).then(load).catch(e => setError(e?.detail || "Réaction impossible."))} style={styles.postAction}><Text style={styles.action}>👍 J’aime</Text></TouchableOpacity><Text style={styles.personMeta}>{Object.values(post.reactions || {}).reduce((n, a) => n + a.length, 0)} réactions · {post.comments.length} commentaires</Text></View>
         {post.comments.map(item => <View key={item.id} style={styles.comment}><Text style={styles.commentText}><Text style={{ fontWeight: "800" }}>{item.username} </Text>{item.text}</Text></View>)}
         <View style={styles.commentRow}><TextInput value={comment[post.id] || ""} onChangeText={v => setComment(old => ({ ...old, [post.id]: v }))} placeholder="Écrire un commentaire" style={styles.commentInput} /><TouchableOpacity onPress={() => addComment(post.id)}><Ionicons name="send" size={19} color={blue} /></TouchableOpacity></View>
@@ -196,6 +208,7 @@ export function ProfilePanel({ user }: ProfileProps) {
 const styles = StyleSheet.create({
   panel: { flex: 1, minHeight: 0, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 17 },
   panelTitle: { fontSize: 20, fontWeight: "900", color: ink, marginBottom: 14 },
+  officialHint: { color: muted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   search: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, backgroundColor: "#f2f5f9", borderRadius: 22, marginBottom: 12 },
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
   sectionTitle: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 17, marginBottom: 9, textTransform: "uppercase", letterSpacing: .5 },
@@ -207,10 +220,10 @@ const styles = StyleSheet.create({
   action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   empty: { color: muted, fontSize: 13, textAlign: "center", marginTop: 28, paddingHorizontal: 20 }, error: { backgroundColor: "#fff1f0", borderRadius: 10, padding: 10 }, errorText: { color: "#bf3e45", fontSize: 12 },
   composeCard: { backgroundColor: "#f8faff", borderWidth: 1, borderColor: "#e8edf5", borderRadius: 15, padding: 13, marginBottom: 14 }, composeTitle: { color: ink, fontWeight: "800", marginBottom: 7 },
-  feedAttachment: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 7, backgroundColor: "#eef4ff", borderRadius: 8, marginBottom: 5 }, feedAttachmentName: { color: ink, fontSize: 12 },
+  feedAttachment: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 7, backgroundColor: "#eef4ff", borderRadius: 8, marginBottom: 5 }, feedAttachmentName: { color: ink, fontSize: 12, flex: 1, minWidth: 0 },
   postInput: { minHeight: 76, color: ink, outlineStyle: "none" as any, fontSize: 14, textAlignVertical: "top" }, composeFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 9 },
   visibility: { flexDirection: "row", gap: 5, alignItems: "center" }, visibilityText: { color: blue, fontSize: 12, fontWeight: "700" }, publish: { backgroundColor: blue, borderRadius: 17, paddingVertical: 8, paddingHorizontal: 16 }, publishText: { color: "#fff", fontSize: 12, fontWeight: "800" }, disabled: { opacity: .45 },
-  postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e9edf3", borderRadius: 15, padding: 13, marginBottom: 12 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, postText: { color: ink, fontSize: 14, lineHeight: 21, marginTop: 11, marginBottom: 10 }, postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 9 },
+  postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e9edf3", borderRadius: 15, padding: 13, marginBottom: 12 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, officialTitle: { flexDirection: "row", alignItems: "center", gap: 5 }, postText: ({ color: ink, fontSize: 14, lineHeight: 21, marginTop: 11, marginBottom: 10, maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-word" } as any), postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 9 },
   postAction: { paddingVertical: 4 }, comment: { borderTopWidth: 1, borderColor: "#f0f2f5", paddingVertical: 7 }, commentText: { color: ink, fontSize: 12, lineHeight: 18 }, commentRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f4f6f9", borderRadius: 19, paddingHorizontal: 12, marginTop: 8 }, commentInput: { flex: 1, height: 38, color: ink, outlineStyle: "none" as any, fontSize: 12 },
    profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10, overflow: "visible" }, profileAvatarImage: { width: 72, height: 72, borderRadius: 40 }, profileCamera: { position: "absolute", right: -2, bottom: -2, width: 25, height: 25, borderRadius: 13, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
   settingRow: { minHeight: 66, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderColor: "#eef1f5", gap: 12 }, settingTitle: { color: ink, fontSize: 14, fontWeight: "700" }, switch: { width: 40, height: 23, borderRadius: 14, backgroundColor: "#d3d9e2", padding: 3, justifyContent: "center" }, switchOn: { backgroundColor: blue }, switchKnob: { width: 17, height: 17, backgroundColor: "#fff", borderRadius: 9 }, switchKnobOn: { alignSelf: "flex-end" },
