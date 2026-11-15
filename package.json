@@ -12,6 +12,8 @@
   "dependencies": {
     "@playwright/test": "^1.65.1",
     "@replit/connectors-sdk": "^0.7.0",
+    "@shopify/flash-list": "2.0.2",
+    "@softwhere-uz/react-native-emoji-keyboard": "0.10.0",
     "http-proxy": "^1.18.1",
     "typescript": "~5.9.3"
   }

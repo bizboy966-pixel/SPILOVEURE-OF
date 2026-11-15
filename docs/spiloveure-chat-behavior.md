@@ -20,7 +20,9 @@ Cette note décrit les interactions ajoutées pour les conversations, les statut
 ## Conversations
 
 - Les textes longs et les liens sans espaces doivent revenir à la ligne dans les bulles, les réponses citées et les champs de saisie.
-- Le champ de message grandit sur plusieurs lignes; son aperçu de réponse reste au-dessus. Le fil ne saute pas en bas pendant que la personne consulte l’historique.
+- Le champ commence sur une ligne et grandit en hauteur selon le texte, jusqu’à sa limite; au-delà, le texte défile dans le champ. L’aperçu de réponse reste au-dessus et le fil ne saute pas en bas pendant la consultation de l’historique.
+- Le sélecteur emoji s’ouvre au-dessus du compositeur comme un clavier, avec recherche, emojis récents et catégories.
+- Les bulles sortantes bleues pâles se distinguent des bulles entrantes blanches; les commandes vocales gardent un contraste lisible dans les deux.
 - Les bulles, photos, vidéos, vocaux et fichiers envoyés sont alignés sur le côté droit.
 - Les photos et vidéos de profil, les messages et les médias gardent leurs parcours existants.
 

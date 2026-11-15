@@ -127,12 +127,12 @@ export default function VoiceMessage({ src, tint = "other", testID }: Props) {
   };
 
   const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
-  const btnBg = own ? "rgba(255,255,255,0.22)" : theme.colors.primary;
+  const btnBg = theme.colors.primary;
   const iconColor = "#fff";
-  const trackBg = own ? "rgba(255,255,255,0.28)" : theme.colors.primary + "22";
-  const fillBg = own ? "#fff" : theme.colors.primary;
-  const textCol = own ? "rgba(255,255,255,0.9)" : theme.colors.textSecondary;
-  const errCol = own ? "#FCA5A5" : theme.colors.danger;
+  const trackBg = own ? "#b7d8f8" : theme.colors.primary + "22";
+  const fillBg = theme.colors.primary;
+  const textCol = own ? theme.colors.textPrimary : theme.colors.textSecondary;
+  const errCol = theme.colors.danger;
 
   return (
     <View style={styles.wrap} testID={testID}>

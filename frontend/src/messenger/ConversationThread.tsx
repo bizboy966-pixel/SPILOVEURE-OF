@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import { protectedFileUrl } from "./api";
@@ -22,8 +23,28 @@ type Props = {
 };
 const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
 const logo = require("../../assets/images/spiloveure-logo.png");
+const emojiStorage = createMemoryAdapter();
+const emojiTranslation: Record<CategoryTypes, string> = {
+  smileys_emotion: "Visages",
+  people_body: "Personnes",
+  animals_nature: "Animaux et nature",
+  food_drink: "Nourriture",
+  travel_places: "Voyages",
+  activities: "Activités",
+  objects: "Objets",
+  symbols: "Symboles",
+  flags: "Drapeaux",
+  favorites: "Favoris",
+  recently_used: "Récents",
+  search: "Recherche",
+};
 const makeId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const messageKey = (message: Message) => message.client_id ? `client:${message.sender_id}:${message.client_id}` : `id:${message.id}`;
+const composerHeightFor = (value: string, contentWidth: number) => {
+  const charsPerLine = Math.max(12, Math.floor(contentWidth / 8.5));
+  const lines = value.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(Array.from(line).length / charsPerLine)), 0);
+  return Math.min(176, Math.max(42, lines * 22 + 18));
+};
 function mergeMessages(existing: Message[], incoming: Message[]) {
   const byKey = new Map<string, Message>();
   existing.forEach(message => byKey.set(messageKey(message), message));
@@ -48,12 +69,11 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
     };
   }, [file.id]);
   if (error) return <Text style={styles.fileLabel}>Vocal indisponible</Text>;
-  if (!src) return <ActivityIndicator size="small" color={own ? "#fff" : blue} />;
+  if (!src) return <ActivityIndicator size="small" color={blue} />;
   return <VoiceMessage src={src} tint={own ? "own" : "other"} testID={`messenger-voice-${file.id}`} />;
 }
 
 export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts }: Props) {
-  const { width: viewportWidth } = useWindowDimensions();
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
     if (!readReceipts) return;
@@ -72,6 +92,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [pendingMedia, setPendingMedia] = useState<File[] | null>(null);
   const [text, setText] = useState(conversation.draft || "");
   const [composerInputHeight, setComposerInputHeight] = useState(42);
+  const [composerSelection, setComposerSelection] = useState({ start: (conversation.draft || "").length, end: (conversation.draft || "").length });
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [composerActionsOpen, setComposerActionsOpen] = useState(false);
   const [reply, setReply] = useState<Message | null>(null);
@@ -104,12 +125,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const retries = useRef<Record<string, () => Promise<Message>>>({});
   const lastVersion = useRef(version);
   const lastTypingAt = useRef(0);
+  const composerInput = useRef<TextInput>(null);
+  const composerTextWidth = useRef(190);
   const changeDraft = (value: string) => {
     draftValue.current = value;
     setText(value);
-    const charsPerLine = Math.max(20, Math.floor((viewportWidth - 168) / 8));
-    const lines = value.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
-    setComposerInputHeight(Math.min(176, Math.max(42, lines * 22 + 16)));
+    setComposerInputHeight(composerHeightFor(value, composerTextWidth.current));
   };
 
   const loadMessages = async (q?: string, mode: "replace" | "merge" = "replace") => {
@@ -227,7 +248,26 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     nearBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 90;
   };
-  const insertEmoji = (emoji: string) => updateComposer(`${text}${emoji}`);
+  const insertEmoji = (emoji: string) => {
+    const current = draftValue.current;
+    const start = Math.max(0, Math.min(composerSelection.start, current.length));
+    const end = Math.max(start, Math.min(composerSelection.end, current.length));
+    const next = `${current.slice(0, start)}${emoji}${current.slice(end)}`;
+    const cursor = start + emoji.length;
+    setComposerSelection({ start: cursor, end: cursor });
+    updateComposer(next);
+    setEmojiPickerOpen(true);
+  };
+  const toggleEmojiPicker = () => {
+    if (emojiPickerOpen) {
+      setEmojiPickerOpen(false);
+      composerInput.current?.focus();
+      return;
+    }
+    Keyboard.dismiss();
+    composerInput.current?.blur();
+    setEmojiPickerOpen(true);
+  };
   const retrySend = async (clientId: string) => {
     const retry = retries.current[clientId];
     if (!retry) return;
@@ -464,18 +504,50 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
       {(recording || voiceSending) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
       {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
-      {canSend && emojiPickerOpen && <View style={styles.emojiStrip}>{["😊", "😂", "😍", "🙏", "👍", "❤️", "🎉", "🔥"].map(emoji => <TouchableOpacity key={emoji} onPress={() => insertEmoji(emoji)} style={styles.emojiChoice}><Text style={styles.emojiText}>{emoji}</Text></TouchableOpacity>)}</View>}
+      {canSend && emojiPickerOpen && <View style={styles.emojiPickerPanel} testID="messenger-emoji-picker">
+        <EmojiKeyboard
+          onEmojiSelected={item => insertEmoji(item.emoji)}
+          enableRecentlyUsed
+          storage={emojiStorage}
+          enableSearchBar
+          categoryPosition="top"
+          defaultHeight={300}
+          disableSafeArea
+          colorScheme="light"
+          translation={emojiTranslation}
+          theme={{
+            container: "#ffffff",
+            header: "#ffffff",
+            category: { icon: "#64748b", iconActive: blue, container: "#f3f6fb", containerActive: "#e3efff" },
+            search: { background: "#f2f5f9", text: ink, placeholder: muted, icon: muted },
+            emoji: { selected: "#e3efff" },
+          }}
+        />
+      </View>}
       <View style={styles.composer}>
-        <TouchableOpacity onPress={() => setEmojiPickerOpen(value => !value)} style={styles.composerIcon} accessibilityLabel="Choisir un emoji" testID="messenger-emoji-toggle"><Ionicons name="happy-outline" size={23} color={blue} /></TouchableOpacity>
-        <View style={styles.inputShell}>
+        <TouchableOpacity onPress={toggleEmojiPicker} style={styles.composerIcon} accessibilityLabel="Choisir un emoji" testID="messenger-emoji-toggle"><Ionicons name="happy-outline" size={23} color={blue} /></TouchableOpacity>
+        <View
+          style={styles.inputShell}
+          onLayout={event => {
+            const width = Math.max(100, event.nativeEvent.layout.width - 58);
+            if (Math.abs(width - composerTextWidth.current) > 4) {
+              composerTextWidth.current = width;
+              setComposerInputHeight(composerHeightFor(draftValue.current, width));
+            }
+          }}
+        >
           <TextInput
+            ref={composerInput}
             value={text}
             onChangeText={updateComposer}
-            onContentSizeChange={event => setComposerInputHeight(Math.min(176, Math.max(42, event.nativeEvent.contentSize.height + 16)))}
+            onFocus={() => setEmojiPickerOpen(false)}
+            onSelectionChange={event => setComposerSelection(event.nativeEvent.selection)}
+            selection={composerSelection}
             editable={canSend}
             placeholder={canSend ? "Message" : "Lecture seule"}
             multiline
             blurOnSubmit={false}
+            scrollEnabled={composerInputHeight >= 176}
             style={[styles.input, { height: composerInputHeight }, !canSend && styles.readOnlyInput]}
           />
           {canSend && <TouchableOpacity onPress={() => setComposerActionsOpen(true)} style={styles.inputAttach} accessibilityLabel="Pièce jointe et options" testID="messenger-composer-actions"><Ionicons name="attach" size={23} color={blue} /></TouchableOpacity>}
@@ -535,7 +607,7 @@ const styles = StyleSheet.create({
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
   bubbleWrap: { width: "100%", alignItems: "stretch", minWidth: 0 }, ownWrap: { alignItems: "stretch" }, swipeMessage: { width: "100%", alignItems: "flex-start", minWidth: 0 }, swipeMessageOwn: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
-  ownBubble: { alignSelf: "flex-end", backgroundColor: "#e3efff", borderColor: "#d7e7ff", borderBottomRightRadius: 5 }, otherBubble: { alignSelf: "flex-start", backgroundColor: "#fff", borderBottomLeftRadius: 5 },
+  ownBubble: { alignSelf: "flex-end", backgroundColor: "#e4f1ff", borderColor: "#c8e0fb", borderBottomRightRadius: 5 }, otherBubble: { alignSelf: "flex-start", backgroundColor: "#fff", borderColor: "#e2e8f0", borderBottomLeftRadius: 5 },
   sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: ink, fontSize: 16, lineHeight: 22, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
   replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7, maxWidth: "100%", minWidth: 0 },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
@@ -545,9 +617,9 @@ const styles = StyleSheet.create({
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
-  emojiStrip: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", backgroundColor: "#fff", paddingHorizontal: 8, paddingVertical: 6, borderTopWidth: 1, borderColor: "#edf0f5" }, emojiChoice: { paddingHorizontal: 5, paddingVertical: 3 }, emojiText: { fontSize: 23 },
+  emojiPickerPanel: { height: 300, flexShrink: 0, overflow: "hidden", backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5" },
   composer: { flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 7, paddingVertical: 7, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 30, gap: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, flexShrink: 0 },
-  composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center" }, inputShell: { flex: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center" },
+  composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center" }, inputShell: { flex: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, minHeight: 42, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center" },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }, recordButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexShrink: 0 }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" },
   composerActionsBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 16 }, composerActionsDismiss: { flex: 1 }, composerActionsSheet: { backgroundColor: "#fff", borderRadius: 22, padding: 12 }, actionsTitle: { color: ink, fontSize: 16, fontWeight: "800", paddingHorizontal: 9, paddingBottom: 8 }, composerActionRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 10, borderTopWidth: 1, borderColor: "#edf0f5" }, composerActionText: { color: ink, fontSize: 14, fontWeight: "600" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" },
