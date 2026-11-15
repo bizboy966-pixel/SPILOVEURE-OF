@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
@@ -75,6 +75,8 @@ function ProtectedVoicePlayer({ file, own }: { file: Attachment; own: boolean })
 }
 
 export default function ConversationThread({ conversation, userId, onBack, onChanged, onDetails, onViewPhoto, onOpenUsername, hasActiveStatus, onOpenStatus, version, typing, scheduledEnabled = true, readReceipts, focusComposer = false }: Props) {
+  const { height: windowHeight } = useWindowDimensions();
+  const emojiPickerHeight = Math.min(420, Math.max(180, windowHeight - 300));
   const [messages, setMessages] = useState<Message[]>([]);
   useEffect(() => {
     if (!readReceipts) return;
@@ -532,27 +534,6 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
       {(recording || voiceSending) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
       {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
-      {canSend && emojiPickerOpen && <View style={styles.emojiPickerPanel} testID="messenger-emoji-picker">
-        <EmojiKeyboard
-          onEmojiSelected={item => insertEmoji(item.emoji)}
-          enableRecentlyUsed
-          storage={emojiStorage}
-          enableSearchBar
-          categoryPosition="top"
-          defaultHeight={420}
-          hideHeader
-          disableSafeArea
-          colorScheme="light"
-          translation={emojiTranslation}
-          theme={{
-            container: "#ffffff",
-            header: "#ffffff",
-            category: { icon: "#64748b", iconActive: blue, container: "#f3f6fb", containerActive: "#e3efff" },
-            search: { background: "#f2f5f9", text: ink, placeholder: muted, icon: muted },
-            emoji: { selected: "#e3efff" },
-          }}
-        />
-      </View>}
       <View style={styles.composer}>
         <TouchableOpacity onPress={toggleEmojiPicker} style={styles.composerIcon} accessibilityLabel={emojiPickerOpen ? "Revenir au clavier pour écrire" : "Choisir un emoji"} testID="messenger-emoji-toggle"><Ionicons name={emojiPickerOpen ? "keypad-outline" : "happy-outline"} size={23} color={blue} /></TouchableOpacity>
         <View
@@ -598,6 +579,27 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           </View>
         </View>
       </Modal>
+      {canSend && emojiPickerOpen && <View style={[styles.emojiPickerPanel, { height: emojiPickerHeight }]} testID="messenger-emoji-picker">
+        <EmojiKeyboard
+          onEmojiSelected={item => insertEmoji(item.emoji)}
+          enableRecentlyUsed
+          storage={emojiStorage}
+          enableSearchBar
+          categoryPosition="top"
+          defaultHeight={emojiPickerHeight}
+          hideHeader
+          disableSafeArea
+          colorScheme="light"
+          translation={emojiTranslation}
+          theme={{
+            container: "#ffffff",
+            header: "#ffffff",
+            category: { icon: "#64748b", iconActive: blue, container: "#f3f6fb", containerActive: "#e3efff" },
+            search: { background: "#f2f5f9", text: ink, placeholder: muted, icon: muted },
+            emoji: { selected: "#e3efff" },
+          }}
+        />
+      </View>}
       <Modal visible={!!forwarding} transparent animationType="fade" onRequestClose={() => setForwarding(null)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
@@ -652,7 +654,7 @@ const styles = StyleSheet.create({
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
-  emojiPickerPanel: { height: 420, flexShrink: 0, overflow: "hidden", backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5" },
+  emojiPickerPanel: { height: 420, maxHeight: "100%", flexShrink: 0, overflow: "hidden", backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5" },
   composer: { flexDirection: "row", alignItems: "flex-end", backgroundColor: "#fff", marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 7, paddingVertical: 7, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 30, gap: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, flexShrink: 0 },
   composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center" }, inputShell: { flex: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, minHeight: 42, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center" },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }, recordButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexShrink: 0 }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" },

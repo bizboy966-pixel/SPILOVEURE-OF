@@ -8,14 +8,75 @@ export type NotificationSoundSettings = {
 
 const DB_NAME = "spiloveure-notification-sounds";
 const STORE_NAME = "sounds";
+export const MAX_NOTIFICATION_SOUND_BYTES = 4 * 1024 * 1024;
 let audioContext: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   const Ctor = window.AudioContext || (window as any).webkitAudioContext;
   if (!Ctor) return null;
-  if (!audioContext) audioContext = new Ctor();
+  if (!audioContext || audioContext.state === "closed") audioContext = new Ctor();
   return audioContext;
+}
+
+function requireAudioContext(): AudioContext {
+  const context = getAudioContext();
+  if (!context) throw new Error("La lecture audio n’est pas disponible dans ce navigateur. Ouvrez le Chat dans Chrome, Safari ou Firefox.");
+  return context;
+}
+
+async function readyAudio(context: AudioContext): Promise<void> {
+  const isRunning = () => context.state === "running";
+  if (isRunning()) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      context.resume(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Le navigateur bloque le son. Touchez à nouveau « Tester le son » dans l’onglet du Chat.")), 4000);
+      }),
+    ]);
+    if (!isRunning()) throw new Error("Le son est suspendu. Touchez à nouveau « Tester le son ».");
+  } finally { clearTimeout(timer); }
+}
+
+export function encodeNotificationExcerpt(buffer: AudioBuffer): { blob: Blob; duration: number } {
+  const channels = Math.min(2, buffer.numberOfChannels);
+  if (!channels || !buffer.length || !buffer.sampleRate) throw new Error("Le fichier audio est vide.");
+  const frames = Math.min(buffer.length, Math.floor((MAX_NOTIFICATION_SOUND_BYTES - 44) / (channels * 2)));
+  const dataBytes = frames * channels * 2;
+  const bytes = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(bytes);
+  const text = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+  text(0, "RIFF"); view.setUint32(4, 36 + dataBytes, true); text(8, "WAVE");
+  text(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true); view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true);
+  text(36, "data"); view.setUint32(40, dataBytes, true);
+  const samples = Array.from({ length: channels }, (_, channel) => buffer.getChannelData(channel));
+  const fadeFrames = Math.min(frames, Math.floor(buffer.sampleRate * 0.02));
+  for (let frame = 0; frame < frames; frame++) {
+    const fade = frame >= frames - fadeFrames ? (frames - frame - 1) / Math.max(1, fadeFrames) : 1;
+    for (let channel = 0; channel < channels; channel++) {
+      const sample = Math.max(-1, Math.min(1, samples[channel][frame])) * fade;
+      view.setInt16(44 + (frame * channels + channel) * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+    }
+  }
+  return { blob: new Blob([bytes], { type: "audio/wav" }), duration: frames / buffer.sampleRate };
+}
+
+export async function prepareNotificationSound(file: Blob): Promise<{ blob: Blob; duration: number; trimmed: boolean }> {
+  if (!file.size) throw new Error("Le fichier audio est vide.");
+  const context = requireAudioContext();
+  let decoded: AudioBuffer;
+  try { decoded = await context.decodeAudioData(await file.arrayBuffer()); }
+  catch { throw new Error("Ce format audio ne peut pas être lu. Choisissez un fichier MP3, WAV ou un autre format pris en charge par ce navigateur."); }
+  if (!decoded.length || !Number.isFinite(decoded.duration) || decoded.duration <= 0) throw new Error("Le fichier audio est vide ou invalide.");
+  if (file.size <= MAX_NOTIFICATION_SOUND_BYTES) return { blob: file, duration: decoded.duration, trimmed: false };
+  return { ...encodeNotificationExcerpt(decoded), trimmed: true };
 }
 
 export function unlockNotificationAudio(): void {
@@ -49,6 +110,7 @@ function soundKey(userId: string, scope: string): string {
 }
 
 export async function storeCustomNotificationSound(userId: string, scope: string, file: Blob, name: string): Promise<void> {
+  if (file.size > MAX_NOTIFICATION_SOUND_BYTES) throw new Error("Le son doit être découpé à 4 Mo maximum avant l’enregistrement.");
   const db = await openSoundDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -126,50 +188,38 @@ function playOscillator(kind: "chime" | "bell" | "default"): Promise<void> {
         reject(error instanceof Error ? error : new Error("Lecture du son impossible."));
       }
     };
-    if (context.state === "suspended") {
-      context.resume().then(start).catch(() => reject(new Error("Le navigateur bloque la lecture audio. Touchez d’abord « Tester le son ».")));
-    } else start();
+    readyAudio(context).then(start).catch(reject);
   });
 }
 
-function playBlob(blob: Blob): Promise<void> {
+async function playBlob(blob: Blob, context: AudioContext): Promise<void> {
+  let buffer: AudioBuffer;
+  try { buffer = await context.decodeAudioData(await blob.arrayBuffer()); }
+  catch { throw new Error("Le son importé ne peut pas être décodé sur cet appareil. Importez un fichier MP3 ou WAV."); }
+  if (!buffer.duration) throw new Error("Le son importé est vide.");
   return new Promise((resolve, reject) => {
-    if (typeof Audio === "undefined" || typeof URL === "undefined") {
-      reject(new Error("La lecture audio n’est pas disponible dans cet environnement."));
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    let settled = false;
-    const timer = setTimeout(() => finish(), 6000);
-    const cleanup = () => {
-      clearTimeout(timer);
-      audio.pause();
-      URL.revokeObjectURL(url);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-    };
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      error ? reject(error) : resolve();
-    };
-    const onEnded = () => finish();
-    const onError = () => finish(new Error("Ce son personnalisé ne peut pas être lu sur cet appareil."));
-    audio.addEventListener("ended", onEnded, { once: true });
-    audio.addEventListener("error", onError, { once: true });
-    audio.play().catch(() => finish(new Error("Le navigateur bloque la lecture audio. Touchez d’abord « Tester le son ».")));
+    try {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.onended = () => { source.disconnect(); resolve(); };
+      source.start(0, 0, Math.min(6, buffer.duration));
+    } catch { reject(new Error("Impossible de démarrer la lecture du son importé.")); }
   });
 }
 
 export async function playNotificationSound(userId: string, scope: string, settings: NotificationSoundSettings): Promise<void> {
   if (!settings.enabled || !settings.sound_enabled) return;
+  // Resume while still in the click/touch event, BEFORE the IndexedDB await.
+  const context = requireAudioContext();
+  const ready = readyAudio(context);
   if (settings.sound === "custom") {
+    await ready;
     const custom = await getCustomNotificationSound(userId, scope);
     if (!custom) throw new Error("Le son personnalisé n’est pas disponible sur cet appareil. Importez-le à nouveau ici.");
-    await playBlob(custom.file);
+    await playBlob(custom.file, context);
     return;
   }
+  await ready;
   await playOscillator(settings.sound === "chime" || settings.sound === "bell" ? settings.sound : "default");
 }

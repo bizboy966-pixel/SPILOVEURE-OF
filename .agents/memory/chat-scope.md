@@ -14,3 +14,9 @@ Reproduire fidèlement l’image fournie, employer le logo officiel existant et 
 **Why:** L’utilisateur impose cette référence visuelle et ces interactions, sans variante créative.
 
 **How to apply:** Ne pas utiliser les conversations ni les compteurs de l’image comme de fausses données réelles. Ne déclarer fonctionnelles que les capacités effectivement testées, et ne pas annoncer de chiffrement de bout en bout non implémenté.
+
+Le panneau d’emojis se place sous le champ de message, comme un clavier ; le champ et le bouton d’envoi remontent au-dessus du panneau.
+
+**Why:** L’utilisateur a répété cette disposition après un affichage incorrect des emojis au-dessus du champ.
+
+**How to apply:** Garder le panneau dans la disposition principale de la discussion, sous la saisie, et préserver le bouton emoji/clavier.

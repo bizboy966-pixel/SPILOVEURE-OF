@@ -53,6 +53,142 @@ test("missing custom sounds report an error instead of silently replacing them",
   assert.equal(audio.oscillatorCount(), 0);
 });
 
+test("oversized audio is cropped as a valid WAV, never by truncating compressed bytes", async () => {
+  const audio = soundModule();
+  const sampleRate = 48000;
+  const samples = new Float32Array(1_200_000).fill(0.25);
+  const result = audio.encodeNotificationExcerpt({
+    sampleRate, length: samples.length, numberOfChannels: 2,
+    getChannelData: () => samples,
+  });
+  assert.ok(result.blob.size <= 4 * 1024 * 1024);
+  assert.equal(result.blob.type, "audio/wav");
+  assert.ok(result.duration > 20 && result.duration < 22);
+  const bytes = await result.blob.arrayBuffer();
+  const view = new DataView(bytes);
+  assert.equal(Buffer.from(bytes, 0, 4).toString(), "RIFF");
+  assert.equal(Buffer.from(bytes, 8, 4).toString(), "WAVE");
+  assert.equal(view.getUint32(4, true), result.blob.size - 8);
+  assert.equal(view.getUint32(40, true), result.blob.size - 44);
+  assert.equal(view.getInt16(result.blob.size - 2, true), 0);
+});
+
+test("small audio remains intact; large audio is decoded before cropping", async () => {
+  const decoded = {
+    length: 5000, numberOfChannels: 1, sampleRate: 44100, duration: 5000 / 44100,
+    getChannelData: () => new Float32Array(5000),
+  };
+  class Context {
+    state = "running";
+    decodeAudioData = async () => decoded;
+  }
+  const audio = soundModule({ window: { AudioContext: Context } });
+  const small = new Blob(["audio"], { type: "audio/mpeg" });
+  const smallResult = await audio.prepareNotificationSound(small);
+  assert.equal(smallResult.blob, small);
+  assert.equal(smallResult.trimmed, false);
+  const large = new Blob([new Uint8Array(4 * 1024 * 1024 + 1)]);
+  const largeResult = await audio.prepareNotificationSound(large);
+  assert.equal(largeResult.trimmed, true);
+  assert.equal(largeResult.blob.type, "audio/wav");
+  assert.ok(largeResult.blob.size <= 4 * 1024 * 1024);
+  await assert.rejects(audio.prepareNotificationSound(new Blob([])), /vide/);
+});
+
+test("custom sound unlocks audio before asynchronous local storage access", async () => {
+  const order = [];
+  class Context {
+    state = "suspended";
+    destination = {};
+    resume() { order.push("resume"); this.state = "running"; return Promise.resolve(); }
+    decodeAudioData() { order.push("decode"); return Promise.resolve({ duration: 10 }); }
+    createBufferSource() {
+      const source = {
+        connect() {}, disconnect() {},
+        start(when, offset, duration) {
+          assert.equal(duration, 6);
+          order.push("play");
+          queueMicrotask(() => source.onended());
+        },
+      };
+      return source;
+    }
+  }
+  const indexedDB = {
+    open() {
+      order.push("storage");
+      const request = {};
+      request.result = {
+        close() {},
+        transaction() {
+          return { objectStore: () => ({ get() {
+            const read = { result: { file: new Blob(["audio"]), name: "test.mp3" } };
+            queueMicrotask(() => read.onsuccess());
+            return read;
+          } }) };
+        },
+      };
+      queueMicrotask(() => request.onsuccess());
+      return request;
+    },
+  };
+  const audio = soundModule({ window: { AudioContext: Context }, indexedDB });
+  await audio.playNotificationSound("test", "global", {
+    enabled: true, sound_enabled: true, preview: true, sound: "custom",
+  });
+  assert.equal(order.join(","), "resume,storage,decode,play");
+});
+
+function permissionModule(windowOverrides = {}, notification = { permission: "default", requestPermission: () => Promise.resolve("granted") }) {
+  const exports = {};
+  const top = {};
+  const source = fs.readFileSync(path.join(root, "src/messenger/browserNotificationPermission.ts"), "utf8");
+  vm.runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports, window: { self: top, top, isSecureContext: true, ...windowOverrides }, Notification: notification });
+  return exports;
+}
+
+test("permission is requested synchronously in the click, before any SDK await", async () => {
+  let requested = false;
+  const permission = permissionModule({}, {
+    permission: "default",
+    requestPermission: () => { requested = true; return Promise.resolve("granted"); },
+  });
+  const result = permission.requestChatNotificationPermission();
+  assert.equal(requested, true);
+  assert.equal(await result, "granted");
+});
+
+test("blocked permissions and embedded previews explain the real restriction", async () => {
+  await assert.rejects(permissionModule({}, { permission: "denied" }).requestChatNotificationPermission(), /paramètres du navigateur/);
+  await assert.rejects(permissionModule({ self: {}, top: {} }).requestChatNotificationPermission(), /nouvel onglet/);
+  await assert.rejects(permissionModule({ isSecureContext: false }).requestChatNotificationPermission(), /HTTPS/);
+});
+
+test("emoji keyboard is below the composer and outside hidden modals", () => {
+  const file = ts.createSourceFile("ConversationThread.tsx",
+    fs.readFileSync(path.join(root, "src/messenger/ConversationThread.tsx"), "utf8"),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let composer, picker;
+  const walk = node => {
+    if (ts.isJsxElement(node)) {
+      for (const attribute of node.openingElement.attributes.properties) {
+        if (!ts.isJsxAttribute(attribute)) continue;
+        if (attribute.name.getText(file) === "testID" && attribute.initializer?.text === "messenger-emoji-picker") picker = node;
+        if (attribute.name.getText(file) === "style" && attribute.initializer?.expression?.getText(file) === "styles.composer") composer = node;
+      }
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(file);
+  assert.ok(composer && picker);
+  assert.ok(composer.end < picker.pos, "The composer must be above the emoji keyboard");
+  for (let parent = picker.parent; parent; parent = parent.parent) {
+    if (ts.isJsxElement(parent)) assert.notEqual(parent.openingElement.tagName.getText(file), "Modal");
+  }
+});
+
 function worker({ preview, status = 200 } = {}) {
   let background;
   const events = {};

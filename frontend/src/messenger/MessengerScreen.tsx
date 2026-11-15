@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInpu
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import Svg, { Path } from "react-native-svg";
 import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
 import { storage } from "@/src/utils/storage";
@@ -393,7 +394,11 @@ export default function MessengerScreen() {
   };
   const chatList = <View style={[styles.listPanel, wide && styles.wideList]}>
     <LinearGradient colors={["#075fdf", "#0647b4"]} style={styles.header}>
-      <View pointerEvents="none" style={styles.goldSwoop} />
+      <View pointerEvents="none" style={styles.goldSwoop} testID="messenger-header-gold-swoop">
+        <Svg width="100%" height="100%" viewBox="0 0 574 94" preserveAspectRatio="none">
+          <Path d="M 310 95 C 339 94 353 70 377 46 C 411 13 441 6 485 7 C 438 7 412 18 381 49 C 360 71 347 95 326 95 Z" fill="#d9ad42" />
+        </Svg>
+      </View>
       <TouchableOpacity onPress={goHome} style={styles.brand} accessibilityLabel="Retourner à SPILOVEURE">
         <Image source={logo} style={styles.logo} resizeMode="contain" />
         <View><Text style={styles.brandTitle}>SPILOVEURE</Text><Text style={styles.brandSub}>Chat</Text></View>
@@ -536,7 +541,7 @@ const styles = StyleSheet.create({
   listPanel: { flex: 1, minHeight: 0, backgroundColor: "#fff", position: "relative" },
   wideList: { flexGrow: 0, flexShrink: 0, flexBasis: 375, width: 375, borderRightWidth: 1, borderColor: "#e9edf2" },
   header: { height: 84, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 3, borderBottomWidth: 1, borderColor: "#1d70ed", overflow: "hidden", position: "relative" },
-  goldSwoop: { position: "absolute", width: 210, height: 150, right: -78, top: 14, borderTopWidth: 3, borderColor: "#d9ad42", borderRadius: 110, transform: [{ rotate: "-31deg" }], opacity: .95 },
+  goldSwoop: { ...StyleSheet.absoluteFillObject, zIndex: 0, opacity: .95 },
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
   headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" },
   filters: { flexGrow: 0, flexShrink: 0, height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },

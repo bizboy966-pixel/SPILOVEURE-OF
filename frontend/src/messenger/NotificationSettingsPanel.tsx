@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
-import { setupWebPush, currentPermission } from "@/src/lib/firebase";
+import { setupWebPush, currentPermission, isWebPushConfigured } from "@/src/lib/firebase";
+import { requestChatNotificationPermission } from "./browserNotificationPermission";
 import {
   getCustomNotificationSound,
   playNotificationSound,
+  prepareNotificationSound,
   removeCustomNotificationSound,
   storeCustomNotificationSound,
   unlockNotificationAudio,
@@ -43,6 +45,8 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
   const [customAvailable, setCustomAvailable] = useState(false);
   const [customName, setCustomName] = useState("");
   const [pushBusy, setPushBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   const controlsDisabled = isConversation && settings.inherit === true;
   const effectiveSettings = useMemo(() => settings, [settings]);
@@ -120,6 +124,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
   const previewSound = async () => {
     setError("");
     setNotice("");
+    setTesting(true);
     unlockNotificationAudio();
     try {
       const trial = { ...effectiveSettings, enabled: true, sound_enabled: true };
@@ -127,7 +132,7 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
       setNotice("Lecture terminée.");
     } catch (e: any) {
       setError(errorText(e, "Lecture du son impossible."));
-    }
+    } finally { setTesting(false); }
   };
 
   const importSound = () => {
@@ -141,35 +146,24 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        setError("Le fichier doit faire 2 Mo maximum.");
-        return;
-      }
+      setImporting(true);
       setError("");
-      setNotice("");
+      setNotice(file.size > 4 * 1024 * 1024 ? "Préparation d’un extrait de 4 Mo maximum…" : "Vérification du fichier audio…");
       try {
-        const url = URL.createObjectURL(file);
-        try {
-          await new Promise<void>((resolve, reject) => {
-            const audio = new Audio();
-            audio.preload = "metadata";
-            audio.onloadedmetadata = () => Number.isFinite(audio.duration) && audio.duration > 0
-              ? resolve() : reject(new Error("Ce fichier audio ne peut pas être lu."));
-            audio.onerror = () => reject(new Error("Ce fichier audio ne peut pas être décodé."));
-            audio.src = url;
-          });
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-        await storeCustomNotificationSound(userId, scope, file, file.name);
-        const next = { ...settings, sound: "custom" as const, custom_name: file.name.slice(0, 120) };
+        const prepared = await prepareNotificationSound(file);
+        const name = prepared.trimmed ? `${file.name.replace(/\.[^.]+$/, "").slice(0, 100)}-extrait.wav` : file.name;
+        await storeCustomNotificationSound(userId, scope, prepared.blob, name);
+        const next = { ...settings, sound: "custom" as const, custom_name: name.slice(0, 120) };
         setSettings(next);
         setCustomAvailable(true);
-        setCustomName(file.name);
-        setNotice("Son importé sur cet appareil. Enregistrez les paramètres pour les appliquer.");
+        setCustomName(name);
+        setNotice(prepared.trimmed
+          ? `Extrait du début de ${Math.round(prepared.duration)} s préparé automatiquement (4 Mo maximum). Enregistrez pour l’appliquer.`
+          : "Son importé sur cet appareil. Enregistrez les paramètres pour les appliquer.");
       } catch (e: any) {
+        setNotice("");
         setError(errorText(e, "Ce fichier audio ne peut pas être utilisé."));
-      }
+      } finally { setImporting(false); }
     };
     input.click();
   };
@@ -179,6 +173,16 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
     setError("");
     setNotice("");
     try {
+      const allowed = await requestChatNotificationPermission();
+      setPermission(allowed);
+      if (allowed !== "granted") {
+        setError("L’autorisation n’a pas été accordée. Vous pouvez réessayer ; les bannières dans le Chat restent actives.");
+        return;
+      }
+      if (!pushConfigured || !isWebPushConfigured()) {
+        setNotice("Notifications du navigateur autorisées pour le site ouvert. Les alertes site fermé nécessitent encore la configuration du service push par l’administrateur.");
+        return;
+      }
       const token = await setupWebPush(() => {}, {
         registerToken: payload => api.post("/identity/chat/push-token", payload, { auth: false, credentials: "include" }),
       });
@@ -222,7 +226,8 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
         </View>
         {settings.sound === "custom" && <View style={styles.customBox}>
           <Text style={styles.help}>{customAvailable ? `Disponible sur cet appareil : ${customName || settings.custom_name || "son personnalisé"}` : "Ce son personnalisé n’est pas présent sur cet appareil. Importez-le à nouveau ici."}</Text>
-          <TouchableOpacity onPress={importSound} disabled={controlsDisabled} style={styles.secondaryButton} testID="messenger-notification-import-sound"><Ionicons name="attach-outline" size={17} color={blue} /><Text style={styles.secondaryText}>{customAvailable ? "Remplacer le son" : "Importer un son"}</Text></TouchableOpacity>
+          <Text style={styles.help}>4 Mo maximum. Au-delà, le début du son est découpé automatiquement en un extrait audio lisible.</Text>
+          <TouchableOpacity onPress={importSound} disabled={controlsDisabled || importing} style={styles.secondaryButton} testID="messenger-notification-import-sound">{importing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="attach-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{importing ? "Préparation…" : customAvailable ? "Remplacer le son" : "Importer un son"}</Text></TouchableOpacity>
           {customAvailable && <TouchableOpacity onPress={async () => {
             try {
               await removeCustomNotificationSound(userId, scope);
@@ -232,23 +237,26 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
             } catch (e: any) { setError(errorText(e, "Suppression impossible.")); }
           }} disabled={controlsDisabled} style={styles.removeButton} testID="messenger-notification-remove-sound"><Text style={styles.removeText}>Retirer le son de cet appareil</Text></TouchableOpacity>}
         </View>}
-        <Text style={styles.disclaimer}>Un son personnalisé fonctionne uniquement lorsque le site est ouvert. Le son système du téléphone est géré par le navigateur et le système, il n’est pas sélectionnable ici. Un son importé est stocké uniquement sur cet appareil et n’est pas transféré à vos autres appareils.</Text>
+        <Text style={styles.disclaimer}>Un son personnalisé fonctionne uniquement lorsque le site est ouvert. Le test joue jusqu’à 6 secondes. Le son système du téléphone est géré par le navigateur et le système, il n’est pas sélectionnable ici. Un son importé reste sur cet appareil.</Text>
 
-        <TouchableOpacity onPress={previewSound} disabled={controlsDisabled} style={[styles.secondaryButton, styles.testButton, controlsDisabled && styles.disabled]} testID="messenger-notification-test-sound"><Ionicons name="play-outline" size={17} color={blue} /><Text style={styles.secondaryText}>Tester le son</Text></TouchableOpacity>
+        <TouchableOpacity onPress={previewSound} disabled={controlsDisabled || testing || importing} style={[styles.secondaryButton, styles.testButton, controlsDisabled && styles.disabled]} testID="messenger-notification-test-sound">{testing ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="play-outline" size={17} color={blue} />}<Text style={styles.secondaryText}>{testing ? "Lecture…" : "Tester le son"}</Text></TouchableOpacity>
 
         <View style={styles.pushBox}>
           <Text style={styles.rowTitle}>Notifications du navigateur</Text>
           <Text style={styles.help}>Autorisation : {permission === "granted" ? "accordée" : permission === "denied" ? "refusée dans le navigateur" : permission === "default" ? "non demandée" : "non prise en charge"}.</Text>
-          <Text style={styles.help}>{pushConfigured === null ? "État du service push indisponible." : pushConfigured ? "Le service push est configuré côté serveur." : "Le service push n’est pas configuré côté serveur."}</Text>
+          <Text style={styles.help}>{pushConfigured === null ? "État du service push indisponible." : pushConfigured && isWebPushConfigured() ? "Le service push est configuré. La réception dépend aussi des autorisations du navigateur." : "Les bannières fonctionnent site ouvert. La configuration des notifications site fermé reste à compléter."}</Text>
           {<TouchableOpacity onPress={enableBrowserNotifications} disabled={pushBusy} style={styles.secondaryButton} testID="messenger-notification-enable-browser">
             {pushBusy ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="notifications-outline" size={17} color={blue} />}
             <Text style={styles.secondaryText}>{pushBusy ? "Activation…" : permission === "granted" ? "Réenregistrer cet appareil" : "Activer les notifications du navigateur"}</Text>
           </TouchableOpacity>}
         </View>
+        <TouchableOpacity onPress={() => {
+          if (typeof window !== "undefined") window.open(`${window.location.origin}/messenger`, "_blank", "noopener,noreferrer");
+        }} style={styles.secondaryButton} testID="messenger-notification-open-tab"><Ionicons name="open-outline" size={17} color={blue} /><Text style={styles.secondaryText}>Ouvrir le Chat dans un nouvel onglet</Text></TouchableOpacity>
         {error ? <Text accessibilityRole="alert" style={styles.error} testID="messenger-notification-error">{error}</Text> : null}
         {notice ? <Text style={styles.success} testID="messenger-notification-notice">{notice}</Text> : null}
         {!loaded && <TouchableOpacity onPress={load} style={styles.secondaryButton}><Text style={styles.secondaryText}>Réessayer le chargement</Text></TouchableOpacity>}
-        <TouchableOpacity onPress={save} disabled={saving || !loaded} style={[styles.saveButton, (saving || !loaded) && styles.disabled]} testID="messenger-notification-save">
+        <TouchableOpacity onPress={save} disabled={saving || !loaded || importing} style={[styles.saveButton, (saving || !loaded || importing) && styles.disabled]} testID="messenger-notification-save">
           {saving ? <ActivityIndicator size="small" color="#fff" /> : null}<Text style={styles.saveText}>{saving ? "Enregistrement…" : "Enregistrer"}</Text>
         </TouchableOpacity>
       </>}

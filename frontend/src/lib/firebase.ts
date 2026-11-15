@@ -33,6 +33,10 @@ const firebaseConfig = {
 
 const VAPID_KEY = process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY;
 
+export function isWebPushConfigured(): boolean {
+  return !!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId
+    && firebaseConfig.messagingSenderId && VAPID_KEY);
+}
 let _app: FirebaseApp | null = null;
 let _messaging: Messaging | null = null;
 let _unsubscribeForeground: (() => void) | null = null;
@@ -101,6 +105,7 @@ export async function setupWebPush(
   options: WebPushOptions = {}
 ): Promise<string | null> {
   try {
+    if (!isWebPushConfigured()) return null;
     const messaging = await ensureInitialised();
     if (!messaging) return null;
 
