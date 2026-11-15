@@ -15,9 +15,10 @@ const muted = "#7d879a";
 type Props = {
   userId: string; version?: number; requestedAuthorId?: string | null;
   onRequestConsumed?: () => void; onViewerClose?: () => void;
+  onReply?: (authorId: string, text: string, statusText: string) => Promise<void>;
 };
 
-export default function StatusStories({ userId, version = 0, requestedAuthorId, onRequestConsumed, onViewerClose }: Props) {
+export default function StatusStories({ userId, version = 0, requestedAuthorId, onRequestConsumed, onViewerClose, onReply }: Props) {
   const [items, setItems] = useState<ChatStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -31,6 +32,9 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const [mediaUrl, setMediaUrl] = useState("");
   const [paused, setPaused] = useState(false);
   const [storyProgress, setStoryProgress] = useState(0);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
   const progressRef = useRef(0);
   const videoElement = useRef<HTMLVideoElement | null>(null);
   const storyContentRef = useRef<View | null>(null);
@@ -97,6 +101,10 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     }
     onRequestConsumed?.();
   }, [requestedAuthorId, loading, groups]);
+  useEffect(() => {
+    setReplyText("");
+    setViewersOpen(false);
+  }, [story?.id]);
 
   useEffect(() => {
     if (!media) { setMediaUrl(""); return; }
@@ -194,13 +202,17 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
   const handleStoryTouchStart = (event: any) => {
     const touch = event.nativeEvent?.touches?.[0] || event.nativeEvent?.changedTouches?.[0];
     touchStartX.current = touch?.pageX ?? event.nativeEvent?.pageX ?? null;
+    holdStory();
   };
   const handleStoryTouchEnd = (event: any) => {
     const touch = event.nativeEvent?.changedTouches?.[0] || event.nativeEvent?.touches?.[0];
     const endX = touch?.pageX ?? event.nativeEvent?.pageX;
     const startX = touchStartX.current;
     touchStartX.current = null;
-    if (typeof endX !== "number" || typeof startX !== "number" || Math.abs(endX - startX) < 45) return;
+    if (typeof endX !== "number" || typeof startX !== "number" || Math.abs(endX - startX) < 45) {
+      resumeStory();
+      return;
+    }
     lastSwipeAt.current = Date.now();
     if (endX < startX) advance();
     else goBack();
@@ -245,16 +257,17 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
 
   const chooseMedia = () => {
     if (Platform.OS !== "web" || typeof document === "undefined") {
-      setError("L’ajout de photo ou vidéo est disponible depuis la version web.");
+      setError("L’ajout de photo est disponible depuis la version web.");
       return;
     }
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*,video/*";
+    input.accept = "image/*";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (file.size > 20 * 1024 * 1024) { setError("La photo ou vidéo dépasse 20 Mo."); return; }
+      if (!file.type.startsWith("image/")) { setError("Les statuts vidéo ne sont pas encore disponibles."); return; }
+      if (file.size > 20 * 1024 * 1024) { setError("La photo dépasse 20 Mo."); return; }
       setUploading(true);
       setError("");
       try {
@@ -282,6 +295,37 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     finally { setPublishing(false); }
   };
 
+  const toggleLike = async () => {
+    if (!story || story.author_id === userId) return;
+    try {
+      const result = await api.post<{ liked_by_me: boolean; likes_count: number }>(
+        `/messenger/statuses/${encodeURIComponent(story.id)}/like`, {},
+      );
+      setItems(previous => previous.map(item => item.id === story.id
+        ? { ...item, liked_by_me: result.liked_by_me, likes_count: result.likes_count }
+        : item));
+    } catch (e: any) { setError(e?.detail || "Réaction impossible."); }
+  };
+
+  const submitReply = async () => {
+    const text = replyText.trim();
+    if (!story || story.author_id === userId || !text || !onReply) return;
+    setReplyBusy(true);
+    setError("");
+    try {
+      await onReply(story.author_id, text, story.text || (story.attachments?.length ? "Photo" : ""));
+      setReplyText("");
+      setOpenAuthorId(null);
+      setActiveIndex(0);
+      setPaused(false);
+      heldStoryId.current = null;
+      setViewersOpen(false);
+      progressRef.current = 0;
+      setStoryProgress(0);
+    } catch (e: any) { setError(e?.detail || e?.message || "Envoi de la réponse impossible."); }
+    finally { setReplyBusy(false); }
+  };
+
   const deleteStory = async () => {
     if (!story || story.author_id !== userId) return;
     if (typeof window !== "undefined" && !window.confirm("Supprimer ce statut ?")) return;
@@ -300,31 +344,38 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
     items.find(item => item.author_id === authorId)?.author_avatar || "";
   const authorUnread = (authorId: string) =>
     (groups.find(group => group.authorId === authorId)?.statuses || []).some(item => !item.viewed_by_me);
+  const authorUnreadCount = (authorId: string) =>
+    (groups.find(group => group.authorId === authorId)?.statuses || []).filter(item => !item.viewed_by_me).length;
 
   return <View style={styles.wrap} testID="messenger-statuses">
     <View style={styles.sectionHead}>
-      <View><Text style={styles.title}>Statuts</Text><Text style={styles.subtitle}>Photos, vidéos ou texte · visibles 24 heures</Text></View>
+       <View><Text style={styles.title}>Statuts</Text><Text style={styles.subtitle}>Photos ou texte · visibles 24 heures</Text></View>
       <TouchableOpacity onPress={load} accessibilityLabel="Actualiser les statuts"><Ionicons name="refresh" size={18} color={blue} /></TouchableOpacity>
     </View>
     {!!error && <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error}</Text></TouchableOpacity>}
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
       <View style={styles.storyPerson}>
-        <TouchableOpacity style={[styles.storyRing, ownStatuses.length > 0 ? styles.storyRingSeen : undefined]} onPress={() => ownStatuses.length ? openGroup(userId) : setComposeOpen(true)} testID="status-open-own">
-          <View style={styles.storyAvatar}>
-            {ownStatuses[0]?.author_avatar ? <Image source={{ uri: ownStatuses[0].author_avatar }} style={styles.storyAvatarImage} /> : <Ionicons name="person" size={23} color={blue} />}
+         <TouchableOpacity style={styles.storyRingWrap} onPress={() => ownStatuses.length ? openGroup(userId) : setComposeOpen(true)} testID="status-open-own">
+           <View style={[styles.storyRing, ownStatuses.length > 0 && styles.storyRingSeen]}>
+             <View style={styles.storyAvatar}>
+               {ownStatuses[0]?.author_avatar ? <Image source={{ uri: ownStatuses[0].author_avatar }} style={styles.storyAvatarImage} /> : <Ionicons name="person" size={23} color={blue} />}
+             </View>
           </View>
+           {ownStatuses.length > 0 && <View style={styles.storyCount}><Text style={styles.storyCountText}>{ownStatuses.length > 9 ? "9+" : ownStatuses.length}</Text></View>}
         </TouchableOpacity>
         <TouchableOpacity style={styles.addStatus} onPress={() => { setComposeOpen(true); setError(""); }} accessibilityLabel="Ajouter un statut"><Ionicons name="add" size={16} color="#fff" /></TouchableOpacity>
         <Text style={styles.storyName} numberOfLines={1}>Mon statut</Text>
       </View>
       {groups.filter(group => group.authorId !== userId).map(group => {
         const unread = authorUnread(group.authorId);
+        const count = authorUnreadCount(group.authorId) || group.statuses.length;
         return <TouchableOpacity key={group.authorId} style={styles.storyPerson} onPress={() => openGroup(group.authorId)} testID={`status-open-${group.authorId}`}>
           <View style={[styles.storyRing, unread ? styles.storyRingNew : styles.storyRingSeen]}>
             <View style={styles.storyAvatar}>
               {authorAvatar(group.authorId) ? <Image source={{ uri: authorAvatar(group.authorId) }} style={styles.storyAvatarImage} /> : <Text style={styles.storyInitial}>{authorName(group.authorId).slice(0, 1).toUpperCase()}</Text>}
             </View>
           </View>
+          <View style={styles.storyCount}><Text style={styles.storyCountText}>{count > 9 ? "9+" : count}</Text></View>
           <Text style={styles.storyName} numberOfLines={1}>{authorName(group.authorId)}</Text>
         </TouchableOpacity>;
       })}
@@ -336,10 +387,10 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
       <View style={styles.modalBackdrop}><View style={styles.composeSheet}>
         <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Nouveau statut</Text><TouchableOpacity onPress={() => setComposeOpen(false)}><Ionicons name="close" size={23} color={muted} /></TouchableOpacity></View>
         <TextInput value={text} onChangeText={setText} placeholder="Écrivez un statut…" multiline maxLength={800} style={styles.statusInput} testID="status-text-input" />
-        {attachment && <View style={styles.attachmentRow}><Ionicons name={attachment.mime.startsWith("video/") ? "videocam" : "image"} size={17} color={blue} /><Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text><TouchableOpacity onPress={() => setAttachment(null)}><Ionicons name="close-circle" size={19} color={muted} /></TouchableOpacity></View>}
+         {attachment && <View style={styles.attachmentRow}><Ionicons name="image" size={17} color={blue} /><Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text><TouchableOpacity onPress={() => setAttachment(null)}><Ionicons name="close-circle" size={19} color={muted} /></TouchableOpacity></View>}
         <Text style={styles.privacy}>Partagé avec vos contacts pendant 24 heures.</Text>
         <View style={styles.composeActions}>
-          <TouchableOpacity style={styles.mediaButton} onPress={chooseMedia} disabled={uploading}><Ionicons name="image-outline" size={18} color={blue} /><Text style={styles.mediaButtonText}>{uploading ? "Ajout…" : "Photo ou vidéo"}</Text></TouchableOpacity>
+           <TouchableOpacity style={styles.mediaButton} onPress={chooseMedia} disabled={uploading}><Ionicons name="image-outline" size={18} color={blue} /><Text style={styles.mediaButtonText}>{uploading ? "Ajout…" : "Ajouter une photo"}</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.publishButton, (!text.trim() && !attachment || publishing) && styles.disabled]} onPress={publish} disabled={(!text.trim() && !attachment) || publishing} testID="status-publish">
             {publishing ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishText}>Publier</Text>}
           </TouchableOpacity>
@@ -359,11 +410,11 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
           </View>
         </View>
         <Pressable
+          ref={storyContentRef}
           style={styles.storyContent}
-          onPressIn={holdStory}
-          onPressOut={resumeStory}
           onTouchStart={handleStoryTouchStart}
           onTouchEnd={handleStoryTouchEnd}
+          onTouchCancel={resumeStory}
         >
           {media?.mime.startsWith("image/") && mediaUrl ? <Image source={{ uri: mediaUrl }} style={styles.storyMedia} resizeMode="contain" /> : null}
           {media?.mime.startsWith("video/") && <View ref={videoHost} style={styles.videoHost}>{!mediaUrl && <ActivityIndicator color="#fff" />}</View>}
@@ -373,7 +424,46 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
           <TouchableOpacity style={styles.rightTap} onPress={rightTap} accessibilityLabel="Statut suivant" />
           {paused && <View pointerEvents="none" style={styles.pauseMark}><Ionicons name="pause" size={22} color="#fff" /></View>}
         </Pressable>
-        {story?.author_id === userId && <Text style={styles.viewCount}><Ionicons name="eye-outline" size={16} color="#fff" /> {story.views_count || 0} vues</Text>}
+         {story?.author_id === userId
+           ? <TouchableOpacity style={styles.viewCount} onPress={() => setViewersOpen(true)} accessibilityRole="button" accessibilityLabel={`Voir les ${story.views_count || 0} personnes qui ont vu ce statut`}>
+               <Ionicons name="eye-outline" size={17} color="#fff" />
+               <Text style={styles.viewCountText}>{story.views_count || 0} vues</Text>
+             </TouchableOpacity>
+           : <View style={styles.replyActions}>
+               <TouchableOpacity style={styles.likeButton} onPress={toggleLike} accessibilityLabel={story?.liked_by_me ? "Retirer le j’aime" : "Aimer ce statut"}>
+                 <Ionicons name={story?.liked_by_me ? "heart" : "heart-outline"} size={23} color={story?.liked_by_me ? "#ff5570" : "#fff"} />
+                 <Text style={styles.replyActionCount}>{story?.likes_count || 0}</Text>
+               </TouchableOpacity>
+               <TextInput
+                 value={replyText}
+                 onChangeText={setReplyText}
+                 placeholder="Répondre au statut…"
+                 placeholderTextColor="#d7deeb"
+                 style={styles.replyInput}
+                 maxLength={1200}
+                 returnKeyType="send"
+                 onSubmitEditing={submitReply}
+                 testID="status-reply-input"
+               />
+               <TouchableOpacity style={styles.replySend} onPress={submitReply} disabled={!replyText.trim() || replyBusy} accessibilityLabel="Envoyer la réponse en privé" testID="status-reply-send">
+                 {replyBusy ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
+               </TouchableOpacity>
+             </View>}
+         {viewersOpen && story?.author_id === userId && <View style={styles.viewersBackdrop}>
+           <TouchableOpacity style={styles.viewersScrim} activeOpacity={1} onPress={() => setViewersOpen(false)} accessibilityLabel="Fermer la liste des vues" />
+           <View style={styles.viewersSheet} testID="status-viewers-list">
+             <View style={styles.viewersHandle} />
+             <View style={styles.viewersHeader}><Text style={styles.viewersTitle}>Personnes ayant vu le statut</Text><Text style={styles.viewersTotal}>{story.views_count || 0}</Text></View>
+             <ScrollView style={styles.viewersScroll} contentContainerStyle={styles.viewersContent}>
+               {(story.viewers || []).length
+                 ? (story.viewers || []).map(viewer => <View key={viewer.id} style={styles.viewerRow}>
+                     <View style={styles.viewerAvatar}>{viewer.avatar ? <Image source={{ uri: viewer.avatar }} style={styles.viewerAvatarImage} /> : <Text style={styles.viewerInitial}>{viewer.username.slice(0, 1).toUpperCase()}</Text>}</View>
+                     <Text style={styles.viewerRowName} numberOfLines={1}>{viewer.username}</Text>
+                   </View>)
+                 : <Text style={styles.viewersEmpty}>Aucune vue pour le moment.</Text>}
+             </ScrollView>
+           </View>
+         </View>}
       </View>
     </Modal>
   </View>;
@@ -385,8 +475,11 @@ const styles = StyleSheet.create({
   title: { color: ink, fontWeight: "900", fontSize: 17 }, subtitle: { color: muted, fontSize: 11, marginTop: 2 },
   storyRow: { flexDirection: "row", alignItems: "flex-start", gap: 15, paddingHorizontal: 14, paddingBottom: 12 },
   storyPerson: { width: 62, alignItems: "center", position: "relative" },
+  storyRingWrap: { width: 56, height: 56, alignItems: "center", justifyContent: "center", position: "relative" },
   storyRing: { width: 56, height: 56, borderRadius: 29, borderWidth: 2, padding: 3, alignItems: "center", justifyContent: "center" },
   storyRingNew: { borderColor: "#13b981" }, storyRingSeen: { borderColor: "#c8d0dc" },
+  storyCount: { position: "absolute", right: 0, top: -2, minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: "#1769e8", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fff" },
+  storyCountText: { color: "#fff", fontSize: 9, fontWeight: "900" },
   storyAvatar: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center", overflow: "hidden" },
   storyAvatarImage: { width: 46, height: 46, borderRadius: 24 }, storyInitial: { color: blue, fontWeight: "900", fontSize: 18 },
   addStatus: { position: "absolute", right: 1, top: 35, width: 21, height: 21, borderRadius: 11, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
@@ -421,5 +514,21 @@ const styles = StyleSheet.create({
   storyCaption: { color: "#fff", fontSize: 15, lineHeight: 21, textAlign: "center", paddingHorizontal: 12, paddingTop: 10 },
   leftTap: { position: "absolute", top: 0, bottom: 0, left: 0, width: "35%" }, rightTap: { position: "absolute", top: 0, bottom: 0, right: 0, width: "65%" },
   pauseMark: { position: "absolute", alignSelf: "center", top: "46%", width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(0,0,0,.48)", alignItems: "center", justifyContent: "center" },
-  viewCount: { color: "#fff", alignSelf: "center", paddingBottom: 28, fontSize: 12, fontWeight: "700" },
+  viewCount: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, alignSelf: "center", paddingHorizontal: 14, paddingBottom: 28 },
+  viewCountText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  replyActions: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingBottom: 22, backgroundColor: "#0b1220" },
+  likeButton: { width: 46, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
+  replyActionCount: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  replyInput: { flex: 1, height: 42, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#253149", color: "#fff", fontSize: 14, outlineStyle: "none" as any },
+  replySend: { width: 42, height: 42, borderRadius: 21, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
+  viewersBackdrop: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", zIndex: 10 },
+  viewersScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,.52)" },
+  viewersSheet: { height: "68%", minHeight: 270, backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 20 },
+  viewersHandle: { width: 38, height: 4, borderRadius: 3, backgroundColor: "#d8dee8", alignSelf: "center", marginBottom: 14 },
+  viewersHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: 12, borderBottomWidth: 1, borderColor: "#edf0f4" },
+  viewersTitle: { color: ink, fontSize: 16, fontWeight: "900" }, viewersTotal: { color: blue, fontSize: 14, fontWeight: "900" },
+  viewersScroll: { flex: 1 }, viewersContent: { paddingVertical: 7 },
+  viewerRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#f0f2f5" },
+  viewerRowName: { color: ink, flex: 1, fontSize: 14, fontWeight: "700" },
+  viewersEmpty: { color: muted, textAlign: "center", marginTop: 30, fontSize: 13 },
 });

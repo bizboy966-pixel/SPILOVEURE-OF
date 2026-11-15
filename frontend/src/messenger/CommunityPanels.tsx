@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
-import type { Attachment, ContactState, MessengerCapabilities, Person, Post } from "./types";
+import type { Attachment, ContactState, Person, Post } from "./types";
 import { useChat } from "@/src/chat/ChatContext";
 import { useRouter } from "expo-router";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
@@ -75,8 +75,9 @@ type FeedProps = {
   userId: string; version?: number; requestedStatusAuthor?: string | null;
   onStatusRequestConsumed?: () => void; onStatusViewerClose?: () => void;
   onUnreadCount?: (count: number) => void;
+  onStatusReply?: (authorId: string, text: string, statusText: string) => Promise<void>;
 };
-export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose, onUnreadCount }: FeedProps) {
+export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatusRequestConsumed, onStatusViewerClose, onUnreadCount, onStatusReply }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState("");
   const [canPublish, setCanPublish] = useState(false);
@@ -126,7 +127,7 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, onStatus
     input.click();
   };
   return <View style={styles.panel}>
-    <StatusStories userId={userId} version={version} requestedAuthorId={requestedStatusAuthor} onRequestConsumed={onStatusRequestConsumed} onViewerClose={onStatusViewerClose} />
+    <StatusStories userId={userId} version={version} requestedAuthorId={requestedStatusAuthor} onRequestConsumed={onStatusRequestConsumed} onViewerClose={onStatusViewerClose} onReply={onStatusReply} />
     <Text style={styles.panelTitle}>Actualités SPILOVEURE</Text>
     {error ? <TouchableOpacity onPress={load} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
@@ -159,7 +160,6 @@ export function ProfilePanel({ user }: ProfileProps) {
   const [settings, setSettings] = useState({ show_presence: true, allow_contacts: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [capabilities, setCapabilities] = useState<MessengerCapabilities | null>(null);
   const [sessions, setSessions] = useState<Array<{ id: string; device: string; created_at: string; last_seen: string; expires_at: string; current: boolean }>>([]);
   const [sessionError, setSessionError] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
@@ -171,7 +171,6 @@ export function ProfilePanel({ user }: ProfileProps) {
     catch (e: any) { setSessionError(e?.detail || "Révocation impossible."); }
   };
   useEffect(() => { api.get<typeof settings>("/messenger/settings").then(setSettings).catch((e: any) => setError(e?.detail || "Paramètres indisponibles.")).finally(() => setLoading(false)); }, []);
-  useEffect(() => { messengerApi.capabilities().then(setCapabilities).catch(() => setCapabilities(null)); }, []);
   const toggle = async (key: keyof typeof settings) => {
     const next = { ...settings, [key]: !settings[key] }; setSettings(next);
     try { setSettings(await api.patch("/messenger/settings", next)); } catch (e: any) { setSettings(settings); setError(e?.detail || "Modification impossible."); }
@@ -225,25 +224,15 @@ export function ProfilePanel({ user }: ProfileProps) {
       <TouchableOpacity onPress={() => toggle("allow_contacts")} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Demandes de contact</Text><Text style={styles.personMeta}>Autoriser les membres à vous ajouter</Text></View><View style={[styles.switch, settings.allow_contacts && styles.switchOn]}><View style={[styles.switchKnob, settings.allow_contacts && styles.switchKnobOn]} /></View></TouchableOpacity>
     </>}
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    <Text style={styles.sectionTitle}>Sessions du Chat</Text>
-    {sessions.map(session => <View key={session.id} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>{session.device || "Appareil"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.personMeta}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>{!session.current && <TouchableOpacity accessibilityLabel="Révoquer cette session" onPress={() => revoke(session.id)}><Text style={[styles.action, { color: "#c43e48" }]}>Révoquer</Text></TouchableOpacity>}</View>)}
+     <View style={styles.deviceHeading}><Text style={styles.sectionTitle}>Appareils connectés</Text><TouchableOpacity onPress={loadSessions} accessibilityLabel="Actualiser les appareils"><Ionicons name="refresh-outline" size={18} color={blue} /></TouchableOpacity></View>
+     {sessions.map(session => <View key={session.id} style={styles.settingRow}><View style={{ flex: 1 }}><Text style={styles.settingTitle}>{session.device || "Appareil"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.personMeta}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>{!session.current && <TouchableOpacity accessibilityLabel="Terminer cette session" onPress={() => revoke(session.id)}><Text style={[styles.action, { color: "#c43e48" }]}>Déconnecter</Text></TouchableOpacity>}</View>)}
     {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
     <TouchableOpacity testID="chat-logout" accessibilityLabel="Se déconnecter du Chat" onPress={async () => { await logout(); router.replace("/verify-email" as any); }} style={[styles.settingRow, { justifyContent: "center", marginTop: 12 }]}><Text style={[styles.action, { color: "#c43e48" }]}>Se déconnecter du Chat</Text></TouchableOpacity>
-    <Text style={styles.sectionTitle}>Fonctions disponibles</Text>
-    <View style={styles.capabilityCard}>
-      <Text style={styles.capabilityTitle}>Notifications push</Text>
-      <Text style={styles.noticeText}>{capabilities ? capabilities.push_configured ? "Configuration Firebase active." : "Non configurées sur ce serveur : les notifications push ne sont pas disponibles." : "État de la configuration indisponible."}</Text>
-      <Text style={styles.capabilityTitle}>Appels</Text>
-      <Text style={styles.noticeText}>{capabilities?.calls ? "Disponibles." : `Non disponibles${capabilities?.calls_reason ? ` : ${capabilities.calls_reason}` : "."}`}</Text>
-      <Text style={styles.capabilityTitle}>Chiffrement de bout en bout</Text>
-      <Text style={styles.noticeText}>{capabilities?.end_to_end_encryption ? "Activé." : "Non disponible ; les messages ne sont pas présentés comme chiffrés de bout en bout."}</Text>
-      <Text style={styles.capabilityTitle}>Messages programmés</Text>
-      <Text style={styles.noticeText}>{capabilities?.scheduled_messages ? "Disponibles dans les conversations." : "Non disponibles."}</Text>
-    </View>
    </ScrollView>;
 }
 
 const styles = StyleSheet.create({
+  deviceHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   panel: { flex: 1, minHeight: 0, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 17 },
   panelTitle: { fontSize: 20, fontWeight: "900", color: ink, marginBottom: 14 },
   officialHint: { color: muted, fontSize: 12, lineHeight: 18, marginBottom: 12 },

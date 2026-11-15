@@ -1,5 +1,6 @@
 /.local/mongo-data/
 /.local/dev-uploads/
 /generated-artifacts/
+/frontend/build/
 /node_modules/
 /.pythonlibs/

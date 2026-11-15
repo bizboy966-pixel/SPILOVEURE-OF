@@ -301,6 +301,50 @@ async def send(cid: str, body: MessageIn, request: Request, user=Depends(chat_us
     return await deliver_message(request.app.state.db, cid, body, user)
 
 
+async def preview_auto_reply(db, conv, sender, incoming):
+    """Only the local preview account can trigger replies from synthetic contacts."""
+    if getattr(db, "name", "") != "spiloveure_local_development":
+        return None
+    if sender.get("username", "").casefold() != "preview_test_b02606":
+        return None
+    if conv.get("kind") != "private":
+        return None
+    for peer_id in conv.get("members", []):
+        if peer_id == sender.get("id"):
+            continue
+        simulator = await db.users.find_one({
+            "id": peer_id, "preview_auto_responder": True,
+        })
+        if not simulator:
+            continue
+        replies = simulator.get("preview_auto_replies") or [
+            "Merci pour ton message ! Je suis bien là pour tester la discussion.",
+            "J’ai bien reçu ta réponse. Tu peux aussi essayer les réactions et les pièces jointes.",
+            "Oui, je te réponds automatiquement depuis ce profil de test.",
+        ]
+        reply_number = await db.spv_messages.count_documents({
+            "conversation_id": conv["id"], "sender_id": peer_id,
+            "client_id": {"$regex": "^preview-auto-"},
+        })
+        stamp = now()
+        reply = {
+            "conversation_id": conv["id"], "sender_id": peer_id,
+            "client_id": f"preview-auto-{incoming['id']}",
+            "id": identifier(), "sender_name": simulator.get("username", "Contact test"),
+            "text": replies[reply_number % len(replies)], "attachments": [],
+            "reply_to": incoming["id"], "forwarded_from": None, "silent": False,
+            "created_at": stamp, "edited_at": None, "deleted": False,
+            "reactions": {}, "pinned": False, "read_by": [peer_id],
+        }
+        await db.spv_messages.insert_one(reply)
+        await db.spv_conversations.update_one(
+            {"id": conv["id"]}, {"$set": {"updated_at": stamp}},
+        )
+        await notify(db, conv, "message", message_id=reply["id"])
+        return reply
+    return None
+
+
 async def deliver_message(db, cid, body, user):
     uid = user["id"]
     conv = await member(db, cid, user)
@@ -351,6 +395,7 @@ async def deliver_message(db, cid, body, user):
     if not body.silent:
         from messenger_delivery import enqueue_push
         await enqueue_push(db, conv, msg)
+    await preview_auto_reply(db, conv, user, msg)
     return clean(msg)
 
 

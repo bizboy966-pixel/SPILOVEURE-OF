@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
 from identity_core import digest, initialize as identity_initialize, now
-from messenger import api as messenger_api
-from messenger_core import initialize as messenger_initialize
+from messenger import api as messenger_api, deliver_message, preview_auto_reply
+from messenger_core import MessageIn, initialize as messenger_initialize
 from messenger_files import api as files_api
 from messenger_social import api as social_api
 
@@ -72,6 +72,7 @@ def test_statuses_are_contact_only_expire_and_track_views(messenger_app):
     assert published.status_code == 200, published.text
     status = published.json()
     assert status["expires_at"] > status["created_at"]
+    assert status["likes_count"] == 0
 
     for uid in ("alice", "bob"):
         response = call(messenger_app, "get", "/statuses", uid)
@@ -83,6 +84,18 @@ def test_statuses_are_contact_only_expire_and_track_views(messenger_app):
     own = call(messenger_app, "get", "/statuses").json()[0]
     assert own["views_count"] == 1
     assert "bob" in own["viewed_by"]
+    assert own["viewers"][0]["username"] == "Bob"
+    assert "viewers" not in call(messenger_app, "get", "/statuses", "bob").json()[0]
+
+    liked = call(messenger_app, "post", f"/statuses/{status['id']}/like", "bob")
+    assert liked.status_code == 200
+    assert liked.json() == {"liked_by_me": True, "likes_count": 1}
+    bob_view = call(messenger_app, "get", "/statuses", "bob").json()[0]
+    assert bob_view["liked_by_me"] is True
+    assert "liked_by" not in bob_view
+    unliked = call(messenger_app, "post", f"/statuses/{status['id']}/like", "bob")
+    assert unliked.json() == {"liked_by_me": False, "likes_count": 0}
+    assert call(messenger_app, "post", f"/statuses/{status['id']}/like").status_code == 400
 
     asyncio.run(messenger_app[1].spv_statuses.insert_one({
         "id": "expired", "author_id": "alice", "author_name": "Alice",
@@ -114,3 +127,84 @@ def test_contact_can_open_status_media_but_noncontact_cannot(messenger_app):
     file_path = f"/files/{attachment['id']}"
     assert call(messenger_app, "get", file_path, "bob").status_code == 200
     assert call(messenger_app, "get", file_path, "eve").status_code == 404
+
+
+def test_video_statuses_are_rejected(messenger_app):
+    response = call(messenger_app, "post", "/statuses", json={
+        "text": "", "attachments": [{
+            "id": "not-uploaded", "name": "clip.mp4", "mime": "video/mp4",
+            "size": 12, "url": "",
+        }],
+    })
+    assert response.status_code == 400
+    assert "pas de vidéos" in response.json()["detail"]
+
+
+def test_preview_auto_replies_are_limited_to_local_test_user():
+    async def run():
+        mongo = AsyncMongoMockClient(tz_aware=True)
+        db = mongo["spiloveure_local_development"]
+        await messenger_initialize(db)
+        await db.users.insert_one({
+            "id": "simulator", "username": "preview_contact_01",
+            "preview_auto_responder": True,
+            "preview_auto_replies": ["Réponse 1", "Réponse 2"],
+        })
+        sender = {"id": "preview-user", "username": "preview_test_b02606"}
+        conversation = {
+            "id": "preview-conversation", "kind": "private",
+            "members": ["preview-user", "simulator"],
+        }
+        first = await preview_auto_reply(db, conversation, sender, {"id": "incoming-1"})
+        second = await preview_auto_reply(db, conversation, sender, {"id": "incoming-2"})
+        assert first["text"] == "Réponse 1"
+        assert second["text"] == "Réponse 2"
+        assert second["reply_to"] == "incoming-2"
+
+        production_db = mongo["production"]
+        assert await preview_auto_reply(
+            production_db, conversation, sender, {"id": "incoming-3"},
+        ) is None
+        other_sender = {"id": "other-user", "username": "ordinary_member"}
+        assert await preview_auto_reply(
+            db, conversation, other_sender, {"id": "incoming-4"},
+        ) is None
+        mongo.close()
+
+    asyncio.run(run())
+
+
+def test_preview_message_send_creates_the_simulator_reply():
+    async def run():
+        mongo = AsyncMongoMockClient(tz_aware=True)
+        db = mongo["spiloveure_local_development"]
+        await messenger_initialize(db)
+        await identity_initialize(db)
+        sender = {"id": "preview-user", "username": "preview_test_b02606"}
+        await db.users.insert_many([
+            sender,
+            {
+                "id": "simulator", "username": "preview_contact_01",
+                "status": "active", "preview_auto_responder": True,
+                "preview_auto_replies": ["Je t’ai lu, merci !"],
+            },
+        ])
+        conversation = {
+            "id": "preview-conversation", "kind": "private",
+            "members": ["preview-user", "simulator"], "admins": ["preview-user"],
+            "permissions": {"send_messages": "all"}, "owner_id": "preview-user",
+        }
+        await db.spv_conversations.insert_one(conversation)
+        sent = await deliver_message(
+            db, conversation["id"], MessageIn(text="Bonjour", client_id="test-send-1"), sender,
+        )
+        assert sent["text"] == "Bonjour"
+        replies = await db.spv_messages.find({
+            "conversation_id": conversation["id"], "sender_id": "simulator",
+        }).to_list(10)
+        assert len(replies) == 1
+        assert replies[0]["text"] == "Je t’ai lu, merci !"
+        assert replies[0]["reply_to"] == sent["id"]
+        mongo.close()
+
+    asyncio.run(run())

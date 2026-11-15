@@ -287,23 +287,45 @@ async def statuses(request: Request, user=Depends(chat_user)):
     rows = await db.spv_statuses.find({
         "author_id": {"$in": list(authors)}, "expires_at": {"$gt": expires_after},
     }).sort("created_at", -1).limit(500).to_list(500)
+    rows = [
+        row for row in rows
+        if all((attachment.get("mime") or "").startswith("image/") for attachment in row.get("attachments", []))
+    ]
     profile_rows = await profile_list(db, list({row["author_id"] for row in rows}))
     profiles = {profile["id"]: profile for profile in profile_rows}
     result = []
+    own_statuses = [row for row in rows if row["author_id"] == uid]
+    viewer_ids = {
+        viewer_id
+        for row in own_statuses
+        for viewer_id in (row.get("viewed_by") or [])
+        if viewer_id != uid
+    }
+    viewer_profiles = await profile_list(db, list(viewer_ids))
+    viewers_by_id = {profile["id"]: profile for profile in viewer_profiles}
     for row in rows:
         item = clean(row)
         profile = profiles.get(row["author_id"], {})
         viewers = row.get("viewed_by") or []
+        likes = row.get("liked_by") or []
         item.update({
             "author_name": profile.get("username") or row.get("author_name", "Membre"),
             "author_avatar": profile.get("avatar", ""),
             "viewed_by_me": uid in viewers,
             "views_count": len(viewers),
+            "likes_count": len(likes),
+            "liked_by_me": uid in likes,
         })
         if row["author_id"] == uid:
-            item["viewed_by"] = viewers
+            item["viewers"] = [
+                viewers_by_id[viewer_id]
+                for viewer_id in viewers
+                if viewer_id != uid and viewer_id in viewers_by_id
+            ]
         else:
             item.pop("viewed_by", None)
+            item.pop("viewers", None)
+        item.pop("liked_by", None)
         result.append(item)
     return result
 
@@ -327,9 +349,9 @@ async def visible_status(db, status_id, user):
 async def publish_status(body: StatusIn, request: Request, user=Depends(chat_user)):
     db, uid = request.app.state.db, user["id"]
     if not body.text.strip() and not body.attachments:
-        raise HTTPException(400, "Ajoutez un texte, une photo ou une vidéo.")
-    if any(not item.mime.startswith(("image/", "video/")) for item in body.attachments):
-        raise HTTPException(400, "Un statut accepte uniquement une photo ou une vidéo.")
+        raise HTTPException(400, "Ajoutez un texte ou une photo.")
+    if any(not item.mime.startswith("image/") for item in body.attachments):
+        raise HTTPException(400, "Les statuts acceptent uniquement des photos, pas de vidéos.")
     await rate_limit(db, uid, "spv_statuses", 10)
     attachments = await attachments_checked(db, body.attachments, user, "feed")
     stamp = now()
@@ -337,14 +359,36 @@ async def publish_status(body: StatusIn, request: Request, user=Depends(chat_use
         "id": identifier(), "author_id": uid, "sender_id": uid,
         "author_name": user.get("username", "Membre"), "text": body.text.strip(),
         "attachments": attachments, "created_at": stamp,
-        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24), "viewed_by": [],
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+        "viewed_by": [], "liked_by": [],
     }
     await db.spv_statuses.insert_one(row)
     peers = await db.spv_contacts.find({"user_id": uid, "status": "accepted"}).to_list(500)
     await event(db, [uid, *[item["peer_id"] for item in peers]], {"type": "status"})
     result = clean(row)
-    result.update({"author_avatar": user.get("profile_photo", ""), "viewed_by_me": False, "views_count": 0})
+    result.update({
+        "author_avatar": user.get("profile_photo", ""), "viewed_by_me": False,
+        "views_count": 0, "likes_count": 0, "liked_by_me": False, "viewers": [],
+    })
     return result
+
+
+@api.post("/statuses/{status_id}/like")
+async def toggle_status_like(status_id: str, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    row = await visible_status(db, status_id, user)
+    if row["author_id"] == uid:
+        raise HTTPException(400, "Vous ne pouvez pas aimer votre propre statut.")
+    await rate_limit(db, uid, "spv_status_likes", 60)
+    result = await db.spv_statuses.update_one(
+        {"id": status_id, "liked_by": uid}, {"$pull": {"liked_by": uid}},
+    )
+    liked = not bool(result.modified_count)
+    if liked:
+        await db.spv_statuses.update_one({"id": status_id}, {"$addToSet": {"liked_by": uid}})
+    updated = await db.spv_statuses.find_one({"id": status_id})
+    await event(db, [row["author_id"]], {"type": "status"})
+    return {"liked_by_me": liked, "likes_count": len(updated.get("liked_by") or [])}
 
 
 @api.post("/statuses/{status_id}/view")

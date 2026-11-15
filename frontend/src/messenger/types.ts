@@ -22,7 +22,8 @@ export type Post = {
 export type ChatStatus = {
   id: string; author_id: string; author_name: string; author_avatar?: string; text: string;
   attachments: Attachment[]; created_at: string; expires_at: string; viewed_by_me?: boolean;
-  views_count?: number; viewed_by?: string[];
+  views_count?: number; viewed_by?: string[]; viewers?: Person[];
+  likes_count?: number; liked_by_me?: boolean;
 };
 export type ContactState = { contacts: Person[]; blocked: Person[]; requests: Person[]; sent: string[] };
 export type ConversationPermissions = {
