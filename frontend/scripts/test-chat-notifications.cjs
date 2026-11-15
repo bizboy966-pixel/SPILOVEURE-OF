@@ -63,6 +63,10 @@ test("conversation header follows the rounded Telegram-style back, identity and 
   assert.match(thread, /styles\.backButton/);
   assert.match(thread, /styles\.identityPill/);
   assert.match(thread, /styles\.headerActionPill/);
+  assert.match(thread, /const chatSurface = darkMode \? "#111827" : "#b9e3d9";/);
+  assert.match(thread, /styles\.thread,\s*\{\s*backgroundColor: chatSurface\s*\}/);
+  assert.match(thread, /styles\.history,\s*\{\s*backgroundColor: chatSurface\s*\}/);
+  assert.match(thread, /styles\.historyContent,\s*\{\s*backgroundColor: chatSurface\s*\}/);
   assert.match(thread, /conversation\.is_saved \? <Ionicons name="bookmark"/);
   assert.match(thread, /messenger-header-more/);
   assert.match(thread, /testID="messenger-scheduled-open"/);

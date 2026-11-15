@@ -485,6 +485,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const isChannelAdmin = conversation.admins.includes(userId) || conversation.owner_id === userId;
   const canSend = conversation.kind !== "channel" || isChannelAdmin;
   const darkMode = visualSettings.appearance === "dark";
+  const chatSurface = darkMode ? "#111827" : "#b9e3d9";
   const ownBubbleColor = messageColors[visualSettings.message_color || "blue"];
   const textScale = Math.min(1.4, Math.max(0.9, Number(visualSettings.font_scale) || 1));
   const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
@@ -492,7 +493,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     : conversation.kind === "private" ? "Membre SPILOVEURE" : `${conversation.member_profiles.length} membres`;
 
   return (
-    <View style={[styles.thread, darkMode && { backgroundColor: "#111827" }]}>
+    <View style={[styles.thread, { backgroundColor: chatSurface }]}>
       <View style={[styles.threadHead, darkMode && styles.threadHeadDark]}>
         <TouchableOpacity onPress={onBack} style={[styles.backButton, darkMode && styles.headerPillDark]} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
         <View style={[styles.identityPill, darkMode && styles.headerPillDark]}>
@@ -508,8 +509,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           <TouchableOpacity style={styles.headerAction} onPress={() => setHeaderMenuOpen(true)} accessibilityLabel="Plus d’options" testID="messenger-header-more"><Ionicons name="ellipsis-vertical" size={20} color={blue} /></TouchableOpacity>
         </View>
       </View>
-      {searching && <View style={styles.searchRow}><TextInput value={historyQuery} onChangeText={setHistoryQuery} placeholder="Rechercher dans l’historique" style={styles.searchInput} onSubmitEditing={() => loadMessages(historyQuery)} /><TouchableOpacity onPress={() => loadMessages(historyQuery)}><Ionicons name="search" size={20} color={blue} /></TouchableOpacity></View>}
-      <ScrollView ref={scroll} style={[styles.history, darkMode && { backgroundColor: "#111827" }]} contentContainerStyle={[styles.historyContent, darkMode && { backgroundColor: "#111827" }]} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
+      {searching && <View style={[styles.searchRow, { backgroundColor: chatSurface }]}><TextInput value={historyQuery} onChangeText={setHistoryQuery} placeholder="Rechercher dans l’historique" style={styles.searchInput} onSubmitEditing={() => loadMessages(historyQuery)} /><TouchableOpacity onPress={() => loadMessages(historyQuery)}><Ionicons name="search" size={20} color={blue} /></TouchableOpacity></View>}
+      <ScrollView ref={scroll} style={[styles.history, { backgroundColor: chatSurface }]} contentContainerStyle={[styles.historyContent, { backgroundColor: chatSurface }]} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
         {more && <TouchableOpacity onPress={fetchOlder} style={styles.older}><Text style={styles.olderText}>Charger les messages précédents</Text></TouchableOpacity>}
         {messageError ? <TouchableOpacity onPress={() => loadMessages(historyQuery || undefined)} style={styles.historyError}><Text style={styles.historyErrorText}>{messageError} · Réessayer</Text></TouchableOpacity> : null}
         {loading ? <ActivityIndicator color={blue} /> : messages.length === 0 && !messageError ? <View style={styles.empty}><Text style={styles.emptyTitle}>Votre conversation commence ici</Text><Text style={styles.emptyText}>Envoyez un message à {conversation.title}.</Text></View> : null}
@@ -593,13 +594,13 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           </View>;
         })}
       </ScrollView>
-      {reply && <View style={styles.replyBanner} testID="messenger-reply-preview">
+      {reply && <View style={[styles.replyBanner, { backgroundColor: chatSurface }]} testID="messenger-reply-preview">
         <View style={styles.replyBannerCopy}><Text style={styles.replyBannerLabel}>Réponse à {reply.sender_name}</Text><Text numberOfLines={1} style={styles.replyBannerText}>{reply.deleted ? "Message supprimé" : reply.text || reply.attachments?.[0]?.name || "Pièce jointe"}</Text></View>
         <TouchableOpacity onPress={() => setReply(null)} accessibilityLabel="Annuler la réponse"><Ionicons name="close" size={19} color={blue} /></TouchableOpacity>
       </View>}
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
-      {(recording || voiceSending) && <View style={styles.recordStatus}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
-      {!canSend && <View style={styles.readOnly}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
+      {(recording || voiceSending) && <View style={[styles.recordStatus, { backgroundColor: chatSurface }]}><View style={styles.recordDot} /><Text style={styles.recordText}>{recording ? `Enregistrement · ${recordSeconds}s` : "Envoi du vocal…"}</Text>{recording && <TouchableOpacity onPress={() => { discardRecording.current = true; sendRecordingAfterStop.current = false; recorder.current?.state === "recording" && recorder.current.stop(); streamRef.current?.getTracks().forEach(t => t.stop()); setRecording(false); }}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>}</View>}
+      {!canSend && <View style={[styles.readOnly, { backgroundColor: chatSurface }]}><Ionicons name="eye-outline" size={17} color={muted} /><Text style={styles.readOnlyText}>Lecture seule · seuls les administrateurs peuvent publier dans ce canal.</Text></View>}
       <View style={[styles.composer, darkMode && { backgroundColor: "#1b2635", borderColor: "#344153" }]}>
         <TouchableOpacity onPress={toggleEmojiPicker} style={styles.composerIcon} accessibilityLabel={emojiPickerOpen ? "Revenir au clavier pour écrire" : "Choisir un emoji"} testID="messenger-emoji-toggle"><Ionicons name={emojiPickerOpen ? "keypad-outline" : "happy-outline"} size={23} color={blue} /></TouchableOpacity>
         <View
@@ -705,7 +706,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 }
 
 const styles = StyleSheet.create({
-  thread: { flex: 1, backgroundColor: "#f4f7fb", minHeight: 0, position: "relative" },
+  thread: { flex: 1, backgroundColor: "#b9e3d9", minHeight: 0, position: "relative" },
   threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "#b9e3d9", paddingHorizontal: 11, gap: 8 },
   threadHeadDark: { backgroundColor: "#111827" },
   backButton: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", flexShrink: 0 },

@@ -70,6 +70,7 @@ const assert = require("node:assert/strict");
     await page.getByTestId("animated-splash").waitFor({ state: "hidden", timeout: 30000 });
     await page.getByText("qa_contact_" + peerId.slice(-8), { exact: true }).click();
     await page.getByTestId("messenger-thread-title").waitFor();
+    await page.screenshot({ path: "/tmp/spv-chat-surface.png" });
     await page.getByTestId("messenger-thread-search").waitFor();
     await page.getByTestId("messenger-header-more").click();
     await page.getByTestId("messenger-scheduled-open").waitFor();
