@@ -840,7 +840,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
     Routes based on `p["kind"]`:
       • activation  → matrix.activate_level(user_id, level)
       • ads         → flip ad status to "pending_admin_review"
-      • special_task → flip task status to "active"
+      • special_task → move the paid task to "pending_admin_review"
     Also emits an in-app notification for the payer.
     """
     ref = p["reference"]
@@ -869,6 +869,11 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
                     "updated_at": datetime.now(timezone.utc),
                 }},
             )
+            try:
+                from telegram_moderation import schedule_submission
+                schedule_submission(db, "ads", p.get("ad_id"))
+            except Exception as notify_exc:
+                log.warning("Telegram ad moderation notification failed (%s)", type(notify_exc).__name__)
             await db.payments.update_one(
                 {"reference": ref},
                 {"$set": {"status": "paid", "activation_done": True,
@@ -897,12 +902,18 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
             await db.special_tasks.update_one(
                 {"id": p.get("special_task_id"), "status": "pending_payment"},
                 {"$set": {
-                    "status": "active",
+                    "status": "pending_admin_review",
                     "payment_confirmed_at": datetime.now(timezone.utc),
-                    "activated_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                 }},
             )
+            task = await db.special_tasks.find_one({"id": p.get("special_task_id")}, {"_id": 0})
+            if task and task.get("status") == "pending_admin_review":
+                try:
+                    from telegram_moderation import schedule_submission
+                    schedule_submission(db, "special_task", task["id"])
+                except Exception as notify_exc:
+                    log.warning("Telegram special-task moderation notification failed (%s)", type(notify_exc).__name__)
             await db.payments.update_one(
                 {"reference": ref},
                 {"$set": {"status": "paid", "activation_done": True,
@@ -912,7 +923,7 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
             )
             await _notify(
                 "💳 Paiement Tâche Spéciale confirmé",
-                f"Votre tâche est maintenant active et visible par les travailleurs. Montant : {p.get('amount')} {p.get('currency', 'FCFA')}.",
+                f"Votre paiement est confirmé. La tâche sera publiée après validation par l’équipe. Montant : {p.get('amount')} {p.get('currency', 'FCFA')}.",
                 {"task_id": p.get("special_task_id"), "reference": ref},
             )
         except Exception as exc:

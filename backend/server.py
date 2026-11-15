@@ -4859,3 +4859,9 @@ from moneyfusion import api as moneyfusion_api, webhooks as moneyfusion_webhooks
 app.include_router(moneyfusion_api)
 app.include_router(moneyfusion_webhooks)
 app.include_router(moneyfusion_admin)
+
+# Telegram group publication moderation. The bot token is read from server
+# environment; callbacks are verified using a token-derived webhook secret.
+from telegram_moderation import admin as telegram_moderation_admin, webhook as telegram_moderation_webhook  # noqa: E402
+app.include_router(telegram_moderation_admin)
+app.include_router(telegram_moderation_webhook)

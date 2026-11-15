@@ -15,6 +15,7 @@ Pricing is fully managed via `db.ads_pricing` (single doc). No hardcoded values.
 from __future__ import annotations
 
 import os
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +30,7 @@ from feature_flags import is_enabled as feature_enabled
 
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+log = logging.getLogger("ads")
 ALLOWED_VIDEO = {".mp4", ".mov", ".webm", ".m4v"}
 ALLOWED_AUDIO = {".mp3", ".m4a", ".aac", ".ogg", ".wav"}
 ALLOWED_UPLOAD = ALLOWED_IMAGE | ALLOWED_VIDEO | ALLOWED_AUDIO
@@ -419,6 +421,11 @@ async def confirm_payment_manual(ad_id: str, request: Request, user=Depends(get_
                 "updated_at": datetime.now(timezone.utc),
             }},
         )
+        try:
+            from telegram_moderation import schedule_submission
+            schedule_submission(db, "ads", ad_id)
+        except Exception as exc:
+            log.warning("Telegram ad moderation notification failed (%s)", type(exc).__name__)
     return _serialize(await db.ads.find_one({"id": ad_id}))
 
 

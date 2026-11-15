@@ -37,6 +37,7 @@ import AdminSupportTab from "@/src/components/AdminSupportTab";
 import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
 import BizTransPayCatalog from "@/src/components/BizTransPayCatalog";
+import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
 
 type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions";
 
@@ -104,7 +105,7 @@ export default function AdminHome() {
   // Special tasks admin state
   const [stCfg, setStCfg] = useState<any>({});
   const [stList, setStList] = useState<any[]>([]);
-  const [stFilter, setStFilter] = useState<"pending_payment" | "active" | "completed" | "cancelled" | "all">("pending_payment");
+  const [stFilter, setStFilter] = useState<"pending_payment" | "pending_admin_review" | "active" | "rejected" | "completed" | "cancelled" | "all">("pending_admin_review");
   const [stDistPct, setStDistPct] = useState<number>(70);
   const [adsReactor, setAdsReactor] = useState<any>({
     distribution_percentage: 70,
@@ -1404,6 +1405,7 @@ export default function AdminHome() {
 
         {tab === "channels" && (
           <>
+            <AdminTelegramBotSettings />
             <Card>
               <Text style={styles.section}>Nouveau canal / groupe</Text>
               <Input label="Nom" value={chName} onChangeText={setChName} testID="ch-name" />
@@ -1997,7 +1999,7 @@ export default function AdminHome() {
             <Card>
               <Text style={styles.section}>📋 Campagnes de tâches spéciales</Text>
               <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginTop: 8, marginBottom: 6 }}>
-                {(["pending_payment", "active", "completed", "cancelled", "all"] as const).map((k) => (
+                {(["pending_admin_review", "pending_payment", "active", "rejected", "completed", "cancelled", "all"] as const).map((k) => (
                   <TouchableOpacity
                     key={k}
                     style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: stFilter === k ? theme.colors.primary : theme.colors.background }}
@@ -2005,7 +2007,7 @@ export default function AdminHome() {
                     testID={`st-filter-${k}`}
                   >
                     <Text style={{ fontSize: 10, fontWeight: "700", color: stFilter === k ? "#fff" : theme.colors.textPrimary }}>
-                      {{"pending_payment": "Paiement", "active": "Actives", "completed": "Terminées", "cancelled": "Annulées", "all": "Toutes"}[k]}
+                      {{"pending_admin_review": "À modérer", "pending_payment": "Paiement", "active": "Actives", "rejected": "Rejetées", "completed": "Terminées", "cancelled": "Annulées", "all": "Toutes"}[k]}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -2028,6 +2030,9 @@ export default function AdminHome() {
                     <KvRow k="Récompense" v={`${t.reward_per_action} ${t.currency || "FCFA"} / action`} />
                     <KvRow k="Prix payé" v={`${t.price_total || (t.quantity_target * (t.price_per_action || 0))} ${t.currency || "FCFA"}`} />
                     <KvRow k="Statut" v={t.status} />
+                    {t.refund_status === "manual_review_required" ? (
+                      <KvRow k="Paiement" v="Remboursement à traiter manuellement" />
+                    ) : null}
                   </View>
                   {/* Full-preview — description complète + lien cible cliquable. */}
                   <MediaViewer
@@ -2045,6 +2050,37 @@ export default function AdminHome() {
                     ) : null}
                     testID={`admin-st-media-${t.id}`}
                   />
+                  {t.status === "pending_admin_review" && (
+                    <View style={styles.actRow}>
+                      <TouchableOpacity
+                        style={[styles.actBtn, { backgroundColor: theme.colors.success }]}
+                        onPress={() => action(async () => {
+                          await api.post(`/admin/special-tasks/${t.id}/approve`, {});
+                          const tl = await api.get<any>("/admin/special-tasks");
+                          setStList(tl?.items || []);
+                        })}
+                        testID={`admin-st-approve-${t.id}`}
+                      >
+                        <Ionicons name="checkmark-circle" size={14} color="#fff" />
+                        <Text style={styles.actT}>Valider et publier</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actBtn, { backgroundColor: theme.colors.danger }]}
+                        onPress={() => {
+                          if (typeof window !== "undefined" && !window.confirm("Rejeter cette tâche payée ? Elle sera masquée et signalée pour remboursement manuel, sans remboursement automatique.")) return;
+                          action(async () => {
+                            await api.post(`/admin/special-tasks/${t.id}/reject`, {});
+                            const tl = await api.get<any>("/admin/special-tasks");
+                            setStList(tl?.items || []);
+                          });
+                        }}
+                        testID={`admin-st-reject-${t.id}`}
+                      >
+                        <Ionicons name="close-circle" size={14} color="#fff" />
+                        <Text style={styles.actT}>Rejeter — remboursement manuel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   {t.status === "pending_payment" && (
                     <View style={styles.actRow}>
                       <TouchableOpacity

@@ -4,8 +4,10 @@ Flow (2026-07-24):
     1. User picks an action type (video/subscribe/share/like/comment/group) + network + link.
     2. Sets audience (countries, age, gender).
     3. Picks quantity → server computes price = price_per_action × quantity.
-    4. Payment (manual confirmation until a supported verified webhook is connected).
-    5. Task goes LIVE (status=active) automatically — no admin review required.
+    4. Payment is confirmed by a supported payment webhook.
+    5. Paid task enters pending_admin_review; admin or the linked Telegram group
+       approves it before it becomes active. Rejections are flagged for manual
+       refund review; no automatic refund is issued.
     6. Feed shows only active tasks (quantity_completed < quantity_target).
     7. Users complete → reward credited to their balance_profit; counter increments.
     8. When quantity_completed == quantity_target → status=completed, task disappears.
@@ -193,6 +195,61 @@ async def admin_list_tasks(request: Request, status: Optional[str] = None):
     async for t in db.special_tasks.find(q).sort("created_at", -1).limit(500):
         items.append(_serialize(t))
     return {"items": items}
+
+
+async def decide_paid_task(db, task_id: str, decision: str, actor: str) -> dict:
+    """Moderate an already-paid campaign without issuing a refund."""
+    if decision not in ("approve", "reject"):
+        raise HTTPException(400, "Décision invalide.")
+    now = datetime.now(timezone.utc)
+    if decision == "approve":
+        update = {"$set": {"status": "active", "activated_at": now,
+                           "admin_reviewed_at": now, "admin_reviewed_by": actor,
+                           "updated_at": now},
+                  "$unset": {"refund_status": "", "rejected_reason": ""}}
+    else:
+        update = {"$set": {"status": "rejected", "admin_reviewed_at": now,
+                           "admin_reviewed_by": actor, "rejected_at": now,
+                           "rejected_reason": "Publication rejetée après paiement.",
+                           "refund_status": "manual_review_required",
+                           "updated_at": now}}
+    result = await db.special_tasks.update_one(
+        {"id": task_id, "status": "pending_admin_review",
+         "payment_confirmed_at": {"$exists": True}}, update)
+    if not result.modified_count:
+        raise HTTPException(409, "Cette tâche n’est plus en attente de modération ou son paiement n’est pas confirmé.")
+    task = await db.special_tasks.find_one({"id": task_id}, {"_id": 0})
+    if decision == "approve" and task:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()), "user_id": task.get("user_id"),
+            "kind": "special_task_approved",
+            "title": "Tâche spéciale validée",
+            "body": "Votre paiement a été confirmé et votre tâche est maintenant publiée.",
+            "meta": {"task_id": task_id},
+            "read": False, "created_at": now,
+        })
+        import asyncio
+        asyncio.create_task(notify_new_special_task(db, task_id))
+    elif decision == "reject" and task:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()), "user_id": task.get("user_id"),
+            "kind": "special_task_rejected_refund_review",
+            "title": "Tâche rejetée — remboursement à traiter",
+            "body": "Votre tâche spéciale payée a été rejetée. Un administrateur doit examiner le remboursement manuellement.",
+            "meta": {"task_id": task_id, "refund_status": "manual_review_required"},
+            "read": False, "created_at": now,
+        })
+    return _serialize(task or {})
+
+
+@admin.post("/special-tasks/{task_id}/approve")
+async def admin_approve_paid_task(task_id: str, request: Request, admin_user=Depends(require_admin)):
+    return await decide_paid_task(request.app.state.db, task_id, "approve", admin_user["id"])
+
+
+@admin.post("/special-tasks/{task_id}/reject")
+async def admin_reject_paid_task(task_id: str, request: Request, admin_user=Depends(require_admin)):
+    return await decide_paid_task(request.app.state.db, task_id, "reject", admin_user["id"])
 
 
 @admin.get("/special-tasks/{task_id}/completions")

@@ -7,3 +7,4 @@
 - [Prestataire retiré](retired-provider-policy.md) — SoleasPay doit rester absent des paiements ; conserver les données financières historiques.
 - [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.
 - [Routage exclusif Mobile Money](payment-routing-policy.md) — un prestataire par pays + opérateur physique ; suivi conservé chez le prestataire d’origine.
+- [Modération du groupe Telegram](telegram-moderation-policy.md) — tous les membres du groupe lié peuvent voter ; le rejet d’une tâche payée signale un remboursement manuel.

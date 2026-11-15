@@ -556,16 +556,38 @@ async def _handle_payment_intent_event(db, event_type: str, data: dict):
                       "payment_confirmed_at": datetime.now(timezone.utc),
                       "updated_at": datetime.now(timezone.utc)}},
         )
+        try:
+            from telegram_moderation import schedule_submission
+            schedule_submission(db, "ads", pay["ad_id"])
+        except Exception as notify_exc:
+            log.warning("Telegram ad moderation notification failed (%s)", type(notify_exc).__name__)
         return {"ok": True, "ad_paid": True, "ad_id": pay["ad_id"]}
-    # Special task payment path: flip task to active.
+    # Paid special tasks wait for publication moderation before activation.
     if pay.get("kind") == "special_task" and pay.get("special_task_id"):
         await db.special_tasks.update_one(
             {"id": pay["special_task_id"], "status": "pending_payment"},
-            {"$set": {"status": "active",
+            {"$set": {"status": "pending_admin_review",
                       "payment_confirmed_at": datetime.now(timezone.utc),
-                      "activated_at": datetime.now(timezone.utc),
                       "updated_at": datetime.now(timezone.utc)}},
         )
+        task = await db.special_tasks.find_one({"id": pay["special_task_id"]}, {"_id": 0})
+        if task and task.get("status") == "pending_admin_review":
+            try:
+                from telegram_moderation import schedule_submission
+                schedule_submission(db, "special_task", task["id"])
+            except Exception as notify_exc:
+                log.warning("Telegram special-task moderation notification failed (%s)", type(notify_exc).__name__)
+            try:
+                await db.notifications.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": pay.get("user_id"),
+                    "kind": "payment_special_task_success",
+                    "title": "Paiement confirmé — tâche en modération",
+                    "body": "Votre paiement est confirmé. La tâche sera publiée après validation par l’équipe.",
+                    "meta": {"task_id": task["id"], "reference": reference},
+                    "read": False, "created_at": datetime.now(timezone.utc),
+                })
+            except Exception as notify_exc:
+                log.warning("Special-task payment notification failed (%s)", type(notify_exc).__name__)
         return {"ok": True, "task_paid": True, "task_id": pay["special_task_id"]}
     try:
         await activate_level(db, pay["user_id"], 1, source="izichange")
