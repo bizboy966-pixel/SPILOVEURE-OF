@@ -3,7 +3,20 @@ from datetime import datetime, timezone
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 from special_tasks import decide_paid_task
-from telegram_moderation import _collect_media, _safe_media_url, _summary, _utc_datetime
+from telegram_moderation import _collect_media, _public_url, _safe_media_url, _summary, _utc_datetime
+
+
+def test_telegram_public_url_prefers_dedicated_setting(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_PUBLIC_URL", "https://spiloveure.org/")
+    monkeypatch.setenv("PUBLIC_APP_URL", "https://payments.example.org")
+    assert _public_url() == "https://spiloveure.org"
+
+
+def test_telegram_public_url_falls_back_to_shared_site_url(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("PUBLIC_APP_URL", raising=False)
+    monkeypatch.setenv("SITE_URL", "https://spiloveure.org/")
+    assert _public_url() == "https://spiloveure.org"
 
 
 def test_collects_image_video_and_pdf_attachments(monkeypatch):

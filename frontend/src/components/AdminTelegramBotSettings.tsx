@@ -61,7 +61,7 @@ export default function AdminTelegramBotSettings() {
               Jeton du bot : {status.token_configured ? "configuré" : "à ajouter dans les Secrets"}
             </Text>
             <Text style={{ color: theme.colors.textPrimary, fontSize: 13, marginTop: 4 }}>
-              Adresse HTTPS publique : {status.public_url_configured ? "configurée" : "à configurer dans PUBLIC_APP_URL ou SITE_URL"}
+              Adresse HTTPS publique : {status.public_url_configured ? "configurée" : "à configurer dans TELEGRAM_PUBLIC_URL"}
             </Text>
             <Text style={{ color: theme.colors.textPrimary, fontSize: 13, marginTop: 4 }}>
               Webhook : {status.webhook_configured ? "connecté" : "non connecté"}

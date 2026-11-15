@@ -42,7 +42,12 @@ def _webhook_secret(token: str) -> str:
 
 
 def _public_url() -> str:
-    return (os.environ.get("PUBLIC_APP_URL") or os.environ.get("SITE_URL") or "").rstrip("/")
+    return (
+        os.environ.get("TELEGRAM_PUBLIC_URL")
+        or os.environ.get("PUBLIC_APP_URL")
+        or os.environ.get("SITE_URL")
+        or ""
+    ).rstrip("/")
 
 
 def _utc_datetime(value) -> Optional[datetime]:
@@ -420,7 +425,10 @@ async def admin_configure(request: Request):
     if not token:
         raise HTTPException(503, f"Ajoutez {TOKEN_ENV} aux Secrets du serveur avant de connecter le bot.")
     if not base.startswith("https://"):
-        raise HTTPException(503, "Configurez PUBLIC_APP_URL ou SITE_URL avec le domaine HTTPS public du serveur.")
+        raise HTTPException(
+            503,
+            "Configurez TELEGRAM_PUBLIC_URL avec le domaine HTTPS public qui héberge le webhook du bot.",
+        )
     url = f"{base}/api/webhooks/telegram"
     result = await _bot_call("setWebhook", {
         "url": url, "secret_token": _webhook_secret(token),
