@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
+import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { MediaLightbox, Slide } from "@/src/components/MediaLightbox";
@@ -117,6 +118,7 @@ function TicksIcon({ status }: { status: Msg["status"] }) {
 }
 
 export default function ChatBubble() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const [chatEnabled, setChatEnabled] = useState<boolean>(true);
   const [open, setOpen] = useState(false);
@@ -277,7 +279,7 @@ export default function ChatBubble() {
         return s + 1;
       }), 1000);
     } catch (e: any) {
-      setErr("Micro refusé : autorisez l'accès micro dans votre navigateur.");
+      setErr(t("chat.microphone_denied"));
     }
   };
   const stopRecording = () => {
@@ -367,7 +369,7 @@ export default function ChatBubble() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <View style={[styles.dot, { backgroundColor: supportOnline ? "#10B981" : "#9CA3AF" }]} />
                   <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: "600" }}>
-                    {supportOnline ? "En ligne" : "Hors ligne · nous répondons dès que possible"}
+                    {supportOnline ? t("chat.online") : t("chat.offline")}
                   </Text>
                 </View>
               </View>
@@ -563,7 +565,7 @@ export default function ChatBubble() {
             <Text style={styles.menuTitle}>Actions</Text>
             <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doReply(menuMsg)} testID="chat-menu-reply">
               <Ionicons name="arrow-undo" size={18} color={theme.colors.primary} />
-              <Text style={styles.menuItemT}>Répondre</Text>
+              <Text style={styles.menuItemT}>{t("chat.reply")}</Text>
             </TouchableOpacity>
             {menuMsg?.text ? (
               <TouchableOpacity style={styles.menuItem} onPress={() => menuMsg && doCopy(menuMsg)} testID="chat-menu-copy">

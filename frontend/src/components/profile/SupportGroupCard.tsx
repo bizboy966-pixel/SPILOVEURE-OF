@@ -3,17 +3,19 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator 
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { api } from "@/src/api";
+import { useI18n } from "@/src/i18n";
 
 type Msg = { kind: "ok" | "err"; text: string } | null;
 
-function clientCheck(url: string): string | null {
+function clientCheck(url: string, t: (key: string) => string): string | null {
   const v = url.trim();
-  if (!v) return "Veuillez saisir le lien de votre groupe.";
-  if (!/^https:\/\/[^\s/?#]+\.[^\s/?#]+/i.test(v)) return "Le lien doit commencer par https:// et contenir un nom de domaine valide.";
+  if (!v) return t("profile.support_group_required");
+  if (!/^https:\/\/[^\s/?#]+\.[^\s/?#]+/i.test(v)) return t("profile.support_group_invalid");
   return null;
 }
 
 export const SupportGroupCard: React.FC = () => {
+  const { t } = useI18n();
   const [url, setUrl] = React.useState("");
   const [saved, setSaved] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -23,20 +25,20 @@ export const SupportGroupCard: React.FC = () => {
   React.useEffect(() => {
     api.get<{ url: string | null }>("/me/support-group")
       .then((r) => { setSaved(r.url); setUrl(r.url || ""); })
-      .catch(() => setMsg({ kind: "err", text: "Impossible de charger votre groupe." }))
+      .catch(() => setMsg({ kind: "err", text: t("profile.support_group_load_failed") }))
       .finally(() => setLoading(false));
   }, []);
 
   const save = async () => {
-    const e = clientCheck(url);
+    const e = clientCheck(url, t);
     if (e) { setMsg({ kind: "err", text: e }); return; }
     setBusy(true); setMsg(null);
     try {
       const r = await api.put<{ url: string }>("/me/support-group", { url: url.trim() });
       setSaved(r.url); setUrl(r.url);
-      setMsg({ kind: "ok", text: "Groupe enregistré. Vos filleuls directs activés pourront le rejoindre." });
+      setMsg({ kind: "ok", text: t("profile.support_group_saved") });
     } catch (err: any) {
-      setMsg({ kind: "err", text: err?.detail || "Erreur lors de l'enregistrement." });
+      setMsg({ kind: "err", text: err?.detail || t("profile.support_group_save_failed") });
     } finally { setBusy(false); }
   };
 
@@ -45,9 +47,9 @@ export const SupportGroupCard: React.FC = () => {
     try {
       await api.delete("/me/support-group");
       setSaved(null); setUrl("");
-      setMsg({ kind: "ok", text: "Lien du groupe supprimé." });
+      setMsg({ kind: "ok", text: t("profile.support_group_removed") });
     } catch (err: any) {
-      setMsg({ kind: "err", text: err?.detail || "Erreur lors de la suppression." });
+      setMsg({ kind: "err", text: err?.detail || t("profile.support_group_remove_failed") });
     } finally { setBusy(false); }
   };
 
@@ -56,9 +58,9 @@ export const SupportGroupCard: React.FC = () => {
       <View style={styles.head}>
         <View style={styles.iconWrap}><Ionicons name="people" size={20} color="#16A34A" /></View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Groupe d'accompagnement</Text>
+          <Text style={styles.title}>{t("profile.support_group_title")}</Text>
           <Text style={styles.hint}>
-            Configurez le lien de votre groupe ou de votre chaîne afin de permettre aux membres de votre équipe de vous rejoindre facilement.
+            {t("profile.support_group_desc")}
           </Text>
         </View>
       </View>
@@ -81,7 +83,7 @@ export const SupportGroupCard: React.FC = () => {
         {busy ? <ActivityIndicator color="#fff" /> : (
           <>
             <Ionicons name="save" size={17} color="#fff" />
-            <Text style={styles.saveTxt}>{saved ? "Mettre à jour le groupe" : "Enregistrer le groupe"}</Text>
+            <Text style={styles.saveTxt}>{saved ? t("profile.support_group_update") : t("profile.support_group_save")}</Text>
           </>
         )}
       </TouchableOpacity>
@@ -92,12 +94,12 @@ export const SupportGroupCard: React.FC = () => {
       )}
       <View style={styles.footRow}>
         <Ionicons name="information-circle" size={15} color={theme.colors.textMuted} />
-        <Text style={styles.foot}>Ce lien sera proposé à vos filleuls directs après leur activation.</Text>
+        <Text style={styles.foot}>{t("profile.support_group_note")}</Text>
       </View>
       {saved && !busy && (
         <TouchableOpacity onPress={remove} style={styles.removeBtn} testID="support-group-delete">
           <Ionicons name="trash-outline" size={14} color={theme.colors.danger} />
-          <Text style={styles.removeTxt}>Supprimer le lien</Text>
+          <Text style={styles.removeTxt}>{t("profile.delete_link")}</Text>
         </TouchableOpacity>
       )}
     </View>

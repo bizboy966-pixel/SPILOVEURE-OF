@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, TextInput, TextInputProps, View, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
+import { translateFormText, useI18n } from "@/src/i18n";
 
 type Props = TextInputProps & {
   label?: string;
@@ -12,10 +13,13 @@ type Props = TextInputProps & {
   testID?: string;
 };
 
-export function Input({ label, error, icon, rightIcon, onRightIconPress, style, testID, ...rest }: Props) {
+export function Input({ label, error, icon, rightIcon, onRightIconPress, style, testID, placeholder, ...rest }: Props) {
+  const { t } = useI18n();
+  const translatedLabel = translateFormText(label, t);
+  const translatedPlaceholder = translateFormText(placeholder, t);
   return (
     <View style={styles.wrap}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {translatedLabel ? <Text style={styles.label}>{translatedLabel}</Text> : null}
       <View style={[styles.field, error ? styles.fieldErr : null]}>
         {icon ? <Ionicons name={icon} size={18} color={theme.colors.textSecondary} style={styles.icon} /> : null}
         <TextInput
@@ -23,6 +27,7 @@ export function Input({ label, error, icon, rightIcon, onRightIconPress, style, 
           style={[styles.input, style as any]}
           testID={testID}
           {...rest}
+          placeholder={translatedPlaceholder}
         />
         {rightIcon ? (
           <TouchableOpacity onPress={onRightIconPress} hitSlop={10}>

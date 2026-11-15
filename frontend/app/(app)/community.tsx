@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 const PLATFORM_ICONS: any = {
   telegram: { icon: "paper-plane", color: "#26A5E4" },
@@ -20,6 +21,7 @@ const PLATFORM_ICONS: any = {
 };
 
 export default function Community() {
+  const { t } = useI18n();
   const router = useRouter();
   const [channels, setChannels] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -43,19 +45,19 @@ export default function Community() {
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Communauté</Text>
-        <Text style={styles.sub}>Annonces officielles et canaux Spiloveure.</Text>
+        <Text style={styles.title}>{t("community.title")}</Text>
+        <Text style={styles.sub}>{t("community.subtitle")}</Text>
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         {announcements.length > 0 && (
           <Card>
-            <Text style={styles.section}>📢 Annonces</Text>
+            <Text style={styles.section}>{t("community.announcements")}</Text>
             {announcements.map((a) => (
               <View key={a.id} style={styles.annItem}>
                 <View style={[styles.priority, { backgroundColor: a.priority === "urgente" ? theme.colors.dangerBg : a.priority === "importante" ? theme.colors.warningBg : "#DBEAFE" }]}>
                   <Text style={{ color: a.priority === "urgente" ? theme.colors.danger : a.priority === "importante" ? theme.colors.warning : theme.colors.primary, fontWeight: "700", fontSize: 10 }}>
-                    {a.priority.toUpperCase()}
+                    {a.priority === "urgente" ? t("community.priority_urgent") : a.priority === "importante" ? t("community.priority_important") : t("community.priority_normal")}
                   </Text>
                 </View>
                 <Text style={styles.annTitle}>{a.title}</Text>
@@ -66,10 +68,10 @@ export default function Community() {
         )}
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Rejoignez nos canaux</Text>
+          <Text style={styles.section}>{t("community.channels")}</Text>
           {channels.length === 0 ? (
             <Text style={{ color: theme.colors.textSecondary, textAlign: "center", padding: 24 }}>
-              Aucun canal disponible pour le moment.
+              {t("community.no_channels")}
             </Text>
           ) : (
             channels.map((ch) => {
@@ -83,7 +85,7 @@ export default function Community() {
                     <Text style={styles.chName}>{ch.name}</Text>
                     {ch.description ? <Text style={styles.chDesc}>{ch.description}</Text> : null}
                   </View>
-                  <View style={styles.joinBtn}><Text style={styles.joinT}>Rejoindre</Text></View>
+                  <View style={styles.joinBtn}><Text style={styles.joinT}>{t("community.join")}</Text></View>
                 </TouchableOpacity>
               );
             })

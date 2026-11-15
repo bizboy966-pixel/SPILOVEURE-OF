@@ -16,6 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,12 +42,13 @@ type TreeStats = {
 // Node visual
 // ---------------------------------------------------------------------------
 function NodeCard({ node, isEmpty, leg }: { node?: TreeNode; isEmpty?: boolean; leg?: "left" | "right" }) {
+  const { t } = useI18n();
   if (isEmpty || !node) {
     return (
       <View style={[styles.node, styles.nodeEmpty]} testID={`tree-node-empty-${leg ?? ""}`}>
         <Ionicons name="person-add-outline" size={18} color={theme.colors.textSecondary} />
-        <Text style={styles.nodeEmptyTxt}>Libre</Text>
-        {leg ? <Text style={styles.legTag}>{leg === "left" ? "Gauche" : "Droite"}</Text> : null}
+        <Text style={styles.nodeEmptyTxt}>{t("team.free")}</Text>
+        {leg ? <Text style={styles.legTag}>{t(leg === "left" ? "team.left" : "team.right")}</Text> : null}
       </View>
     );
   }
@@ -155,6 +157,7 @@ function computeStats(root?: TreeNode): TreeStats {
 // Screen
 // ---------------------------------------------------------------------------
 export default function TeamDirect() {
+  const { t } = useI18n();
   const router = useRouter();
   const [root, setRoot] = useState<TreeNode | null>(null);
   const [loading, setLoading] = useState(true);
@@ -185,23 +188,23 @@ export default function TeamDirect() {
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Équipe directe</Text>
-        <Text style={styles.sub}>Votre matrice binaire — gauche/droite, spillovers inclus.</Text>
+        <Text style={styles.title}>{t("team.title")}</Text>
+        <Text style={styles.sub}>{t("team.subtitle")}</Text>
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statLbl}>Total</Text>
+            <Text style={styles.statLbl}>{t("team.total")}</Text>
             <Text style={styles.statVal}>{stats.total}</Text>
           </View>
           <View style={[styles.statBox, { backgroundColor: "rgba(16,185,129,0.25)" }]}>
-            <Text style={styles.statLbl}>Actifs</Text>
+            <Text style={styles.statLbl}>{t("team.active")}</Text>
             <Text style={styles.statVal}>{stats.active}</Text>
           </View>
           <View style={[styles.statBox, { backgroundColor: "rgba(239,68,68,0.25)" }]}>
-            <Text style={styles.statLbl}>Inactifs</Text>
+            <Text style={styles.statLbl}>{t("team.inactive")}</Text>
             <Text style={styles.statVal}>{stats.inactive}</Text>
           </View>
           <View style={[styles.statBox, { backgroundColor: "rgba(245,158,11,0.25)" }]}>
-            <Text style={styles.statLbl}>Spillover</Text>
+            <Text style={styles.statLbl}>{t("team.spillover")}</Text>
             <Text style={styles.statVal}>{stats.spillover}</Text>
           </View>
         </View>
@@ -209,7 +212,7 @@ export default function TeamDirect() {
 
       {/* Depth toggle */}
       <View style={styles.depthBar}>
-        <Text style={styles.depthLabel}>Profondeur :</Text>
+        <Text style={styles.depthLabel}>{t("team.depth")}</Text>
         {[2, 3, 4].map((d) => (
           <TouchableOpacity
             key={d}
@@ -230,19 +233,19 @@ export default function TeamDirect() {
       <View style={styles.legend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: theme.colors.success }]} />
-          <Text style={styles.legendTxt}>Actif</Text>
+          <Text style={styles.legendTxt}>{t("team.active")}</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: theme.colors.textSecondary }]} />
-          <Text style={styles.legendTxt}>Inactif</Text>
+          <Text style={styles.legendTxt}>{t("team.inactive")}</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: theme.colors.warning }]} />
-          <Text style={styles.legendTxt}>Spillover</Text>
+          <Text style={styles.legendTxt}>{t("team.spillover")}</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: theme.colors.primary }]} />
-          <Text style={styles.legendTxt}>Vous</Text>
+          <Text style={styles.legendTxt}>{t("team.you")}</Text>
         </View>
       </View>
 

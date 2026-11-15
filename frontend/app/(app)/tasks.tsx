@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
 import { useActivationGuard } from "@/src/components/ActivationGuard";
+import { useI18n } from "@/src/i18n";
 
 /**
  * TÂCHES — new v17 landing (2026-02-14).
@@ -51,6 +52,7 @@ const MAIN_CARDS = [
 ];
 
 export default function TasksScreen() {
+  const { t } = useI18n();
   const router = useRouter();
   const { showModal, isPending } = useActivationGuard();
 
@@ -63,8 +65,8 @@ export default function TasksScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <View>
-              <Text style={styles.title}>Tâches</Text>
-              <Text style={styles.subtitle}>Choisissez une catégorie</Text>
+               <Text style={styles.title}>{t("tasks.title")}</Text>
+               <Text style={styles.subtitle}>{t("tasks.choose_category")}</Text>
             </View>
           </View>
         </SafeAreaView>
@@ -83,8 +85,8 @@ export default function TasksScreen() {
               <Ionicons name={c.icon as any} size={28} color={c.color} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{c.title}</Text>
-              <Text style={styles.cardSub} numberOfLines={2}>{c.subtitle}</Text>
+              <Text style={styles.cardTitle}>{t(`tasks.${c.key === "ads-rewards" ? "ads" : c.key === "special-tasks" ? "special" : "missions"}`)}</Text>
+              <Text style={styles.cardSub} numberOfLines={2}>{t(`tasks.${c.key === "ads-rewards" ? "ads_desc" : c.key === "special-tasks" ? "special_desc" : "missions_desc"}`)}</Text>
             </View>
             <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>

@@ -7,6 +7,7 @@ import Svg, {
 } from "react-native-svg";
 
 import { formatFCFA, formatDate } from "@/src/utils/format";
+import { useI18n } from "@/src/i18n";
 
 /* ============================================================
  * 3D wallet illustration — SVG replica (v14 dashboard hero)
@@ -196,6 +197,7 @@ type Props = {
 export const DashboardHero: React.FC<Props> = ({
   user, stats, balanceHidden, onToggleHidden, onAvatarPress, onBalancePress,
 }) => {
+  const { t } = useI18n();
   const trend = stats?.trend || {};
   const total_profit = stats?.total_profit || 0;
   const balance_profit = stats?.balance_profit || 0;
@@ -255,11 +257,11 @@ export const DashboardHero: React.FC<Props> = ({
           </View>
           <View style={styles.lvlPill}>
             <Ionicons name="ribbon" size={11} color="#F59E0B" />
-            <Text style={styles.lvlText}>Niveau {level}</Text>
+            <Text style={styles.lvlText}>{t("menu.level", { level })}</Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
             <Ionicons name="calendar-outline" size={11} color="#C7D9FF" />
-            <Text style={styles.memberSince}>Membre depuis : {formatDate(user?.created_at)}</Text>
+            <Text style={styles.memberSince}>{t("dashboard.member_since")} {formatDate(user?.created_at)}</Text>
           </View>
         </View>
       </View>
@@ -270,7 +272,7 @@ export const DashboardHero: React.FC<Props> = ({
           <Wallet3D size={64} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.walletLabel}>PORTEFEUILLE</Text>
+          <Text style={styles.walletLabel}>{t("dashboard.wallet")}</Text>
           <View style={styles.walletInline}>
             <Text
               style={styles.walletValue}
@@ -297,7 +299,7 @@ export const DashboardHero: React.FC<Props> = ({
               <Ionicons name="chevron-down" size={11} color="#fff" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.walletHint}>Total des dépôts</Text>
+          <Text style={styles.walletHint}>{t("dashboard.total_deposits")}</Text>
         </View>
       </View>
 
@@ -309,10 +311,10 @@ export const DashboardHero: React.FC<Props> = ({
           accent="#34D399"
           bg="rgba(16,185,129,0.18)"
           border="rgba(16,185,129,0.45)"
-          label="Activation"
+          label={t("dashboard.activation")}
           value={balanceHidden ? "•••" : "2 650 FCFA"}
-          hint={level >= 1 ? `Niveau ${level} activé` : "Non activé"}
-          subLabel="Réserve à niveau"
+          hint={level >= 1 ? t("dashboard.level_active", { level }) : t("dashboard.not_active")}
+          subLabel={t("dashboard.level_reserve")}
           subValue={balanceHidden ? "•••" : formatFCFA(stats?.balance_upgrade || 0)}
           subTestID="dashboard-upgrade-reserve"
           trendPct={trend.activation_pct ?? 0}
@@ -326,7 +328,7 @@ export const DashboardHero: React.FC<Props> = ({
           accent="#A78BFA"
           bg="rgba(139,92,246,0.20)"
           border="rgba(139,92,246,0.45)"
-          label="Profit Total"
+          label={t("dashboard.total_profit")}
           value={balanceHidden ? "•••" : formatFCFA(total_profit)}
           hint="Cumul historique"
           subLabel="Retrait total"
@@ -343,7 +345,7 @@ export const DashboardHero: React.FC<Props> = ({
           accent="#FBBF24"
           bg="rgba(245,158,11,0.20)"
           border="rgba(245,158,11,0.55)"
-          label="Solde dispo."
+          label={t("dashboard.available_balance")}
           value={balanceHidden ? "•••" : formatFCFA(balance_profit)}
           hint="au retrait"
           trendPct={trend.balance_pct ?? 0}

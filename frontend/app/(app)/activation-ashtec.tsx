@@ -12,6 +12,7 @@ import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 type Country = {
   code: string;
@@ -68,6 +69,7 @@ function notify(title: string, msg?: string) {
 }
 
 export default function ActivationAshtec() {
+  const { t } = useI18n();
   const router = useRouter();
   const { refresh } = useAuth();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -99,14 +101,14 @@ export default function ActivationAshtec() {
       try {
         const c = await api.get<Catalog>("/payments/ashtec/catalog", { auth: false });
         if ((c as any).enabled === false) {
-          notify("Indisponible", "AshtecPay est actuellement désactivé par l'administrateur.");
+          notify(t("activation.ashtec_unavailable"), t("activation.ashtec_disabled"));
           router.back();
           return;
         }
         setCatalog(c);
         if (!country && c.countries.length) setCountry(c.countries[0].code);
       } catch (e: any) {
-        notify("Erreur", e?.message || "Impossible de charger le catalogue.");
+        notify(t("activation.ashtec_error"), e?.message || t("activation.ashtec_catalog_error"));
       }
     })();
   }, []);
@@ -171,12 +173,12 @@ export default function ActivationAshtec() {
           return;
         }
         if (r.status === "failed" || r.status === "rejected" || r.status === "expired") {
-          setErrMsg(r.error || "Paiement refusé");
+          setErrMsg(r.error || t("activation.ashtec_payment_refused"));
           setStep("failed");
           return;
         }
         if (r.ussd_code) {
-          setStatusMsg(`Composez ce code USSD sur votre téléphone : ${r.ussd_code}`);
+          setStatusMsg(`${t("activation.ashtec_ussd_step")} ${r.ussd_code}`);
         }
       } catch {}
     };
@@ -193,14 +195,14 @@ export default function ActivationAshtec() {
     if (remaining !== 0) return;
     const ms = new Date(session.expires_at).getTime() - Date.now();
     if (ms <= 0) {
-      setErrMsg("Délai de 10 minutes dépassé — recommencez.");
+      setErrMsg(t("activation.ashtec_timeout"));
       setStep("failed");
     }
   }, [remaining, step, session]);
 
   async function submit() {
     if (!country || !operator || !phone.trim()) {
-      notify("Champs requis", "Sélectionnez pays, opérateur et téléphone.");
+      notify(t("activation.ashtec_required"), t("activation.ashtec_choose_details"));
       return;
     }
     setSubmitting(true);
@@ -213,10 +215,10 @@ export default function ActivationAshtec() {
       setSession(r);
       setStep("waiting");
       if (r.status === "otp_required" && r.ussd_code) {
-        setStatusMsg(`Composez ce code USSD : ${r.ussd_code}`);
+        setStatusMsg(`${t("activation.ashtec_ussd_step")} ${r.ussd_code}`);
       }
     } catch (e: any) {
-      notify("Échec", e?.message || "AshtecPay a refusé la requête.");
+      notify(t("activation.ashtec_failed"), e?.message || t("activation.ashtec_request_refused"));
     } finally {
       setSubmitting(false);
     }
@@ -231,14 +233,14 @@ export default function ActivationAshtec() {
         otp: otp.trim(),
       });
       if (r.status === "otp_error") {
-        notify("OTP invalide", r.message || "Code incorrect.");
+        notify(t("activation.ashtec_otp_invalid"), r.message || t("activation.ashtec_wrong_code"));
       } else {
         setSession({ ...session, status: "pending" });
-        setStatusMsg("Code accepté. Confirmez sur votre téléphone.");
+        setStatusMsg(t("activation.ashtec_otp_accepted"));
         setOtp("");
       }
     } catch (e: any) {
-      notify("Erreur", e?.message || "Impossible de valider l'OTP.");
+      notify(t("activation.ashtec_error"), e?.message || t("activation.ashtec_otp_error"));
     } finally {
       setOtpSubmitting(false);
     }
@@ -276,12 +278,12 @@ export default function ActivationAshtec() {
             <Ionicons name="rocket" size={26} color="#0F172A" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>⚡ AUTO-ACTIVATION</Text>
-            <Text style={styles.headerSub}>Mobile Money instantané — Ashtech Pay</Text>
+            <Text style={styles.headerTitle}>{t("activation.ashtec_header")}</Text>
+            <Text style={styles.headerSub}>{t("activation.ashtec_subtitle")}</Text>
           </View>
         </View>
         <View style={styles.amountBlock}>
-          <Text style={styles.amountLabel}>Montant d'activation</Text>
+          <Text style={styles.amountLabel}>{t("activation.amount")}</Text>
           <Text style={styles.amountVal}>
             {selectedCountry
               ? fmtMoney(
@@ -293,7 +295,7 @@ export default function ActivationAshtec() {
               : "2 500 FCFA"}
             <Ionicons name="lock-closed" size={16} color="#FBBF24" />
           </Text>
-          <Text style={styles.amountHint}>Niveau 1 · Débutant · non modifiable</Text>
+          <Text style={styles.amountHint}>{t("activation.ashtec_level")}</Text>
         </View>
       </LinearGradient>
 
@@ -301,8 +303,8 @@ export default function ActivationAshtec() {
         {step === "form" && (
           <>
             <Card>
-              <Text style={styles.section}>1️⃣ Choisissez votre pays</Text>
-              <Text style={styles.hint}>{catalog.countries.length} pays supportés (XOF · XAF · CDF)</Text>
+              <Text style={styles.section}>{t("activation.ashtec_country_step")}</Text>
+              <Text style={styles.hint}>{t("activation.ashtec_supported", { count: catalog.countries.length, currencies: "XOF · XAF · CDF" })}</Text>
               <View style={styles.grid}>
                 {catalog.countries.map((c) => (
                   <TouchableOpacity
@@ -323,7 +325,7 @@ export default function ActivationAshtec() {
 
             {selectedCountry && (
               <Card style={{ marginTop: 12 }}>
-                <Text style={styles.section}>2️⃣ Opérateur Mobile Money</Text>
+                <Text style={styles.section}>{t("activation.ashtec_operator_step")}</Text>
                 <View style={styles.grid}>
                   {selectedCountry.operators.map((op) => (
                     <TouchableOpacity
@@ -345,7 +347,7 @@ export default function ActivationAshtec() {
             )}
 
             <Card style={{ marginTop: 12 }}>
-              <Text style={styles.section}>3️⃣ Numéro de téléphone</Text>
+              <Text style={styles.section}>{t("activation.ashtec_phone_step")}</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Ex : 70123456"
@@ -382,8 +384,8 @@ export default function ActivationAshtec() {
                 ⏳ Paiement en cours…
               </Text>
               <Text style={[styles.hint, { textAlign: "center" }]}>
-                Confirmez le paiement de <Text style={{ fontWeight: "900" }}>{fmtMoney(session.amount, session.currency)}</Text>
-                {"\n"}sur votre téléphone <Text style={{ fontWeight: "700" }}>{session.operator}</Text>
+                {t("activation.ashtec_phone_hint", { amount: fmtMoney(session.amount, session.currency) })}
+                {"\n"}<Text style={{ fontWeight: "700" }}>{session.operator}</Text>
                 {" · "}<Text style={{ fontWeight: "700" }}>{session.phone || phone}</Text>
               </Text>
 
@@ -415,7 +417,7 @@ export default function ActivationAshtec() {
                       pop-up menu, then enter it here. */}
                   {(session.ussd_code || OTP_USSD_HINTS[session.country_code]) && (
                     <View style={styles.ussdBox}>
-                      <Text style={styles.ussdLabel}>📱 Étape 1 — Composez ce code USSD sur votre téléphone :</Text>
+                      <Text style={styles.ussdLabel}>{t("activation.ashtec_ussd_step")}</Text>
                       <Text style={styles.ussdCode} selectable testID="ashtec-ussd-code">
                         {session.ussd_code || OTP_USSD_HINTS[session.country_code]}
                       </Text>
@@ -424,7 +426,7 @@ export default function ActivationAshtec() {
                       </Text>
                     </View>
                   )}
-                  <Text style={styles.section}>🔐 Étape 2 — Saisissez le code OTP reçu</Text>
+                  <Text style={styles.section}>{t("activation.ashtec_otp_step")}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Ex : 123456"
@@ -481,7 +483,7 @@ export default function ActivationAshtec() {
                 ❌ Paiement non abouti
               </Text>
               <Text style={[styles.hint, { textAlign: "center", color: "#991B1B" }]}>
-                {errMsg || "Le paiement n'a pas pu être finalisé dans le délai imparti."}
+                {errMsg || t("activation.ashtec_finalize_error")}
               </Text>
               <View style={{ marginTop: 16, width: "100%" }}>
                 <Button title="Recommencer" onPress={retry} testID="ashtec-retry" />

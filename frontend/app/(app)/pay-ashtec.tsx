@@ -19,6 +19,7 @@ import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 type Country = { code: string; name: string; currency: string; operators: string[] };
 type Catalog = { amount: number; countdown_minutes: number; countries: Country[] };
@@ -42,6 +43,8 @@ function notify(title: string, msg?: string) {
 }
 
 export default function PayAshtec() {
+  const { t, lang } = useI18n();
+  const numberLocale = lang === "en" ? "en" : "fr-FR";
   const router = useRouter();
   const { refresh } = useAuth();
   const params = useLocalSearchParams<{
@@ -253,7 +256,7 @@ export default function PayAshtec() {
       <LinearGradient colors={["#0F172A", "#1E293B"]} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="payash-back">
           <Ionicons name="chevron-back" size={22} color="#fff" />
-          <Text style={styles.backTxt}>Retour</Text>
+          <Text style={styles.backTxt}>{t("payashtec.back")}</Text>
         </TouchableOpacity>
         <View style={styles.headerRow}>
           <View style={styles.headerIcon}>
@@ -261,13 +264,13 @@ export default function PayAshtec() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>💳 {title}</Text>
-            <Text style={styles.headerSub}>Mobile Money — Ashtech Pay</Text>
+            <Text style={styles.headerSub}>{t("payashtec.subtitle")}</Text>
           </View>
         </View>
         <View style={styles.amountBlock}>
-          <Text style={styles.amountLabel}>Montant à payer</Text>
-          <Text style={styles.amountVal}>{amount.toLocaleString("fr-FR")} FCFA</Text>
-          <Text style={styles.amountHint}>Chrono 10 min · non modifiable</Text>
+          <Text style={styles.amountLabel}>{t("payashtec.amount")}</Text>
+          <Text style={styles.amountVal}>{amount.toLocaleString(numberLocale)} FCFA</Text>
+          <Text style={styles.amountHint}>{t("payashtec.timer")}</Text>
         </View>
       </LinearGradient>
 
@@ -275,8 +278,8 @@ export default function PayAshtec() {
         {step === "form" && (
           <>
             <Card>
-              <Text style={styles.section}>1️⃣ Choisissez votre pays</Text>
-              <Text style={styles.hint}>Zones XOF/XAF uniquement (14 pays)</Text>
+              <Text style={styles.section}>{t("payashtec.country_step")}</Text>
+              <Text style={styles.hint}>{t("payashtec.zones")}</Text>
               <View style={styles.grid}>
                 {catalog.countries.map((c) => (
                   <TouchableOpacity key={c.code}
@@ -292,7 +295,7 @@ export default function PayAshtec() {
             </Card>
             {selectedCountry && (
               <Card style={{ marginTop: 12 }}>
-                <Text style={styles.section}>2️⃣ Opérateur Mobile Money</Text>
+                <Text style={styles.section}>{t("payashtec.operator_step")}</Text>
                 <View style={styles.grid}>
                   {selectedCountry.operators.map((op) => (
                     <TouchableOpacity key={op}
@@ -308,13 +311,13 @@ export default function PayAshtec() {
               </Card>
             )}
             <Card style={{ marginTop: 12 }}>
-              <Text style={styles.section}>3️⃣ Numéro de téléphone</Text>
+              <Text style={styles.section}>{t("payashtec.phone_step")}</Text>
               <TextInput style={styles.input} placeholder="Ex : 70123456"
                 keyboardType="phone-pad" value={phone} onChangeText={setPhone} testID="payash-phone" />
-              <Text style={styles.hint}>Ce numéro doit être celui de votre compte Mobile Money.</Text>
+              <Text style={styles.hint}>{t("payashtec.phone_hint")}</Text>
             </Card>
             <View style={{ marginTop: 16 }}>
-              <Button title={submitting ? "Envoi en cours…" : `🚀 PAYER ${amount.toLocaleString("fr-FR")} FCFA`}
+              <Button title={submitting ? t("payashtec.send") : t("payashtec.pay", { amount: amount.toLocaleString(numberLocale) })}
                 loading={submitting}
                 disabled={submitting || !country || !operator || !phone.trim()}
                 onPress={submit} testID="payash-submit" />
@@ -327,12 +330,12 @@ export default function PayAshtec() {
             <View style={{ alignItems: "center" }}>
               <View style={styles.timerRing}>
                 <Text style={styles.timerVal}>{timeStr}</Text>
-                <Text style={styles.timerLabel}>restant</Text>
+                <Text style={styles.timerLabel}>{t("payashtec.remaining")}</Text>
               </View>
-              <Text style={[styles.section, { textAlign: "center", marginTop: 12 }]}>⏳ Paiement en cours…</Text>
+              <Text style={[styles.section, { textAlign: "center", marginTop: 12 }]}>{t("payashtec.payment_progress")}</Text>
               <Text style={[styles.hint, { textAlign: "center" }]}>
-                Confirmez le paiement de <Text style={{ fontWeight: "900" }}>{session.amount.toLocaleString("fr-FR")} {session.currency}</Text>
-                {"\n"}sur votre téléphone <Text style={{ fontWeight: "700" }}>{session.operator}</Text>
+                {t("payashtec.confirm_on_phone", { amount: `${session.amount.toLocaleString(numberLocale)} ${session.currency}` })}
+                {"\n"}<Text style={{ fontWeight: "700" }}>{session.operator}</Text>
                 {" · "}<Text style={{ fontWeight: "700" }}>{phone}</Text>
               </Text>
               {statusMsg && (
@@ -347,16 +350,16 @@ export default function PayAshtec() {
                     if (Platform.OS === "web") window.open(session.wave_url!, "_blank");
                     else require("react-native").Linking.openURL(session.wave_url!);
                   }} testID="payash-wave">
-                  <Text style={styles.waveBtnTxt}>🌊 Ouvrir Wave pour payer</Text>
+                  <Text style={styles.waveBtnTxt}>{t("payashtec.open_wave")}</Text>
                 </TouchableOpacity>
               )}
               {session.status === "otp_required" && (
                 <View style={{ width: "100%", marginTop: 16 }}>
-                  <Text style={styles.section}>Saisissez le code OTP reçu</Text>
+                  <Text style={styles.section}>{t("payashtec.enter_otp")}</Text>
                   <TextInput style={styles.input} placeholder="Ex : 123456"
                     keyboardType="number-pad" value={otp} onChangeText={setOtp}
                     testID="payash-otp" />
-                  <Button title={otpSubmitting ? "Validation…" : "Valider OTP"}
+                  <Button title={otpSubmitting ? t("payashtec.validating") : t("payashtec.validate")}
                     loading={otpSubmitting} disabled={otpSubmitting || !otp.trim()}
                     onPress={submitOtp} testID="payash-otp-submit" />
                 </View>
@@ -365,7 +368,7 @@ export default function PayAshtec() {
                 Ne fermez pas cette page. Confirmation automatique dès réception du paiement.
               </Text>
               <TouchableOpacity onPress={retry} style={styles.cancelBtn} testID="payash-cancel">
-                <Text style={styles.cancelTxt}>Annuler et recommencer</Text>
+                <Text style={styles.cancelTxt}>{t("payashtec.cancel")}</Text>
               </TouchableOpacity>
             </View>
           </Card>
@@ -378,7 +381,7 @@ export default function PayAshtec() {
               <Text style={[styles.section, { color: "#065F46", textAlign: "center", marginTop: 12 }]}>
                 🎉 Paiement confirmé !
               </Text>
-              <Text style={[styles.hint, { textAlign: "center", color: "#047857" }]}>Redirection…</Text>
+              <Text style={[styles.hint, { textAlign: "center", color: "#047857" }]}>{t("payashtec.redirect")}</Text>
             </View>
           </Card>
         )}
@@ -394,7 +397,7 @@ export default function PayAshtec() {
                 {errMsg || "Le paiement n'a pas pu être finalisé."}
               </Text>
               <View style={{ marginTop: 16, width: "100%" }}>
-                <Button title="Recommencer" onPress={retry} testID="payash-retry" />
+                <Button title={t("payashtec.retry")} onPress={retry} testID="payash-retry" />
               </View>
             </View>
           </Card>

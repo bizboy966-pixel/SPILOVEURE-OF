@@ -22,6 +22,7 @@ import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
 import { useServiceBadges } from "@/src/hooks/useServiceBadges";
 import { useActivationGuard } from "@/src/components/ActivationGuard";
+import { useI18n } from "@/src/i18n";
 
 /* -------------------------------------------------------------
  * Quick action pills — Depot / Retrait / Envoyer / Echanger.
@@ -56,6 +57,7 @@ const SERVICE_CARDS: Array<{
 ];
 
 export default function Dashboard() {
+  const { t } = useI18n();
   const { user, refresh } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
@@ -118,18 +120,18 @@ export default function Dashboard() {
   const copy = async () => {
     try {
       await Clipboard.setStringAsync(inviteLink);
-      Alert.alert("Copié ✅", "Le lien d'invitation a été copié.");
-    } catch { Alert.alert("Erreur", "Impossible de copier le lien."); }
+      Alert.alert(t("common.copied_short") + " ✅", t("common.copied_alert"));
+    } catch { Alert.alert(t("common.error"), t("common.copy_failed")); }
   };
 
   const share = async () => {
     try {
-      await Share.share({ message: `Rejoignez-moi sur Spiloveure : ${inviteLink}` });
+      await Share.share({ message: `${t("dashboard.share_invitation")} ${inviteLink}` });
     } catch {}
   };
 
   const soon = () => {
-    if (typeof window !== "undefined") window.alert("🚧 Bientôt disponible");
+    if (typeof window !== "undefined") window.alert(t("common.soon"));
   };
 
   return (
@@ -145,7 +147,7 @@ export default function Dashboard() {
               />
               <View>
                 <Text style={styles.brand}>SPILOVEURE</Text>
-                <Text style={styles.brandSub}>Affiliate System</Text>
+                 <Text style={styles.brandSub}>{t("dashboard.brand_subtitle")}</Text>
               </View>
             </View>
             <View style={{ flexDirection: "row" }}>
@@ -207,7 +209,7 @@ export default function Dashboard() {
                 <View style={[styles.quickActionIcon, { backgroundColor: a.bg }]}>
                   <Ionicons name={a.icon} size={22} color={a.color} />
                 </View>
-                <Text style={styles.quickActionLabel}>{a.label}</Text>
+                <Text style={styles.quickActionLabel}>{t(`dashboard.quick.${a.key}`)}</Text>
               </TouchableOpacity>
             );
           })}
@@ -215,9 +217,9 @@ export default function Dashboard() {
 
         {/* ─── Nos services (8 raccourcis stricts) — en haut, inchangé ─── */}
         <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Nos services</Text>
+          <Text style={styles.sectionTitle}>{t("dashboard.services")}</Text>
           <TouchableOpacity onPress={() => guardedNavigate("/(app)/services-all")} testID="dashboard-services-see-all">
-            <Text style={styles.sectionLink}>Voir tout</Text>
+            <Text style={styles.sectionLink}>{t("dashboard.see_all")}</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.servicesGrid} testID="dashboard-services-grid">
@@ -262,7 +264,9 @@ export default function Dashboard() {
                     </View>
                   ) : null}
                 </View>
-                <Text style={styles.serviceLabel} numberOfLines={2}>{s.label}</Text>
+                <Text style={styles.serviceLabel} numberOfLines={2}>
+                  {s.key === "marketplace" || s.key === "lottery" ? s.label : t(`dashboard.service.${s.key === "formations" ? "training" : s.key === "ebooks" ? "ebook" : s.key === "emploi" ? "jobs" : s.key === "premium" ? "premium" : s.key === "advertising" ? "ad_space" : "ads"}`)}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -290,8 +294,8 @@ export default function Dashboard() {
                 <Ionicons name="git-branch" size={20} color="#93C5FD" />
               </View>
               <View style={styles.commissionMeta}>
-                <Text style={styles.commissionLabel}>Commissions</Text>
-                <Text style={styles.commissionSubLabel}>Directes</Text>
+                <Text style={styles.commissionLabel}>{t("dashboard.commissions")}</Text>
+                <Text style={styles.commissionSubLabel}>{t("dashboard.direct")}</Text>
               </View>
             </View>
             <Text
@@ -304,7 +308,7 @@ export default function Dashboard() {
             </Text>
             <View style={styles.commissionFoot}>
               <Ionicons name="person" size={11} color="#93C5FD" />
-              <Text style={styles.commissionFootTxt}>Filleuls directs</Text>
+              <Text style={styles.commissionFootTxt}>{t("dashboard.direct_referrals")}</Text>
             </View>
           </LinearGradient>
 
@@ -318,8 +322,8 @@ export default function Dashboard() {
                 <Ionicons name="git-network" size={20} color="#F5F3FF" />
               </View>
               <View style={styles.commissionMeta}>
-                <Text style={styles.commissionLabel}>Commissions</Text>
-                <Text style={styles.commissionSubLabel}>Spillover</Text>
+                <Text style={styles.commissionLabel}>{t("dashboard.commissions")}</Text>
+                <Text style={styles.commissionSubLabel}>{t("dashboard.spillover")}</Text>
               </View>
             </View>
             <Text
@@ -332,7 +336,7 @@ export default function Dashboard() {
             </Text>
             <View style={styles.commissionFoot}>
               <Ionicons name="people" size={11} color="#F5F3FF" />
-              <Text style={styles.commissionFootTxt}>Réseau indirect</Text>
+              <Text style={styles.commissionFootTxt}>{t("dashboard.indirect_network")}</Text>
             </View>
           </LinearGradient>
         </View>

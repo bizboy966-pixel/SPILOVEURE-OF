@@ -11,6 +11,8 @@ import { Button } from "@/src/components/Button";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
+import { localizedCountryName } from "@/src/identity/countrySearch";
 
 type Country = { code: string; name: string; flag?: string };
 type MoneyFusionCountry = {
@@ -25,6 +27,7 @@ type Method = "mobile" | "crypto";
 export default function Wallet() {
   const router = useRouter();
   const { user } = useAuth();
+  const { t, lang } = useI18n();
   const [country, setCountry] = useState(user?.country || "TG");
   const [baseCountries, setBaseCountries] = useState<Country[]>([]);
   const [moneyFusionCountries, setMoneyFusionCountries] = useState<MoneyFusionCountry[]>([]);
@@ -77,7 +80,7 @@ export default function Wallet() {
       })
       .catch((e: any) => {
         if (active) {
-          setMoneyFusionCatalogError(e?.detail || "Les options MoneyFusion ne sont pas disponibles pour le moment.");
+          setMoneyFusionCatalogError(e?.detail || t("wallet.catalog_error"));
         }
       });
     return () => { active = false; };
@@ -112,15 +115,15 @@ export default function Wallet() {
 
   const save = async () => {
     if (!country || !fullName.trim()) {
-      Alert.alert("Champs requis", "Pays et nom du titulaire sont obligatoires.");
+      Alert.alert(t("wallet.required_title"), t("wallet.required_error"));
       return;
     }
     if (method === "mobile" && (!operator || phone.trim().length < 8)) {
-      Alert.alert("Mobile Money", "Opérateur et numéro de téléphone valide requis.");
+      Alert.alert(t("wallet.mobile_error_title"), t("wallet.mobile_error"));
       return;
     }
     if (method === "crypto" && walletAddress.trim().length < 12) {
-      Alert.alert("Crypto", "Adresse wallet USDT BEP20 invalide.");
+      Alert.alert(t("wallet.crypto_error_title"), t("wallet.crypto_error"));
       return;
     }
     setLoading(true);
@@ -134,10 +137,10 @@ export default function Wallet() {
         network: method === "crypto" ? "USDT BEP20" : "",
         wallet_address: method === "crypto" ? walletAddress.trim() : "",
       });
-      if (typeof window !== "undefined") window.alert("✅ Portefeuille enregistré");
-      else Alert.alert("✅", "Portefeuille enregistré");
+      if (typeof window !== "undefined") window.alert(`✅ ${t("wallet.saved")}`);
+      else Alert.alert("✅", t("wallet.saved"));
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Sauvegarde impossible.");
+      Alert.alert(t("common.error"), e?.detail || t("wallet.save_error"));
     } finally { setLoading(false); }
   };
 
@@ -147,23 +150,23 @@ export default function Wallet() {
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.back}><Ionicons name="chevron-back" size={22} color="#fff" /></TouchableOpacity>
-        <Text style={styles.title}>Configurer mon portefeuille</Text>
-        <Text style={styles.sub}>Suivez les étapes pour recevoir vos retraits.</Text>
+        <Text style={styles.title}>{t("wallet.title")}</Text>
+        <Text style={styles.sub}>{t("wallet.subtitle")}</Text>
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Card>
-          <Text style={styles.step}>Étape 1 — Sélectionner le pays</Text>
+          <Text style={styles.step}>{t("wallet.step_country")}</Text>
           <TouchableOpacity style={styles.field} onPress={() => setShowCP(true)} testID="wallet-country-btn">
             <Text style={styles.fieldTxt}>
-              {selectedCountry ? `${selectedCountry.flag ? `${selectedCountry.flag} ` : ""}${selectedCountry.name}` : "Sélectionner..."}
+              {selectedCountry ? `${selectedCountry.flag ? `${selectedCountry.flag} ` : ""}${localizedCountryName(selectedCountry.code, selectedCountry.name, lang)}` : t("common.select")}
             </Text>
             <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.step}>Étape 2 — Choisir le mode de retrait</Text>
+          <Text style={styles.step}>{t("wallet.step_method")}</Text>
           <View style={styles.methodRow}>
             <TouchableOpacity
               style={[styles.methodBox, method === "mobile" && styles.methodBoxOn]}
@@ -185,13 +188,13 @@ export default function Wallet() {
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.step}>Étape 3 — Informations</Text>
+          <Text style={styles.step}>{t("wallet.step_details")}</Text>
 
-          <Input label="Nom du titulaire" value={fullName} onChangeText={setFullName} placeholder="Nom complet" testID="wallet-fullname" />
+          <Input label={t("wallet.holder_name")} value={fullName} onChangeText={setFullName} placeholder={t("wallet.full_name_placeholder")} testID="wallet-fullname" />
 
           {method === "mobile" ? (
             <>
-              <Text style={styles.lbl}>Opérateur Mobile Money</Text>
+              <Text style={styles.lbl}>{t("wallet.operator")}</Text>
               <View style={styles.opRow}>
                 {operators.map((op) => (
                   <TouchableOpacity
@@ -208,21 +211,21 @@ export default function Wallet() {
                 ))}
                 {operators.length === 0 && (
                   <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                    Aucun opérateur configuré pour ce pays.
+                    {t("wallet.no_operator")}
                   </Text>
                 )}
               </View>
-              {moneyFusionCatalogError ? <Text style={styles.hint}>{moneyFusionCatalogError} Les opérateurs historiques restent disponibles.</Text> : null}
-              <Input label="Numéro de téléphone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Ex: +22890000000" testID="wallet-phone" />
+              {moneyFusionCatalogError ? <Text style={styles.hint}>{moneyFusionCatalogError} {t("wallet.legacy_operators_note")}</Text> : null}
+              <Input label={t("wallet.phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Ex: +22890000000" testID="wallet-phone" />
             </>
           ) : (
             <>
               <View style={styles.networkChip}>
                 <Ionicons name="logo-bitcoin" size={16} color="#F59E0B" />
-                <Text style={styles.networkTxt}>Réseau : USDT BEP20</Text>
+                <Text style={styles.networkTxt}>{t("wallet.network")}</Text>
               </View>
               <Input
-                label="Adresse wallet USDT BEP20"
+                label={t("wallet.crypto_address")}
                 value={walletAddress}
                 onChangeText={setWalletAddress}
                 placeholder="0x..."
@@ -231,7 +234,7 @@ export default function Wallet() {
                 testID="wallet-address"
               />
               <Text style={styles.hint}>
-                Vérifiez attentivement votre adresse — toute erreur entraîne une perte définitive des fonds.
+                {t("wallet.address_warning")}
               </Text>
             </>
           )}
@@ -239,7 +242,7 @@ export default function Wallet() {
 
         <View style={{ marginTop: 16 }}>
           <Button
-            title="ENREGISTRER"
+            title={t("wallet.save")}
             icon={<Ionicons name="save" size={18} color="#fff" />}
             onPress={save}
             loading={loading}
@@ -253,7 +256,7 @@ export default function Wallet() {
       <Modal visible={showCP} transparent animationType="fade" onRequestClose={() => setShowCP(false)}>
         <Pressable style={styles.modalBg} onPress={() => setShowCP(false)}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Choisir le pays</Text>
+            <Text style={styles.modalTitle}>{t("wallet.select_country")}</Text>
             <ScrollView>
               {countries.map((c) => (
                 <TouchableOpacity
@@ -266,7 +269,7 @@ export default function Wallet() {
                   }}
                   testID={`wallet-country-${c.code}`}
                 >
-                  <Text style={styles.countryRowTxt}>{c.flag ? `${c.flag} ` : ""}{c.name}</Text>
+                  <Text style={styles.countryRowTxt}>{c.flag ? `${c.flag} ` : ""}{localizedCountryName(c.code, c.name, lang)}</Text>
                   {country === c.code ? <Ionicons name="checkmark" size={18} color={theme.colors.success} /> : null}
                 </TouchableOpacity>
               ))}

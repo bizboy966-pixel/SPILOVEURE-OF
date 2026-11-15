@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useFeature, FeatureKey } from "@/src/features";
 import { theme } from "@/src/theme";
+import { translateFormText, useI18n } from "@/src/i18n";
 
 /**
  * Wrap a screen so it renders the "Fonctionnalité désactivée" placeholder
@@ -21,6 +22,8 @@ export function FeatureGuard({
   children: React.ReactNode;
   title?: string;
 }) {
+  const { t } = useI18n();
+  const translatedTitle = translateFormText(title || t("common.feature_disabled"), t);
   const enabled = useFeature(featureKey);
   const router = useRouter();
 
@@ -32,10 +35,9 @@ export function FeatureGuard({
         <View style={styles.iconBox}>
           <Ionicons name="lock-closed" size={44} color={theme.colors.warning} />
         </View>
-        <Text style={styles.title}>{title || "Fonctionnalité désactivée"}</Text>
+        <Text style={styles.title}>{translatedTitle}</Text>
         <Text style={styles.desc}>
-          Cette fonctionnalité est momentanément désactivée par l'administrateur.
-          {"\n"}Elle sera de nouveau disponible dès son activation officielle.
+          {t("common.feature_disabled_desc")}
         </Text>
         <TouchableOpacity
           onPress={() => (router.canGoBack() ? router.back() : router.replace("/(app)/dashboard"))}
@@ -43,7 +45,7 @@ export function FeatureGuard({
           testID={`feature-disabled-back-${featureKey}`}
         >
           <Ionicons name="arrow-back" size={16} color="#fff" />
-          <Text style={styles.btnT}>Retour</Text>
+          <Text style={styles.btnT}>{t("common.back")}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

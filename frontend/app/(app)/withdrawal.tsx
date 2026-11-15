@@ -13,10 +13,12 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
+import { useI18n } from "@/src/i18n";
 
 export default function Withdrawal() {
   const router = useRouter();
   const { user, refresh } = useAuth();
+  const { t, lang } = useI18n();
   const [wallet, setWallet] = useState<any>(null);
   const [amount, setAmount] = useState("");
   const [history, setHistory] = useState<any[]>([]);
@@ -44,12 +46,14 @@ export default function Withdrawal() {
   const netPreview = Math.max(0, amt - feePreview);
 
   // Withdrawal window helpers (Africa/Lome — UTC+0)
-  const DAY_NAMES_FULL = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+  const DAY_NAMES_FULL = lang === "en"
+    ? ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+    : ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
   const allowedDays = wdSettings.allowed_days || [0,1,2,3,4,5,6];
   const openTime = wdSettings.open_time || "07:00";
   const closeTime = wdSettings.close_time || "20:00";
   const prettyDays = (() => {
-    if (allowedDays.length === 7) return "Lundi à Dimanche";
+    if (allowedDays.length === 7) return t("withdrawal.open_days_all");
     return [...allowedDays].sort().map((i) => DAY_NAMES_FULL[i]).join(", ");
   })();
   const now = new Date();
@@ -67,15 +71,15 @@ export default function Withdrawal() {
   const windowOpen = wdSettings.enabled !== false && dayOk && timeOk;
 
   const submit = async (token: string) => {
-    if (!amt || amt <= 0) return Alert.alert("Erreur", "Montant invalide.");
+    if (!amt || amt <= 0) return Alert.alert(t("common.error"), t("withdrawal.invalid_amount"));
     try {
       await api.post("/withdrawals", { amount: amt }, { pwdConfirm: token });
-      Alert.alert("✅", `Demande enregistrée. Vous recevrez ${formatFCFA(netPreview)} après validation admin.`);
+      Alert.alert("✅", t("withdrawal.request_saved", { amount: formatFCFA(netPreview) }));
       setAmount("");
       await refresh();
       await load();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Erreur");
+      Alert.alert(t("common.error"), e?.detail || t("common.error"));
     }
   };
 
@@ -85,8 +89,8 @@ export default function Withdrawal() {
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Demande de retrait</Text>
-        <Text style={styles.sub}>Disponible (profit) : {formatFCFA(user?.balance_profit)}</Text>
+        <Text style={styles.title}>{t("withdrawal.title")}</Text>
+        <Text style={styles.sub}>{t("withdrawal.available")} {formatFCFA(user?.balance_profit)}</Text>
       </LinearGradient>
 
       <ScrollView
@@ -98,31 +102,31 @@ export default function Withdrawal() {
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="alert-circle" size={40} color={theme.colors.warning} />
               <Text style={{ marginTop: 8, fontWeight: "700", color: theme.colors.textPrimary }}>
-                Aucun portefeuille enregistré
+                {t("withdrawal.no_wallet")}
               </Text>
               <Text style={{ color: theme.colors.textSecondary, textAlign: "center", marginTop: 4 }}>
-                Vous devez d'abord enregistrer votre portefeuille de retrait.
+                {t("withdrawal.wallet_required")}
               </Text>
-              <Button title="Configurer mon portefeuille" onPress={() => router.push("/(app)/wallet")} style={{ marginTop: 12 }} testID="wd-config-wallet" />
+              <Button title={t("withdrawal.setup_wallet")} onPress={() => router.push("/(app)/wallet")} style={{ marginTop: 12 }} testID="wd-config-wallet" />
             </View>
           </Card>
         ) : (
           <>
             <Card>
-              <Text style={styles.section}>Portefeuille</Text>
-              <Row label="Pays" value={wallet.country} />
-              <Row label="Opérateur" value={wallet.operator} />
-              <Row label="Numéro" value={wallet.phone} />
-              <Row label="Nom complet" value={wallet.full_name} />
+              <Text style={styles.section}>{t("withdrawal.wallet")}</Text>
+              <Row label={t("withdrawal.country")} value={wallet.country} />
+              <Row label={t("withdrawal.operator")} value={wallet.operator} />
+              <Row label={t("withdrawal.phone")} value={wallet.phone} />
+              <Row label={t("withdrawal.full_name")} value={wallet.full_name} />
               <TouchableOpacity onPress={() => router.push("/(app)/wallet")} style={{ alignSelf: "flex-end" }}>
-                <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Modifier</Text>
+                <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>{t("common.edit")}</Text>
               </TouchableOpacity>
             </Card>
 
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <Ionicons name="time-outline" size={18} color={theme.colors.primary} />
-                <Text style={styles.section}>💳 Horaires de retrait</Text>
+                <Text style={styles.section}>{t("withdrawal.schedule")}</Text>
               </View>
               <View style={styles.scheduleRow}>
                 <Ionicons name="calendar-outline" size={14} color={theme.colors.textSecondary} />
@@ -139,22 +143,22 @@ export default function Withdrawal() {
                   color={windowOpen ? "#10B981" : theme.colors.danger}
                 />
                 <Text style={[styles.statusTxt, { color: windowOpen ? "#10B981" : theme.colors.danger }]}>
-                  {windowOpen ? "Retraits ouverts actuellement" : "Retraits actuellement fermés"}
+                  {windowOpen ? t("withdrawal.open_now") : t("withdrawal.closed_now")}
                 </Text>
               </View>
             </Card>
 
             <Card style={{ marginTop: 12 }}>
-              <Text style={styles.section}>Montant à retirer (FCFA)</Text>
+              <Text style={styles.section}>{t("withdrawal.amount_fcfa")}</Text>
               <Input icon="cash-outline" placeholder="Ex: 50000" value={amount} onChangeText={setAmount} keyboardType="numeric" testID="wd-amount" />
               <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
-                ⚠️ Seul votre profit disponible est retirable. La réserve de mise à niveau est conservée.
+                {t("withdrawal.profit_only")}
               </Text>
 
               {(wdSettings.fee_percent > 0 || wdSettings.fee_flat > 0 || wdSettings.min_amount > 0) && (
                 <View style={styles.feeBox}>
                   <View style={styles.feeRow}>
-                    <Text style={styles.feeLbl}>Frais de retrait</Text>
+                    <Text style={styles.feeLbl}>{t("withdrawal.fee")}</Text>
                     <Text style={styles.feeVal}>
                       {wdSettings.fee_percent > 0 ? `${wdSettings.fee_percent}% ` : ""}
                       {wdSettings.fee_flat > 0 ? `+ ${formatFCFA(wdSettings.fee_flat)}` : ""}
@@ -162,18 +166,18 @@ export default function Withdrawal() {
                   </View>
                   {wdSettings.min_amount > 0 && (
                     <View style={styles.feeRow}>
-                      <Text style={styles.feeLbl}>Montant minimum</Text>
+                      <Text style={styles.feeLbl}>{t("withdrawal.minimum")}</Text>
                       <Text style={styles.feeVal}>{formatFCFA(wdSettings.min_amount)}</Text>
                     </View>
                   )}
                   {amt > 0 && (
                     <>
                       <View style={[styles.feeRow, { marginTop: 6 }]}>
-                        <Text style={styles.feeLbl}>Frais sur ce retrait</Text>
+                        <Text style={styles.feeLbl}>{t("withdrawal.fee_this")}</Text>
                         <Text style={[styles.feeVal, { color: theme.colors.danger }]}>− {formatFCFA(feePreview)}</Text>
                       </View>
                       <View style={[styles.feeRow, styles.feeTotal]}>
-                        <Text style={[styles.feeLbl, { color: theme.colors.textPrimary, fontWeight: "800" }]}>Vous recevrez</Text>
+                        <Text style={[styles.feeLbl, { color: theme.colors.textPrimary, fontWeight: "800" }]}>{t("withdrawal.you_receive")}</Text>
                         <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 16 }}>{formatFCFA(netPreview)}</Text>
                       </View>
                     </>
@@ -183,23 +187,23 @@ export default function Withdrawal() {
 
               {!windowOpen && (
                 <View style={styles.closedBanner} testID="wd-closed-banner">
-                  <Text style={styles.closedTitle}>🚫 Retrait actuellement indisponible.</Text>
-                  <Text style={styles.closedBody}>Les retraits sont autorisés :</Text>
+                  <Text style={styles.closedTitle}>{t("withdrawal.closed_title")}</Text>
+                  <Text style={styles.closedBody}>{t("withdrawal.allowed")}</Text>
                   <Text style={styles.closedBody}>📅 {prettyDays}</Text>
                   <Text style={styles.closedBody}>🕒 De {openTime} à {closeTime}</Text>
                   <Text style={[styles.closedBody, { marginTop: 6, fontStyle: "italic" }]}>
-                    Veuillez réessayer pendant les heures d'ouverture. Merci de votre compréhension. 🙏
+                    {t("withdrawal.closed_note")}
                   </Text>
                 </View>
               )}
 
               <Button
-                title={windowOpen ? "SOUMETTRE LE RETRAIT" : "RETRAITS FERMÉS"}
+                title={windowOpen ? t("withdrawal.submit_button") : t("withdrawal.closed_button")}
                 icon={<Ionicons name={windowOpen ? "arrow-up-circle" : "lock-closed"} size={18} color="#fff" />}
                 onPress={() => {
                   if (!windowOpen) {
-                    if (typeof window !== "undefined") window.alert(`🚫 Retrait actuellement indisponible.\n\nLes retraits sont autorisés :\n📅 ${prettyDays}\n🕒 De ${openTime} à ${closeTime}\n\nMerci de votre compréhension. 🙏`);
-                    else Alert.alert("Retraits fermés", `Disponibles ${prettyDays} de ${openTime} à ${closeTime}.`);
+                    if (typeof window !== "undefined") window.alert(`${t("withdrawal.closed_title")}\n\n${t("withdrawal.allowed")}\n📅 ${prettyDays}\n🕒 ${t("withdrawal.open_time", { open: openTime, close: closeTime })}\n\n${t("withdrawal.closed_note")}`);
+                    else Alert.alert(t("withdrawal.closed_alert_title"), t("withdrawal.closed_alert", { days: prettyDays, open: openTime, close: closeTime }));
                     return;
                   }
                   setShowPwd(true);
@@ -212,10 +216,10 @@ export default function Withdrawal() {
         )}
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Historique des retraits</Text>
+          <Text style={styles.section}>{t("withdrawal.history")}</Text>
           {history.length === 0 ? (
             <Text style={{ color: theme.colors.textSecondary, textAlign: "center", padding: 16 }}>
-              Aucune demande de retrait pour le moment.
+              {t("withdrawal.empty")}
             </Text>
           ) : (
             history.map((h) => (
@@ -232,7 +236,7 @@ export default function Withdrawal() {
         </Card>
       </ScrollView>
 
-      <PasswordConfirmModal visible={showPwd} onClose={() => setShowPwd(false)} onConfirm={submit} title="Confirmer le retrait" />
+      <PasswordConfirmModal visible={showPwd} onClose={() => setShowPwd(false)} onConfirm={submit} title={t("withdrawal.confirm")} />
     </SafeAreaView>
   );
 }
@@ -247,10 +251,11 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
   const cfg: any = {
-    pending: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "En attente" },
-    validated: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé" },
-    rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté" },
+    pending: { bg: theme.colors.warningBg, color: theme.colors.warning, label: t("status.pending") },
+    validated: { bg: theme.colors.successBg, color: theme.colors.success, label: t("status.validated") },
+    rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: t("status.rejected") },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
     <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: cfg.bg }}>

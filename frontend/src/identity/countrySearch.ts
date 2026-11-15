@@ -6,8 +6,25 @@ const fullNames: Record<string, string> = {
   CF: "République centrafricaine",
 };
 
-export function countryDisplayName(country: SearchableCountry): string {
-  return fullNames[country.code] || country.name;
+export function localizedCountryName(
+  code: string,
+  fallback: string,
+  language: "fr" | "en" = "fr",
+): string {
+  if (language === "fr" && fullNames[code]) return fullNames[code];
+  try {
+    const locale = language === "en" ? "en" : "fr";
+    return new Intl.DisplayNames([locale], { type: "region" }).of(code) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function countryDisplayName(
+  country: SearchableCountry,
+  language: "fr" | "en" = "fr",
+): string {
+  return localizedCountryName(country.code, country.name, language);
 }
 
 function normalizedName(value: string): string {

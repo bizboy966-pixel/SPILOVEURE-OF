@@ -8,6 +8,7 @@ import { useActivationGuard } from "./ActivationGuard";
 import { useAuth } from "../auth";
 import { useNavigationTransition } from "../messenger/NavigationTransition";
 import { useChat } from "../chat/ChatContext";
+import { useI18n } from "../i18n";
 
 /**
  * Floating bottom navigation (v14 — mockup-driven refresh).
@@ -57,6 +58,7 @@ function isActive(pathname: string, matchers: string[] | undefined): boolean {
 }
 
 export const BottomNav: React.FC = () => {
+  const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname() || "";
   const [plusOpen, setPlusOpen] = useState(false);
@@ -103,7 +105,7 @@ export const BottomNav: React.FC = () => {
         return;
       }
     } catch {}
-    if (typeof window !== "undefined") window.alert("Service client indisponible pour le moment.");
+    if (typeof window !== "undefined") window.alert(t("nav.service_unavailable"));
   };
 
   const goto = (route: string) => {
@@ -113,7 +115,7 @@ export const BottomNav: React.FC = () => {
         return;
       }
       if (chatUser && user && chatUser.id !== user.id) {
-        if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+        if (typeof window !== "undefined") window.alert(t("chat.session_conflict"));
         return;
       }
       (async () => {
@@ -121,7 +123,7 @@ export const BottomNav: React.FC = () => {
           const main = await api.get<{ user: { id: string }; email_verified: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
           const existing = await api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" }).catch(() => null);
           if (existing && existing.user?.id !== main.user?.id) {
-            if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+            if (typeof window !== "undefined") window.alert(t("chat.session_conflict"));
             return;
           }
           if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
@@ -155,7 +157,7 @@ export const BottomNav: React.FC = () => {
           color={active ? theme.colors.primary : "#8FA6C4"}
         />
         <Text style={[styles.label, active && styles.labelActive]}>
-          {it.label}
+          {t(`nav.${it.key === "home" ? "home" : it.key}`)}
         </Text>
       </TouchableOpacity>
     );
@@ -183,7 +185,7 @@ export const BottomNav: React.FC = () => {
                 </View>
               ) : null}
             </TouchableOpacity>
-            <Text style={styles.centreLabel}>Tâches</Text>
+            <Text style={styles.centreLabel}>{t("nav.tasks")}</Text>
           </View>
 
           {RIGHT.map((it) => renderItem(it, "R"))}
@@ -204,7 +206,7 @@ export const BottomNav: React.FC = () => {
         />
         <View style={styles.sheet} testID="bottom-nav-plus-menu">
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Nos services</Text>
+          <Text style={styles.sheetTitle}>{t("dashboard.services")}</Text>
           <View style={styles.grid}>
             {PLUS_MENU.map((it) => (
               <TouchableOpacity
@@ -220,7 +222,7 @@ export const BottomNav: React.FC = () => {
                 <View style={styles.gridIcon}>
                   <Ionicons name={it.icon} size={22} color={theme.colors.primary} />
                 </View>
-                <Text style={styles.gridLabel}>{it.label}</Text>
+                <Text style={styles.gridLabel}>{t(`nav.${it.key === "emploi" ? "jobs" : it.key}`)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -229,7 +231,7 @@ export const BottomNav: React.FC = () => {
             onPress={() => setPlusOpen(false)}
             testID="bottom-nav-plus-close"
           >
-            <Text style={styles.sheetCloseText}>Fermer</Text>
+            <Text style={styles.sheetCloseText}>{t("common.close")}</Text>
           </TouchableOpacity>
         </View>
       </Modal>

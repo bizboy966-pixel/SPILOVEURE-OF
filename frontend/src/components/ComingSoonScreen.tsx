@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
+import { translateFormText, useI18n } from "@/src/i18n";
 
 type Props = {
   title: string;
@@ -31,6 +32,9 @@ export const ComingSoonScreen: React.FC<Props> = ({
   testID,
 }) => {
   const router = useRouter();
+  const { t } = useI18n();
+  const displayTitle = translateFormText(title, t);
+  const displayDescription = translateFormText(description || t("common.coming_soon_desc"), t);
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
@@ -39,7 +43,7 @@ export const ComingSoonScreen: React.FC<Props> = ({
             <TouchableOpacity onPress={() => router.back()} style={styles.back} testID={`${testID || "coming-soon"}-back`}>
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.title}>{displayTitle}</Text>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -48,10 +52,9 @@ export const ComingSoonScreen: React.FC<Props> = ({
         <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
           <Ionicons name={icon} size={56} color={iconColor} />
         </View>
-        <Text style={styles.h1}>Bientôt disponible</Text>
+        <Text style={styles.h1}>{t("common.coming_soon_title")}</Text>
         <Text style={styles.desc}>
-          {description ||
-            "Cette fonctionnalité est actuellement en cours de développement. Elle sera bientôt disponible sur SPILOVEURE."}
+          {displayDescription}
         </Text>
         <TouchableOpacity
           style={styles.cta}
@@ -59,7 +62,7 @@ export const ComingSoonScreen: React.FC<Props> = ({
           testID={`${testID || "coming-soon"}-home`}
         >
           <Ionicons name="home" size={16} color="#fff" />
-          <Text style={styles.ctaTxt}>Retour à l'accueil</Text>
+          <Text style={styles.ctaTxt}>{t("common.return_home")}</Text>
         </TouchableOpacity>
       </View>
 

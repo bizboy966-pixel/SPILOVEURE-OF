@@ -20,6 +20,7 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 import ActivationVideoList from "@/src/components/ActivationVideoList";
 import MoneyFusionActivation from "@/src/components/MoneyFusionActivation";
 
@@ -56,6 +57,7 @@ type Catalog = {
 };
 
 export default function Pay() {
+  const { t: translate } = useI18n();
   const router = useRouter();
   const { moneyfusion_reference: moneyfusionReference } = useLocalSearchParams<{ moneyfusion_reference?: string }>();
   const { refresh, user } = useAuth();
@@ -93,7 +95,7 @@ export default function Pay() {
     if (chatBusy) return;
     if (chatUser && (!user || chatUser.id === user.id)) { router.push("/messenger" as any); return; }
     if (chatUser && user && chatUser.id !== user.id) {
-      if (typeof window !== "undefined") window.alert("Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer.");
+      if (typeof window !== "undefined") window.alert(translate("payment.session_conflict"));
       return;
     }
     setChatBusy(true);
@@ -101,7 +103,7 @@ export default function Pay() {
       const main = await api.get<{ user: { id: string }; email_verified: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
       const existing = await api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" }).catch(() => null);
       if (existing && existing.user?.id !== main.user?.id) {
-        throw { detail: "Une session Chat d’un autre compte est déjà ouverte sur cet appareil. Déconnectez-la depuis son profil avant de continuer." };
+        throw { detail: translate("payment.session_conflict") };
       }
       if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
       await api.post("/identity/chat/open", undefined, { credentials: "include" });
@@ -303,7 +305,7 @@ export default function Pay() {
         }
       } catch {
         missed += 1;
-        if (missed >= 6) setErr("Impossible de vérifier le paiement. Actualisez la page.");
+        if (missed >= 6) setErr(translate("payment.verify_failed"));
       }
     }, currentGateway === "biztranspay" ? 10000 : 3000);
     return () => clearInterval(t);
@@ -359,7 +361,7 @@ export default function Pay() {
                   {selectedCountry.flag} {selectedCountry.name}
                 </Text>
               ) : (
-                <Text style={styles.selectorPh}>Sélectionner un pays</Text>
+                  <Text style={styles.selectorPh}>{translate("payment.country_select")}</Text>
               )}
               <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
@@ -398,7 +400,7 @@ export default function Pay() {
                         <Text style={styles.selectorTxt}>{selectedOperator.label}</Text>
                       </View>
                     ) : (
-                      <Text style={styles.selectorPh}>Sélectionner un moyen de paiement</Text>
+                      <Text style={styles.selectorPh}>{translate("payment.method_select")}</Text>
                     )}
                     <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
                   </TouchableOpacity>
@@ -414,7 +416,7 @@ export default function Pay() {
                   style={styles.input}
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="Entrez le numéro qui sera débité"
+                  placeholder={translate("payment.phone_debit")}
                   placeholderTextColor={theme.colors.textSecondary}
                   keyboardType="phone-pad"
                   testID="pay-phone"
@@ -464,7 +466,7 @@ export default function Pay() {
                 <Text style={styles.otpSubtitle}>
                   {otpFlow && !(operatorUssd || otpFlow.ussd)
                     ? otpFlow.message
-                    : `Pour ${selectedOperator?.label || "cet opérateur"}, générez votre code avant de valider.`}
+                    : translate("payment.operator_instruction", { operator: selectedOperator?.label || translate("payment.operator_fallback") })}
                 </Text>
 
                 {!!(operatorUssd || otpFlow?.ussd) && (<>
@@ -487,7 +489,7 @@ export default function Pay() {
                     testID="pay-otp-copy"
                   >
                     <Ionicons name={copied ? "checkmark" : "copy"} size={14} color="#fff" />
-                    <Text style={styles.copyTxt}>{copied ? "Copié" : "Copier"}</Text>
+                    <Text style={styles.copyTxt}>{copied ? translate("common.copied_short") : translate("common.copy_action")}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -607,7 +609,7 @@ export default function Pay() {
                           else router.replace("/(app)/dashboard" as any);
                         }, 1200);
                       } catch (e: any) {
-                        setHashErr(e?.detail || e?.message || "Hash invalide ou déjà utilisée.");
+                        setHashErr(e?.detail || e?.message || translate("payment.hash_invalid"));
                       } finally { setHashSubmitting(false); }
                     }}
                     testID="pay-tx-hash-submit"
@@ -628,7 +630,7 @@ export default function Pay() {
               </>
             ) : (
               <Text style={styles.pendingSub} testID="pay-pending-msg">
-                {pendingMsg || "Validez la demande sur votre téléphone."} L'activation se fait automatiquement.
+                {pendingMsg || translate("payment.approve_phone")} {translate("payment.activation_auto")}
               </Text>
             )}
           </View>

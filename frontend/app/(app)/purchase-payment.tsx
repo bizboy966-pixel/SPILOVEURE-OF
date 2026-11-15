@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 type Operator = {
   code: string;
@@ -32,6 +33,7 @@ function showMessage(title: string, message: string) {
 }
 
 export default function PurchasePaymentScreen() {
+  const { t } = useI18n();
   const router = useRouter();
   const params = useLocalSearchParams<{
     kind?: string; target_id?: string; amount?: string; title?: string; return_to?: string;
@@ -43,7 +45,7 @@ export default function PurchasePaymentScreen() {
   const returnTo = String(params.return_to || "/(app)/dashboard");
   const title = String(params.title || (
     kind === "lottery_entry" ? "Ticket Jackpot" :
-    kind === "special_task" ? "Paiement de la tâche" : "Paiement de la publicité"
+    kind === "special_task" ? t("purchase.payment_task") : t("purchase.payment_ad")
   ));
 
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -94,11 +96,11 @@ export default function PurchasePaymentScreen() {
 
   async function startPayment() {
     if (!operator || !country) {
-      showMessage("Choix requis", "Sélectionnez un pays et un moyen de paiement.");
+      showMessage(t("purchase.choice_required_title"), t("purchase.choice_required"));
       return;
     }
     if (!isCrypto && !phone.trim()) {
-      showMessage("Numéro requis", "Saisissez le numéro Mobile Money à débiter.");
+      showMessage(t("purchase.phone_required_title"), t("purchase.phone_required"));
       return;
     }
     setBusy(true);
@@ -129,17 +131,17 @@ export default function PurchasePaymentScreen() {
     } catch (e: any) {
       const detail = e?.detail;
       const message = typeof detail === "string" ? detail
-        : detail?.message || e?.message || "Le paiement n'a pas pu démarrer.";
+        : detail?.message || e?.message || t("purchase.start_failed");
       if (detail?.code === "OTP_REQUIRED" || detail?.code === "OTP_SENT") {
         setProviderMessage(message);
         setStatus("form");
-        showMessage("Code de confirmation", message);
+        showMessage(t("purchase.sms_code"), message);
       } else if (detail?.code === "USSD_AUTHORIZATION_REQUIRED") {
         setUssdAccepted(false);
         setProviderMessage(message);
         showMessage("Autorisation USSD", message);
       } else {
-        showMessage("Paiement indisponible", message);
+        showMessage(t("payment.failed"), message);
       }
     } finally {
       setBusy(false);
@@ -165,7 +167,7 @@ export default function PurchasePaymentScreen() {
           return;
         }
         if (["failed", "rejected", "expired", "underpaid"].includes(result.status)) {
-          setProviderMessage(result.error || "Le prestataire a refusé le paiement.");
+          setProviderMessage(result.error || t("purchase.provider_refused"));
           setStatus("failed");
         }
       } catch {}
@@ -200,11 +202,11 @@ export default function PurchasePaymentScreen() {
             {catalogError ? <Text style={styles.error}>{catalogError}</Text> : null}
             {!catalog && !catalogError ? <ActivityIndicator color={theme.colors.primary} /> : null}
             {catalog && catalog.countries.length === 0 ? (
-              <Text style={styles.error}>Aucun moyen de paiement n'est actuellement disponible.</Text>
+              <Text style={styles.error}>{t("purchase.no_methods")}</Text>
             ) : null}
             {catalog && catalog.countries.length > 0 && (
               <>
-                <Text style={styles.label}>Pays</Text>
+                <Text style={styles.label}>{t("purchase.country")}</Text>
                 <View style={styles.options}>
                   {catalog.countries.map((c) => (
                     <TouchableOpacity key={c.code}
@@ -214,7 +216,7 @@ export default function PurchasePaymentScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={styles.label}>Prestataire / opérateur</Text>
+                <Text style={styles.label}>{t("purchase.provider")}</Text>
                 <View style={styles.options}>
                   {(country?.operators || []).map((o) => (
                     <TouchableOpacity key={`${o.gateway}-${o.code}`}
@@ -229,12 +231,12 @@ export default function PurchasePaymentScreen() {
                 </View>
                 {operator && !isCrypto && (
                   <>
-                    <Text style={styles.label}>Numéro Mobile Money</Text>
+                    <Text style={styles.label}>{t("purchase.mobile_number")}</Text>
                     <TextInput style={styles.input} value={phone} onChangeText={setPhone}
-                      keyboardType="phone-pad" placeholder="Votre numéro de téléphone" />
+                      keyboardType="phone-pad" placeholder={t("purchase.phone_number")} />
                     {operator.requires_otp && (
                       <>
-                        <Text style={styles.label}>Code reçu par SMS</Text>
+                        <Text style={styles.label}>{t("purchase.sms_code")}</Text>
                         <TextInput style={styles.input} value={otp} onChangeText={setOtp}
                           keyboardType="number-pad" placeholder="Code OTP" />
                       </>
@@ -242,13 +244,13 @@ export default function PurchasePaymentScreen() {
                     {ussdCode ? (
                       <TouchableOpacity style={styles.checkRow} onPress={() => setUssdAccepted((v) => !v)}>
                         <Ionicons name={ussdAccepted ? "checkbox" : "square-outline"} size={22} color={theme.colors.primary} />
-                        <Text style={styles.hint}>J'ai composé {ussdCode} et autorisé le paiement.</Text>
+                        <Text style={styles.hint}>{t("purchase.ussd_authorized", { code: ussdCode })}</Text>
                       </TouchableOpacity>
                     ) : null}
                   </>
                 )}
                 {operator && isCrypto && (
-                  <Text style={styles.hint}>Vous recevrez une adresse de dépôt USDT à utiliser sur le réseau BEP20.</Text>
+                  <Text style={styles.hint}>{t("purchase.usdt_note")}</Text>
                 )}
                 {providerMessage ? <Text style={styles.hint}>{providerMessage}</Text> : null}
                 <TouchableOpacity style={[styles.primary, busy && { opacity: 0.6 }]}
@@ -264,20 +266,20 @@ export default function PurchasePaymentScreen() {
         {status === "waiting" && (
           <View style={styles.card}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.waitTitle}>Vérification du paiement</Text>
-            <Text style={styles.hint}>{providerMessage || "Validez la demande sur votre téléphone ou terminez le paiement sur la page du prestataire."}</Text>
+            <Text style={styles.waitTitle}>{t("purchase.waiting")}</Text>
+            <Text style={styles.hint}>{providerMessage || t("purchase.validate_payment")}</Text>
             {session?.deposit_address ? (
               <>
-                <Text style={styles.label}>Adresse de dépôt</Text>
+                <Text style={styles.label}>{t("purchase.address")}</Text>
                 <Text selectable style={styles.address}>{session.deposit_address}</Text>
                 <Text style={styles.hint}>
-                  Montant : {session.amount_to_send || session.amount} {session.asset_code || "USDT"} · Réseau {session.network || "BEP20"}
+                  {t("purchase.amount_network", { amount: session.amount_to_send || session.amount, asset: session.asset_code || "USDT", network: session.network || "BEP20" })}
                 </Text>
               </>
             ) : null}
-            <Text style={styles.hint}>Référence : {session?.reference}</Text>
+            <Text style={styles.hint}>{t("purchase.reference", { reference: session?.reference || "" })}</Text>
             <TouchableOpacity style={styles.secondary} onPress={finish}>
-              <Text style={styles.secondaryText}>Revenir plus tard</Text>
+              <Text style={styles.secondaryText}>{t("purchase.later")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -285,14 +287,14 @@ export default function PurchasePaymentScreen() {
         {status === "done" && (
           <View style={styles.card}>
             <Ionicons name="checkmark-circle" size={56} color="#16A34A" />
-            <Text style={styles.waitTitle}>Paiement confirmé</Text>
+            <Text style={styles.waitTitle}>{t("purchase.confirmed")}</Text>
             <Text style={styles.hint}>
               {kind === "lottery_entry"
-                ? "Votre ticket Jackpot est confirmé."
-                : "Votre publication a été envoyée pour validation."}
+                ? t("purchase.jackpot_confirmed")
+                : t("purchase.submitted_review")}
             </Text>
             <TouchableOpacity style={styles.primary} onPress={finish}>
-              <Text style={styles.primaryText}>Continuer</Text>
+              <Text style={styles.primaryText}>{t("purchase.close")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -300,10 +302,10 @@ export default function PurchasePaymentScreen() {
         {status === "refund" && (
           <View style={styles.card}>
             <Ionicons name="alert-circle" size={52} color="#D97706" />
-            <Text style={styles.waitTitle}>Vérification nécessaire</Text>
-            <Text style={styles.hint}>Le paiement a été reçu, mais le ticket n'a pas pu être confirmé. Un remboursement manuel doit être vérifié par l'équipe.</Text>
+            <Text style={styles.waitTitle}>{t("purchase.review_required")}</Text>
+            <Text style={styles.hint}>{t("purchase.manual_refund")}</Text>
             <TouchableOpacity style={styles.primary} onPress={finish}>
-              <Text style={styles.primaryText}>Fermer</Text>
+              <Text style={styles.primaryText}>{t("purchase.close")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -311,10 +313,10 @@ export default function PurchasePaymentScreen() {
         {status === "failed" && (
           <View style={styles.card}>
             <Ionicons name="close-circle" size={52} color="#DC2626" />
-            <Text style={styles.waitTitle}>Paiement non confirmé</Text>
-            <Text style={styles.error}>{providerMessage || "Le paiement a échoué."}</Text>
+            <Text style={styles.waitTitle}>{t("purchase.not_confirmed")}</Text>
+            <Text style={styles.error}>{providerMessage || t("purchase.failed")}</Text>
             <TouchableOpacity style={styles.secondary} onPress={() => { setSession(null); setStatus("form"); }}>
-              <Text style={styles.secondaryText}>Réessayer</Text>
+              <Text style={styles.secondaryText}>{t("purchase.retry")}</Text>
             </TouchableOpacity>
           </View>
         )}

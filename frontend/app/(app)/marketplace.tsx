@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
+import { useI18n } from "@/src/i18n";
 
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
 type Listing = {
@@ -16,6 +17,7 @@ type Listing = {
 };
 
 function MarketplaceScreenInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,16 +71,16 @@ function MarketplaceScreenInner() {
   };
 
   const rate = async (id: string) => {
-    const raw = typeof window !== "undefined" ? window.prompt("Note (1-5) et commentaire optionnel séparés par | (ex : 5|Très bon vendeur)") : "";
+    const raw = typeof window !== "undefined" ? window.prompt(t("marketplace.review_prompt")) : "";
     if (!raw) return;
     const [rStr, ...rest] = raw.split("|");
     const rating = parseInt(rStr.trim(), 10);
-    if (isNaN(rating) || rating < 1 || rating > 5) { window.alert("Note invalide (1-5)."); return; }
+    if (isNaN(rating) || rating < 1 || rating > 5) { window.alert(t("marketplace.rating_invalid")); return; }
     try {
       await api.post(`/marketplace/${id}/review`, { rating, comment: rest.join("|").trim() });
-      window.alert("✅ Avis publié. Merci !");
+      window.alert(t("marketplace.review_published"));
       load();
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || t("marketplace.failed")}`); }
   };
 
   const avgRating = (l: Listing) => {
@@ -130,7 +132,7 @@ function MarketplaceScreenInner() {
               <Image source={{ uri: src }} style={styles.img} resizeMode="cover" />
               <View style={styles.zoomHint}>
                 <Ionicons name="expand" size={12} color="#fff" />
-                <Text style={styles.zoomHintTxt}>Voir en grand</Text>
+              <Text style={styles.zoomHintTxt}>{t("marketplace.zoom")}</Text>
               </View>
             </TouchableOpacity>
           ) : null}
@@ -152,7 +154,7 @@ function MarketplaceScreenInner() {
               testID={`mk-audio-toggle-${item.id}`}
             >
               <Ionicons name={isPlaying ? "pause" : "musical-notes"} size={16} color="#fff" />
-              <Text style={styles.musicTxt}>{isPlaying ? "Musique on" : "Écouter la musique"}</Text>
+              <Text style={styles.musicTxt}>{isPlaying ? t("marketplace.music_on") : t("marketplace.listen_music")}</Text>
             </TouchableOpacity>
           )}
           {Platform.OS === "web" && hasAudio && (
@@ -177,7 +179,7 @@ function MarketplaceScreenInner() {
                 ) : (
                   <View style={{ height: 160, backgroundColor: "#000", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                     <Ionicons name="videocam" size={24} color="#fff" />
-                    <Text style={{ color: "#fff", fontSize: 12, marginTop: 4 }}>Vidéo</Text>
+                    <Text style={{ color: "#fff", fontSize: 12, marginTop: 4 }}>{t("marketplace.video")}</Text>
                   </View>
                 )}
               </View>
@@ -228,11 +230,11 @@ function MarketplaceScreenInner() {
           <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: "#25D366", flex: 1 }]} onPress={() => openWhatsapp(item.whatsapp)} testID={`mk-chat-${item.id}`}>
               <Ionicons name="logo-whatsapp" size={16} color="#fff" />
-              <Text style={styles.btnT}>Discuter</Text>
+              <Text style={styles.btnT}>{t("marketplace.discuss")}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, { backgroundColor: theme.colors.primary, flex: 1 }]} onPress={() => rate(item.id)} testID={`mk-rate-${item.id}`}>
               <Ionicons name="star" size={16} color="#fff" />
-              <Text style={styles.btnT}>Avis / Acheter</Text>
+              <Text style={styles.btnT}>{t("marketplace.review_buy")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -244,7 +246,7 @@ function MarketplaceScreenInner() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="mk-back"><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
-        <Text style={styles.title}>🛒 Marketplace</Text>
+        <Text style={styles.title}>{t("marketplace.title")}</Text>
         <TouchableOpacity onPress={() => router.push("/(app)/marketplace-create" as any)} style={styles.addBtn} testID="mk-create"><Ionicons name="add" size={22} color="#fff" /></TouchableOpacity>
       </View>
       {loading ? (
@@ -261,8 +263,8 @@ function MarketplaceScreenInner() {
           ListEmptyComponent={
             <View style={{ alignItems: "center", padding: 40 }}>
               <Ionicons name="cart-outline" size={48} color={theme.colors.textSecondary} />
-              <Text style={{ fontWeight: "900", fontSize: 15, marginTop: 8 }}>Aucune annonce publiée</Text>
-              <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>Soyez le premier à publier gratuitement !</Text>
+              <Text style={{ fontWeight: "900", fontSize: 15, marginTop: 8 }}>{t("marketplace.empty_title")}</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 }}>{t("marketplace.empty_hint")}</Text>
             </View>
           }
         />
@@ -322,8 +324,9 @@ const styles = StyleSheet.create({
 import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 export default function MarketplaceScreen() {
+  const { t } = useI18n();
   return (
-    <FeatureGuard featureKey="marketplace" title="Marketplace désactivé">
+    <FeatureGuard featureKey="marketplace" title={t("marketplace.disabled")}>
       <MarketplaceScreenInner />
     </FeatureGuard>
   );

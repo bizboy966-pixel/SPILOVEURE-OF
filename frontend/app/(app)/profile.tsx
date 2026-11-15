@@ -15,12 +15,15 @@ import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
 import { ProfileHeaderCard } from "@/src/components/profile/ProfileHeaderCard";
 import { SupportGroupCard } from "@/src/components/profile/SupportGroupCard";
+import { useI18n } from "@/src/i18n";
+import { localizedCountryName } from "@/src/identity/countrySearch";
 
 type Country = { code: string; name: string; flag?: string };
 
 export default function Profile() {
   const router = useRouter();
   const { user } = useAuth();
+  const { t, lang } = useI18n();
   const link = `https://spiloveure.org/u/${user?.username || "admin"}`;
   const [notifState, setNotifState] = React.useState<"unknown" | "granted" | "default" | "denied" | "unsupported">("unknown");
   const [copied, setCopied] = React.useState(false);
@@ -36,7 +39,7 @@ export default function Profile() {
   }, []);
 
   const country = countries.find((c) => c.code === user?.country);
-  const countryLabel = country ? `${country.flag ? country.flag + " " : ""}${country.name}` : (user?.country || "—");
+  const countryLabel = country ? `${country.flag ? country.flag + " " : ""}${localizedCountryName(country.code, country.name, lang)}` : (user?.country || "—");
 
   const enableNotifications = async () => {
     const token = await setupWebPush((title, body) => {
@@ -48,14 +51,14 @@ export default function Profile() {
     });
     setNotifState(currentPermission() as any);
     if (token && typeof window !== "undefined") {
-      window.alert("✅ Notifications activées ! Vous recevrez désormais les alertes en temps réel.");
+      window.alert(t("profile.push_enabled_alert"));
       try { await api.post("/push/test-self", {}); } catch {}
     } else if (typeof window !== "undefined") {
       const p = currentPermission();
       if (p === "denied") {
-        window.alert("❌ Les notifications sont bloquées pour ce site.\n\nActivez-les manuellement :\n• Chrome : icône cadenas → Autorisations → Notifications → Autoriser\n• Firefox : icône bouclier → Autorisations → Notifications\n• Safari : Préférences → Sites Web → Notifications");
+        window.alert(t("profile.push_blocked_help"));
       } else {
-        window.alert("⚠️ Autorisation refusée ou non accordée. Réessayez et cliquez sur 'Autoriser' dans la fenêtre du navigateur.");
+        window.alert(t("profile.push_denied_help"));
       }
     }
   };
@@ -82,7 +85,7 @@ export default function Profile() {
             <TouchableOpacity onPress={() => router.back()} style={styles.headBtn} testID="profile-back">
               <Ionicons name="arrow-back" size={22} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Profil</Text>
+            <Text style={styles.headerTitle}>{t("profile.title")}</Text>
             <TouchableOpacity onPress={() => router.push("/(app)/settings")} style={styles.headBtn} testID="profile-settings">
               <Ionicons name="settings" size={21} color="#fff" />
             </TouchableOpacity>
@@ -97,8 +100,8 @@ export default function Profile() {
           <View style={styles.cardHead}>
             <View style={styles.headIcon}><Ionicons name="link" size={19} color={theme.colors.primary} /></View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.section}>Lien d'inscription</Text>
-              <Text style={styles.hint}>Partagez ce lien pour inviter de nouveaux membres et développer votre réseau.</Text>
+              <Text style={styles.section}>{t("profile.invite_title")}</Text>
+              <Text style={styles.hint}>{t("profile.invite_desc")}</Text>
             </View>
           </View>
           <View style={styles.linkBox}>
@@ -107,7 +110,7 @@ export default function Profile() {
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
             <TouchableOpacity style={[styles.copyBtn, { flex: 1 }]} onPress={copy} testID="profile-copy">
               <Ionicons name={copied ? "checkmark" : "copy"} size={16} color="#fff" />
-              <Text style={styles.copyBtnT}>{copied ? "Copié" : "Copier"}</Text>
+              <Text style={styles.copyBtnT}>{copied ? t("common.copied_short") : t("common.copy_action")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.copyBtn, { flex: 1, backgroundColor: theme.colors.primary }]}
@@ -115,7 +118,7 @@ export default function Profile() {
               testID="profile-share"
             >
               <Ionicons name="share-social" size={16} color="#fff" />
-              <Text style={styles.copyBtnT}>Partager</Text>
+              <Text style={styles.copyBtnT}>{t("common.share_action")}</Text>
             </TouchableOpacity>
           </View>
         </Card>
@@ -125,31 +128,31 @@ export default function Profile() {
         <Card style={{ marginTop: 12 }} testID="profile-info-card">
           <View style={[styles.cardHead, { alignItems: "center" }]}>
             <View style={styles.headIcon}><Ionicons name="person" size={19} color={theme.colors.primary} /></View>
-            <Text style={styles.section}>Informations personnelles</Text>
+            <Text style={styles.section}>{t("profile.personal_info")}</Text>
           </View>
-          <Item icon="person" label="Nom d'utilisateur" value={user?.username || "—"} />
-          <Item icon="mail" label="E-mail" value={user?.email || "—"} />
-          <Item icon="call" label="Téléphone" value={user?.phone || "—"} />
-          <Item icon="globe" label="Pays" value={countryLabel} />
-          <Item icon="stats-chart" label="Niveau actuel" value={`Niveau ${user?.max_level ?? 0}`} last />
+          <Item icon="person" label={t("profile.username")} value={user?.username || "—"} />
+          <Item icon="mail" label={t("auth.email")} value={user?.email || "—"} />
+          <Item icon="call" label={t("auth.phone")} value={user?.phone || "—"} />
+          <Item icon="globe" label={t("profile.country")} value={countryLabel} />
+          <Item icon="stats-chart" label={t("profile.current_level")} value={t("menu.level", { level: user?.max_level ?? 0 })} last />
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Statistiques</Text>
-          <Item icon="cash" label="Solde profit" value={formatFCFA(user?.balance_profit)} />
-          <Item icon="lock-closed" label="Réserve mise à niveau" value={formatFCFA(user?.balance_upgrade)} />
-          <Item icon="trending-up" label="Total gagné" value={formatFCFA(user?.total_earned)} />
-          <Item icon="arrow-down-circle" label="Total retiré" value={formatFCFA(user?.total_withdrawn)} last />
+          <Text style={styles.section}>{t("profile.statistics")}</Text>
+          <Item icon="cash" label={t("profile.profit_balance")} value={formatFCFA(user?.balance_profit)} />
+          <Item icon="lock-closed" label={t("profile.upgrade_reserve")} value={formatFCFA(user?.balance_upgrade)} />
+          <Item icon="trending-up" label={t("profile.total_earned")} value={formatFCFA(user?.total_earned)} />
+          <Item icon="arrow-down-circle" label={t("profile.total_withdrawn")} value={formatFCFA(user?.total_withdrawn)} last />
         </Card>
 
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.section}>Notifications Push</Text>
+          <Text style={styles.section}>{t("profile.push_title")}</Text>
           <View style={{ paddingVertical: 6 }}>
             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
-              {notifState === "granted" && "✅ Les notifications sont activées."}
-              {notifState === "default" && "🔔 Activez les notifications pour recevoir les nouveaux commentaires, publicités et articles."}
-              {notifState === "denied" && "❌ Les notifications sont bloquées. Réactivez-les dans les paramètres de votre navigateur."}
-              {notifState === "unsupported" && "⚠️ Ce navigateur ne supporte pas les notifications push."}
+              {notifState === "granted" && t("profile.push_enabled")}
+              {notifState === "default" && t("profile.push_enable_hint")}
+              {notifState === "denied" && t("profile.push_blocked")}
+              {notifState === "unsupported" && t("profile.push_unsupported")}
               {notifState === "unknown" && "…"}
             </Text>
             {(notifState === "default" || notifState === "granted" || notifState === "denied") && (
@@ -164,7 +167,7 @@ export default function Profile() {
               >
                 <Ionicons name="notifications" size={16} color="#fff" />
                 <Text style={{ color: "#fff", fontWeight: "800" }}>
-                  {notifState === "granted" ? "Envoyer un test" : "🔔 Activer les notifications"}
+                  {notifState === "granted" ? t("profile.push_test") : t("profile.push_enable")}
                 </Text>
               </TouchableOpacity>
             )}

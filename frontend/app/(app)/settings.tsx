@@ -52,11 +52,11 @@ export default function Settings() {
         await api.put("/auth/language", { language: next });
         await refresh();
         setShowLangPicker(false);
-        if (typeof window !== "undefined") window.alert(`✅ ${next === "fr" ? "Langue mise à jour avec succès." : "Language updated successfully."}`);
+        if (typeof window !== "undefined") window.alert(`✅ ${t("settings.language_saved")}`);
       } catch (e: any) {
         // Revert local language if the DB save failed.
         await setLang(previous);
-        if (typeof window !== "undefined") window.alert(`❌ ${previous === "fr" ? "Échec de la mise à jour de la langue." : "Failed to update language."} ${e?.detail || ""}`);
+        if (typeof window !== "undefined") window.alert(`❌ ${t("profile.language_save_failed")} ${e?.detail || ""}`);
       }
     } finally {
       setSavingLang(false);
@@ -83,14 +83,14 @@ export default function Settings() {
   }, [user?.email, user?.phone]);
 
   const changePwd = async () => {
-    if (newPwd !== newPwd2) return Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
+    if (newPwd !== newPwd2) return Alert.alert(t("common.error"), t("profile.password_mismatch"));
     setLoadingPwd(true);
     try {
       await api.post("/auth/change-password", { current_password: oldPwd, new_password: newPwd, new_password_confirm: newPwd2 });
-      Alert.alert("✅", "Mot de passe modifié.");
+      Alert.alert("✅", t("profile.password_changed"));
       setOldPwd(""); setNewPwd(""); setNewPwd2("");
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Erreur");
+      Alert.alert(t("common.error"), e?.detail || t("profile.save_failed"));
     } finally {
       setLoadingPwd(false);
     }
@@ -100,10 +100,10 @@ export default function Settings() {
     setLoadingProfile(true);
     try {
       await api.post("/auth/update-profile", { phone, email });
-      Alert.alert("✅", "Profil mis à jour.");
+      Alert.alert("✅", t("profile.updated"));
       await refresh();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.detail || "Erreur");
+      Alert.alert(t("common.error"), e?.detail || t("profile.save_failed"));
     } finally {
       setLoadingProfile(false);
     }

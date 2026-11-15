@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
+import { useI18n } from "@/src/i18n";
 
 const CATEGORIES = ["Électronique", "Vêtements", "Maison", "Beauté", "Sport", "Automobile", "Immobilier", "Alimentation", "Livres", "Services", "Autre"];
 
@@ -11,6 +12,7 @@ const MAX_IMAGES = 10;
 const MAX_VIDEOS = 5;
 
 function MarketplaceCreateInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const [images, setImages] = useState<string[]>([]);
   const [videos, setVideos] = useState<string[]>([]);
@@ -42,7 +44,7 @@ function MarketplaceCreateInner() {
       if (kind === "img") setImages((p) => [...p, ...results].slice(0, MAX_IMAGES));
       else setVideos((p) => [...p, ...results].slice(0, MAX_VIDEOS));
     } catch (e: any) {
-      window.alert(`❌ ${e?.detail || "Échec upload"}`);
+      window.alert(`❌ ${e?.detail || t("marketplace.upload_failed")}`);
     } finally {
       setUploading(null);
     }
@@ -54,7 +56,7 @@ function MarketplaceCreateInner() {
       const r = await api.upload<{ url: string }>("/user/uploads", file);
       setAudio(r.url);
     } catch (e: any) {
-      window.alert(`❌ ${e?.detail || "Échec upload"}`);
+      window.alert(`❌ ${e?.detail || t("marketplace.upload_failed")}`);
     } finally {
       setUploading(null);
     }
@@ -71,7 +73,7 @@ function MarketplaceCreateInner() {
   };
 
   const submit = async () => {
-    if (!images.length || !name || !city || !whatsapp || !price) { window.alert("Complétez tous les champs obligatoires."); return; }
+    if (!images.length || !name || !city || !whatsapp || !price) { window.alert(t("marketplace.required")); return; }
     setSaving(true);
     try {
       await api.post("/marketplace", {
@@ -81,9 +83,9 @@ function MarketplaceCreateInner() {
         promo_price: promoPrice ? parseFloat(promoPrice) : null,
         city, whatsapp, description,
       });
-      window.alert("✅ Annonce soumise. Elle sera visible après validation par l'administrateur.");
+      window.alert(t("marketplace.submitted"));
       router.replace("/(app)/marketplace" as any);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || t("marketplace.failed")}`); }
     finally { setSaving(false); }
   };
 
@@ -91,17 +93,17 @@ function MarketplaceCreateInner() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="mkc-back"><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
-        <Text style={styles.title}>📝 Publier un article</Text>
+        <Text style={styles.title}>{t("marketplace.create_title")}</Text>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
         {/* ─── PHOTOS ────────────────────────────────────────── */}
-        <Text style={styles.section}>📸 Photos ({images.length}/{MAX_IMAGES})</Text>
-        <Text style={styles.hint}>Utilisez les flèches pour réorganiser. La première photo est la miniature.</Text>
+        <Text style={styles.section}>{t("marketplace.photos", { count: images.length, max: MAX_IMAGES })}</Text>
+        <Text style={styles.hint}>{t("marketplace.photos_hint")}</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {images.map((url, i) => (
             <View key={i} style={styles.imgBox} testID={`mkc-img-${i}`}>
               <Image source={{ uri: resolveMediaUrl(url) }} style={{ width: 90, height: 90, borderRadius: 10 }} />
-              {i === 0 && <View style={styles.thumbBadge}><Text style={styles.thumbBadgeT}>Miniature</Text></View>}
+              {i === 0 && <View style={styles.thumbBadge}><Text style={styles.thumbBadgeT}>{t("marketplace.thumbnail")}</Text></View>}
               <TouchableOpacity style={styles.imgRm} onPress={() => setImages((v) => v.filter((_, x) => x !== i))} testID={`mkc-remove-img-${i}`}>
                 <Ionicons name="close" size={12} color="#fff" />
               </TouchableOpacity>
@@ -118,12 +120,12 @@ function MarketplaceCreateInner() {
         </View>
         <TouchableOpacity style={styles.uploadBtn} disabled={!!uploading || images.length >= MAX_IMAGES} onPress={() => imgInput.current?.click()} testID="mkc-add-img">
           <Ionicons name="camera" size={18} color="#fff" />
-          <Text style={styles.uploadT}>{uploading === "img" ? "Envoi…" : `Ajouter ${images.length ? "d'autres photos" : "des photos"}`}</Text>
+          <Text style={styles.uploadT}>{uploading === "img" ? t("ads.uploading") : images.length ? t("marketplace.add_more_photos") : t("marketplace.add_photos")}</Text>
         </TouchableOpacity>
 
         {/* ─── VIDÉOS ─────────────────────────────────────────── */}
-        <Text style={styles.section}>🎥 Vidéos ({videos.length}/{MAX_VIDEOS})</Text>
-        <Text style={styles.hint}>Montrez le produit en action pour rassurer vos acheteurs.</Text>
+        <Text style={styles.section}>{t("marketplace.videos", { count: videos.length, max: MAX_VIDEOS })}</Text>
+        <Text style={styles.hint}>{t("marketplace.videos_hint")}</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {videos.map((url, i) => (
             <View key={i} style={styles.videoBox} testID={`mkc-vid-${i}`}>
@@ -143,12 +145,12 @@ function MarketplaceCreateInner() {
         </View>
         <TouchableOpacity style={[styles.uploadBtn, { backgroundColor: "#7B61FF" }]} disabled={!!uploading || videos.length >= MAX_VIDEOS} onPress={() => vidInput.current?.click()} testID="mkc-add-vid">
           <Ionicons name="videocam" size={18} color="#fff" />
-          <Text style={styles.uploadT}>{uploading === "vid" ? "Envoi…" : `Ajouter ${videos.length ? "d'autres vidéos" : "des vidéos"}`}</Text>
+          <Text style={styles.uploadT}>{uploading === "vid" ? t("ads.uploading") : videos.length ? t("marketplace.add_more_videos") : t("marketplace.add_videos")}</Text>
         </TouchableOpacity>
 
         {/* ─── MUSIQUE ────────────────────────────────────────── */}
-        <Text style={styles.section}>🎵 Musique de fond (facultatif)</Text>
-        <Text style={styles.hint}>Accompagne le défilement de vos photos dans le marketplace.</Text>
+        <Text style={styles.section}>{t("marketplace.music")}</Text>
+        <Text style={styles.hint}>{t("marketplace.music_hint")}</Text>
         {audio ? (
           <View style={styles.audioBox} testID="mkc-audio">
             <Ionicons name="musical-notes" size={22} color="#7B61FF" />
@@ -157,7 +159,7 @@ function MarketplaceCreateInner() {
                 // @ts-ignore raw audio element for RN web preview
                 <audio src={resolveMediaUrl(audio)} controls style={{ width: "100%" }} />
               ) : (
-                <Text style={{ color: theme.colors.textPrimary, fontWeight: "700" }}>Musique importée</Text>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: "700" }}>{t("marketplace.imported_music")}</Text>
               )}
             </View>
             <TouchableOpacity onPress={() => setAudio("")} style={styles.audioRm} testID="mkc-remove-audio">
@@ -167,7 +169,7 @@ function MarketplaceCreateInner() {
         ) : (
           <TouchableOpacity style={[styles.uploadBtn, { backgroundColor: "#EC4899" }]} disabled={!!uploading} onPress={() => audInput.current?.click()} testID="mkc-add-audio">
             <Ionicons name="musical-notes" size={18} color="#fff" />
-            <Text style={styles.uploadT}>{uploading === "aud" ? "Envoi…" : "Ajouter une musique"}</Text>
+            <Text style={styles.uploadT}>{uploading === "aud" ? t("ads.uploading") : t("marketplace.add_music")}</Text>
           </TouchableOpacity>
         )}
 
@@ -182,9 +184,9 @@ function MarketplaceCreateInner() {
         <input ref={audInput} type="file" accept="audio/*" style={{ display: "none" }}
           onChange={(e: any) => { const f = e.target.files?.[0]; if (f) uploadAudio(f); e.target.value = ""; }} />
 
-        <Text style={styles.section}>ℹ️ Informations</Text>
-        <TextInput style={styles.input} placeholder="Nom du produit *" value={name} onChangeText={setName} testID="mkc-name" />
-        <Text style={styles.lbl}>Catégorie</Text>
+        <Text style={styles.section}>{t("marketplace.info")}</Text>
+        <TextInput style={styles.input} placeholder={t("marketplace.product_name")} value={name} onChangeText={setName} testID="mkc-name" />
+        <Text style={styles.lbl}>{t("marketplace.category")}</Text>
         <View style={styles.chipRow}>
           {CATEGORIES.map((c) => (
             <TouchableOpacity key={c} style={[styles.chip, category === c && styles.chipOn]} onPress={() => setCategory(c)} testID={`mkc-cat-${c}`}>
@@ -193,19 +195,19 @@ function MarketplaceCreateInner() {
           ))}
         </View>
         <View style={{ flexDirection: "row", gap: 6 }}>
-          <View style={{ flex: 1 }}><TextInput style={styles.input} placeholder="Prix normal * (FCFA)" keyboardType="numeric" value={price} onChangeText={setPrice} testID="mkc-price" /></View>
-          <View style={{ flex: 1 }}><TextInput style={styles.input} placeholder="Prix promo (optionnel)" keyboardType="numeric" value={promoPrice} onChangeText={setPromoPrice} testID="mkc-promo" /></View>
+          <View style={{ flex: 1 }}><TextInput style={styles.input} placeholder={t("marketplace.price")} keyboardType="numeric" value={price} onChangeText={setPrice} testID="mkc-price" /></View>
+          <View style={{ flex: 1 }}><TextInput style={styles.input} placeholder={t("marketplace.promo_price")} keyboardType="numeric" value={promoPrice} onChangeText={setPromoPrice} testID="mkc-promo" /></View>
         </View>
-        <TextInput style={styles.textarea} placeholder="Description du produit…" value={description} onChangeText={setDescription} multiline numberOfLines={4} testID="mkc-desc" />
+        <TextInput style={styles.textarea} placeholder={t("marketplace.product_description")} value={description} onChangeText={setDescription} multiline numberOfLines={4} testID="mkc-desc" />
 
-        <Text style={styles.section}>📍 Localisation</Text>
-        <TextInput style={styles.input} placeholder="Ville / localité *" value={city} onChangeText={setCity} testID="mkc-city" />
+        <Text style={styles.section}>{t("marketplace.location")}</Text>
+        <TextInput style={styles.input} placeholder={t("marketplace.city")} value={city} onChangeText={setCity} testID="mkc-city" />
 
-        <Text style={styles.section}>💬 Contact WhatsApp</Text>
+        <Text style={styles.section}>{t("marketplace.contact")}</Text>
         <TextInput style={styles.input} placeholder="Ex : +22890123456 *" keyboardType="phone-pad" value={whatsapp} onChangeText={setWhatsapp} testID="mkc-whatsapp" />
 
         <TouchableOpacity style={styles.publish} onPress={submit} disabled={saving} testID="mkc-publish">
-          {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="rocket" size={16} color="#fff" /><Text style={styles.publishT}>Publier</Text></>}
+          {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="rocket" size={16} color="#fff" /><Text style={styles.publishT}>{t("marketplace.publish")}</Text></>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -244,8 +246,9 @@ const styles = StyleSheet.create({
 import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 export default function MarketplaceCreate() {
+  const { t } = useI18n();
   return (
-    <FeatureGuard featureKey="marketplace_publish" title="Publication d'article désactivée">
+    <FeatureGuard featureKey="marketplace_publish" title={t("marketplace.disabled_publish")}>
       <MarketplaceCreateInner />
     </FeatureGuard>
   );

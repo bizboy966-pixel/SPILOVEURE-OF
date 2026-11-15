@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { api, resolveMediaUrl } from "@/src/api";
+import { useI18n } from "@/src/i18n";
 import { useFeatures } from "@/src/features";
 import { BottomNav } from "@/src/components/BottomNav";
 import { ChallengeCard, CurrentChallenge } from "@/src/components/tasks/ChallengeCard";
@@ -23,6 +24,7 @@ import { ChallengeCard, CurrentChallenge } from "@/src/components/tasks/Challeng
  * as-is; only navigation is re-shaped.
  */
 export default function TasksMoreScreen() {
+  const { t: translate } = useI18n();
   const router = useRouter();
   const { task: focusTaskId } = useLocalSearchParams<{ task?: string }>();
   const [focus, setFocus] = useState<{ available: boolean; message: string } | null>(null);
@@ -84,7 +86,7 @@ export default function TasksMoreScreen() {
       );
       if (typeof window !== "undefined") {
         const conf = r.ai ? ` (IA : ${(r.ai.confidence * 100).toFixed(0)}%)` : "";
-        window.alert(`✅ Tâche validée${conf}. Vous avez gagné ${r.credited} FCFA !`);
+        window.alert(translate("tasks_more.success", { confirmation: conf, reward: r.credited }));
       }
       setProofTask(null); setProofUrl(""); load();
     } catch (e: any) { setProofErr(e?.detail || "Impossible de valider la tâche."); }
@@ -116,8 +118,8 @@ export default function TasksMoreScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <View>
-              <Text style={styles.title}>Tâches spéciales</Text>
-              <Text style={styles.subtitle}>Tâches et challenges actifs</Text>
+              <Text style={styles.title}>{translate("tasks_more.title")}</Text>
+              <Text style={styles.subtitle}>{translate("tasks_more.subtitle")}</Text>
             </View>
           </View>
         </SafeAreaView>
@@ -135,11 +137,11 @@ export default function TasksMoreScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Tâches spéciales disponibles{loading ? "" : ` (${tasks.length})`}</Text>
+        <Text style={styles.sectionTitle}>{translate("tasks_more.section", { count: loading ? "" : ` (${tasks.length})` })}</Text>
         {!loading && tasks.length === 0 ? (
           <View style={styles.empty} testID="special-tasks-empty">
             <Ionicons name="flash-outline" size={22} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTxt}>Aucune tâche spéciale disponible pour le moment. Revenez bientôt !</Text>
+            <Text style={styles.emptyTxt}>{translate("tasks_more.empty_tasks")}</Text>
           </View>
         ) : null}
         {tasks.length > 0 ? (
@@ -152,38 +154,38 @@ export default function TasksMoreScreen() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <Text style={styles.taskTitle}>{ACTION_BTN[t.action_type]} · {NET_LABELS[t.network]}</Text>
-                    <View style={styles.liveBadge}><Text style={styles.liveBadgeTxt}>Disponible</Text></View>
+                    <View style={styles.liveBadge}><Text style={styles.liveBadgeTxt}>{translate("tasks_more.available")}</Text></View>
                     {t.is_new ? (
                       <View style={styles.newBadge} testID={`st-new-${t.id}`}>
-                        <Text style={styles.newBadgeTxt}>NOUVEAU</Text>
+                        <Text style={styles.newBadgeTxt}>{translate("tasks_more.new")}</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={styles.taskSub} numberOfLines={3}>{t.description || "Aucune description"}</Text>
-                  <Text style={styles.taskRule}>Effectuez l'action puis envoyez une capture d'écran comme preuve. Une seule validation par tâche.</Text>
+                  <Text style={styles.taskSub} numberOfLines={3}>{t.description || translate("tasks_more.no_description")}</Text>
+                  <Text style={styles.taskRule}>{translate("tasks_more.rule")}</Text>
                   <Text style={styles.reward} testID={`st-reward-${t.id}`}>
                     {t.reward_per_action} FCFA · {t.quantity_completed}/{t.quantity_target} places prises
                   </Text>
                 </View>
                 <TouchableOpacity onPress={() => openTaskLink(t)} style={styles.doBtn} testID={`st-do-${t.id}`}>
-                  <Text style={styles.doT}>Commencer</Text>
+                  <Text style={styles.doT}>{translate("tasks_more.start")}</Text>
                 </TouchableOpacity>
               </View>
             ))}
           </>
         ) : null}
 
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Challenge actif</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>{translate("tasks_more.active_challenge")}</Text>
         {challenge?.challenge ? (
           <ChallengeCard data={challenge} />
         ) : !loading ? (
           <View style={styles.empty} testID="challenge-empty">
             <Ionicons name="trophy-outline" size={22} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTxt}>Aucun challenge actif en ce moment.</Text>
+            <Text style={styles.emptyTxt}>{translate("tasks_more.no_challenge")}</Text>
           </View>
         ) : null}
 
-        {features.special_tasks ? <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Votre campagne</Text> : null}
+        {features.special_tasks ? <Text style={[styles.sectionTitle, { marginTop: 10 }]}>{translate("tasks_more.campaign")}</Text> : null}
         {EXTRA_CARDS.filter((c) => !c.hidden).map((c) => (
           <TouchableOpacity
             key={c.key}
@@ -209,14 +211,14 @@ export default function TasksMoreScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard} testID="proof-modal">
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Preuve d'exécution</Text>
+              <Text style={styles.modalTitle}>{translate("tasks_more.proof_title")}</Text>
               <TouchableOpacity onPress={closeProof} disabled={submitting || uploading}>
                 <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalStep}>1. Effectuez l'action demandée sur le lien qui vient de s'ouvrir.</Text>
-            <Text style={styles.modalStep}>2. Prenez une capture d'écran montrant clairement l'action réalisée.</Text>
-            <Text style={styles.modalStep}>3. Importez-la ci-dessous, puis validez pour recevoir votre récompense.</Text>
+            <Text style={styles.modalStep}>{translate("tasks_more.step_one")}</Text>
+            <Text style={styles.modalStep}>{translate("tasks_more.step_two")}</Text>
+            <Text style={styles.modalStep}>{translate("tasks_more.step_three")}</Text>
             <TouchableOpacity
               style={[styles.uploadBtn, uploading && { opacity: 0.6 }]}
               onPress={pickScreenshot}
@@ -224,21 +226,21 @@ export default function TasksMoreScreen() {
               testID="proof-pick-btn"
             >
               {uploading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="cloud-upload-outline" size={16} color="#fff" />}
-              <Text style={styles.uploadTxt}>{uploading ? "Envoi…" : proofUrl ? "Remplacer la capture" : "Importer une capture d'écran"}</Text>
+              <Text style={styles.uploadTxt}>{uploading ? translate("tasks_more.uploading") : proofUrl ? translate("tasks_more.replace") : translate("tasks_more.upload")}</Text>
             </TouchableOpacity>
             {proofUrl && previewUri ? (
               <View style={styles.previewBox}>
                 <Image source={{ uri: previewUri }} style={styles.previewImg} resizeMode="cover" />
-                <Text style={styles.previewOk}>Capture prête à être envoyée</Text>
+                <Text style={styles.previewOk}>{translate("tasks_more.ready")}</Text>
               </View>
             ) : null}
             {proofErr ? <Text style={styles.errTxt}>{proofErr}</Text> : null}
             <View style={styles.modalActions}>
               <TouchableOpacity onPress={closeProof} style={styles.cancelBtn} disabled={submitting || uploading} testID="proof-cancel-btn">
-                <Text style={styles.cancelTxt}>Annuler</Text>
+                <Text style={styles.cancelTxt}>{translate("tasks_more.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={submitProof} style={[styles.submitBtn, (!proofUrl || submitting) && { opacity: 0.5 }]} disabled={!proofUrl || submitting || uploading} testID="proof-submit-btn">
-                {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.submitTxt}>Valider & recevoir</Text>}
+                {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.submitTxt}>{translate("tasks_more.submit")}</Text>}
               </TouchableOpacity>
             </View>
             {Platform.OS === "web" && (

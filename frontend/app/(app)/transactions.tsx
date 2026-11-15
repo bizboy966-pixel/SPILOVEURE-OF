@@ -9,6 +9,7 @@ import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { formatFCFA } from "@/src/utils/format";
+import { useI18n } from "@/src/i18n";
 
 type Tx = {
   type: string;
@@ -39,15 +40,16 @@ const STATUS_LABEL: Record<string, { txt: string; bg: string; fg: string }> = {
   refunded: { txt: "Remboursé", bg: "#E0E7FF", fg: "#3730A3" },
 };
 
-function fmtDate(s?: string) {
+function fmtDate(s?: string, language: "fr" | "en" = "fr") {
   if (!s) return "—";
   try {
-    return new Date(s).toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    return new Date(s).toLocaleString(language === "en" ? "en-US" : "fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch { return s; }
 }
 
 export default function Transactions() {
   const router = useRouter();
+  const { t, lang } = useI18n();
   const [items, setItems] = useState<Tx[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,8 +89,8 @@ export default function Transactions() {
             <Ionicons name="chevron-back" size={22} color="#fff" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.title}>Historique des transactions</Text>
-            <Text style={styles.sub}>Toutes vos activités sur Spiloveure.</Text>
+            <Text style={styles.title}>{t("transactions.title")}</Text>
+            <Text style={styles.sub}>{t("transactions.subtitle")}</Text>
           </View>
         </View>
       </LinearGradient>
@@ -96,11 +98,11 @@ export default function Transactions() {
       <View style={styles.filterRow}>
         {(["all", "commission", "activation", "withdrawal", "mission"] as const).map((f) => {
           const lbl =
-            f === "all" ? "Tout" :
-            f === "commission" ? "💰 Commissions" :
-            f === "activation" ? "Activations" :
-            f === "withdrawal" ? "Retraits" :
-            "Missions";
+            f === "all" ? t("transactions.filter_all") :
+            f === "commission" ? t("transactions.filter_commissions") :
+            f === "activation" ? t("transactions.filter_activations") :
+            f === "withdrawal" ? t("transactions.filter_withdrawals") :
+            t("transactions.filter_missions");
           const on = filter === f;
           return (
             <TouchableOpacity
@@ -123,8 +125,8 @@ export default function Transactions() {
         <Card style={{ margin: 16 }}>
           <View style={{ alignItems: "center", padding: 16 }}>
             <Ionicons name="receipt-outline" size={48} color={theme.colors.textSecondary} />
-            <Text style={styles.emptyTitle}>Aucune transaction</Text>
-            <Text style={styles.emptySub}>Vos activités apparaîtront ici une fois que vous aurez effectué une activation, un paiement ou un retrait.</Text>
+            <Text style={styles.emptyTitle}>{t("transactions.empty_title")}</Text>
+            <Text style={styles.emptySub}>{t("transactions.empty_desc")}</Text>
           </View>
         </Card>
       ) : (
@@ -146,6 +148,7 @@ export default function Transactions() {
               (item.status === "paid" || item.status === "validated" || item.status === "active" || item.status === "completed") ? theme.colors.success :
               theme.colors.textPrimary;
             const st = STATUS_LABEL[item.status] || { txt: item.status, bg: "#E5E7EB", fg: "#374151" };
+            const statusKey = item.status === "active" ? "validated" : item.status;
             const iconBg =
               isCommission ? "#DCFCE7" :
               isMission ? "#FEF3C7" :
@@ -170,14 +173,14 @@ export default function Transactions() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.txLbl}>{item.label}</Text>
-                    <Text style={styles.txDate}>{fmtDate(item.date)}</Text>
+                    <Text style={styles.txDate}>{fmtDate(item.date, lang)}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={[styles.txAmt, { color }]}>
                       {sign} {formatFCFA(item.amount)}
                     </Text>
                     <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
-                      <Text style={[styles.statusTxt, { color: st.fg }]}>{st.txt}</Text>
+                      <Text style={[styles.statusTxt, { color: st.fg }]}>{t(`status.${statusKey}`)}</Text>
                     </View>
                   </View>
                 </View>
@@ -186,33 +189,33 @@ export default function Transactions() {
                   <View style={styles.kvBox}>
                     {item.from_username ? (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Provenance</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.source")}</Text>
                         <Text style={[styles.kvVal, { fontWeight: "800", color: theme.colors.primary }]}>{item.from_username}</Text>
                       </View>
                     ) : null}
                     {item.from_user_id ? (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>ID utilisateur</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.user_id")}</Text>
                         <Text style={[styles.kvVal, { fontSize: 10, fontFamily: "monospace" }]} numberOfLines={1}>{item.from_user_id}</Text>
                       </View>
                     ) : null}
                     {item.level != null ? (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Niveau concerné</Text>
-                        <Text style={styles.kvVal}>Niveau {item.level}</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.level")}</Text>
+                        <Text style={styles.kvVal}>{t("menu.level", { level: item.level })}</Text>
                       </View>
                     ) : null}
                     {(item.meta?.upgrade_share || item.meta?.profit_share) ? (
                       <>
                         {item.meta?.profit_share ? (
                           <View style={styles.kvRow}>
-                            <Text style={styles.kvLbl}>Solde profit</Text>
+                            <Text style={styles.kvLbl}>{t("transactions.profit_balance")}</Text>
                             <Text style={[styles.kvVal, { color: theme.colors.success }]}>+ {formatFCFA(item.meta.profit_share)}</Text>
                           </View>
                         ) : null}
                         {item.meta?.upgrade_share ? (
                           <View style={styles.kvRow}>
-                            <Text style={styles.kvLbl}>Réserve mise à niveau</Text>
+                            <Text style={styles.kvLbl}>{t("transactions.upgrade_reserve")}</Text>
                             <Text style={[styles.kvVal, { color: theme.colors.warning }]}>+ {formatFCFA(item.meta.upgrade_share)}</Text>
                           </View>
                         ) : null}
@@ -225,19 +228,19 @@ export default function Transactions() {
                   <View style={styles.kvBox}>
                     {item.fee != null && (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Frais</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.fee")}</Text>
                         <Text style={[styles.kvVal, { color: theme.colors.danger }]}>− {formatFCFA(item.fee)}</Text>
                       </View>
                     )}
                     {item.net != null && (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Montant net</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.net_amount")}</Text>
                         <Text style={[styles.kvVal, { color: theme.colors.success, fontWeight: "800" }]}>{formatFCFA(item.net)}</Text>
                       </View>
                     )}
                     {!!item.meta?.operator && (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Opérateur</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.operator")}</Text>
                         <Text style={styles.kvVal}>{item.meta.operator}</Text>
                       </View>
                     )}
@@ -248,13 +251,13 @@ export default function Transactions() {
                   <View style={styles.kvBox}>
                     {!!item.meta.operator && (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Opérateur</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.operator")}</Text>
                         <Text style={styles.kvVal}>{item.meta.operator}</Text>
                       </View>
                     )}
                     {!!item.meta.transaction_ref && (
                       <View style={styles.kvRow}>
-                        <Text style={styles.kvLbl}>Réf. transaction</Text>
+                        <Text style={styles.kvLbl}>{t("transactions.reference")}</Text>
                         <Text style={[styles.kvVal, { fontSize: 11 }]} numberOfLines={1}>{item.meta.transaction_ref}</Text>
                       </View>
                     )}
@@ -262,7 +265,7 @@ export default function Transactions() {
                 )}
 
                 {!!item.ref && !isCommission && (
-                  <Text style={styles.refTxt} selectable>Réf : {item.ref}</Text>
+                  <Text style={styles.refTxt} selectable>{t("transactions.ref_short")} {item.ref}</Text>
                 )}
               </Card>
             );

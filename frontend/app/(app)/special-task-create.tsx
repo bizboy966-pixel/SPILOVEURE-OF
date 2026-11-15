@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api } from "../../src/api";
+import { useI18n } from "@/src/i18n";
 
 type ActionType = "video" | "subscribe" | "share" | "like" | "comment" | "group";
 type Cfg = { enabled: boolean; price_per_action: number; reward_per_action: number; min_qty: number; max_qty: number };
@@ -37,6 +38,7 @@ const NETWORKS_GROUP = [
 
 function SpecialTaskCreateInner() {
   const router = useRouter();
+  const { t } = useI18n();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [cfg, setCfg] = useState<Record<string, Cfg>>({});
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -74,35 +76,35 @@ function SpecialTaskCreateInner() {
   const totalPrice = currentCfg ? currentCfg.price_per_action * q : 0;
 
   const start = async () => {
-    if (!actionType || !network || !link.trim()) { window.alert("Complétez tous les champs."); return; }
+    if (!actionType || !network || !link.trim()) { window.alert(t("special.fill_fields")); return; }
     setSaving(true);
     try {
       const r = await api.post<{ id: string }>("/special-tasks", { action_type: actionType, network, link: link.trim(), description });
       setTaskId(r.id); setStep(3);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || t("special.error")}`); }
     finally { setSaving(false); }
   };
 
   const submitAudience = async () => {
     if (!taskId) return;
-    if (countries.length === 0) { window.alert("Sélectionnez au moins un pays."); return; }
+    if (countries.length === 0) { window.alert(t("special.select_country")); return; }
     setSaving(true);
     try {
       await api.put(`/special-tasks/${taskId}/audience`, { target_countries: countries, target_age_min: parseInt(ageMin, 10), target_age_max: parseInt(ageMax, 10), target_gender: gender });
       setStep(4);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || t("special.error")}`); }
     finally { setSaving(false); }
   };
 
   const submitQuantity = async () => {
     if (!taskId || !currentCfg) return;
-    if (q < currentCfg.min_qty || q > currentCfg.max_qty) { window.alert(`Quantité hors bornes (${currentCfg.min_qty}–${currentCfg.max_qty}).`); return; }
+    if (q < currentCfg.min_qty || q > currentCfg.max_qty) { window.alert(t("special.quantity_range", { min: currentCfg.min_qty, max: currentCfg.max_qty })); return; }
     setSaving(true);
     try {
       await api.put(`/special-tasks/${taskId}/quantity`, { quantity: q });
       await api.post(`/special-tasks/${taskId}/publish`);
       setStep(5);
-    } catch (e: any) { window.alert(`❌ ${e?.detail || "Échec"}`); }
+    } catch (e: any) { window.alert(`❌ ${e?.detail || t("special.error")}`); }
     finally { setSaving(false); }
   };
 
@@ -112,7 +114,7 @@ function SpecialTaskCreateInner() {
       pathname: "/(app)/purchase-payment" as any,
       params: {
         kind: "special_task", target_id: taskId, amount: String(totalPrice),
-        title: "Paiement de la tâche spéciale", return_to: "/(app)/tasks",
+        title: t("special.payment_title"), return_to: "/(app)/tasks",
       },
     });
   };
@@ -121,21 +123,21 @@ function SpecialTaskCreateInner() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="stc-back"><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
-        <Text style={styles.title}>🎯 Créer une tâche spéciale</Text>
+        <Text style={styles.title}>{t("special.title")}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {step === 1 && (
           <View style={{ alignItems: "center", gap: 16, padding: 20 }}>
             <Ionicons name="rocket" size={72} color={theme.colors.primary} />
-            <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.textPrimary, textAlign: "center" }}>Choisissez ce que vous souhaitez obtenir. Nous vous aiderons à l'obtenir.</Text>
-            <TouchableOpacity style={styles.next} onPress={() => setStep(2)} testID="stc-choose"><Text style={styles.nextT}>Choisir</Text></TouchableOpacity>
+            <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.textPrimary, textAlign: "center" }}>{t("special.choose_goal")}</Text>
+            <TouchableOpacity style={styles.next} onPress={() => setStep(2)} testID="stc-choose"><Text style={styles.nextT}>{t("special.choose")}</Text></TouchableOpacity>
           </View>
         )}
 
         {step === 2 && (
           <>
-            <Text style={styles.section}>Type de tâche</Text>
+            <Text style={styles.section}>{t("special.task_type")}</Text>
             {(Object.keys(TYPE_LABELS) as ActionType[]).map((k) => {
               const enabled = cfg[k]?.enabled;
               const meta = TYPE_LABELS[k];
@@ -145,17 +147,17 @@ function SpecialTaskCreateInner() {
                   testID={`stc-type-${k}`}>
                   <Ionicons name={meta.icon} size={24} color={actionType === k ? "#fff" : theme.colors.primary} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.cardT, actionType === k && { color: "#fff" }]}>{meta.title}</Text>
-                    <Text style={[styles.cardS, actionType === k && { color: "#fff" }]}>{meta.hint}</Text>
+                    <Text style={[styles.cardT, actionType === k && { color: "#fff" }]}>{t(`special.type.${k}`)}</Text>
+                    <Text style={[styles.cardS, actionType === k && { color: "#fff" }]}>{t(`special.type.${k}_hint`)}</Text>
                   </View>
-                  {!enabled && <Text style={{ fontSize: 9, color: theme.colors.textSecondary }}>INACTIF</Text>}
+                  {!enabled && <Text style={{ fontSize: 9, color: theme.colors.textSecondary }}>{t("special.inactive")}</Text>}
                 </TouchableOpacity>
               );
             })}
 
             {actionType && (
               <>
-                <Text style={styles.section}>Réseau social</Text>
+                <Text style={styles.section}>{t("special.social_network")}</Text>
                 <View style={styles.chipRow}>
                   {nets.map((n) => (
                     <TouchableOpacity key={n.k} style={[styles.chip, network === n.k && styles.chipOn]} onPress={() => setNetwork(n.k)} testID={`stc-net-${n.k}`}>
@@ -164,14 +166,14 @@ function SpecialTaskCreateInner() {
                   ))}
                 </View>
 
-                <Text style={styles.section}>Lien</Text>
+                <Text style={styles.section}>{t("special.link")}</Text>
                 <TextInput style={styles.input} placeholder="https://…" value={link} onChangeText={setLink} testID="stc-link" />
 
-                <Text style={styles.section}>Description (optionnelle)</Text>
-                <TextInput style={styles.textarea} placeholder="Instructions particulières…" value={description} onChangeText={setDescription} multiline numberOfLines={3} testID="stc-desc" />
+                <Text style={styles.section}>{t("special.description")}</Text>
+                <TextInput style={styles.textarea} placeholder={t("special.instructions")} value={description} onChangeText={setDescription} multiline numberOfLines={3} testID="stc-desc" />
 
                 <TouchableOpacity style={styles.next} onPress={start} disabled={saving || !network || !link.trim()} testID="stc-step2-next">
-                  {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.nextT}>Suivant</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>}
+                  {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.nextT}>{t("special.next")}</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>}
                 </TouchableOpacity>
               </>
             )}
@@ -180,8 +182,8 @@ function SpecialTaskCreateInner() {
 
         {step === 3 && (
           <>
-            <Text style={styles.section}>Audience ciblée</Text>
-            <Text style={styles.lbl}>🌍 Pays</Text>
+            <Text style={styles.section}>{t("special.target_audience")}</Text>
+            <Text style={styles.lbl}>{t("special.country")}</Text>
             <View style={styles.chipRow}>
               {COUNTRIES.map((c) => {
                 const on = countries.includes(c.code);
@@ -190,41 +192,41 @@ function SpecialTaskCreateInner() {
                   testID={`stc-country-${c.code}`}><Text style={[styles.chipT, on && { color: "#fff" }]}>{c.label}</Text></TouchableOpacity>;
               })}
             </View>
-            <Text style={styles.lbl}>🎂 Âge</Text>
+            <Text style={styles.lbl}>{t("special.age")}</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <View style={{ flex: 1 }}><TextInput style={styles.input} keyboardType="numeric" value={ageMin} onChangeText={setAgeMin} placeholder="Min" testID="stc-age-min" /></View>
               <View style={{ flex: 1 }}><TextInput style={styles.input} keyboardType="numeric" value={ageMax} onChangeText={setAgeMax} placeholder="Max" testID="stc-age-max" /></View>
             </View>
-            <Text style={styles.lbl}>⚧ Genre</Text>
+            <Text style={styles.lbl}>{t("special.gender")}</Text>
             <View style={styles.chipRow}>
               {(["male", "female", "both"] as const).map((g) => {
                 const on = gender === g;
-                const l = { male: "♂️ Masculin", female: "♀️ Féminin", both: "⚧ Les deux" }[g];
+                const l = { male: t("special.gender_male"), female: t("special.gender_female"), both: t("special.gender_both") }[g];
                 return <TouchableOpacity key={g} style={[styles.chip, on && styles.chipOn]} onPress={() => setGender(g)} testID={`stc-gender-${g}`}><Text style={[styles.chipT, on && { color: "#fff" }]}>{l}</Text></TouchableOpacity>;
               })}
             </View>
             <TouchableOpacity style={styles.next} onPress={submitAudience} disabled={saving} testID="stc-step3-next">
-              {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.nextT}>Publier</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>}
+              {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.nextT}>{t("special.publish")}</Text><Ionicons name="arrow-forward" size={16} color="#fff" /></>}
             </TouchableOpacity>
           </>
         )}
 
         {step === 4 && currentCfg && (
           <>
-            <Text style={styles.section}>Quantité & tarif</Text>
-            <Text style={styles.lbl}>Nombre d'actions souhaitées (min {currentCfg.min_qty} – max {currentCfg.max_qty})</Text>
+            <Text style={styles.section}>{t("special.quantity_pricing")}</Text>
+            <Text style={styles.lbl}>{t("special.actions_count", { min: currentCfg.min_qty, max: currentCfg.max_qty })}</Text>
             <TextInput style={styles.input} keyboardType="numeric" value={quantity} onChangeText={setQuantity} testID="stc-quantity" />
             <View style={styles.priceBox}>
-              <Text style={styles.priceL}>Prix / action</Text><Text style={styles.priceV}>{currentCfg.price_per_action} FCFA</Text>
+              <Text style={styles.priceL}>{t("special.price_per_action")}</Text><Text style={styles.priceV}>{currentCfg.price_per_action} FCFA</Text>
               <Text style={styles.priceL}>Quantité</Text><Text style={styles.priceV}>{q}</Text>
               <View style={styles.sep} />
-              <Text style={styles.priceL}>Total à payer</Text><Text style={styles.priceTot}>{totalPrice} FCFA</Text>
+              <Text style={styles.priceL}>{t("special.total_to_pay")}</Text><Text style={styles.priceTot}>{totalPrice} FCFA</Text>
               {/* La récompense par participant est un calcul interne de la
                   plateforme — elle ne doit pas être affichée au créateur.
                   Le créateur ne voit que : prix / quantité / total à payer. */}
             </View>
             <TouchableOpacity style={styles.next} onPress={submitQuantity} disabled={saving} testID="stc-publish">
-              {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="rocket" size={16} color="#fff" /><Text style={styles.nextT}>Publier</Text></>}
+              {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="rocket" size={16} color="#fff" /><Text style={styles.nextT}>{t("special.publish")}</Text></>}
             </TouchableOpacity>
           </>
         )}
@@ -232,7 +234,7 @@ function SpecialTaskCreateInner() {
         {step === 5 && (
           <View style={{ alignItems: "center", gap: 12, padding: 20 }}>
             <Ionicons name="card" size={64} color={theme.colors.primary} />
-            <Text style={styles.section}>💳 Paiement</Text>
+            <Text style={styles.section}>{t("special.payment")}</Text>
             <Text style={styles.priceTot}>{totalPrice} FCFA</Text>
             <Text style={{ textAlign: "center", color: theme.colors.textSecondary, fontSize: 12 }}>
               Après confirmation du paiement, la tâche est envoyée à l'équipe pour validation.
@@ -255,12 +257,12 @@ function SpecialTaskCreateInner() {
               testID="stc-pay-mobile-money"
             >
               <Ionicons name="phone-portrait" size={16} color="#FBBF24" />
-              <Text style={[styles.nextT, { color: "#fff" }]}>⚡ Mobile Money</Text>
+              <Text style={[styles.nextT, { color: "#fff" }]}>{t("special.mobile_money")}</Text>
             </TouchableOpacity>
             )}
 
             {ashtecEnabled && cryptoPayEnabled && (
-              <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>— ou —</Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{t("special.or")}</Text>
             )}
 
             {/* Crypto USDT (IziChangePay) */}
@@ -272,7 +274,7 @@ function SpecialTaskCreateInner() {
               testID="stc-pay-crypto"
             >
               {saving ? <ActivityIndicator color="#fff" /> : (
-                <><Ionicons name="logo-bitcoin" size={16} color="#fff" /><Text style={styles.nextT}>Payer en USDT (BEP20)</Text></>
+                <><Ionicons name="logo-bitcoin" size={16} color="#fff" /><Text style={styles.nextT}>{t("special.pay_usdt")}</Text></>
               )}
             </TouchableOpacity>
             )}
@@ -318,8 +320,9 @@ const styles = StyleSheet.create({
 import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 export default function SpecialTaskCreate() {
+  const { t } = useI18n();
   return (
-    <FeatureGuard featureKey="special_tasks" title="Création de tâche spéciale désactivée">
+    <FeatureGuard featureKey="special_tasks" title={t("special.disabled")}>
       <SpecialTaskCreateInner />
     </FeatureGuard>
   );

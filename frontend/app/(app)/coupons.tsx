@@ -5,8 +5,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
+import { useI18n } from "@/src/i18n";
 
 export default function CouponsScreen() {
+  const { t } = useI18n();
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
@@ -21,11 +23,8 @@ export default function CouponsScreen() {
         <View style={styles.iconCircle}>
           <Ionicons name="ticket" size={56} color="#F59E0B" />
         </View>
-        <Text style={styles.h1}>Coupons & Promotions</Text>
-        <Text style={styles.desc} testID="coupons-soon">
-          Cette section arrive très bientôt. Vous pourrez y activer des codes promotionnels
-          et bénéficier de réductions sur vos activations et services.
-        </Text>
+        <Text style={styles.h1}>{t("coupons.title")}</Text>
+        <Text style={styles.desc} testID="coupons-soon">{t("coupons.description")}</Text>
       </View>
       <BottomNav />
     </View>

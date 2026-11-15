@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { voiceWaveform } from "./voiceWaveform";
 import { formatVoiceDuration } from "./voiceDuration";
+import { useI18n } from "@/src/i18n";
 
 type Props = {
   src: string;
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export default function VoiceMessage({ src, testID, durationSeconds, loading = false }: Props) {
+  const { t } = useI18n();
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(durationSeconds || 0);
@@ -99,9 +101,9 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
       // MediaError codes : 1 aborted, 2 network, 3 decode, 4 src unsupported
       const code = a.error?.code;
       if (code === 4 || code === 3) {
-        setErr("Format audio non supporté par votre navigateur.");
+        setErr(t("chat.audio_unsupported"));
       } else if (code === 2) {
-        setErr("Échec du téléchargement audio.");
+        setErr(t("chat.audio_download_failed"));
       }
     };
     a.addEventListener("loadedmetadata", onLoaded);
@@ -136,7 +138,7 @@ export default function VoiceMessage({ src, testID, durationSeconds, loading = f
         setPlaying(false);
         // AbortError happens when pause is called quickly after play — ignore.
         if (e && e.name !== "AbortError") {
-          setErr("Lecture impossible : " + (e.message || "codec non supporté"));
+          setErr(t("chat.audio_play_failed", { reason: e.message || t("chat.unsupported_codec") }));
         }
       });
     } else {

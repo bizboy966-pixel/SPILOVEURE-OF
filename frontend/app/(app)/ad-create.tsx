@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { theme } from "../../src/theme";
 import { api } from "../../src/api";
+import { useI18n } from "@/src/i18n";
 
 type Pricing = {
   price_per_day: number;
@@ -33,6 +34,7 @@ const COUNTRIES = [
 ];
 
 function AdCreateScreenInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const params = useLocalSearchParams<{ type?: string }>();
   const mediaType: "video" | "poster" = params.type === "poster" ? "poster" : "video";
@@ -112,12 +114,12 @@ function AdCreateScreenInner() {
   const submitStep2 = async () => {
     if (!adId) return;
     if (countries.length === 0) {
-      if (typeof window !== "undefined") window.alert("Sélectionnez au moins un pays.");
+      if (typeof window !== "undefined") window.alert(t("ads.select_country"));
       return;
     }
     const mn = parseInt(ageMin, 10); const mx = parseInt(ageMax, 10);
     if (Number.isNaN(mn) || Number.isNaN(mx) || mx < mn) {
-      if (typeof window !== "undefined") window.alert("Tranche d'âge invalide.");
+      if (typeof window !== "undefined") window.alert(t("ads.invalid_age"));
       return;
     }
     setSaving(true);
@@ -168,7 +170,7 @@ function AdCreateScreenInner() {
       pathname: "/(app)/purchase-payment" as any,
       params: {
         kind: "ads", target_id: adId, amount: String(pricing?.price_per_day && duration ? pricing.price_per_day * duration : 0),
-        title: "Paiement de la publicité", return_to: "/(app)/ads",
+        title: t("ads.payment_title"), return_to: "/(app)/ads",
       },
     });
   };
@@ -179,7 +181,7 @@ function AdCreateScreenInner() {
       if (typeof navigator !== "undefined" && (navigator as any).clipboard) {
         await (navigator as any).clipboard.writeText(payInit.deposit_address);
       }
-      if (typeof window !== "undefined") window.alert("Adresse copiée ✅");
+      if (typeof window !== "undefined") window.alert(t("ads.copied"));
     } catch { /* noop */ }
   };
 
@@ -194,7 +196,7 @@ function AdCreateScreenInner() {
         if (s && s !== "pending_payment") {
           clearInterval(iv);
           if (typeof window !== "undefined") {
-            window.alert("✅ Paiement confirmé. Votre publicité est soumise à validation.");
+            window.alert(t("ads.payment_confirmed"));
           }
           router.replace("/(app)/ads" as any);
         }
@@ -212,7 +214,7 @@ function AdCreateScreenInner() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="adcreate-back">
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>{mediaType === "poster" ? "🖼 Nouvelle affiche publicitaire" : "🎥 Nouvelle vidéo publicitaire"}</Text>
+        <Text style={styles.title}>{t(mediaType === "poster" ? "ads.form_title_poster" : "ads.form_title_video")}</Text>
       </View>
 
       <View style={styles.stepper}>
@@ -226,7 +228,7 @@ function AdCreateScreenInner() {
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {step === 1 && (
           <>
-            <Text style={styles.section}>Informations de la publicité</Text>
+            <Text style={styles.section}>{t("ads.info")}</Text>
 
             <Text style={styles.label}>{mediaType === "poster" ? "🖼 Affiche publicitaire" : "🖼 Image de couverture"}</Text>
             {coverUrl ? (
@@ -258,7 +260,7 @@ function AdCreateScreenInner() {
                   testID="adcreate-video-btn"
                 >
                   <Ionicons name={videoUrl ? "checkmark-circle" : "videocam"} size={18} color="#fff" />
-                  <Text style={styles.uploadT}>{uploadingVideo ? "Envoi…" : videoUrl ? "Remplacer" : "Importer une vidéo"}</Text>
+                  <Text style={styles.uploadT}>{uploadingVideo ? t("ads.uploading") : videoUrl ? t("ads.replace") : t("ads.import_video")}</Text>
                 </TouchableOpacity>
                 {/* @ts-ignore RN Web */}
                 <input ref={videoInput} type="file" accept="video/*" style={{ display: "none" }}
@@ -268,7 +270,7 @@ function AdCreateScreenInner() {
             <Text style={styles.label}>📝 Description</Text>
             <TextInput
               style={styles.textarea}
-              placeholder="Décrivez brièvement votre publicité (ce qu'elle promeut, votre offre, un appel à l'action…)"
+              placeholder={t("ads.description_placeholder")}
               value={description}
               onChangeText={setDescription}
               multiline
@@ -317,7 +319,7 @@ function AdCreateScreenInner() {
             <View style={styles.chipRow}>
               {(["male", "female", "both"] as const).map((g) => {
                 const on = gender === g;
-                const labels = { male: "♂️ Masculin", female: "♀️ Féminin", both: "⚧ Les deux" };
+                const labels = { male: t("ads.gender_male"), female: t("ads.gender_female"), both: t("ads.gender_both") };
                 return (
                   <TouchableOpacity key={g} style={[styles.chip, on && styles.chipOn]} onPress={() => setGender(g)} testID={`adcreate-gender-${g}`}>
                     <Text style={[styles.chipT, on && { color: "#fff" }]}>{labels[g]}</Text>
@@ -334,7 +336,7 @@ function AdCreateScreenInner() {
 
         {step === 3 && (
           <>
-            <Text style={styles.section}>Durée & tarification</Text>
+            <Text style={styles.section}>{t("ads.duration_pricing")}</Text>
             {!pricing || !pricing.configured ? (
               <Text style={styles.warn}>⚠️ La tarification n'est pas encore configurée par l'administrateur. Réessayez plus tard.</Text>
             ) : (
@@ -352,12 +354,12 @@ function AdCreateScreenInner() {
                 </View>
                 {duration ? (
                   <View style={styles.priceBox} testID="adcreate-price-summary">
-                    <Text style={styles.priceLbl}>Durée</Text>
+                    <Text style={styles.priceLbl}>{t("ads.duration")}</Text>
                     <Text style={styles.priceV}>{duration} jour{duration > 1 ? "s" : ""}</Text>
                     <Text style={styles.priceLbl}>Prix par jour</Text>
                     <Text style={styles.priceV}>{pricing.price_per_day} {pricing.currency}</Text>
                     <View style={styles.priceSep} />
-                    <Text style={styles.priceLbl}>Total à payer</Text>
+                    <Text style={styles.priceLbl}>{t("ads.total_to_pay")}</Text>
                     <Text style={styles.priceTotal}>{totalPrice} {pricing.currency}</Text>
                   </View>
                 ) : null}
@@ -398,7 +400,7 @@ function AdCreateScreenInner() {
                       kind: "ads",
                       target_id: adId!,
                       amount: String(totalPrice),
-                      title: "Paiement Publicité",
+                      title: t("ads.payment_title"),
                       return_to: "/(app)/ads",
                     },
                   })}
@@ -546,8 +548,9 @@ const styles = StyleSheet.create({
 import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 export default function AdCreateScreen() {
+  const { t } = useI18n();
   return (
-    <FeatureGuard featureKey="ads" title="Création publicité désactivée">
+    <FeatureGuard featureKey="ads" title={t("ads.disabled_create")}>
       <AdCreateScreenInner />
     </FeatureGuard>
   );

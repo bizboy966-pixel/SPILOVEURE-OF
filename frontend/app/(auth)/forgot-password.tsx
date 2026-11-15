@@ -17,12 +17,11 @@ import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 type ResetRequestResponse = { challenge_id: string; expires_in: number; resend_after: number };
 type ResetConfirmResponse = { ok: boolean };
 type Stage = "request" | "confirm" | "success";
-
-const GENERIC_SENT_COPY = "Si un compte correspond à cette adresse, un code a été envoyé.";
 
 function utf8ByteLength(value: string): number {
   let bytes = 0;
@@ -56,6 +55,7 @@ function formatTime(seconds: number): string {
 
 export default function ForgotPassword() {
   const router = useRouter();
+  const { t } = useI18n();
   const [stage, setStage] = useState<Stage>("request");
   const [email, setEmail] = useState("");
   const [challengeId, setChallengeId] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export default function ForgotPassword() {
     if (!beginBusy()) return;
     const address = email.trim();
     if (!address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
-      setError("Saisissez une adresse e-mail valide.");
+      setError(t("auth.reset_invalid_email"));
       endBusy();
       return;
     }
@@ -110,7 +110,7 @@ export default function ForgotPassword() {
         { auth: false, credentials: "include" },
       );
       if (!result || typeof result.challenge_id !== "string" || !result.challenge_id) {
-        throw new Error("Réponse de réinitialisation invalide.");
+        throw new Error(t("auth.reset_invalid_response"));
       }
       const requestedAt = Date.now();
       const expiry = Number.isFinite(result.expires_in) && result.expires_in > 0 ? result.expires_in : 600;
@@ -126,7 +126,7 @@ export default function ForgotPassword() {
       setRequestSent(true);
       setStage("confirm");
     } catch (e) {
-      setError(safeError(e, "Impossible d’envoyer le code. Réessayez dans un instant."));
+      setError(safeError(e, t("auth.reset_send_failed")));
     } finally {
       endBusy();
     }
@@ -154,7 +154,7 @@ export default function ForgotPassword() {
         { auth: false, credentials: "include" },
       );
       if (!result || typeof result.challenge_id !== "string" || !result.challenge_id) {
-        throw new Error("Réponse de réinitialisation invalide.");
+        throw new Error(t("auth.reset_invalid_response"));
       }
       const requestedAt = Date.now();
       const expiry = Number.isFinite(result.expires_in) && result.expires_in > 0 ? result.expires_in : 600;
@@ -168,7 +168,7 @@ export default function ForgotPassword() {
       setPasswordConfirm("");
       setRequestSent(true);
     } catch (e) {
-      setError(safeError(e, "Impossible de renvoyer le code. Réessayez."));
+      setError(safeError(e, t("auth.reset_resend_failed")));
     } finally {
       endBusy();
     }
@@ -177,27 +177,27 @@ export default function ForgotPassword() {
   const confirmReset = async () => {
     if (!beginBusy()) return;
     if (!challengeId || challengeExpired) {
-      setError("Le code a expiré. Demandez-en un nouveau.");
+      setError(t("auth.reset_expired_error"));
       endBusy();
       return;
     }
     if (!/^\d{6}$/.test(code)) {
-      setError("Saisissez le code à six chiffres.");
+      setError(t("auth.reset_code_error"));
       endBusy();
       return;
     }
     if (Array.from(password).length < 8) {
-      setError("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+      setError(t("auth.reset_password_short"));
       endBusy();
       return;
     }
     if (utf8ByteLength(password) > 72) {
-      setError("Le nouveau mot de passe ne peut pas dépasser 72 octets en UTF-8.");
+      setError(t("auth.reset_password_long"));
       endBusy();
       return;
     }
     if (password !== passwordConfirm) {
-      setError("Les deux mots de passe ne correspondent pas.");
+      setError(t("auth.reset_password_mismatch"));
       endBusy();
       return;
     }
@@ -207,7 +207,7 @@ export default function ForgotPassword() {
         { challenge_id: challengeId, code, password, password_confirm: passwordConfirm },
         { auth: false, credentials: "include" },
       );
-      if (result?.ok !== true) throw new Error("La réinitialisation n’a pas pu être confirmée.");
+      if (result?.ok !== true) throw new Error(t("auth.reset_confirmation_failed"));
       setStage("success");
       setChallengeId(null);
       setExpiresAt(null);
@@ -217,7 +217,7 @@ export default function ForgotPassword() {
       setPasswordConfirm("");
       setError("");
     } catch (e) {
-      setError(safeError(e, "Impossible de réinitialiser le mot de passe. Vérifiez le code et réessayez."));
+      setError(safeError(e, t("auth.reset_failed")));
     } finally {
       endBusy();
     }
@@ -239,8 +239,8 @@ export default function ForgotPassword() {
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.welcome}>Récupérer votre compte</Text>
-            <Text style={styles.welcomeSub}>Un nouveau départ, en toute sécurité.</Text>
+            <Text style={styles.welcome}>{t("auth.reset_title")}</Text>
+            <Text style={styles.welcomeSub}>{t("auth.reset_subtitle")}</Text>
           </LinearGradient>
 
           <View style={styles.card}>
@@ -249,12 +249,12 @@ export default function ForgotPassword() {
                 <View style={styles.successIcon}>
                   <Ionicons name="checkmark" size={25} color={theme.colors.success} />
                 </View>
-                <Text style={styles.title}>Mot de passe modifié</Text>
+                <Text style={styles.title}>{t("auth.reset_success_title")}</Text>
                 <Text style={styles.subtitle}>
-                  Votre nouveau mot de passe est prêt. Connectez-vous avec vos nouvelles informations.
+                  {t("auth.reset_success_desc")}
                 </Text>
                 <Button
-                  title="Retour à la connexion"
+                  title={t("auth.reset_back_login")}
                   onPress={() => router.replace("/(auth)/login" as any)}
                   icon={<Ionicons name="arrow-back-outline" size={18} color="#fff" />}
                   testID="reset-back-login"
@@ -262,11 +262,11 @@ export default function ForgotPassword() {
               </View>
             ) : (
               <>
-                <Text style={styles.title}>Mot de passe oublié</Text>
+                <Text style={styles.title}>{t("auth.reset_forgot_title")}</Text>
                 <Text style={styles.subtitle}>
                   {stage === "request"
-                    ? "Recevez un code pour choisir un nouveau mot de passe."
-                    : "Saisissez le code reçu puis choisissez un nouveau mot de passe."}
+                    ? t("auth.reset_request_desc")
+                    : t("auth.reset_confirm_desc")}
                 </Text>
 
                 {error ? (
@@ -279,9 +279,9 @@ export default function ForgotPassword() {
                 {stage === "request" ? (
                   <>
                     <Input
-                      label="E-mail"
+                      label={t("auth.email")}
                       icon="mail-outline"
-                      placeholder="Entrez votre adresse e-mail"
+                      placeholder={t("auth.reset_email_placeholder")}
                       value={email}
                       onChangeText={setEmail}
                       autoCapitalize="none"
@@ -291,7 +291,7 @@ export default function ForgotPassword() {
                       testID="reset-email"
                     />
                     <Button
-                      title="ENVOYER LE CODE"
+                      title={t("auth.reset_send_code")}
                       onPress={requestCode}
                       loading={busy}
                       icon={<Ionicons name="mail-outline" size={18} color="#fff" />}
@@ -302,7 +302,7 @@ export default function ForgotPassword() {
                   <>
                     <View style={styles.addressRow}>
                       <View style={styles.addressCopy}>
-                        <Text style={styles.addressLabel}>Code demandé pour</Text>
+                        <Text style={styles.addressLabel}>{t("auth.reset_code_for")}</Text>
                         <Text style={styles.addressText} numberOfLines={2}>{email}</Text>
                       </View>
                       <TouchableOpacity
@@ -312,13 +312,13 @@ export default function ForgotPassword() {
                         testID="reset-change-address"
                         style={styles.changeAddress}
                       >
-                        <Text style={styles.link}>Changer d’adresse</Text>
+                        <Text style={styles.link}>{t("auth.reset_change_address")}</Text>
                       </TouchableOpacity>
                     </View>
 
-                    {requestSent ? <Text style={styles.neutralNote}>{GENERIC_SENT_COPY}</Text> : null}
+                    {requestSent ? <Text style={styles.neutralNote}>{t("auth.reset_code_sent")}</Text> : null}
                     <Input
-                      label="Code à six chiffres"
+                      label={t("auth.reset_code_label")}
                       icon="keypad-outline"
                       placeholder="000000"
                       value={code}
@@ -330,9 +330,9 @@ export default function ForgotPassword() {
                       testID="reset-code"
                     />
                     <Input
-                      label="Nouveau mot de passe"
+                      label={t("auth.reset_new_password")}
                       icon="lock-closed-outline"
-                      placeholder="8 caractères minimum"
+                      placeholder={t("auth.reset_password_placeholder")}
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry={!showPassword}
@@ -344,9 +344,9 @@ export default function ForgotPassword() {
                       testID="reset-password"
                     />
                     <Input
-                      label="Confirmer le mot de passe"
+                      label={t("auth.confirm_password")}
                       icon="lock-closed-outline"
-                      placeholder="Répétez le nouveau mot de passe"
+                      placeholder={t("auth.reset_repeat_password")}
                       value={passwordConfirm}
                       onChangeText={setPasswordConfirm}
                       secureTextEntry={!showPasswordConfirm}
@@ -357,18 +357,18 @@ export default function ForgotPassword() {
                       autoCorrect={false}
                       testID="reset-password-confirm"
                     />
-                    <Text style={styles.passwordHint}>8 caractères minimum · 72 octets UTF-8 maximum</Text>
+                    <Text style={styles.passwordHint}>{t("auth.reset_password_hint")}</Text>
 
                     {challengeExpired ? (
                       <Text style={styles.expiredNote} testID="reset-expired">
-                        Ce code a expiré. Demandez-en un nouveau pour continuer.
+                        {t("auth.reset_code_expired")}
                       </Text>
                     ) : (
-                      <Text style={styles.timerNote}>Ce code expire dans {formatTime(expirySeconds)}.</Text>
+                      <Text style={styles.timerNote}>{t("auth.reset_code_expires", { time: formatTime(expirySeconds) })}</Text>
                     )}
 
                     <Button
-                      title="RÉINITIALISER LE MOT DE PASSE"
+                      title={t("auth.reset_button")}
                       onPress={confirmReset}
                       loading={busy}
                       disabled={challengeExpired}
@@ -385,7 +385,7 @@ export default function ForgotPassword() {
                     >
                       <Ionicons name="refresh-outline" size={16} color={theme.colors.primary} />
                       <Text style={styles.resendText}>
-                        {resendSeconds > 0 ? `Renvoyer le code dans ${formatTime(resendSeconds)}` : "Renvoyer le code"}
+                        {resendSeconds > 0 ? t("auth.reset_resend_wait", { time: formatTime(resendSeconds) }) : t("auth.reset_resend")}
                       </Text>
                     </TouchableOpacity>
                   </>
@@ -393,7 +393,7 @@ export default function ForgotPassword() {
               </>
             )}
           </View>
-          <Text style={styles.footer}>SPILOVEURE · Un réseau qui vous ressemble</Text>
+          <Text style={styles.footer}>{t("auth.reset_footer")}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

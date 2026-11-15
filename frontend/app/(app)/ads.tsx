@@ -18,6 +18,7 @@ import { api } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 import { LinkifiedText } from "@/src/components/LinkifiedText";
 import { useAuth } from "@/src/auth";
+import { useI18n } from "@/src/i18n";
 
 type Comment = {
   id: string;
@@ -48,6 +49,7 @@ type Ad = {
 import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 function AdsScreenInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const { user } = useAuth();
   const [ads, setAds] = useState<Ad[]>([]);
@@ -142,7 +144,7 @@ function AdsScreenInner() {
         setNewComment((n) => ({ ...n, [adId]: "" }));
         if (r.reward && r.reward.amount) {
           if (typeof window !== "undefined") {
-            window.alert(`🎉 Commentaire publié — vous avez gagné ${r.reward.amount} FCFA !`);
+            window.alert(t("ads.comment_reward", { amount: r.reward.amount }));
           }
         }
       }
@@ -150,7 +152,7 @@ function AdsScreenInner() {
       const msg =
         (err?.detail && String(err.detail)) ||
         (err?.message && String(err.message)) ||
-        "Impossible d'envoyer votre commentaire. Veuillez réessayer.";
+        t("ads.comment_send_error");
       setCommentError((e) => ({ ...e, [adId]: msg }));
     } finally {
       setCommentPosting((s) => ({ ...s, [adId]: false }));
@@ -160,7 +162,7 @@ function AdsScreenInner() {
   const onDeleteComment = async (adId: string, commentId: string) => {
     if (user?.role !== "admin") return;
     if (typeof window !== "undefined") {
-      if (!window.confirm("Supprimer définitivement ce commentaire ?")) return;
+      if (!window.confirm(t("ads.delete_confirm"))) return;
     }
     try {
       await api.delete(`/admin/ads/${adId}/comments/${commentId}`);
@@ -173,7 +175,7 @@ function AdsScreenInner() {
       );
     } catch (err: any) {
       if (typeof window !== "undefined") {
-        window.alert(`❌ ${err?.detail || err?.message || "Suppression échouée"}`);
+        window.alert(`❌ ${err?.detail || err?.message || t("ads.delete_failed")}`);
       }
     }
   };
@@ -207,7 +209,7 @@ function AdsScreenInner() {
             <Image source={{ uri: coverSrc }} style={styles.cover} resizeMode="contain" />
             <View style={styles.zoomHint} pointerEvents="none">
               <Ionicons name="expand" size={12} color="#fff" />
-              <Text style={styles.zoomHintTxt}>Voir en grand</Text>
+              <Text style={styles.zoomHintTxt}>{t("ads.view_large")}</Text>
             </View>
           </TouchableOpacity>
         ) : typeof window !== "undefined" ? (
@@ -263,7 +265,7 @@ function AdsScreenInner() {
         {isExpanded && (
           <View style={styles.commentsBox}>
             {item.comments.length === 0 ? (
-              <Text style={styles.commentsEmpty}>Aucun commentaire — soyez le premier.</Text>
+              <Text style={styles.commentsEmpty}>{t("ads.comments_empty")}</Text>
             ) : (
               item.comments.map((c) => {
                 const isCreator = c.user_id === item.user_id;
@@ -296,10 +298,10 @@ function AdsScreenInner() {
                       <Text style={styles.commentUser}>
                         @{c.username}
                         {isCreator && !c.is_reply && (
-                          <Text style={styles.badgeCreator}> · Créateur</Text>
+                          <Text style={styles.badgeCreator}> · {t("ads.creator")}</Text>
                         )}
                         {c.is_reply && (
-                          <Text style={styles.badgeCreator}> · Créateur</Text>
+                          <Text style={styles.badgeCreator}> · {t("ads.creator")}</Text>
                         )}
                       </Text>
                       <View style={styles.commentActions}>
@@ -353,8 +355,8 @@ function AdsScreenInner() {
                 style={styles.commentInput}
                 placeholder={
                   replyTo[item.id] && user?.id === item.user_id
-                    ? `Répondre à @${replyTo[item.id]?.username}…`
-                    : "Ajouter un commentaire…"
+                    ? t("ads.reply_to", { username: replyTo[item.id]?.username || "" })
+                    : t("ads.add_comment")
                 }
                 value={newComment[item.id] || ""}
                 onChangeText={(v) => {
@@ -401,7 +403,7 @@ function AdsScreenInner() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="ads-back">
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>📢 Publicités</Text>
+        <Text style={styles.title}>{t("ads.title")}</Text>
         <TouchableOpacity onPress={() => router.push("/(app)/ad-create" as any)} style={styles.createBtn} testID="ads-create">
           <Ionicons name="add" size={22} color="#fff" />
         </TouchableOpacity>
@@ -420,8 +422,8 @@ function AdsScreenInner() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="megaphone-outline" size={48} color={theme.colors.textSecondary} />
-              <Text style={styles.emptyTitle}>Aucune publicité pour le moment</Text>
-              <Text style={styles.emptyHint}>Soyez le premier à créer une campagne !</Text>
+              <Text style={styles.emptyTitle}>{t("ads.empty_title")}</Text>
+              <Text style={styles.emptyHint}>{t("ads.empty_hint")}</Text>
             </View>
           }
           testID="ads-feed"

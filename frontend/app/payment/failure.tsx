@@ -2,8 +2,10 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 export default function PaymentFailure() {
+  const { t } = useI18n();
   const router = useRouter();
   const { token } = useLocalSearchParams<{ token?: string }>();
   return (
@@ -12,7 +14,7 @@ export default function PaymentFailure() {
         <View style={styles.iconCircle}>
           <Ionicons name="close-circle" size={72} color="#FF4258" />
         </View>
-        <Text style={styles.title}>Paiement annulé ou échoué</Text>
+        <Text style={styles.title}>{t("payment.cancelled")}</Text>
         <Text style={styles.sub}>
           Le paiement {token ? `(${token})` : ""} n'a pas pu être confirmé.
           Vérifiez votre solde Mobile Money ou réessayez avec un autre opérateur.
@@ -23,13 +25,13 @@ export default function PaymentFailure() {
           onPress={() => router.replace("/(app)/activation")}
           testID="payment-failure-retry"
         >
-          <Text style={styles.btnText}>Réessayer le paiement</Text>
+          <Text style={styles.btnText}>{t("payment.retry")}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.btn, { backgroundColor: "transparent", marginTop: 10 }]}
           onPress={() => router.replace("/(app)/services")}
         >
-          <Text style={[styles.btnText, { color: theme.colors.textSecondary }]}>Retour à l'accueil</Text>
+          <Text style={[styles.btnText, { color: theme.colors.textSecondary }]}>{t("payment.home")}</Text>
         </TouchableOpacity>
       </View>
     </View>

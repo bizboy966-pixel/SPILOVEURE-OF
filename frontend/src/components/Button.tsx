@@ -1,6 +1,7 @@
 import React from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, ViewStyle } from "react-native";
 import { theme } from "@/src/theme";
+import { translateFormText, useI18n } from "@/src/i18n";
 
 type Props = {
   title: string;
@@ -14,6 +15,8 @@ type Props = {
 };
 
 export function Button({ title, onPress, loading, disabled, variant = "primary", style, testID, icon }: Props) {
+  const { t } = useI18n();
+  const translatedTitle = translateFormText(title, t);
   const isDisabled = disabled || loading;
   const containerStyle: ViewStyle[] = [styles.base];
   const textStyle: any[] = [styles.text];
@@ -45,7 +48,7 @@ export function Button({ title, onPress, loading, disabled, variant = "primary",
       ) : (
         <>
           {icon}
-          <Text style={textStyle}>{title}</Text>
+          <Text style={textStyle}>{translatedTitle}</Text>
         </>
       )}
     </TouchableOpacity>

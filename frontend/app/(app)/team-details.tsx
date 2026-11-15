@@ -8,11 +8,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Card } from "@/src/components/Card";
 import { api } from "@/src/api";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 import { formatDate } from "@/src/utils/format";
 
 const LEVEL_NAMES = ["Débutant", "Influenceur", "Archiveur", "Ambassadeur", "Pionnier", "Mentor", "Champion", "Directeur", "Titan", "Icône", "Légende", "Empereur"];
 
 export default function TeamDetails() {
+  const { t } = useI18n();
   const router = useRouter();
   const [level, setLevel] = useState(1);
   const [search, setSearch] = useState("");
@@ -64,8 +66,8 @@ export default function TeamDetails() {
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>Détails d'équipe</Text>
-        <Text style={styles.sub}>Membres présents dans votre matrice par niveau (2ⁿ par niveau).</Text>
+        <Text style={styles.title}>{t("team.details_title")}</Text>
+        <Text style={styles.sub}>{t("team.details_subtitle")}</Text>
       </LinearGradient>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.lvlBar}>
@@ -93,7 +95,7 @@ export default function TeamDetails() {
         <View style={styles.searchBox}>
           <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
           <TextInput
-            placeholder="Rechercher nom, téléphone..."
+            placeholder={t("team.search")}
             placeholderTextColor={theme.colors.textSecondary}
             value={search}
             onChangeText={setSearch}
@@ -115,7 +117,7 @@ export default function TeamDetails() {
 
       <View style={styles.headerSection}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Niveau {level} — {LEVEL_NAMES[level - 1]}</Text>
+          <Text style={styles.headerTitle}>{t("team.level", { level })} — {LEVEL_NAMES[level - 1]}</Text>
           <Text style={styles.headerCount}>
             {members.length} / {capacity} place{capacity > 1 ? "s" : ""} occupée{members.length > 1 ? "s" : ""}
           </Text>
@@ -172,7 +174,7 @@ export default function TeamDetails() {
                     </View>
                   ) : null}
                 </View>
-                <Text style={styles.meta}>Niveau {item.max_level || 0} • Invité par {item.sponsor_username || "—"}</Text>
+                <Text style={styles.meta}>{t("team.invited_by", { level: item.max_level || 0, sponsor: item.sponsor_username || "—" })}</Text>
                 <Text style={styles.meta}>{formatDate(item.created_at)}</Text>
               </View>
             </View>

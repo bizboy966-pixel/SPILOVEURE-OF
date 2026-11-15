@@ -16,6 +16,7 @@ import { api } from "@/src/api";
 import { theme } from "@/src/theme";
 import { countryDisplayName } from "@/src/identity/countrySearch";
 import { registrationPasswordError } from "@/src/identity/passwordValidation";
+import { useI18n } from "@/src/i18n";
 
 type Country = { code: string; name: string; dial: string; flag: string };
 
@@ -23,6 +24,7 @@ export default function Register() {
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string; via?: string; flow?: string; country?: string; email?: string }>();
   const { signUp } = useAuth();
+  const { t, lang } = useI18n();
   const landingEnabled = useFeature("landing_page");
   const { loading: featLoading } = useFeatures();
 
@@ -97,7 +99,7 @@ export default function Register() {
         if (!live) return;
         setSponsorValid(false);
         setSponsor("");
-        setSponsorError(error?.detail || "Impossible de vérifier le parrain. Réessayez dans quelques instants.");
+        setSponsorError(error?.detail || t("auth.sponsor_check_failed"));
       } finally {
         if (live) setSponsorChecking(false);
       }
@@ -108,20 +110,24 @@ export default function Register() {
   const submit = async () => {
     setErr(null);
     if (!sponsorValid) {
-      setErr(sponsorError || "Veuillez patienter pendant la vérification du parrain.");
+      setErr(sponsorError || t("auth.sponsor_wait"));
       return;
     }
     if (!username || !email || !phone || !sponsor || !country) {
-      setErr("Veuillez remplir tous les champs obligatoires.");
+      setErr(t("auth.fill_required"));
       return;
     }
     if (!accept) {
-      setErr("Vous devez accepter les conditions d'utilisation.");
+      setErr(t("auth.accept_terms_error"));
       return;
     }
     const passwordError = registrationPasswordError(password, passwordConfirm);
     if (passwordError) {
-      setErr(passwordError);
+      setErr(passwordError === "Le mot de passe doit contenir au moins 8 caractères."
+        ? t("auth.password_too_short")
+        : passwordError === "Le mot de passe ne doit pas dépasser 72 octets."
+          ? t("auth.password_too_long")
+          : t("profile.password_mismatch"));
       return;
     }
     setLoading(true);
@@ -135,7 +141,7 @@ export default function Register() {
       armWelcomeSplash();
       router.replace("/(app)/pay");
     } catch (e: any) {
-      setErr(e?.detail || "Erreur lors de l'inscription.");
+      setErr(e?.detail || t("auth.register_error"));
     } finally {
       setLoading(false);
     }
@@ -150,20 +156,20 @@ export default function Register() {
               source={require("@/assets/images/spiloveure-logo.png")}
               style={styles.logo} resizeMode="contain"
             />
-            <Text style={styles.h1}>Rejoignez une <Text style={{ color: "#A5C2FF" }}>communauté</Text> qui gagne !</Text>
-            <Text style={styles.sub}>Créez votre compte et commencez dès aujourd'hui.</Text>
+            <Text style={styles.h1}>{t("auth.register_welcome")}</Text>
+            <Text style={styles.sub}>{t("auth.register_welcome_desc")}</Text>
           </LinearGradient>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Créer votre compte</Text>
-            <Text style={styles.subtitle}>Veuillez remplir tous les champs pour vous inscrire.</Text>
+            <Text style={styles.title}>{t("auth.register_title")}</Text>
+            <Text style={styles.subtitle}>{t("auth.register_desc")}</Text>
 
             {/* Bandeau de blocage si le lien de parrainage est invalide ou absent */}
             {sponsorValid === false && !sponsorChecking ? (
               <View style={styles.refBlockBox} testID="register-ref-invalid">
                 <Ionicons name="warning" size={20} color="#92400E" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.refBlockTitle}>Vérification du parrain impossible.</Text>
+                  <Text style={styles.refBlockTitle}>{t("auth.sponsor_invalid")}</Text>
                   <Text style={styles.refBlockText}>
                     {sponsorError}
                   </Text>
@@ -172,7 +178,7 @@ export default function Register() {
             ) : null}
             {sponsorChecking ? (
               <View style={styles.refCheckBox}>
-                <Text style={styles.refCheckText}>Vérification du parrain en cours…</Text>
+                <Text style={styles.refCheckText}>{t("auth.sponsor_checking")}</Text>
               </View>
             ) : null}
 
@@ -184,7 +190,7 @@ export default function Register() {
             ) : null}
 
             <Input
-              label="Nom d'utilisateur"
+              label={t("auth.username")}
               icon="person-outline"
               placeholder="kossi123"
               value={username}
@@ -193,7 +199,7 @@ export default function Register() {
               testID="register-username"
             />
             <Input
-              label="E-mail"
+              label={t("auth.email")}
               icon="mail-outline"
               placeholder="kossi@gmail.com"
               value={email}
@@ -204,19 +210,19 @@ export default function Register() {
               editable={!params.email}
             />
 
-            <Text style={styles.lbl}>{params.country ? "Pays" : "Choisir le pays"}</Text>
+            <Text style={styles.lbl}>{params.country ? t("auth.country") : t("auth.choose_country")}</Text>
             <TouchableOpacity style={styles.countryBtn} disabled={!!params.country} accessibilityState={{ disabled: !!params.country }} onPress={() => setShowCountryPicker(true)} testID="register-country">
               <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
               <Text style={styles.countryText}>
-                {country ? `${country.flag}  ${countryDisplayName(country)}` : "Sélectionnez votre pays"}
+                {country ? `${country.flag}  ${countryDisplayName(country, lang)}` : t("auth.select_country")}
               </Text>
               <Ionicons name={params.country ? "lock-closed-outline" : "chevron-down"} size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
 
             <Input
-              label="Créer le mot de passe"
+              label={t("auth.create_password")}
               icon="lock-closed-outline"
-              placeholder="Au moins 8 caractères"
+              placeholder={t("auth.password_minimum")}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -228,9 +234,9 @@ export default function Register() {
               testID="register-password"
             />
             <Input
-              label="Confirmer le mot de passe"
+              label={t("auth.confirm_password")}
               icon="lock-closed-outline"
-              placeholder="Saisissez à nouveau votre mot de passe"
+              placeholder={t("auth.repeat_password")}
               value={passwordConfirm}
               onChangeText={setPasswordConfirm}
               secureTextEntry={!showPasswordConfirm}
@@ -241,7 +247,7 @@ export default function Register() {
               onRightIconPress={() => setShowPasswordConfirm(value => !value)}
               testID="register-password-confirm"
             />
-            <Text style={styles.lbl}>Numéro de téléphone</Text>
+            <Text style={styles.lbl}>{t("auth.phone_number")}</Text>
             <View style={styles.phoneRow}>
               <View style={styles.dialBox}>
                 <Text style={styles.dialText}>{country?.flag} {country?.dial}</Text>
@@ -260,7 +266,7 @@ export default function Register() {
             <Input
               label="Parrain"
               icon="lock-closed"
-              placeholder="Vérification du parrain…"
+              placeholder={t("auth.sponsor_check_placeholder")}
               value={sponsorValid ? sponsor : ""}
               onChangeText={() => {}}
               autoCapitalize="none"
@@ -269,8 +275,8 @@ export default function Register() {
             />
             <Text style={styles.sponsorHint}>
               {sponsorValid && sponsor
-                ? params.ref ? `Parrain de votre invitation : @${sponsor}. Ce code est verrouillé.` : `Parrain officiel : @${sponsor}. Attribué automatiquement en l’absence de lien d’invitation.`
-                : "Le parrain est vérifié et attribué automatiquement avant l’inscription."}
+                ? params.ref ? t("auth.sponsor_invited", { sponsor }) : t("auth.sponsor_official", { sponsor })
+                : t("auth.sponsor_auto")}
             </Text>
 
             <TouchableOpacity style={styles.checkRow} onPress={() => setAccept((v) => !v)} testID="register-accept">
@@ -278,12 +284,12 @@ export default function Register() {
                 {accept && <Ionicons name="checkmark" size={14} color="#fff" />}
               </View>
               <Text style={styles.checkLabel}>
-                J'accepte les <Text style={styles.link}>conditions d'utilisation</Text>.
+                {t("auth.accept_terms")}
               </Text>
             </TouchableOpacity>
 
             <Button
-              title="S'INSCRIRE"
+              title={t("auth.signup").toUpperCase()}
               onPress={submit}
               loading={loading}
               disabled={!sponsorValid || sponsorChecking}
@@ -292,9 +298,9 @@ export default function Register() {
             />
 
             <View style={styles.bottomRow}>
-              <Text style={styles.bottomText}>Vous avez déjà un compte ?</Text>
+              <Text style={styles.bottomText}>{t("auth.already_account")}</Text>
               <TouchableOpacity onPress={() => router.push("/(auth)/login")} testID="goto-login">
-                <Text style={styles.link}> Se connecter</Text>
+                <Text style={styles.link}> {t("auth.login_link")}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -304,7 +310,7 @@ export default function Register() {
       <Modal visible={showCountryPicker} transparent animationType="slide" onRequestClose={() => setShowCountryPicker(false)}>
         <Pressable style={styles.backdrop} onPress={() => setShowCountryPicker(false)}>
           <Pressable style={styles.countrySheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Choisir un pays</Text>
+            <Text style={styles.sheetTitle}>{t("auth.choose_country")}</Text>
             <ScrollView>
               {countries.map((c) => (
                 <TouchableOpacity
@@ -313,7 +319,7 @@ export default function Register() {
                   testID={`country-${c.code}`}
                 >
                   <Text style={{ fontSize: 20 }}>{c.flag}</Text>
-                  <Text style={styles.countryItemText}>{c.name}</Text>
+                   <Text style={styles.countryItemText}>{countryDisplayName(c, lang)}</Text>
                   <Text style={styles.countryItemDial}>{c.dial}</Text>
                 </TouchableOpacity>
               ))}

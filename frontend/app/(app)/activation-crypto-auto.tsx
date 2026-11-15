@@ -7,6 +7,7 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { theme } from "@/src/theme";
 import { FeatureGuard } from "@/src/components/FeatureGuard";
+import { useI18n } from "@/src/i18n";
 
 type Charge = {
   reference: string;
@@ -19,6 +20,7 @@ type Charge = {
 };
 
 function CryptoAutoInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const { user } = useAuth();
   const [charge, setCharge] = useState<Charge | null>(null);
@@ -36,14 +38,14 @@ function CryptoAutoInner() {
       const r = await api.post<Charge>("/activations/crypto-auto/create", { level: 1 });
       setCharge(r);
     } catch (e: any) {
-      setErr(e?.detail || "Impossible de démarrer le paiement.");
+      setErr(e?.detail || t("activation.crypto_start_failed"));
     } finally { setLoading(false); }
   };
 
   const verifyPayment = async () => {
     if (!charge) return;
-    const t = txHash.trim();
-    if (t.length < 10) {
+    const txHashValue = txHash.trim();
+    if (txHashValue.length < 10) {
       setVerifyErr("Veuillez coller un hash de transaction valide.");
       return;
     }
@@ -51,11 +53,11 @@ function CryptoAutoInner() {
     try {
       const r = await api.post<{ ok: boolean; activated?: boolean; message?: string; status?: string }>(
         "/activations/crypto-auto/verify",
-        { reference: charge.reference, tx_hash: t },
+        { reference: charge.reference, tx_hash: txHashValue },
       );
       if (r.ok && r.activated) {
         setVerifyMsg(r.message || "Compte activé.");
-        if (typeof window !== "undefined") window.alert("✅ " + (r.message || "Compte activé au Niveau 1 !"));
+        if (typeof window !== "undefined") window.alert("✅ " + (r.message || t("activation.crypto_activated")));
         setTimeout(() => router.replace("/(app)/dashboard" as any), 1200);
       } else {
         setVerifyMsg(r.message || "Vérification en cours…");
@@ -82,7 +84,7 @@ function CryptoAutoInner() {
                 ts: Date.now(), reference: charge?.reference, level: 1,
               }));
             } catch {}
-            window.alert("✅ Paiement confirmé. Votre compte est activé au Niveau 1 !");
+            window.alert(t("activation.crypto_confirmed"));
             window.location.href = "/dashboard";
           } else {
             router.replace("/(app)/dashboard" as any);
@@ -95,7 +97,7 @@ function CryptoAutoInner() {
 
   const copyAddr = async () => {
     if (!charge?.deposit_address) {
-      if (typeof window !== "undefined") window.alert("Adresse indisponible. Veuillez relancer le paiement.");
+      if (typeof window !== "undefined") window.alert(t("activation.crypto_address_missing"));
       return;
     }
     const value = charge.deposit_address;
@@ -109,9 +111,9 @@ function CryptoAutoInner() {
         document.body.appendChild(ta); ta.select();
         document.execCommand("copy"); document.body.removeChild(ta);
       }
-      if (typeof window !== "undefined") window.alert("Adresse copiée dans le presse-papiers.");
+      if (typeof window !== "undefined") window.alert(t("activation.crypto_address_copied"));
     } catch {
-      if (typeof window !== "undefined") window.alert("Copie impossible. Sélectionnez et copiez l'adresse manuellement.");
+      if (typeof window !== "undefined") window.alert(t("activation.crypto_copy_failed"));
     }
   };
 
@@ -125,33 +127,33 @@ function CryptoAutoInner() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="cauto-back">
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.title}>⚡ Activation automatique — Crypto</Text>
+        <Text style={styles.title}>{t("activation.crypto_title")}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {!charge ? (
           <View style={styles.card}>
-            <Text style={styles.section}>Informations d'activation</Text>
+            <Text style={styles.section}>{t("activation.crypto_info")}</Text>
             <View style={styles.kv}><Text style={styles.k}>Email</Text><Text style={styles.v}>{user?.email}</Text></View>
             <View style={styles.kv}><Text style={styles.k}>Nom d'utilisateur</Text><Text style={styles.v}>@{user?.username}</Text></View>
             <View style={styles.kv}><Text style={styles.k}>Montant</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>5 USDT 🔒</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Cryptomonnaie</Text><Text style={styles.v}>USDT BEP20 🔒</Text></View>
-            <Text style={styles.hint}>Le montant et le réseau sont verrouillés. Après clic sur « Payer maintenant », vous recevrez l'adresse de dépôt et un QR code.</Text>
+            <View style={styles.kv}><Text style={styles.k}>{t("activation.crypto_currency")}</Text><Text style={styles.v}>USDT BEP20 🔒</Text></View>
+            <Text style={styles.hint}>{t("activation.crypto_locked")}</Text>
 
             {err ? <Text style={styles.err}>{err}</Text> : null}
             <TouchableOpacity style={styles.payBtn} onPress={startPayment} disabled={loading} testID="cauto-pay">
               {loading ? <ActivityIndicator color="#fff" /> : (
                 <>
                   <Ionicons name="flash" size={18} color="#fff" />
-                  <Text style={styles.payTxt}>Payer maintenant</Text>
+                  <Text style={styles.payTxt}>{t("activation.crypto_pay")}</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.section}>Envoyez exactement {String(charge.amount_to_send)} USDT (BEP20)</Text>
-            <Text style={styles.hint}>Utilisez UNIQUEMENT le réseau BEP20 (Binance Smart Chain). Tout autre réseau entraînera une perte.</Text>
+            <Text style={styles.section}>{t("activation.crypto_send_amount", { amount: String(charge.amount_to_send) })}</Text>
+            <Text style={styles.hint}>{t("activation.crypto_network_warning")}</Text>
 
             <View style={{ alignItems: "center", marginVertical: 12 }}>
               {Platform.OS === "web" && qrUri ? (
@@ -159,13 +161,13 @@ function CryptoAutoInner() {
               ) : (
                 <View style={{ width: 240, height: 240, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
                   <Ionicons name="qr-code" size={64} color={theme.colors.primary} />
-                  <Text style={{ marginTop: 8, fontSize: 12, color: theme.colors.textSecondary }}>Adresse ci-dessous</Text>
+                  <Text style={{ marginTop: 8, fontSize: 12, color: theme.colors.textSecondary }}>{t("activation.crypto_address_below")}</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.addrBox}>
-              <Text style={styles.addrLabel}>Adresse USDT BEP20</Text>
+              <Text style={styles.addrLabel}>USDT BEP20 {t("activation.crypto_address")}</Text>
               <Text style={styles.addrValue} selectable testID="cauto-address">
                 {charge.deposit_address}
               </Text>
@@ -176,25 +178,25 @@ function CryptoAutoInner() {
                   testID="cauto-copy"
                 >
                   <Ionicons name="copy" size={14} color="#fff" />
-                  <Text style={styles.copyTxt}>Copier l'adresse</Text>
+                  <Text style={styles.copyTxt}>{t("activation.crypto_copy_address")}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={styles.kv}><Text style={styles.k}>Montant à envoyer</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{String(charge.amount_to_send)} USDT</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Réseau</Text><Text style={styles.v}>{charge.network}</Text></View>
-            <View style={styles.kv}><Text style={styles.k}>Référence</Text><Text style={styles.v} selectable testID="cauto-reference">{charge.reference}</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>{t("activation.crypto_amount_to_send")}</Text><Text style={[styles.v, { fontWeight: "900", color: theme.colors.primary }]}>{String(charge.amount_to_send)} USDT</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>{t("activation.crypto_network")}</Text><Text style={styles.v}>{charge.network}</Text></View>
+            <View style={styles.kv}><Text style={styles.k}>{t("activation.crypto_reference")}</Text><Text style={styles.v} selectable testID="cauto-reference">{charge.reference}</Text></View>
 
             <View style={styles.waitBox}>
               {checking ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
               <Text style={styles.waitTxt} testID="cauto-status">
-                {checking ? " En attente de la confirmation du paiement…" : "Envoi confirmé — patientez"}
+                {checking ? ` ${t("activation.crypto_waiting")}` : t("activation.crypto_send_confirmed")}
               </Text>
             </View>
 
             {/* ── Section « Hash de transaction » — vérification manuelle ── */}
             <View style={styles.hashBox}>
-              <Text style={styles.section}>Hash de transaction (Tx Hash)</Text>
+              <Text style={styles.section}>{t("activation.crypto_tx_hash")}</Text>
               <Text style={styles.hint}>
                 Après avoir envoyé les {String(charge.amount_to_send)} USDT depuis votre portefeuille,
                 collez ci-dessous le hash de transaction pour vérifier et activer votre compte
@@ -220,7 +222,7 @@ function CryptoAutoInner() {
                 testID="cauto-verify"
               >
                 {verifying ? <ActivityIndicator color="#fff" /> : <Ionicons name="checkmark-circle" size={18} color="#fff" />}
-                <Text style={styles.payTxt}>{verifying ? "Vérification…" : "Vérifier le paiement"}</Text>
+                <Text style={styles.payTxt}>{verifying ? t("activation.crypto_verifying") : t("activation.crypto_verify")}</Text>
               </TouchableOpacity>
             </View>
           </View>

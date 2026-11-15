@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 const TYPE_META: Record<string, { label: string; icon: any; color: string; emoji: string }> = {
   youtube:       { label: "YouTube",       icon: "logo-youtube",   color: "#FF0000", emoji: "📺" },
@@ -78,6 +79,7 @@ function fmt(n: number) { return `${Math.round(n)} FCFA`; }
  * and auto-completes the mission when the required duration is reached.
  * NO manual validation button — everything is automatic. */
 function WatchModal({ m, visible, onClose, onDone }: any) {
+  const { t } = useI18n();
   const meta = TYPE_META[m.type] || { label: m.type, icon: "play", color: theme.colors.primary, emoji: "🎬" };
   const required = Number(m.duration_seconds || 0);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -137,7 +139,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
         } catch {}
         const r = await api.post<any>(`/missions/${m.id}/complete`, { session_id: sessionId });
         setDone(true);
-        if (typeof window !== "undefined") window.alert(`✅ Mission validée avec succès\n💰 +${r.reward} FCFA crédités sur votre solde ${meta.label}`);
+        if (typeof window !== "undefined") window.alert(t("missions.success", { reward: r.reward, wallet: meta.label }));
         onDone?.();
       } catch (e: any) {
         setError(e?.detail || "Impossible de valider automatiquement.");
@@ -148,15 +150,15 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
   }, [elapsed, required, sessionId, done, m.id, m.type]);
 
   const submitQuestionnaire = async () => {
-    if (!answer.trim()) { setError("Veuillez saisir votre réponse."); return; }
+    if (!answer.trim()) { setError(t("missions.answer_required")); return; }
     setCompleting(true); setError("");
     try {
       const r = await api.post<any>(`/missions/${m.id}/complete`, { answer: answer.trim() });
       setDone(true);
-      if (typeof window !== "undefined") window.alert(`✅ Mission validée avec succès\n💰 +${r.reward} FCFA crédités sur votre solde ${meta.label}`);
+      if (typeof window !== "undefined") window.alert(t("missions.success", { reward: r.reward, wallet: meta.label }));
       onDone?.();
     } catch (e: any) {
-      setError(e?.detail || "Réponse incorrecte.");
+      setError(e?.detail || t("missions.incorrect_answer"));
     } finally {
       setCompleting(false);
     }
@@ -234,7 +236,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
                 style={styles.input}
                 value={answer}
                 onChangeText={setAnswer}
-                placeholder="Votre réponse"
+                placeholder={t("missions.answer_placeholder")}
                 placeholderTextColor={theme.colors.textSecondary}
                 testID={`watch-answer-${m.id}`}
               />
@@ -244,7 +246,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
                 disabled={completing}
                 testID={`watch-answer-submit-${m.id}`}
               >
-                <Text style={styles.validateTxt}>{completing ? "Validation…" : "✅ Valider ma réponse"}</Text>
+                <Text style={styles.validateTxt}>{completing ? t("missions.validating") : t("missions.validate_answer")}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -254,7 +256,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
           ) : null}
           {done ? (
             <View style={{ marginTop: 10, padding: 10, borderRadius: 12, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: theme.colors.success }} testID={`watch-done-${m.id}`}>
-              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>🎉 Mission validée — récompense créditée.</Text>
+              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>{t("missions.withdrawal_done")}</Text>
             </View>
           ) : null}
         </View>
@@ -264,6 +266,7 @@ function WatchModal({ m, visible, onClose, onDone }: any) {
 }
 
 function MissionCard({ m, onDone }: any) {
+  const { t } = useI18n();
   const meta = TYPE_META[m.type] || { label: m.type, icon: "play", color: theme.colors.primary, emoji: "🎬" };
   const [open, setOpen] = useState(false);
   const thumb = ytThumb(m.url || "");
@@ -272,7 +275,7 @@ function MissionCard({ m, onDone }: any) {
     return (
       <View style={[styles.card, { opacity: 0.55 }]} testID={`mission-${m.id}`}>
         <Text style={styles.title}>{m.title}</Text>
-        <Text style={styles.done}>✅ Mission déjà validée</Text>
+        <Text style={styles.done}>{t("missions.already_done")}</Text>
       </View>
     );
   }
@@ -330,7 +333,7 @@ function MissionCard({ m, onDone }: any) {
         <View style={styles.watchCta}>
           <Ionicons name="play-circle" size={16} color="#fff" />
           <Text style={styles.watchCtaTxt}>
-            {m.type === "questionnaire" ? "Répondre au questionnaire" : "Regarder la vidéo"}
+            {m.type === "questionnaire" ? t("missions.answer_questionnaire") : t("missions.watch_video")}
           </Text>
         </View>
       </TouchableOpacity>
@@ -341,10 +344,11 @@ function MissionCard({ m, onDone }: any) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
   const cfg: any = {
-    pending:   { bg: theme.colors.warningBg, color: theme.colors.warning, label: "En attente" },
-    validated: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé" },
-    rejected:  { bg: theme.colors.dangerBg,  color: theme.colors.danger,  label: "Rejeté" },
+    pending:   { bg: theme.colors.warningBg, color: theme.colors.warning, label: t("missions.status_pending") },
+    validated: { bg: theme.colors.successBg, color: theme.colors.success, label: t("missions.status_validated") },
+    rejected:  { bg: theme.colors.dangerBg,  color: theme.colors.danger,  label: t("missions.status_rejected") },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
     <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: cfg.bg }}>
@@ -475,6 +479,7 @@ function WithdrawModal({
 }
 
 function MissionsPageInner() {
+  const { t } = useI18n();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [windowOpen, setWindowOpen] = useState(true);
@@ -517,7 +522,7 @@ function MissionsPageInner() {
         <TouchableOpacity onPress={() => router.back()} testID="missions-back">
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.hTitle}>🎥 Missions Rémunérées</Text>
+        <Text style={styles.hTitle}>{t("missions.page_title")}</Text>
         <View style={{ width: 22 }} />
       </LinearGradient>
 
@@ -527,13 +532,13 @@ function MissionsPageInner() {
       >
         {/* Total */}
         <View style={styles.totalCard}>
-          <Text style={styles.totalLbl}>💰 Solde total Missions</Text>
+          <Text style={styles.totalLbl}>{t("missions.total_balance")}</Text>
           <Text style={styles.totalVal}>{fmt(wallets.total || 0)}</Text>
           <Text style={styles.totalHint}>Vos gains de missions sont totalement séparés de vos commissions MLM.</Text>
         </View>
 
         {/* Per-wallet cards with "Retirer" buttons */}
-        <Text style={styles.sectionTitle}>💼 Mes Portefeuilles Missions</Text>
+        <Text style={styles.sectionTitle}>{t("missions.wallets")}</Text>
         <View style={styles.walletsGrid}>
           {(wallets.wallets || []).map((w: any) => {
             const meta = TYPE_META[w.type] || { label: w.type, color: theme.colors.primary, emoji: "🎁" };
@@ -568,21 +573,21 @@ function MissionsPageInner() {
             onPress={() => setTab("missions")}
             testID="tab-missions"
           >
-            <Text style={[styles.tabTxt, tab === "missions" && { color: "#fff" }]}>🎬 Missions disponibles</Text>
+            <Text style={[styles.tabTxt, tab === "missions" && { color: "#fff" }]}>{t("missions.available")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, tab === "history" && styles.tabOn]}
             onPress={() => setTab("history")}
             testID="tab-history"
           >
-            <Text style={[styles.tabTxt, tab === "history" && { color: "#fff" }]}>📜 Historique</Text>
+            <Text style={[styles.tabTxt, tab === "history" && { color: "#fff" }]}>{t("missions.history")}</Text>
           </TouchableOpacity>
         </View>
 
         {tab === "missions" ? (
           !windowOpen ? (
             <View style={styles.closed} testID="missions-closed-banner">
-              <Text style={styles.closedTxt}>{message || "🚫 Missions actuellement indisponibles.\n📅 Lundi à Vendredi de 08h00 à 16h00."}</Text>
+              <Text style={styles.closedTxt}>{message || t("missions.unavailable")}</Text>
             </View>
           ) : (
             <>
@@ -621,7 +626,7 @@ function MissionsPageInner() {
               })
             )}
 
-            <Text style={[styles.sectionTitle, { marginTop: 16 }]}>🏆 Missions validées</Text>
+            <Text style={[styles.sectionTitle, { marginTop: 16 }]}>{t("missions.validated")}</Text>
             {history.length === 0 ? (
               <Text style={styles.empty}>Aucune mission validée pour le moment.</Text>
             ) : (

@@ -2,6 +2,7 @@ import React from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
+import { translateFormText, useI18n } from "@/src/i18n";
 
 export function EmptySoon({
   icon = "construct",
@@ -12,14 +13,17 @@ export function EmptySoon({
   title?: string;
   message?: string;
 }) {
+  const { t } = useI18n();
+  const displayTitle = translateFormText(title, t) || t("common.coming_soon_title");
+  const displayMessage = translateFormText(message, t) || t("common.empty_soon_desc");
   return (
     <View style={styles.wrap} testID="empty-soon">
       <View style={styles.circle}>
         <Ionicons name={icon} size={48} color={theme.colors.primary} />
       </View>
       <Text style={styles.flag}>🚧</Text>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.msg}>{message}</Text>
+      <Text style={styles.title}>{displayTitle}</Text>
+      <Text style={styles.msg}>{displayMessage}</Text>
     </View>
   );
 }

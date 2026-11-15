@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useChat } from "@/src/chat/ChatContext";
+import { useI18n } from "@/src/i18n";
 import { canUseWebPush, setupWebPush } from "@/src/lib/firebase";
 import { messengerApi } from "@/src/messenger/api";
 import { playNotificationSound, unlockNotificationAudio, type NotificationSoundSettings } from "@/src/messenger/notificationSound";
@@ -17,6 +18,7 @@ type Incoming = {
 };
 
 export default function ChatPushBootstrap() {
+  const { t } = useI18n();
   const { user, loading } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -62,7 +64,7 @@ export default function ChatPushBootstrap() {
         setQueue(old => old.length < 8 ? [...old, notice] : [old[0], ...old.slice(2), notice]);
         if (document.visibilityState === "visible") {
           void playNotificationSound(user.id, notice.settings.scope, notice.settings)
-            .catch(() => setSoundError("Son non joué. Activez ou testez le son dans les paramètres."));
+            .catch(() => setSoundError(t("chat.sound_not_played")));
         } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           const systemNotice = new Notification(notice.title, {
             body: notice.body, icon: notice.avatar || "/icon-192.png", tag: `chat-${cid}`,
@@ -160,7 +162,7 @@ export default function ChatPushBootstrap() {
       });
       dismiss();
     } catch (failure: any) {
-      setError(failure?.detail || "Réponse non envoyée. Réessayez.");
+      setError(failure?.detail || t("chat.reply_failed"));
     } finally { setBusy(false); }
   };
   const unread = async () => {
@@ -189,12 +191,12 @@ export default function ChatPushBootstrap() {
         <TouchableOpacity onPress={dismiss} accessibilityLabel="Fermer la notification" style={styles.close}><Ionicons name="close" size={20} color="#687991" /></TouchableOpacity>
       </View>
       {!replying ? <View style={styles.actions}>
-        <TouchableOpacity testID="chat-notification-reply" onPress={() => { setReplying(true); requestAnimationFrame(() => replyInput.current?.focus()); }} style={styles.action}><Ionicons name="return-up-back" size={16} color="#1769e8" /><Text style={styles.actionText}>Répondre</Text></TouchableOpacity>
+        <TouchableOpacity testID="chat-notification-reply" onPress={() => { setReplying(true); requestAnimationFrame(() => replyInput.current?.focus()); }} style={styles.action}><Ionicons name="return-up-back" size={16} color="#1769e8" /><Text style={styles.actionText}>{t("chat.reply")}</Text></TouchableOpacity>
         <TouchableOpacity testID="chat-notification-unread" onPress={unread} disabled={busy} style={styles.action}><Ionicons name="mail-unread-outline" size={16} color="#1769e8" /><Text style={styles.actionText}>Marquer comme non lu</Text></TouchableOpacity>
       </View> : <View style={styles.replyRow}>
         <TextInput ref={replyInput} autoFocus value={text} onChangeText={value => { draftId.current = ""; setText(value); }}
-          placeholder="Votre réponse…" style={styles.input} multiline maxLength={8000} editable={!busy} testID="chat-notification-reply-input" />
-        <TouchableOpacity style={styles.send} onPress={reply} disabled={busy || !text.trim()} accessibilityLabel="Envoyer la réponse" testID="chat-notification-send">{busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="send" size={19} color="#fff" />}</TouchableOpacity>
+          placeholder={t("chat.reply_placeholder")} style={styles.input} multiline maxLength={8000} editable={!busy} testID="chat-notification-reply-input" />
+        <TouchableOpacity style={styles.send} onPress={reply} disabled={busy || !text.trim()} accessibilityLabel={t("chat.send_reply")} testID="chat-notification-send">{busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="send" size={19} color="#fff" />}</TouchableOpacity>
       </View>}
       {!!error && <Text style={styles.error}>{error}</Text>}
       {!!soundError && <Text style={styles.hint}>{soundError}</Text>}

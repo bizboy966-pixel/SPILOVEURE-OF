@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/auth";
 
 type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
@@ -14,6 +15,7 @@ const API = process.env.EXPO_PUBLIC_BACKEND_URL;
  * (set by the activation screen before starting the payment).
  */
 export default function PaymentSuccess() {
+  const { t } = useI18n();
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string; token?: string }>();
   const { token: authToken, user } = useAuth();
@@ -83,7 +85,7 @@ export default function PaymentSuccess() {
         {status === "checking" || status === "pending" ? (
           <>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.title}>Vérification du paiement…</Text>
+            <Text style={styles.title}>{t("payment.verifying")}</Text>
             <Text style={styles.sub}>
               Confirmez l'invite Mobile Money reçue sur votre téléphone. La validation est automatique.
             </Text>
@@ -93,9 +95,9 @@ export default function PaymentSuccess() {
             <View style={[styles.iconCircle, { backgroundColor: "#1B5BFF22" }]}>
               <Ionicons name="checkmark-circle" size={72} color="#1B5BFF" />
             </View>
-            <Text style={styles.title}>Paiement réussi !</Text>
+            <Text style={styles.title}>{t("payment.success")}</Text>
             <Text style={styles.sub}>
-              {amount != null ? `Montant : ${amount} ${currency}` : "Votre activation est confirmée."}
+              {amount != null ? t("payment.amount", { amount, currency }) : t("payment.activation_confirmed")}
             </Text>
             <Text style={[styles.sub, { marginTop: 6 }]}>
               Bienvenue {user?.username ? `@${user.username}` : ""} ! Votre niveau a été activé.
@@ -106,7 +108,7 @@ export default function PaymentSuccess() {
             <View style={[styles.iconCircle, { backgroundColor: "#FF425822" }]}>
               <Ionicons name="close-circle" size={72} color="#FF4258" />
             </View>
-            <Text style={styles.title}>Paiement échoué</Text>
+            <Text style={styles.title}>{t("payment.failed")}</Text>
             <Text style={styles.sub}>
               Le paiement n'a pas pu être confirmé. Vérifiez votre solde ou réessayez avec un autre opérateur.
             </Text>
@@ -129,7 +131,7 @@ export default function PaymentSuccess() {
           onPress={() => router.replace("/(app)/services")}
           testID="payment-success-go-home"
         >
-          <Text style={styles.btnText}>Accéder à mon espace</Text>
+          <Text style={styles.btnText}>{t("payment.access_account")}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

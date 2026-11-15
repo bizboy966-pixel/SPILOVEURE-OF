@@ -72,3 +72,46 @@ export function useI18n() {
 export function useT() {
   return useContext(I18nContext).t;
 }
+
+const FORM_TEXT_KEYS: Record<string, string> = {
+  "Nom d'utilisateur": "auth.username",
+  "E-mail": "auth.email",
+  "Mot de passe": "auth.password",
+  "Confirmer le mot de passe": "auth.confirm_password",
+  "Nouveau mot de passe": "auth.new_password",
+  "Mot de passe actuel": "settings.current_password",
+  "Téléphone": "auth.phone",
+  "Numéro de téléphone": "auth.phone_number",
+  "Pays": "auth.country",
+  "Montant": "common.amount",
+  "Montant à retirer": "withdrawal.amount",
+  "Nom complet": "wallet.full_name_placeholder",
+  "Nom du titulaire": "wallet.holder_name",
+  "Rechercher": "common.search",
+  "Enregistrer": "common.save",
+  "Annuler": "common.cancel",
+  "Modifier": "common.edit",
+  "Supprimer": "common.delete",
+  "Confirmer": "common.confirm",
+  "SE CONNECTER": "auth.login_button",
+  "S'INSCRIRE": "auth.signup",
+  "ENREGISTRER": "wallet.save",
+  "Dépôt": "coming.title.depot",
+  "Envoyer": "coming.title.send",
+  "Échanger": "coming.title.exchange",
+  "IA SPV": "coming.title.spvia",
+  "Trading": "coming.title.trading",
+  "Retour à l'accueil": "common.return_home",
+  "Fonctionnalité désactivée": "common.feature_disabled",
+  "Bientôt disponible": "common.coming_soon_title",
+};
+
+export function translateFormText(
+  value: string | undefined,
+  t: Ctx["t"],
+): string | undefined {
+  if (!value) return value;
+  const key = FORM_TEXT_KEYS[value] ??
+    Object.keys(fr).find((candidate) => fr[candidate] === value);
+  return key ? t(key) : value;
+}

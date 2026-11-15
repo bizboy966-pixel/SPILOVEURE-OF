@@ -4,9 +4,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/auth";
+import { useI18n } from "@/src/i18n";
 
 export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { user, signOut } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
 
   const go = (path: any) => {
@@ -25,17 +27,17 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
   };
 
   const items: { icon: keyof typeof Ionicons.glyphMap; label: string; path: string; testID: string; color: string }[] = [
-    { icon: "home", label: "Tableau de bord", path: "/(app)/dashboard", testID: "menu-dashboard", color: "#3B82F6" },
-    { icon: "git-network", label: "Les matrices", path: "/(app)/matrices", testID: "menu-matrices", color: theme.colors.secondary },
-    { icon: "git-branch", label: "🌳 Mon Équipe (arbre)", path: "/(app)/team-direct", testID: "menu-team-direct", color: theme.colors.success },
-    { icon: "people", label: "👥 Équipe", path: "/(app)/equipe", testID: "menu-team", color: "#22C55E" },
-    { icon: "list", label: "Détails d'équipe", path: "/(app)/team-details", testID: "menu-team-details", color: theme.colors.warning },
-    { icon: "person", label: "Mon profil", path: "/(app)/profile", testID: "menu-profile", color: "#0EA5E9" },
-    { icon: "wallet", label: "Portefeuille retrait", path: "/(app)/wallet", testID: "menu-wallet", color: "#A855F7" },
-    { icon: "cash", label: "Demande de retrait", path: "/(app)/withdrawal", testID: "menu-withdrawal", color: theme.colors.success },
-    { icon: "receipt", label: "Historique des transactions", path: "/(app)/transactions", testID: "menu-transactions", color: "#EC4899" },
-    { icon: "megaphone", label: "Communauté", path: "/(app)/community", testID: "menu-community", color: "#F97316" },
-    { icon: "settings", label: "Paramètres", path: "/(app)/settings", testID: "menu-settings", color: theme.colors.textSecondary },
+    { icon: "home", label: "menu.dashboard", path: "/(app)/dashboard", testID: "menu-dashboard", color: "#3B82F6" },
+    { icon: "git-network", label: "menu.matrices", path: "/(app)/matrices", testID: "menu-matrices", color: theme.colors.secondary },
+    { icon: "git-branch", label: "menu.team_tree", path: "/(app)/team-direct", testID: "menu-team-direct", color: theme.colors.success },
+    { icon: "people", label: "menu.team", path: "/(app)/equipe", testID: "menu-team", color: "#22C55E" },
+    { icon: "list", label: "menu.team_details", path: "/(app)/team-details", testID: "menu-team-details", color: theme.colors.warning },
+    { icon: "person", label: "menu.profile", path: "/(app)/profile", testID: "menu-profile", color: "#0EA5E9" },
+    { icon: "wallet", label: "menu.withdrawal_wallet", path: "/(app)/wallet", testID: "menu-wallet", color: "#A855F7" },
+    { icon: "cash", label: "menu.withdrawal", path: "/(app)/withdrawal", testID: "menu-withdrawal", color: theme.colors.success },
+    { icon: "receipt", label: "menu.transactions", path: "/(app)/transactions", testID: "menu-transactions", color: "#EC4899" },
+    { icon: "megaphone", label: "menu.community", path: "/(app)/community", testID: "menu-community", color: "#F97316" },
+    { icon: "settings", label: "menu.settings", path: "/(app)/settings", testID: "menu-settings", color: theme.colors.textSecondary },
   ];
 
   return (
@@ -43,7 +45,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.panel} onPress={() => {}}>
           <View style={styles.header}>
-            <Text style={styles.title}>Options</Text>
+            <Text style={styles.title}>{t("menu.title")}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10} testID="menu-close">
               <Ionicons name="close" size={24} color={theme.colors.textPrimary} />
             </TouchableOpacity>
@@ -55,7 +57,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
             <View style={{ flex: 1 }}>
               <Text style={styles.username}>{user?.username}</Text>
               <View style={styles.levelPill}>
-                <Text style={styles.levelPillText}>Niveau {user?.max_level ?? 0}</Text>
+                <Text style={styles.levelPillText}>{t("menu.level", { level: user?.max_level ?? 0 })}</Text>
               </View>
             </View>
           </View>
@@ -70,7 +72,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
                 <View style={[styles.itemIcon, { backgroundColor: `${it.color}22` }]}>
                   <Ionicons name={it.icon} size={20} color={it.color} />
                 </View>
-                <Text style={styles.itemLabel}>{it.label}</Text>
+                <Text style={styles.itemLabel}>{t(it.label)}</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             ))}
@@ -83,7 +85,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
                 <View style={[styles.itemIcon, { backgroundColor: "#1B5BFF22" }]}>
                   <Ionicons name="shield-checkmark" size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={styles.itemLabel}>Panel Admin</Text>
+                <Text style={styles.itemLabel}>{t("menu.admin")}</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             )}
@@ -95,7 +97,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
               <View style={[styles.itemIcon, { backgroundColor: "#0EA5E922" }]}>
                 <Ionicons name="refresh" size={20} color="#0EA5E9" />
               </View>
-              <Text style={styles.itemLabel}>Actualiser la page</Text>
+              <Text style={styles.itemLabel}>{t("menu.refresh")}</Text>
               <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
 
@@ -111,7 +113,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
               <View style={[styles.itemIcon, { backgroundColor: theme.colors.dangerBg }]}>
                 <Ionicons name="power" size={20} color={theme.colors.danger} />
               </View>
-              <Text style={[styles.itemLabel, { color: theme.colors.danger, fontWeight: "700" }]}>Déconnexion</Text>
+              <Text style={[styles.itemLabel, { color: theme.colors.danger, fontWeight: "700" }]}>{t("menu.signout")}</Text>
             </TouchableOpacity>
           </ScrollView>
         </Pressable>

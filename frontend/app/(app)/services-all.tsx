@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { BottomNav } from "@/src/components/BottomNav";
 import { useServiceBadges } from "@/src/hooks/useServiceBadges";
+import { useI18n } from "@/src/i18n";
 
 /**
  * "Voir tout" — full catalog of every service available on the platform.
@@ -45,6 +46,7 @@ const EXTRA: Service[] = [
 
 export default function ServicesAllScreen() {
   const router = useRouter();
+  const { t } = useI18n();
   const badges = useServiceBadges();
 
   const renderCard = (s: Service) => {
@@ -71,7 +73,9 @@ export default function ServicesAllScreen() {
             </View>
           ) : null}
         </View>
-        <Text style={styles.cardLabel} numberOfLines={2}>{s.label}</Text>
+        <Text style={styles.cardLabel} numberOfLines={2}>
+          {s.key === "marketplace" ? s.label : t(`services_all.${s.key === "ads" ? "ads" : s.key === "formations" ? "training" : s.key === "ebooks" ? "ebook" : s.key === "emploi" ? "jobs" : s.key === "premium" ? "premium" : s.key === "lottery" ? "jackpot" : s.key === "advertising" ? "ad_space" : s.key === "coupons" ? "coupon" : s.key === "matrices" ? "matrix" : s.key === "team" ? "team" : "community"}`)}
+        </Text>
       </TouchableOpacity>
     );
   };
@@ -85,20 +89,20 @@ export default function ServicesAllScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <View>
-              <Text style={styles.title}>Tous les services</Text>
-              <Text style={styles.subtitle}>Catalogue complet SPILOVEURE</Text>
+              <Text style={styles.title}>{t("services_all.title")}</Text>
+              <Text style={styles.subtitle}>{t("services_all.subtitle")}</Text>
             </View>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 140 }}>
-        <Text style={styles.sectionTitle}>Services principaux</Text>
+        <Text style={styles.sectionTitle}>{t("services_all.main")}</Text>
         <View style={styles.grid} testID="services-all-main">
           {MAIN.map(renderCard)}
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 22 }]}>Plus de services</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 22 }]}>{t("services_all.more")}</Text>
         <View style={styles.grid} testID="services-all-extra">
           {EXTRA.map(renderCard)}
         </View>

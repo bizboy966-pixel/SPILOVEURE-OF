@@ -7,6 +7,7 @@ import { theme } from "@/src/theme";
 import { api } from "@/src/api";
 import { Card } from "@/src/components/Card";
 import { useAuth } from "@/src/auth";
+import { useI18n } from "@/src/i18n";
 
 const fmt = (v: number) => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} FCFA`;
 
@@ -28,6 +29,7 @@ function useCountdown(endsAtISO: string | null) {
 }
 
 export default function LotteryPage() {
+  const { t } = useI18n();
   const router = useRouter();
   const { refresh } = useAuth() as any;
   const [enabled, setEnabled] = useState(true);
@@ -59,30 +61,30 @@ export default function LotteryPage() {
   const onJoin = async () => {
     if (!active) return;
     if (active.payment_pending) {
-      if (typeof window !== "undefined") window.alert("Un paiement de ticket est déjà en cours de vérification.");
+      if (typeof window !== "undefined") window.alert(t("lottery.pending_payment"));
       return;
     }
     if (active.already_joined) {
-      if (typeof window !== "undefined") window.alert("Vous participez déjà à ce tirage.");
+      if (typeof window !== "undefined") window.alert(t("lottery.already_joined"));
       return;
     }
     if (!isOpen) {
-      if (typeof window !== "undefined") window.alert("❌ Ce tirage n'accepte plus de participation.");
+      if (typeof window !== "undefined") window.alert(t("lottery.closed"));
       return;
     }
     if (isFull) {
-      if (typeof window !== "undefined") window.alert("❌ Nombre maximal de participants atteint.");
+      if (typeof window !== "undefined") window.alert(t("lottery.full"));
       return;
     }
     if (typeof window !== "undefined" && !window.confirm(
-      `Payer directement le ticket du tirage « ${active.name} » ?\n\nMontant : ${fmt(entry)}`
+      t("lottery.confirm_entry", { name: active.name, amount: fmt(entry) })
     )) return;
     if (entry > 0) {
       router.push({
         pathname: "/(app)/purchase-payment" as any,
         params: {
           kind: "lottery_entry", target_id: active.id,
-          amount: String(entry), title: `Ticket Jackpot — ${active.name}`,
+          amount: String(entry), title: t("lottery.ticket_title", { name: active.name }),
           return_to: "/(app)/lottery",
         },
       });
@@ -93,9 +95,9 @@ export default function LotteryPage() {
       await api.post(`/lottery/draws/${active.id}/join`, {});
       await load();
       await refresh?.();
-      if (typeof window !== "undefined") window.alert("🎉 Vous participez maintenant au tirage ! Bonne chance.");
+      if (typeof window !== "undefined") window.alert(t("lottery.join_success"));
     } catch (e: any) {
-      const msg = e?.detail || "Échec";
+      const msg = e?.detail || t("lottery.failed");
       if (typeof window !== "undefined") window.alert(`❌ ${msg}`);
     } finally {
       setJoining(false);
@@ -111,7 +113,7 @@ export default function LotteryPage() {
       <View style={[styles.screen, { padding: 16 }]}>
         <View style={styles.disabledBox} testID="lottery-disabled">
           <Ionicons name="close-circle" size={36} color={theme.colors.danger} />
-          <Text style={styles.disabledTxt}>Le module Lottery Jackpot est actuellement désactivé par l'administration.</Text>
+          <Text style={styles.disabledTxt}>{t("lottery.disabled")}</Text>
         </View>
       </View>
     );
@@ -127,7 +129,7 @@ export default function LotteryPage() {
 
       {announced ? (
         <Card style={styles.cardAnnounced}>
-          <Text style={styles.sectionTitle}>🏆 Derniers résultats — {announced.name}</Text>
+          <Text style={styles.sectionTitle}>{t("lottery.latest_results", { name: announced.name })}</Text>
           {sortedWinners.map((w: any, idx: number) => (
             <View key={`w-${idx}`} style={styles.winnerRow} testID={`winner-${w.rank}`}>
               <Text style={styles.winnerRank}>
@@ -137,7 +139,7 @@ export default function LotteryPage() {
               <Text style={styles.winnerPrize}>{fmt(w.prize)}</Text>
             </View>
           ))}
-          <Text style={styles.thanks}>Merci à tous les participants. Rendez-vous au prochain tirage !</Text>
+          <Text style={styles.thanks}>{t("lottery.thanks")}</Text>
         </Card>
       ) : null}
 
@@ -148,36 +150,36 @@ export default function LotteryPage() {
 
           {isRunning ? (
             <>
-              <Text style={styles.runningLabel}>⏱ Compte à rebours en cours</Text>
+              <Text style={styles.runningLabel}>{t("lottery.countdown")}</Text>
               <View style={styles.cdRow}>
-                <View style={styles.cdBox}><Text style={styles.cdN}>{cd.d}</Text><Text style={styles.cdL}>jours</Text></View>
-                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.h).padStart(2, "0")}</Text><Text style={styles.cdL}>heures</Text></View>
-                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.m).padStart(2, "0")}</Text><Text style={styles.cdL}>min</Text></View>
-                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.s).padStart(2, "0")}</Text><Text style={styles.cdL}>sec</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{cd.d}</Text><Text style={styles.cdL}>{t("lottery.days")}</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.h).padStart(2, "0")}</Text><Text style={styles.cdL}>{t("lottery.hours")}</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.m).padStart(2, "0")}</Text><Text style={styles.cdL}>{t("lottery.minutes")}</Text></View>
+                <View style={styles.cdBox}><Text style={styles.cdN}>{String(cd.s).padStart(2, "0")}</Text><Text style={styles.cdL}>{t("lottery.seconds")}</Text></View>
               </View>
             </>
           ) : (
             <View style={styles.openBadge}>
               <Ionicons name="checkmark-circle" size={16} color="#fff" />
-              <Text style={styles.openBadgeTxt}>🟢 Inscriptions ouvertes — En attente du lancement par l'administration</Text>
+              <Text style={styles.openBadgeTxt}>{t("lottery.open")}</Text>
             </View>
           )}
 
           <View style={styles.kv}>
-            <Text style={styles.kvL}>👥 Participants</Text>
-            <Text style={styles.kvV}>{active.participants_count}{active.max_participants ? ` / ${active.max_participants}` : ""}{isFull ? "  (COMPLET)" : ""}</Text>
+            <Text style={styles.kvL}>{t("lottery.participants")}</Text>
+            <Text style={styles.kvV}>{active.participants_count}{active.max_participants ? ` / ${active.max_participants}` : ""}{isFull ? `  (${t("lottery.complete")})` : ""}</Text>
           </View>
           <View style={styles.kv}>
-            <Text style={styles.kvL}>🏆 Gagnants prévus</Text>
+            <Text style={styles.kvL}>{t("lottery.winners")}</Text>
             <Text style={styles.kvV}>{active.winners_count}</Text>
           </View>
           <View style={styles.kv}>
-            <Text style={styles.kvL}>💰 Participation</Text>
+            <Text style={styles.kvL}>{t("lottery.entry")}</Text>
             <Text style={styles.kvV}>{fmt(entry)}</Text>
           </View>
           {(active.prizes && active.prizes.length > 0) ? (
             <View style={{ marginTop: 10 }}>
-              <Text style={styles.prizeTitle}>🎁 Cagnotte</Text>
+              <Text style={styles.prizeTitle}>{t("lottery.prize_pool")}</Text>
               {[...active.prizes].sort((a: any, b: any) => a.rank - b.rank).map((p: any, idx: number) => (
                 <View key={`p-${idx}`} style={styles.prizeRow}>
                   <Text style={styles.prizeRank}>
@@ -191,12 +193,12 @@ export default function LotteryPage() {
           {active.already_joined ? (
             <View style={styles.joinedBadge} testID="lottery-already-joined">
               <Ionicons name="checkmark-circle" size={18} color="#fff" />
-              <Text style={styles.joinedTxt}>✓ Vous participez à ce tirage</Text>
+              <Text style={styles.joinedTxt}>{t("lottery.joined")}</Text>
             </View>
           ) : active.payment_pending ? (
             <View style={styles.joinedBadge}>
               <Ionicons name="time" size={18} color="#fff" />
-              <Text style={styles.joinedTxt}>Paiement du ticket en cours de vérification</Text>
+              <Text style={styles.joinedTxt}>{t("lottery.payment_checking")}</Text>
             </View>
           ) : isOpen && !isFull ? (
             <TouchableOpacity
@@ -206,23 +208,23 @@ export default function LotteryPage() {
               testID="lottery-join-btn"
             >
               <Ionicons name="ticket" size={18} color="#fff" />
-              <Text style={styles.joinBtnTxt}>{joining ? "Inscription…" : `🎰 Rejoindre le Jackpot (${fmt(entry)})`}</Text>
+              <Text style={styles.joinBtnTxt}>{joining ? t("lottery.joining") : t("lottery.join_jackpot", { amount: fmt(entry) })}</Text>
             </TouchableOpacity>
           ) : isOpen && isFull ? (
             <View style={[styles.joinedBadge, { backgroundColor: theme.colors.danger }]} testID="lottery-full">
               <Ionicons name="close-circle" size={18} color="#fff" />
-              <Text style={styles.joinedTxt}>Nombre maximal de participants atteint</Text>
+              <Text style={styles.joinedTxt}>{t("lottery.full")}</Text>
             </View>
           ) : isRunning ? (
             <View style={[styles.joinedBadge, { backgroundColor: theme.colors.warning }]} testID="lottery-running">
               <Ionicons name="time" size={18} color="#fff" />
-              <Text style={styles.joinedTxt}>⏱ Tirage en cours — En attente des résultats</Text>
+              <Text style={styles.joinedTxt}>{t("lottery.running")}</Text>
             </View>
           ) : null}
         </Card>
       ) : !announced ? (
         <Card style={{ marginTop: 12 }}>
-          <Text style={styles.emptyTxt}>🕒 Aucun tirage en cours pour le moment. Revenez bientôt !</Text>
+          <Text style={styles.emptyTxt}>{t("lottery.empty")}</Text>
         </Card>
       ) : null}
     </ScrollView>

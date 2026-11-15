@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
+import { useI18n } from "@/src/i18n";
 
 type Notif = {
   id: string;
@@ -32,14 +33,15 @@ const KIND_ICON: Record<string, any> = {
   ad: "megaphone",
 };
 
-function fmt(dt: string) {
+function fmt(dt: string, language: "fr" | "en") {
   try {
     const d = new Date(dt);
-    return d.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString(language === "en" ? "en" : "fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   } catch { return dt; }
 }
 
 export default function NotificationsScreen() {
+  const { t, lang } = useI18n();
   const router = useRouter();
   const [items, setItems] = useState<Notif[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,7 +66,7 @@ export default function NotificationsScreen() {
       try { await api.delete("/me/notifications/all"); load(); }
       catch {}
     };
-    if (typeof window !== "undefined" && !window.confirm("Supprimer toutes les notifications ?")) return;
+    if (typeof window !== "undefined" && !window.confirm(t("notifications.delete_confirm"))) return;
     doIt();
   };
 
@@ -84,18 +86,18 @@ export default function NotificationsScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Notifications</Text>
-              <Text style={styles.subtitle}>{items.filter(i => !i.read).length} non lues</Text>
+              <Text style={styles.title}>{t("notifications.title")}</Text>
+              <Text style={styles.subtitle}>{t("notifications.unread", { count: items.filter(i => !i.read).length })}</Text>
             </View>
           </View>
           <View style={styles.actionsRow}>
             <TouchableOpacity style={styles.actionBtn} onPress={markAll} testID="notif-mark-all">
               <Ionicons name="checkmark-done" size={14} color="#fff" />
-              <Text style={styles.actionTxt}>Tout marquer lu</Text>
+              <Text style={styles.actionTxt}>{t("notifications.mark_all")}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDanger]} onPress={deleteAll} testID="notif-delete-all">
               <Ionicons name="trash" size={14} color="#fff" />
-              <Text style={styles.actionTxt}>Tout supprimer</Text>
+              <Text style={styles.actionTxt}>{t("notifications.delete_all")}</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -109,8 +111,8 @@ export default function NotificationsScreen() {
         ListEmptyComponent={
           <View style={styles.empty} testID="notif-empty">
             <Ionicons name="notifications-off" size={44} color={theme.colors.textSecondary} />
-            <Text style={styles.emptyT}>Aucune notification</Text>
-            <Text style={styles.emptyS}>Les nouveaux événements de votre compte apparaîtront ici.</Text>
+            <Text style={styles.emptyT}>{t("notifications.empty_title")}</Text>
+            <Text style={styles.emptyS}>{t("notifications.empty_description")}</Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -125,7 +127,7 @@ export default function NotificationsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
               {item.body ? <Text style={styles.cardBody} numberOfLines={2}>{item.body}</Text> : null}
-              <Text style={styles.cardDate}>{fmt(item.created_at)}</Text>
+              <Text style={styles.cardDate}>{fmt(item.created_at, lang)}</Text>
             </View>
             {!item.read ? <View style={styles.dot} /> : null}
           </TouchableOpacity>

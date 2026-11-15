@@ -3,17 +3,19 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import ProfilePhotoManager from "@/src/components/ProfilePhotoManager";
+import { useI18n } from "@/src/i18n";
 
-export function formatLongDate(s?: string) {
+export function formatLongDate(s?: string, language: "fr" | "en" = "fr") {
   if (!s) return "—";
   try {
-    return new Date(s).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    return new Date(s).toLocaleDateString(language === "en" ? "en-US" : "fr-FR", { day: "numeric", month: "long", year: "numeric" });
   } catch {
     return s;
   }
 }
 
 export const ProfileHeaderCard: React.FC<{ user: any }> = ({ user }) => {
+  const { t, lang } = useI18n();
   const [photoOpen, setPhotoOpen] = React.useState(false);
   return (
     <View style={styles.card} testID="profile-header-card">
@@ -35,12 +37,12 @@ export const ProfileHeaderCard: React.FC<{ user: any }> = ({ user }) => {
         <Text style={styles.username} numberOfLines={1} testID="profile-username">{user?.username || "—"}</Text>
         <View style={styles.levelPill} testID="profile-level-badge">
           <Ionicons name="trophy" size={13} color={theme.colors.primary} />
-          <Text style={styles.levelTxt}>Niveau {user?.max_level ?? 0}</Text>
+          <Text style={styles.levelTxt}>{t("menu.level", { level: user?.max_level ?? 0 })}</Text>
         </View>
         <View style={styles.dateRow}>
           <Ionicons name="calendar-outline" size={14} color={theme.colors.textSecondary} />
           <Text style={styles.dateTxt} numberOfLines={1} testID="profile-joined-date">
-            Inscrit le {formatLongDate(user?.created_at)}
+            {t("profile.joined_on")} {formatLongDate(user?.created_at, lang)}
           </Text>
         </View>
       </View>

@@ -14,8 +14,10 @@ import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
 import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { theme } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 export default function Login() {
+  const { t } = useI18n();
   const router = useRouter();
   const { signIn } = useAuth();
   const { refresh: refreshChat } = useChat();
@@ -36,7 +38,7 @@ export default function Login() {
       armWelcomeSplash();
       router.replace(account.role === "admin" ? "/(admin)" : "/(app)/dashboard");
     } catch (e: any) {
-      setErr(e?.detail || "Identifiants invalides.");
+      setErr(e?.detail || t("auth.invalid_credentials"));
     } finally {
       setLoading(false);
     }
@@ -52,7 +54,7 @@ export default function Login() {
       router.push("/messenger" as any);
     } catch (e: any) {
       if (e?.status === 401) router.push("/verify-email?source=chat" as any);
-      else setChatError(e?.detail || "Impossible de vérifier la session Chat. Réessayez.");
+      else setChatError(e?.detail || t("auth.chat_session_error"));
     } finally {
       setChatLoading(false);
     }
@@ -73,16 +75,16 @@ export default function Login() {
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.welcome}>Bienvenue de retour !</Text>
+            <Text style={styles.welcome}>{t("auth.login_welcome")}</Text>
             <Text style={styles.welcomeSub}>
-              Connectez-vous pour continuer à développer votre réseau.
+              {t("auth.login_welcome_desc")}
             </Text>
           </LinearGradient>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Connexion</Text>
+            <Text style={styles.title}>{t("auth.login_title")}</Text>
             <Text style={styles.subtitle}>
-              Veuillez entrer vos informations pour accéder à votre compte.
+              {t("auth.login_desc")}
             </Text>
 
             {err ? (
@@ -93,9 +95,9 @@ export default function Login() {
             ) : null}
 
             <Input
-              label="E-mail, nom d’utilisateur ou téléphone"
+              label={t("auth.login_identifier")}
               icon="person-outline"
-              placeholder="E-mail, pseudo ou téléphone avec indicatif"
+              placeholder={t("auth.login_identifier_hint")}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -103,9 +105,9 @@ export default function Login() {
               testID="login-email"
             />
             <Input
-              label="Mot de passe"
+              label={t("auth.password")}
               icon="lock-closed-outline"
-              placeholder="Entrez votre mot de passe"
+              placeholder={t("auth.enter_password")}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!show}
@@ -120,11 +122,11 @@ export default function Login() {
               accessibilityRole="button"
               testID="forgot-password-link"
             >
-              <Text style={styles.link}>Mot de passe oublié ?</Text>
+              <Text style={styles.link}>{t("auth.forgot_password")}</Text>
             </TouchableOpacity>
 
             <Button
-              title="SE CONNECTER"
+              title={t("auth.login_button")}
               onPress={submit}
               loading={loading}
               icon={<Ionicons name="log-in-outline" size={20} color="#fff" />}
@@ -135,19 +137,19 @@ export default function Login() {
               onPress={openChat}
               disabled={chatLoading}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir SPILOVEURE Chat"
+              accessibilityLabel={t("auth.open_chat")}
               testID="login-chat-button"
               style={styles.chatButton}
             >
               <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.primary} />
-              <Text style={styles.chatButtonText}>{chatLoading ? "Vérification de la session…" : "Ouvrir SPILOVEURE Chat"}</Text>
+              <Text style={styles.chatButtonText}>{chatLoading ? t("auth.checking_session") : t("auth.open_chat")}</Text>
             </TouchableOpacity>
             {chatError ? <Text accessibilityRole="alert" style={styles.chatError}>{chatError}</Text> : null}
 
             <View style={styles.bottomRow}>
-              <Text style={styles.bottomText}>Vous n'avez pas encore de compte ?</Text>
+              <Text style={styles.bottomText}>{t("auth.no_account_yet")}</Text>
               <TouchableOpacity onPress={() => router.push("/(auth)/register")} testID="goto-register">
-                <Text style={styles.link}> S'inscrire</Text>
+                <Text style={styles.link}> {t("auth.signup_link")}</Text>
               </TouchableOpacity>
             </View>
           </View>
