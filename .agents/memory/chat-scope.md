@@ -15,6 +15,12 @@ Reproduire fidèlement l’image fournie, employer le logo officiel existant et 
 
 **How to apply:** Ne pas utiliser les conversations ni les compteurs de l’image comme de fausses données réelles. Ne déclarer fonctionnelles que les capacités effectivement testées, et ne pas annoncer de chiffrement de bout en bout non implémenté.
 
+Pour les bulles de discussion, les nouvelles captures de messages texte et vocaux priment : messages envoyés vert pâle, reçus blancs, mêmes formes arrondies et présentation. Conserver des écrits sombres et lisibles.
+
+**Why:** L’utilisateur a demandé cette couleur et ces caractéristiques précises pour les messages envoyés et reçus, après la référence générale du Chat.
+
+**How to apply:** Ne pas rétablir les anciennes bulles bleues en reprenant la référence générale. Cette correction concerne les messages, pas le bandeau de marque ni les règles des accusés de réception.
+
 Le panneau d’emojis se place sous le champ de message, comme un clavier ; le champ et le bouton d’envoi remontent au-dessus du panneau.
 
 **Why:** L’utilisateur a répété cette disposition après un affichage incorrect des emojis au-dessus du champ.

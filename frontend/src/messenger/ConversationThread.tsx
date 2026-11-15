@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Path } from "react-native-svg";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
@@ -469,7 +470,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         {messages.map(message => {
           const own = message.sender_id === userId;
           const quoted = message.reply_to ? messages.find(item => item.id === message.reply_to) : undefined;
-          const bubble = <View style={[styles.bubble, own ? styles.ownBubble : styles.otherBubble]}>
+          const bubble = <View
+            style={[styles.bubble, own ? styles.ownBubble : styles.otherBubble]}
+            accessibilityRole="text"
+            accessibilityLabel={`${own ? "Message envoyé" : `Message de ${message.sender_name}`}${message.text ? ` : ${message.text}` : message.attachments?.some(file => file.mime.startsWith("audio/")) ? " : message vocal" : ""}`}
+            testID={`messenger-message-bubble-${message.id}`}
+          >
               {!own && <Text style={styles.sender}>{message.sender_name}</Text>}
               {message.deleted ? <Text style={styles.deleted}>Message supprimé</Text> : <>
                 {message.forwarded_from && <Text style={styles.forwarded}>Message transféré</Text>}
@@ -521,6 +527,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 {own && <TouchableOpacity onPress={() => { setEditing(message); changeDraft(message.text); setExpanded(null); }} testID={`messenger-message-edit-${message.id}`}><Text style={styles.actionText}>Modifier</Text></TouchableOpacity>}
                 {(own || isChannelAdmin) && <TouchableOpacity onPress={() => action(message, "delete")} testID={`messenger-message-delete-${message.id}`}><Text style={[styles.actionText, { color: "#d33" }]}>Supprimer</Text></TouchableOpacity>}
               </View>}
+              <View pointerEvents="none" style={[styles.bubbleTail, own ? styles.ownBubbleTail : styles.otherBubbleTail]}>
+                <Svg width={11} height={14} viewBox="0 0 11 14">
+                  <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? "#efffde" : "#fff"} />
+                </Svg>
+              </View>
             </View>;
           return <View key={message.id} style={[styles.bubbleWrap, own && styles.ownWrap]}>
             {!message.deleted
@@ -639,9 +650,10 @@ const styles = StyleSheet.create({
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
-  bubbleWrap: { width: "100%", alignItems: "stretch", minWidth: 0 }, ownWrap: { alignItems: "stretch" }, swipeMessage: { width: "100%", alignItems: "flex-start", minWidth: 0 }, swipeMessageOwn: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
-  ownBubble: { alignSelf: "flex-end", backgroundColor: "#e4f1ff", borderColor: "#c8e0fb", borderBottomRightRadius: 5 }, otherBubble: { alignSelf: "flex-start", backgroundColor: "#fff", borderColor: "#e2e8f0", borderBottomLeftRadius: 5 },
-  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: ink, fontSize: 16, lineHeight: 22, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
+  bubbleWrap: { width: "100%", alignItems: "stretch", minWidth: 0 }, ownWrap: { alignItems: "stretch" }, swipeMessage: { width: "100%", alignItems: "flex-start", minWidth: 0 }, swipeMessageOwn: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, position: "relative", borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" },
+  ownBubble: { alignSelf: "flex-end", backgroundColor: "#efffde", borderColor: "#dcefd2", borderBottomRightRadius: 5 }, otherBubble: { alignSelf: "flex-start", backgroundColor: "#fff", borderColor: "#e5e8e3", borderBottomLeftRadius: 5 },
+  bubbleTail: { position: "absolute", bottom: -1, width: 11, height: 14 }, ownBubbleTail: { right: -8 }, otherBubbleTail: { left: -8 },
+  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: "#172016", fontSize: 17, lineHeight: 24, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
   replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7, maxWidth: "100%", minWidth: 0 },
   statusReplyCard: { maxWidth: "100%", minWidth: 0, marginBottom: 6, padding: 7, borderLeftWidth: 3, borderLeftColor: blue, borderRadius: 8, backgroundColor: "rgba(23,105,232,.06)" },
   statusReplyHeader: { flexDirection: "row", alignItems: "center", gap: 7, minWidth: 0 },
@@ -650,8 +662,8 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { maxWidth: 280, minWidth: 220, borderRadius: 14, paddingHorizontal: 8, marginTop: 4, alignSelf: "flex-start" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
-  meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: muted }, receipt: { color: "#9aa5b5", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#8793a4" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: "#77966f" }, receipt: { color: "#77966f", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#77966f" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 6, marginTop: 5 }, actionText: { fontSize: 11, color: blue, fontWeight: "700" },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
