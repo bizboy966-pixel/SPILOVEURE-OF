@@ -17,13 +17,13 @@ type MoneyFusionConfig = {
   payin_api_masked: string;
   payout_key_configured: boolean;
   payout_key_masked: string;
-  rates_per_xof: Record<string, number>;
+  fx_rate_date: string | null;
+  fx_source: string;
   catalog_updated_at: string | null;
   public_app_url: string;
   payout_ip_notice: string;
 };
 
-const RATE_CURRENCIES = ["GHS", "GNF", "KES", "USD"];
 const palette = {
   ink: "#183B43",
   muted: "#60777A",
@@ -54,7 +54,6 @@ export default function MoneyFusionSettings({
   const [mobileMoneyOnlyConfirmed, setMobileMoneyOnlyConfirmed] = useState(false);
   const [payoutIpConfirmed, setPayoutIpConfirmed] = useState(false);
   const [payinCountryCodes, setPayinCountryCodes] = useState("");
-  const [rates, setRates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
@@ -76,10 +75,6 @@ export default function MoneyFusionSettings({
       setMobileMoneyOnlyConfirmed(!!data.mobile_money_only_confirmed);
       setPayoutIpConfirmed(!!data.payout_ip_confirmed);
       setPayinCountryCodes(Array.isArray(data.payin_country_codes) ? data.payin_country_codes.join(", ") : "");
-      setRates(Object.fromEntries(RATE_CURRENCIES.map((code) => {
-        const value = data.rates_per_xof?.[code];
-        return [code, value && value > 0 ? String(value) : ""];
-      })));
       setPayinUrl("");
       setPayoutKey("");
       setClearPayinUrl(false);
@@ -111,20 +106,6 @@ export default function MoneyFusionSettings({
       setError("Confirmez l’enregistrement de l’IP serveur avant d’activer les retraits.");
       return;
     }
-    const ratesPerXof: Record<string, number> = { ...(config?.rates_per_xof || {}), XOF: 1, XAF: 1 };
-    for (const code of RATE_CURRENCIES) {
-      const raw = rates[code]?.trim();
-      if (!raw) {
-        delete ratesPerXof[code];
-        continue;
-      }
-      const rate = Number(raw.replace(",", "."));
-      if (!Number.isFinite(rate) || rate <= 0) {
-        setError(`Le taux ${code}/XOF doit être un nombre positif.`);
-        return;
-      }
-      ratesPerXof[code] = rate;
-    }
     setSaving(true);
     try {
       const body: Record<string, any> = {
@@ -134,7 +115,6 @@ export default function MoneyFusionSettings({
         mobile_money_only_confirmed: mobileMoneyOnlyConfirmed,
         payout_ip_confirmed: payoutIpConfirmed,
         payin_country_codes: countryCodes,
-        rates_per_xof: ratesPerXof,
       };
       if (clearPayinUrl) body.payin_api_url = "DELETE";
       else if (payinUrl.trim()) body.payin_api_url = payinUrl.trim();
@@ -250,8 +230,8 @@ export default function MoneyFusionSettings({
         accessibilityLabel="URL API Pay-in MoneyFusion"
       />
       <View style={styles.inlineActions}>
-        <Text style={styles.hint}>Champ secret, jamais prérempli. Une valeur vide conserve la valeur actuelle.</Text>
-        {config.payin_api_configured ? <SmallAction label={clearPayinUrl ? "Suppression prévue" : "Effacer la clé"} onPress={() => { setClearPayinUrl((v) => !v); setPayinUrl(""); }} /> : null}
+        <Text style={styles.hint}>Saisir l’URL HTTPS complète fournie par MoneyFusion, pas une clé seule. Valeur vide = URL actuelle conservée.</Text>
+        {config.payin_api_configured ? <SmallAction label={clearPayinUrl ? "Suppression prévue" : "Effacer l’URL"} onPress={() => { setClearPayinUrl((v) => !v); setPayinUrl(""); }} /> : null}
       </View>
       <SwitchRow label="Pay-in activé" detail="Les membres pourront initier l’activation si un pays est également disponible." value={payinEnabled} onChange={setPayinEnabled} />
       <SwitchRow label="Devise locale confirmée auprès de MoneyFusion" detail="À cocher uniquement après confirmation explicite du marchand." value={currencyConfirmed} onChange={setCurrencyConfirmed} />
@@ -351,33 +331,13 @@ export default function MoneyFusionSettings({
         {recoveryResult ? <Text accessibilityRole={recoveryError ? "alert" : undefined} style={[styles.recoveryResult, recoveryError && { color: palette.alert }]}>{recoveryResult}</Text> : null}
       </View>
 
-      <SectionTitle number="03" title="Taux manuels · montant indicatif" />
-      <View style={styles.rateHeader}>
-        <Text style={styles.rateCaption}>1 XOF vaut…</Text>
-        <Text style={styles.rateCaption}>2 650 XOF ≈</Text>
-      </View>
-      {RATE_CURRENCIES.map((code) => {
-        const rate = Number((rates[code] || "").replace(",", "."));
-        const preview = rate > 0 && Number.isFinite(rate)
-          ? (Math.round(2650 * rate * (["USD", "GHS", "KES"].includes(code) ? 100 : 1)) / (["USD", "GHS", "KES"].includes(code) ? 100 : 1)).toLocaleString("fr-FR", { maximumFractionDigits: 2 })
-          : "—";
-        return (
-          <View key={code} style={styles.rateRow}>
-            <Text style={styles.currencyCode}>{code}</Text>
-            <TextInput
-              value={rates[code] || ""}
-              onChangeText={(value) => setRates((current) => ({ ...current, [code]: value }))}
-              placeholder="Taux manuel"
-              placeholderTextColor="#819592"
-              keyboardType="decimal-pad"
-              style={[styles.input, styles.rateInput]}
-              accessibilityLabel={`Taux manuel 1 XOF en ${code}`}
-            />
-            <Text style={styles.preview}>{preview} {code}</Text>
-          </View>
-        );
-      })}
-      <Text style={styles.hint}>Taux saisis manuellement par l’administrateur ; aucun taux de change en direct n’est utilisé. Vérifiez le montant auprès de votre marchand avant activation.</Text>
+      <SectionTitle number="03" title="Conversion automatique" />
+      <Text style={styles.hint}>
+        Le prix de l’activation reste fixé à 2 650 XOF. Les conversions MoneyFusion vers une autre devise sont calculées automatiquement avec un taux de référence public ; aucun taux n’est saisi manuellement.
+      </Text>
+      <Text style={styles.hint}>
+        Source : {config.fx_source || "Frankfurter (taux de référence, non instantané)"} · Dernière référence : {config.fx_rate_date ? new Date(`${config.fx_rate_date}T00:00:00`).toLocaleDateString("fr-FR", { dateStyle: "long" }) : "chargée au premier calcul de paiement"}.
+      </Text>
 
       <View style={styles.catalogBox}>
         <View style={{ flex: 1 }}>
@@ -484,12 +444,6 @@ const styles = StyleSheet.create({
   successNotice: { backgroundColor: palette.pale },
   noticeText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: "700" },
   error: { color: "#8B332B", fontSize: 13, lineHeight: 19, marginVertical: 10 },
-  rateHeader: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 5, marginBottom: 5 },
-  rateCaption: { color: palette.muted, fontSize: 10, fontWeight: "700" },
-  rateRow: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
-  currencyCode: { width: 42, fontSize: 12, color: palette.ink, fontWeight: "900" },
-  rateInput: { flex: 1, minWidth: 90 },
-  preview: { width: 100, textAlign: "right", color: palette.teal, fontWeight: "800", fontSize: 11 },
   catalogBox: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, backgroundColor: "#EEF5F1", borderRadius: 12, marginTop: 13 },
   catalogTitle: { color: palette.ink, fontWeight: "800", fontSize: 12 },
   recoveryBox: { padding: 12, borderRadius: 12, backgroundColor: "#F0F5F2", marginTop: 14, gap: 7 },

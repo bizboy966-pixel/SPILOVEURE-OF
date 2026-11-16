@@ -25,8 +25,18 @@ n’établit pas la couverture des encaissements.
 
 **How to apply:** Obtenir de MoneyFusion les devises, pays Pay-in et la
 possibilité de limiter la page hébergée au Mobile Money avant activation.
-Les taux saisis sont manuels, pas des cours de change en direct.
 Le Pay-out exige une clé privée et l’IP fixe de sortie autorisée.
+
+Le prix d’activation est fixé à 2 650 XOF. Les montants destinés aux pays
+utilisant une autre devise doivent être convertis automatiquement ; aucun taux
+de conversion ne doit être saisi manuellement.
+
+**Why:** L’utilisateur a explicitement demandé la conversion automatique du
+tarif de 2 650 XOF dans la devise locale et a rejeté les taux manuels.
+
+**How to apply:** Garder le montant de base en XOF, utiliser un taux de
+référence automatique et ne pas lancer de paiement si le taux nécessaire
+n’est pas disponible.
 
 Conserver la clé de chiffrement des identifiants avec les sauvegardes
 sécurisées ; une rotation nécessite une migration.

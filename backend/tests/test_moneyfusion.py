@@ -61,6 +61,19 @@ def env(monkeypatch):
         for country in METHODS:
             await toggle_country(db, "moneyfusion", country["country_code"], True)
         await db.withdrawals.insert_one(dict(PAYOUT))
+        now = mf._now()
+        rate_date = now.date().isoformat()
+        await db.app_settings.insert_one({
+            "key": mf.FX_CACHE_KEY,
+            "value": {
+                "rates_per_xof": {"XOF": 1.0, "XAF": 1.0, "USD": 0.0016},
+                "rate_dates": {"XOF": "parité fixe", "XAF": "parité fixe", "USD": rate_date},
+                "fetched_at_by_currency": {"USD": now},
+                "fetched_at": now,
+                "rate_date": rate_date,
+                "source": mf.FX_SOURCE,
+            },
+        })
     run(seed())
     client = TestClient(app)
     # Any unmocked provider request fails rather than making a real payment.
@@ -176,19 +189,82 @@ def test_api_url_rejects_untrusted_destinations(env, url):
     assert response.status_code == 400
 
 
-def test_confirmations_required_and_bad_rates_rejected(env):
+def test_confirmations_required_and_manual_rates_are_ignored(env):
     for missing in ("payin_local_currency_confirmed", "mobile_money_only_confirmed", "payout_ip_confirmed"):
         response = env.client.put("/api/admin/payment-gateways/moneyfusion",
                                   json={"payin_enabled": True, "payout_enabled": True,
                                         missing: False}, headers=headers())
         assert response.status_code == 400
-    for rate in (-1, 0):
-        response = env.client.put("/api/admin/payment-gateways/moneyfusion",
-                                  json={"rates_per_xof": {"USD": rate}}, headers=headers())
-        assert response.status_code == 400
     response = env.client.put("/api/admin/payment-gateways/moneyfusion",
-                              json={"rates_per_xof": {"XOF": 2}}, headers=headers())
-    assert response.status_code == 400
+                              json={"rates_per_xof": {"USD": -1, "XOF": 12}},
+                              headers=headers())
+    assert response.status_code == 200, response.text
+    assert response.json()["rates_per_xof"]["USD"] == 0.0016
+
+
+def test_automatic_fx_uses_reference_provider_and_caches_rates(env):
+    run(env.db.app_settings.delete_one({"key": mf.FX_CACHE_KEY}))
+    calls = []
+
+    class FxResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"date": mf._now().date().isoformat(), "base": "XOF", "quote": "GHS", "rate": 0.01975},
+                {"date": mf._now().date().isoformat(), "base": "XOF", "quote": "GNF", "rate": 14.9547},
+            ]
+
+    class FxClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return FxResponse()
+
+    env.monkeypatch.setattr(mf.fx_httpx, "AsyncClient", FxClient)
+    rates = run(mf.automatic_fx_rates(env.db, ["GHS", "GNF"]))
+    assert rates["rates_per_xof"]["XOF"] == 1
+    assert rates["rates_per_xof"]["GHS"] == 0.01975
+    assert rates["rates_per_xof"]["GNF"] == 14.9547
+    assert mf._amount_from_xof(rates, 2650, "GHS") == 52.34
+    assert mf._amount_from_xof(rates, 2650, "GNF") == 39630
+    assert len(calls) == 1
+    run(mf.automatic_fx_rates(env.db, ["GHS", "GNF"]))
+    assert len(calls) == 1
+
+
+def test_fx_outage_without_recent_reference_blocks_checkout(env):
+    configure(env)
+    run(env.db.app_settings.delete_one({"key": mf.FX_CACHE_KEY}))
+
+    class FxClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url, **kwargs):
+            raise TimeoutError("simulated FX outage")
+
+    env.monkeypatch.setattr(mf.fx_httpx, "AsyncClient", FxClient)
+    response = initiate(env, country_code="CD")
+    assert response.status_code == 503
+    assert "Aucun paiement n’a été lancé" in response.json()["detail"]
+    assert run(env.db.payments.count_documents({})) == 0
+    assert env.http == []
 
 
 def test_secret_rotation_does_not_silently_overwrite_credentials(env):
@@ -222,8 +298,10 @@ def test_country_operator_and_fx_gates(env):
     run(toggle_country(env.db, "moneyfusion", "TG", True))
     run(toggle_operator(env.db, "moneyfusion", "TG", "moov-tg", False))
     assert initiate(env).status_code == 400
-    assert initiate(env, country_code="CD").status_code == 400
-    assert env.http == []
+    calls = checkout_http(env)
+    response = initiate(env, country_code="CD")
+    assert response.status_code == 200, response.text
+    assert calls[0][2]["json"]["totalPrice"] == 4.24
     assert mf._amount_from_xof({"rates_per_xof": {"USD": 0.0016}}, 2650, "USD") == 4.24
 
 
@@ -236,7 +314,7 @@ def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
     assert response.json()["amount"] == 2650
     payload = calls[0][2]["json"]
     assert payload["totalPrice"] == 2650
-    assert payload["return_url"] == f"https://example.invalid/pay?moneyfusion_reference={ref}"
+    assert payload["return_url"] == f"https://example.invalid/purchase-payment?reference={ref}"
     assert payload["webhook_url"].endswith("/moneyfusion/payin")
     assert "currency" not in payload
     assert initiate(env).json()["reference"] == ref
@@ -370,8 +448,10 @@ def test_payout_catalog_enforces_operator_and_currency_gates(env):
     response = env.client.get("/api/payments/moneyfusion/payout-catalog",
                               headers=headers("other", "user"))
     assert response.status_code == 200
-    assert [c["country_code"] for c in response.json()["countries"]] == ["TG"]
-    assert [op["code"] for op in response.json()["countries"][0]["operators"]] == ["tmoney-tg"]
+    countries = response.json()["countries"]
+    assert [c["country_code"] for c in countries] == ["TG", "CD"]
+    assert [op["code"] for op in countries[0]["operators"]] == ["tmoney-tg"]
+    assert [op["code"] for op in countries[1]["operators"]] == ["airtel-cd"]
     assert env.client.get("/api/payments/moneyfusion/payout-catalog").status_code == 401
 
 

@@ -53,13 +53,14 @@ Dans **Prestataires de paiement → MoneyFusion** :
   dans le tableau de bord MoneyFusion. Ne pas supposer que l’adresse de sortie
   correspond à une ancienne adresse communiquée.
 
-Les frais d’activation sont de **2 650 XOF**. XOF et XAF sont convertis à parité.
-Pour USD, GHS, GNF et KES, saisir un taux exprimant **1 XOF en devise locale**.
-Le calcul du montant est automatique à partir du taux enregistré, mais le
-taux lui-même est **manuel**, pas un cours de change en direct. Sans taux,
-le pays correspondant n’est pas disponible. Chaque transaction conserve
-le taux et le montant d’origine. Les montants USD/GHS/KES sont arrondis à
-deux décimales ; XOF/XAF/GNF à l’unité.
+Les frais d’activation restent fixés à **2 650 XOF**. XOF et XAF sont convertis
+à parité ; les autres devises MoneyFusion sont converties automatiquement avec
+les taux de référence publics de Frankfurter. Ce sont des taux de référence,
+pas des cotations de marché instantanées. Le serveur tente une actualisation
+automatique au moins toutes les 12 heures et conserve la date du taux utilisé
+sur chaque paiement et retrait. Si aucun taux valide de moins de cinq jours
+n’est disponible, le pays ou l’envoi concerné est bloqué : aucun montant
+approximatif ni taux saisi manuellement n’est utilisé.
 
 ## Paramètres du serveur
 
