@@ -30,9 +30,19 @@ export const messengerApi = {
       "file",
       {
         ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
-        ...(viewOnce ? { view_once: true } : {}),
+        ...(viewOnce ? { view_once: "true" } : {}),
       },
     ),
+  stickers: () => api.get<Attachment[]>("/messenger/stickers"),
+  saveSticker: (conversationId: string, messageId: string, fileId: string) =>
+    api.post<Attachment>(
+      `/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stickers/${encodeURIComponent(fileId)}/save`,
+      {},
+    ),
+  copySticker: (conversationId: string, fileId: string) =>
+    api.post<Attachment>(`/messenger/stickers/${encodeURIComponent(fileId)}/copy`, {
+      conversation_id: conversationId,
+    }),
   people: (q: string) => api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}`),
   publicChannels: (q = "") => api.get<PublicChannel[]>(`/messenger/channels?q=${encodeURIComponent(q)}`),
   joinChannel: (id: string) => api.post<Conversation>(`/messenger/channels/${encodeURIComponent(id)}/join`),

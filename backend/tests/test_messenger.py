@@ -457,3 +457,52 @@ def test_audio_webm_metadata_and_revoked_download(chat):
     message(chat, cid, attachments=[file])
     call(chat, "post", f"/conversations/{cid}/members", json={"user_id": "bob", "action": "remove"})
     assert chat[0].get(file["url"], headers=auth("bob")).status_code == 404
+
+
+def test_received_sticker_can_be_saved_and_reused_in_another_conversation(chat):
+    source_cid = conversation(chat, "group", ["bob"])
+    uploaded = call(
+        chat, "post", f"/conversations/{source_cid}/files",
+        files={"file": ("sticker-smile.png", b"sticker-image", "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    source_file = uploaded.json()
+    sent = message(chat, source_cid, client_id="sticker-source", attachments=[source_file]).json()
+
+    saved = call(
+        chat, "post",
+        f"/conversations/{source_cid}/messages/{sent['id']}/stickers/{source_file['id']}/save",
+        "bob",
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["id"] == source_file["id"]
+    assert [item["id"] for item in call(chat, "get", "/stickers", "bob").json()] == [source_file["id"]]
+
+    asyncio.run(chat[1].spv_files.update_one(
+        {"id": source_file["id"]},
+        {"$set": {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)}},
+    ))
+    assert chat[0].get(source_file["url"], headers=auth("bob")).status_code == 200
+
+    target_cid = conversation(chat, "group", ["bob", "eve"])
+    copied = call(chat, "post", f"/stickers/{source_file['id']}/copy", "bob", json={
+        "conversation_id": target_cid,
+    })
+    assert copied.status_code == 200, copied.text
+    assert copied.json()["id"] != source_file["id"]
+    reused = message(chat, target_cid, "bob", "sticker-reused", attachments=[copied.json()])
+    assert reused.status_code == 200, reused.text
+    assert chat[0].get(copied.json()["url"], headers=auth("eve")).status_code == 200
+
+
+def test_non_sticker_images_cannot_be_added_to_sticker_favorites(chat):
+    cid = conversation(chat)
+    upload = call(
+        chat, "post", f"/conversations/{cid}/files",
+        files={"file": ("photo.png", b"image", "image/png")},
+    ).json()
+    sent = message(chat, cid, attachments=[upload]).json()
+    response = call(
+        chat, "post", f"/conversations/{cid}/messages/{sent['id']}/stickers/{upload['id']}/save",
+    )
+    assert response.status_code == 404

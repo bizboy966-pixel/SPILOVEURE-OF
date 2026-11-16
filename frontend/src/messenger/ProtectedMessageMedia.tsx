@@ -14,7 +14,7 @@ export default function ProtectedMessageMedia({
   const videoHost = useRef<View | null>(null);
   const isVideo = file.mime.startsWith("video/");
   const isSticker = file.name.startsWith("sticker-");
-  const width = Math.max(1, Math.min(isSticker ? 180 : compact ? 132 : 260, maxWidth));
+  const width = Math.max(1, Math.min(isSticker ? 150 : compact ? 132 : 260, maxWidth));
   const height = isSticker
     ? Math.min(200, Math.max(80, width / aspect))
     : Math.min(compact ? 144 : 320, Math.max(112, width / aspect));
@@ -57,13 +57,13 @@ export default function ProtectedMessageMedia({
     };
   }, [url, isVideo, compact]);
 
-  if (error) return <View style={[styles.failed, { width, height }]}><Image source={require("../../assets/images/spiloveure-logo.png")} style={styles.failedLogo} /></View>;
-  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le média ${file.name}`} style={[styles.loading, { width, height }]} testID={`messenger-media-load-${file.id}`}>
+  if (error) return <View style={[styles.failed, { width, height, maxWidth: "100%" }]}><Image source={require("../../assets/images/spiloveure-logo.png")} style={styles.failedLogo} /></View>;
+  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`messenger-media-load-${file.id}`}>
     <Ionicons name="download-outline" size={25} color="#1769e8" /><Text style={styles.loadText}>Charger le média</Text>
   </TouchableOpacity>;
-  if (!url) return <View style={[styles.loading, { width, height }]}><ActivityIndicator color="#1769e8" /></View>;
-  if (isVideo) return <View ref={videoHost} style={[styles.video, { width, height }]} />;
-  return <TouchableOpacity onPress={onOpen} accessibilityLabel={isSticker ? "Ouvrir le sticker" : `Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height }]}>
+  if (!url) return <View style={[styles.loading, { width, height, maxWidth: "100%" }]}><ActivityIndicator color="#1769e8" /></View>;
+  if (isVideo) return <View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} />;
+  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir le sticker" : `Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
     <Image
       source={{ uri: url }}
       resizeMode="contain"
@@ -77,11 +77,11 @@ export default function ProtectedMessageMedia({
 }
 
 const styles = StyleSheet.create({
-  imageFrame: { backgroundColor: "#101827", borderRadius: 12, overflow: "hidden", marginTop: 5 },
+  imageFrame: { backgroundColor: "#101827", borderRadius: 12, overflow: "hidden", marginTop: 5, minWidth: 0, flexShrink: 1 },
   stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
-  image: { width: "100%", height: "100%" },
-  video: { backgroundColor: "#080d15", borderRadius: 12, overflow: "hidden", marginTop: 5 },
-  loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
+  image: { width: "100%", height: "100%", maxWidth: "100%" },
+  video: { backgroundColor: "#080d15", borderRadius: 12, overflow: "hidden", marginTop: 5, minWidth: 0, flexShrink: 1 },
+  loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
   loadText: { color: "#1769e8", fontSize: 12, fontWeight: "700", marginTop: 5 },
   failed: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
   failedLogo: { width: 45, height: 45, opacity: .65 },

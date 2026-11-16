@@ -47,6 +47,8 @@ async def cleanup_expired_message_files(db):
         }, {"_id": 1})
         if referenced:
             continue
+        if await db.spv_stickers.find_one({"file_id": row["id"]}):
+            continue
         (upload_root() / row["id"]).unlink(missing_ok=True)
         await db.spv_files.delete_one({"id": row["id"], "expires_at": {"$lte": current}})
 
@@ -162,23 +164,25 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
     row = await db.spv_files.find_one({"id": fid})
     if not row:
         raise HTTPException(404, "Fichier introuvable.")
-    if row.get("expires_at") and row["expires_at"] <= datetime.now(timezone.utc):
+    saved_sticker = await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid})
+    if row.get("expires_at") and row["expires_at"] <= datetime.now(timezone.utc) and not saved_sticker:
         await cleanup_expired_message_files(db)
         raise HTTPException(404, "Ce média a expiré.")
-    if row["scope"] != "feed":
+    if row["scope"] != "feed" and not saved_sticker:
         await member(db, row["scope"], user)
     elif row["owner_id"] != user["id"]:
         from messenger_social import visible_post
-        post = await db.spv_posts.find_one({"attachments.id": fid})
-        if post:
-            await visible_post(db, post["id"], user)
-        else:
-            status = await db.spv_statuses.find_one({"attachments.id": fid})
-            if not status:
-                raise HTTPException(404, "Fichier introuvable.")
-            from messenger_social import visible_status
-            await visible_status(db, status["id"], user)
-    if row["scope"] != "feed" and row["owner_id"] != user["id"]:
+        if row["scope"] == "feed":
+            post = await db.spv_posts.find_one({"attachments.id": fid})
+            if post:
+                await visible_post(db, post["id"], user)
+            else:
+                status = await db.spv_statuses.find_one({"attachments.id": fid})
+                if not status:
+                    raise HTTPException(404, "Fichier introuvable.")
+                from messenger_social import visible_status
+                await visible_status(db, status["id"], user)
+    if row["scope"] != "feed" and row["owner_id"] != user["id"] and not saved_sticker:
         if not await db.spv_messages.find_one({
             "conversation_id": row["scope"], "attachments.id": fid, "deleted": False,
         }):
