@@ -13,6 +13,7 @@ import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPrev
 import MediaComposer from "./MediaComposer";
 import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
+import StickerPickerPanel from "./StickerPickerPanel";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
 import VoiceRecorderControls from "@/src/components/VoiceRecorderControls";
@@ -185,7 +186,9 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [composerInputHeight, setComposerInputHeight] = useState(42);
   const [composerSelection, setComposerSelection] = useState({ start: (conversation.draft || "").length, end: (conversation.draft || "").length });
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<"emoji" | "stickers">("emoji");
   const [composerActionsOpen, setComposerActionsOpen] = useState(false);
+  const [pendingStickerCreation, setPendingStickerCreation] = useState(false);
   const [reply, setReply] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
@@ -209,6 +212,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [silent, setSilent] = useState(false);
   const [shareContacts, setShareContacts] = useState<Person[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
+  const recentStickers = useMemo(
+    () => messages
+      .filter(message => message.sender_id === userId)
+      .flatMap(message => message.attachments || [])
+      .filter(file => file.name.startsWith("sticker-") && file.mime.startsWith("image/") && !file.view_once)
+      .reverse()
+      .slice(0, 24),
+    [messages, userId],
+  );
   const recorder = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -429,6 +441,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const cursor = start + emoji.length;
     setComposerSelection({ start: cursor, end: cursor });
     updateComposer(next);
+    setPickerTab("emoji");
     setEmojiPickerOpen(true);
   };
   const toggleEmojiPicker = () => {
@@ -439,6 +452,13 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     }
     Keyboard.dismiss();
     composerInput.current?.blur();
+    setPickerTab("emoji");
+    setEmojiPickerOpen(true);
+  };
+  const toggleStickerPicker = () => {
+    Keyboard.dismiss();
+    composerInput.current?.blur();
+    setPickerTab("stickers");
     setEmojiPickerOpen(true);
   };
   const retrySend = async (clientId: string) => {
@@ -546,6 +566,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         if (!files.length) return;
         validateChatFiles(files);
         if (files.some(file => file.type.startsWith("image/") || file.type.startsWith("video/"))) {
+          setPendingStickerCreation(false);
           setPendingMedia(files);
           return;
         }
@@ -558,14 +579,40 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     };
     input.click();
   };
+  const createSticker = () => {
+    if (!canSend || typeof document === "undefined") return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp";
+    input.onchange = () => {
+      try {
+        const selected = input.files?.[0];
+        if (!selected) return;
+        const file = normalizeMediaFile(selected);
+        validateChatFiles([file]);
+        setPendingStickerCreation(true);
+        setPendingMedia([file]);
+        setEmojiPickerOpen(false);
+      } catch (e: any) {
+        window.alert(e?.detail || e.message || "Impossible de créer le sticker.");
+      }
+    };
+    input.click();
+  };
   const sendSelectedMedia = async (files: File[], caption: string) => {
-    validateChatFiles(files);
+    const filesToSend = pendingStickerCreation
+      ? files.map(file => file.name.startsWith("sticker-") ? file : new File(
+        [file], `sticker-${file.name}`, { type: file.type, lastModified: file.lastModified },
+      ))
+      : files;
+    validateChatFiles(filesToSend);
     const attached: Attachment[] = [];
-    for (const file of files) {
+    for (const file of filesToSend) {
       attached.push(await messengerApi.file(conversation.id, file));
     }
     await send({ attachments: attached, text: caption });
     setPendingMedia(null);
+    setPendingStickerCreation(false);
   };
   const sendVoiceBlob = async (blob: Blob, durationSeconds: number, viewOnce: boolean) => {
     const client_id = makeId();
@@ -1020,26 +1067,56 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           </View>
         </View>
       </Modal>
-      {canSend && emojiPickerOpen && <View style={[styles.emojiPickerPanel, { height: emojiPickerHeight }]} testID="messenger-emoji-picker">
-        <EmojiKeyboard
-          onEmojiSelected={item => insertEmoji(item.emoji)}
-          enableRecentlyUsed
-          storage={emojiStorage}
-          enableSearchBar
-          categoryPosition="top"
-          defaultHeight={emojiPickerHeight}
-          hideHeader
-          disableSafeArea
-          colorScheme="light"
-          translation={emojiTranslation}
-          theme={{
-            container: "#ffffff",
-            header: "#ffffff",
-            category: { icon: "#64748b", iconActive: blue, container: "#f3f6fb", containerActive: "#e3efff" },
-            search: { background: "#f2f5f9", text: ink, placeholder: muted, icon: muted },
-            emoji: { selected: "#e3efff" },
-          }}
-        />
+      {canSend && emojiPickerOpen && <View style={[styles.emojiPickerPanel, { height: emojiPickerHeight, backgroundColor: darkMode ? "#101619" : "#fff" }]} testID="messenger-emoji-picker">
+        <View style={[styles.pickerTabs, darkMode && styles.pickerTabsDark]}>
+          <TouchableOpacity
+            onPress={() => { setPickerTab("emoji"); Keyboard.dismiss(); composerInput.current?.blur(); }}
+            style={[styles.pickerTab, pickerTab === "emoji" && styles.pickerTabActive, darkMode && styles.pickerTabDark]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: pickerTab === "emoji" }}
+            testID="messenger-picker-emoji-tab"
+          >
+            <Ionicons name="happy-outline" size={18} color={pickerTab === "emoji" ? blue : darkMode ? "#aab5c4" : muted} />
+            <Text style={[styles.pickerTabText, darkMode && styles.pickerTabTextDark, pickerTab === "emoji" && styles.pickerTabTextActive]}>Émojis</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={toggleStickerPicker}
+            style={[styles.pickerTab, pickerTab === "stickers" && styles.pickerTabActive, darkMode && styles.pickerTabDark]}
+            accessibilityRole="tab"
+            accessibilityLabel="Stickers"
+            accessibilityState={{ selected: pickerTab === "stickers" }}
+            testID="messenger-picker-sticker-tab"
+          >
+            <Ionicons name="albums-outline" size={18} color={pickerTab === "stickers" ? blue : darkMode ? "#aab5c4" : muted} />
+            <Text style={[styles.pickerTabText, darkMode && styles.pickerTabTextDark, pickerTab === "stickers" && styles.pickerTabTextActive]}>Stickers</Text>
+          </TouchableOpacity>
+        </View>
+        {pickerTab === "emoji" ? <View style={styles.pickerContent}>
+          <EmojiKeyboard
+            onEmojiSelected={item => insertEmoji(item.emoji)}
+            enableRecentlyUsed
+            storage={emojiStorage}
+            enableSearchBar
+            categoryPosition="top"
+            defaultHeight={Math.max(150, emojiPickerHeight - 44)}
+            hideHeader
+            disableSafeArea
+            colorScheme={darkMode ? "dark" : "light"}
+            translation={emojiTranslation}
+            theme={{
+              container: darkMode ? "#101619" : "#ffffff",
+              header: darkMode ? "#101619" : "#ffffff",
+              category: { icon: darkMode ? "#aab5c4" : "#64748b", iconActive: blue, container: darkMode ? "#1e272b" : "#f3f6fb", containerActive: darkMode ? "#26394a" : "#e3efff" },
+              search: { background: darkMode ? "#1e272b" : "#f2f5f9", text: darkMode ? "#f1f3f4" : ink, placeholder: muted, icon: muted },
+              emoji: { selected: darkMode ? "#26394a" : "#e3efff" },
+            }}
+          />
+        </View> : <StickerPickerPanel
+          stickers={recentStickers}
+          darkMode={darkMode}
+          onCreate={createSticker}
+          onSelect={file => { setEmojiPickerOpen(false); void send({ attachments: [file], text: "" }); }}
+        />}
       </View>}
       <Modal visible={!!forwarding} transparent animationType="fade" onRequestClose={() => setForwarding(null)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
@@ -1097,7 +1174,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         visible={!!pendingMedia}
         files={pendingMedia || []}
         initialCaption={text}
-        onClose={() => setPendingMedia(null)}
+        onClose={() => { setPendingMedia(null); setPendingStickerCreation(false); }}
         onConfirm={sendSelectedMedia}
       />
       {canSend && scheduledEnabled && <ScheduledMessages conversationId={conversation.id} visible={scheduleOpen} onClose={() => setScheduleOpen(false)} />}
@@ -1161,7 +1238,16 @@ const styles = StyleSheet.create({
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
   readOnly: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 14, backgroundColor: "#fff" }, readOnlyText: { color: muted, fontSize: 11, flex: 1 }, disabled: { opacity: .45 }, readOnlyInput: { opacity: .65 },
-  emojiPickerPanel: { height: 420, maxHeight: "100%", flexShrink: 0, overflow: "hidden", backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5" },
+   emojiPickerPanel: { height: 420, maxHeight: "100%", flexShrink: 0, overflow: "hidden", backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5" },
+   pickerTabs: { height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12, backgroundColor: "#fff" },
+   pickerTabsDark: { backgroundColor: "#101619", borderBottomWidth: 1, borderBottomColor: "#253137" },
+   pickerTab: { minWidth: 118, height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: "#f1f4f8", paddingHorizontal: 14 },
+   pickerTabDark: { backgroundColor: "#1e272b" },
+   pickerTabActive: { backgroundColor: "#e5efff" },
+   pickerTabText: { color: muted, fontSize: 13, fontWeight: "700" },
+   pickerTabTextDark: { color: "#aab5c4" },
+   pickerTabTextActive: { color: blue },
+   pickerContent: { flex: 1, minHeight: 0, overflow: "hidden" },
   composer: { alignSelf: "stretch", minWidth: 0, maxWidth: "100%", flexDirection: "row", flexWrap: "nowrap", alignItems: "flex-end", backgroundColor: "#fff", marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 7, paddingVertical: 7, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 30, gap: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, flexShrink: 0 },
   composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center", flexShrink: 0 }, inputShell: { flex: 1, flexBasis: 0, flexShrink: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, minHeight: 42, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexBasis: 0, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }, recordButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexShrink: 0 }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" },

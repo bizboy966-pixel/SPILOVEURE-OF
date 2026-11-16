@@ -13,8 +13,11 @@ export default function ProtectedMessageMedia({
   const [requested, setRequested] = useState(autoLoad);
   const videoHost = useRef<View | null>(null);
   const isVideo = file.mime.startsWith("video/");
-  const width = Math.max(1, Math.min(compact ? 132 : 260, maxWidth));
-  const height = Math.min(compact ? 144 : 320, Math.max(112, width / aspect));
+  const isSticker = file.name.startsWith("sticker-");
+  const width = Math.max(1, Math.min(isSticker ? 180 : compact ? 132 : 260, maxWidth));
+  const height = isSticker
+    ? Math.min(200, Math.max(80, width / aspect))
+    : Math.min(compact ? 144 : 320, Math.max(112, width / aspect));
 
   useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);
   useEffect(() => {
@@ -60,7 +63,7 @@ export default function ProtectedMessageMedia({
   </TouchableOpacity>;
   if (!url) return <View style={[styles.loading, { width, height }]}><ActivityIndicator color="#1769e8" /></View>;
   if (isVideo) return <View ref={videoHost} style={[styles.video, { width, height }]} />;
-  return <TouchableOpacity onPress={onOpen} accessibilityLabel={`Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, { width, height }]}>
+  return <TouchableOpacity onPress={onOpen} accessibilityLabel={isSticker ? "Ouvrir le sticker" : `Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height }]}>
     <Image
       source={{ uri: url }}
       resizeMode="contain"
@@ -75,6 +78,7 @@ export default function ProtectedMessageMedia({
 
 const styles = StyleSheet.create({
   imageFrame: { backgroundColor: "#101827", borderRadius: 12, overflow: "hidden", marginTop: 5 },
+  stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
   image: { width: "100%", height: "100%" },
   video: { backgroundColor: "#080d15", borderRadius: 12, overflow: "hidden", marginTop: 5 },
   loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
