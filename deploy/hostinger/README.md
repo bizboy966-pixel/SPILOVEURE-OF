@@ -65,8 +65,9 @@ pas de tunnel SSH pour ce flux.
    Laisser `EXPO_PUBLIC_BACKEND_URL` vide dans le preview Web : les appels restent
    sur le domaine Replit et le gateway les relaie à l’API VPS.
 3. Chaque requête du preview utilisera alors la base réelle et pourra créer ou
-   modifier des données de production. Supprimer `SPV_PREVIEW_API_UPSTREAM` et
-   redémarrer le workflow pour revenir à la base locale isolée.
+   modifier des données de production. Le workflow Replit ne démarre plus de
+   MongoDB ni de backend local ; sans `SPV_PREVIEW_API_UPSTREAM`, il s’arrête
+   explicitement au lieu de basculer vers une base locale.
 
 ## Sauvegarde manuelle de la base
 ```bash

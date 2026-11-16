@@ -133,9 +133,12 @@ function createGateway({
 
 if (require.main === module) {
   const apiUpstream = parsePreviewApiUpstream(process.env.SPV_PREVIEW_API_UPSTREAM);
-  if (apiUpstream) {
-    console.log(`Preview API proxy enabled for ${apiUpstream}`);
+  if (!apiUpstream) {
+    throw new Error(
+      "SPV_PREVIEW_API_UPSTREAM is required; the Replit workflow no longer starts a local API or MongoDB.",
+    );
   }
+  console.log(`Preview API proxy enabled for ${apiUpstream}`);
   createGateway({ apiUpstream }).listen(5000, "0.0.0.0", () => {
     console.log("SPILOVEURE development gateway listening on port 5000");
   });
