@@ -38,3 +38,9 @@ Les stickers doivent rester distincts des photos et vidéos dans le Chat : touch
 **Why:** L’utilisateur a corrigé plusieurs fois la confusion entre un sticker et une pièce jointe photo, puis a précisé que la feuille de sticker doit avoir un fond blanc plutôt que noir.
 
 **How to apply:** Maintenir des chemins d’affichage et d’interaction séparés. L’appui long sur un message ouvre un menu-bulle compact ancré à la bulle, avec réactions proches ; pour un sticker, limiter ce menu à Supprimer. La feuille au toucher gère Favoris, Pack et Modifier.
+
+La refonte visuelle générale peut s’inspirer de la finition et de la hiérarchie d’OpenAI, mais doit conserver les couleurs et l’identité de SPILOVEURE, la navigation « Échanges, Contacts, Actus, Profil » et toutes les fonctions existantes.
+
+**Why:** Le cahier des charges de refonte fourni par l’utilisateur autorise une amélioration visuelle de tout le Chat, tout en interdisant le changement d’identité, d’organisation et de comportement.
+
+**How to apply:** Utiliser des styles et tokens propres au Chat ; ne pas modifier les flux, API, données ou règles métier dans le cadre d’une demande visuelle.

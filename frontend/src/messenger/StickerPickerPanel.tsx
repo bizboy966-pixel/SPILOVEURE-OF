@@ -3,6 +3,7 @@ import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import { Ionicons } from "@expo/vector-icons";
 import { protectedFileUrl } from "./api";
 import type { Attachment } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
 function StickerThumbnail({ file, darkMode }: { file: Attachment; darkMode: boolean }) {
   const [url, setUrl] = useState("");
@@ -103,19 +104,19 @@ export default function StickerPickerPanel({ stickers, savedStickers, packSticke
 }
 
 const styles = StyleSheet.create({
-  panel: { flex: 1, minHeight: 0, backgroundColor: "#fff", paddingHorizontal: 10, paddingTop: 8 },
+  panel: { flex: 1, minHeight: 0, backgroundColor: "#fffefa", paddingHorizontal: 12, paddingTop: 10 },
   panelDark: { backgroundColor: "#101619" },
-  searchBox: { height: 38, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f1f3f4", borderRadius: 20, paddingHorizontal: 12 },
+  searchBox: { height: 40, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f4f6f8", borderWidth: 1, borderColor: "#e6ebf0", borderRadius: 12, paddingHorizontal: 12 },
   searchBoxDark: { backgroundColor: "#1e272b" },
   searchInput: { flex: 1, minWidth: 0, paddingVertical: 0, color: "#172016", fontSize: 13, outlineStyle: "none" as any },
   textDark: { color: "#f1f3f4" },
   sectionHeading: { minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 7 },
-  sectionTitle: { color: "#172016", fontSize: 13, fontWeight: "700" },
+  sectionTitle: { color: chatVisual.ink, fontSize: 13, fontWeight: "800" },
   groupTitle: { width: "100%", color: "#7d879a", fontSize: 11, fontWeight: "800", paddingTop: 3 },
   createButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 16, backgroundColor: "rgba(23,105,232,.1)" },
   createText: { color: "#1769e8", fontSize: 11, fontWeight: "700" },
-  grid: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 8, paddingBottom: 10 },
-  stickerTile: { width: "22%", aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "#fff", overflow: "hidden" },
+  grid: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 9, paddingBottom: 12 },
+  stickerTile: { width: "22%", aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#fff", overflow: "hidden", borderWidth: 1, borderColor: "#edf0f4" },
   tileDark: { backgroundColor: "#1e272b" },
   stickerImage: { width: "90%", height: "90%" },
   thumbnailLoading: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#f1f3f4" },

@@ -5,8 +5,9 @@ import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Conversation, ConversationPermissions, Person } from "./types";
 import NotificationSettingsPanel from "./NotificationSettingsPanel";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 export default function ConversationDetails({ conversation, userId, onClose, onChanged }: {
   conversation: Conversation; userId: string; onClose: () => void; onChanged: () => void;
 }) {
@@ -154,10 +155,10 @@ export default function ConversationDetails({ conversation, userId, onClose, onC
   </Modal>;
 }
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(13,24,42,.35)", justifyContent: "flex-end" }, sheet: { backgroundColor: "#fff", maxHeight: "88%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 9 },
-  grabber: { width: 38, height: 4, borderRadius: 4, backgroundColor: "#d7dce4", alignSelf: "center", marginBottom: 12 }, head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }, title: { color: ink, fontSize: 18, fontWeight: "900" },
+  overlay: { flex: 1, backgroundColor: "rgba(13,24,42,.32)", justifyContent: "flex-end" }, sheet: { backgroundColor: "#fffefa", maxHeight: "90%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10 },
+  grabber: { width: 36, height: 4, borderRadius: 4, backgroundColor: "#d7dce4", alignSelf: "center", marginBottom: 13 }, head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }, title: { color: ink, fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
   convoIntro: { alignItems: "center", paddingVertical: 14 }, bigAvatar: { width: 70, height: 70, borderRadius: 36, backgroundColor: "#e5eeff", justifyContent: "center", alignItems: "center", marginBottom: 8 }, bigAvatarLetter: { color: blue, fontSize: 27, fontWeight: "900" }, convoTitle: { color: ink, fontSize: 17, fontWeight: "900" }, renameInput: { borderBottomWidth: 1, borderColor: blue, minWidth: 190, textAlign: "center", color: ink, padding: 6 }, sub: { color: muted, fontSize: 12, marginTop: 3 }, link: { color: blue, fontSize: 12, fontWeight: "800", padding: 5 }, danger: { color: "#c7464e", fontSize: 12, fontWeight: "800", padding: 5 },
-  preferenceRow: { flexDirection: "row", gap: 10, marginBottom: 10 }, preference: { flex: 1, flexDirection: "row", gap: 7, alignItems: "center", padding: 12, borderRadius: 12, backgroundColor: "#f2f6fd" }, preferenceText: { color: ink, fontSize: 11, fontWeight: "700" }, publicSection: { backgroundColor: "#f6f8fb", borderRadius: 11, padding: 11, marginBottom: 9 }, publicToggle: { flexDirection: "row", alignItems: "center", gap: 9 },
+  preferenceRow: { flexDirection: "row", gap: 10, marginBottom: 12 }, preference: { flex: 1, flexDirection: "row", gap: 8, alignItems: "center", padding: 12, borderRadius: 13, backgroundColor: "#f1f5fb", borderWidth: 1, borderColor: "#e7edf5" }, preferenceText: { color: ink, fontSize: 11, fontWeight: "700" }, publicSection: { backgroundColor: "#f5f7fa", borderRadius: 13, padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "#e8edf2" }, publicToggle: { flexDirection: "row", alignItems: "center", gap: 9 },
   section: { fontSize: 12, fontWeight: "900", color: muted, marginTop: 13, marginBottom: 4, textTransform: "uppercase" }, memberRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 9, borderBottomWidth: 1, borderColor: "#eff1f4" }, avatar: { width: 36, height: 36, borderRadius: 20, backgroundColor: "#e5eeff", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarImage: { width: 36, height: 36, borderRadius: 20 }, avatarText: { color: blue, fontWeight: "900" }, memberName: { color: ink, fontSize: 13, fontWeight: "800" }, memberActions: { flexDirection: "row", alignItems: "center" },
   search: { backgroundColor: "#f3f5f8", height: 40, borderRadius: 11, paddingHorizontal: 12, color: ink, outlineStyle: "none" as any }, leave: { borderTopWidth: 1, borderColor: "#eef0f3", marginTop: 16, alignItems: "center", paddingVertical: 13 }, error: { color: "#c7464e", fontSize: 12, padding: 8 },
   inviteInput: { backgroundColor: "#fff", borderRadius: 9, padding: 9, minHeight: 44, color: ink, fontSize: 11, borderWidth: 1, borderColor: "#e4e9f1", outlineStyle: "none" as any },

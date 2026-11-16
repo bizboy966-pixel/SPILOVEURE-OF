@@ -4,10 +4,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Conversation } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
 type ChatList = { id: string; name: string; conversation_ids: string[]; updated_at: string };
 type Props = { mode: "lists" | "broadcasts" };
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 
 export default function ChatListsManager({ mode }: Props) {
   const [lists, setLists] = useState<ChatList[]>([]);
@@ -164,22 +165,22 @@ const styles = StyleSheet.create({
   intro: { color: muted, fontSize: 12, lineHeight: 18, marginBottom: 4 },
   error: { color: "#bd3745", backgroundColor: "#fff0f0", padding: 10, borderRadius: 10, fontSize: 12 },
   notice: { color: "#16724b", backgroundColor: "#eaf8f0", padding: 10, borderRadius: 10, fontSize: 12 },
-  editor: { backgroundColor: "#f5f8ff", borderColor: "#e3ebf8", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8 },
+  editor: { backgroundColor: "#fffefa", borderColor: "#e5e9ef", borderWidth: 1, borderRadius: 15, padding: 14, gap: 9 },
   title: { color: ink, fontSize: 14, fontWeight: "800" },
   caption: { color: ink, fontSize: 12, fontWeight: "700", marginTop: 4 },
   muted: { color: muted, fontSize: 12, lineHeight: 17 },
-  input: { minHeight: 42, borderWidth: 1, borderColor: "#dbe4f0", borderRadius: 10, backgroundColor: "#fff", paddingHorizontal: 11, paddingVertical: 9, color: ink, fontSize: 14 },
+  input: { minHeight: 44, borderWidth: 1, borderColor: "#dbe2eb", borderRadius: 11, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 9, color: ink, fontSize: 14 },
   messageInput: { minHeight: 98, textAlignVertical: "top" },
   member: { flexDirection: "row", alignItems: "center", minHeight: 42, gap: 9, borderBottomWidth: 1, borderColor: "#e6ebf2" },
   check: { height: 20, width: 20, borderRadius: 6, borderWidth: 1.5, borderColor: "#9aa8bb", alignItems: "center", justifyContent: "center" },
   checkOn: { backgroundColor: blue, borderColor: blue },
   memberText: { flex: 1, color: ink, fontSize: 13, fontWeight: "600" },
   editorActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 5 },
-  primary: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: blue, borderRadius: 10, minHeight: 40, paddingHorizontal: 13 },
+  primary: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: blue, borderRadius: 11, minHeight: 42, paddingHorizontal: 14 },
   primaryText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   secondary: { backgroundColor: "#e8edf5", borderRadius: 10, minHeight: 40, justifyContent: "center", paddingHorizontal: 13 },
   secondaryText: { color: ink, fontSize: 12, fontWeight: "700" },
-  listCard: { borderColor: "#e5eaf1", borderWidth: 1, borderRadius: 13, padding: 11, gap: 10, backgroundColor: "#fff" },
+  listCard: { borderColor: "#e6eaf0", borderWidth: 1, borderRadius: 14, padding: 13, gap: 11, backgroundColor: "#fffefa" },
   listHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   listCopy: { flex: 1 },
 });

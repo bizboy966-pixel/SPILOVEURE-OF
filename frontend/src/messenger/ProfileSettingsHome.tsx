@@ -2,6 +2,7 @@ import React from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useI18n } from "@/src/i18n";
+import { chatVisual } from "./chatVisualTokens";
 
 type ProfileSettingsHomeProps = {
   username: string;
@@ -177,15 +178,15 @@ export default function ProfileSettingsHome({
 }
 
 const colors = {
-  canvas: "#f2f6fb",
+  canvas: "#f3f6fa",
   paper: "#fffdf8",
   white: "#ffffff",
-  ink: "#17304f",
+  ink: chatVisual.ink,
   muted: "#78879a",
-  blue: "#1769e8",
-  blueSoft: "#e8f0ff",
-  gold: "#c99a45",
-  line: "#e8edf3",
+  blue: chatVisual.brand,
+  blueSoft: "#edf4ff",
+  gold: chatVisual.gold,
+  line: chatVisual.border,
   chevron: "#a4b0bf",
 };
 
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 18,
-    paddingTop: 24,
+    paddingTop: 20,
     paddingBottom: 32,
   },
   content: {
@@ -226,21 +227,21 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
   },
   identityCard: {
-    minHeight: 105,
+    minHeight: 98,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.paper,
-    borderColor: "#e9e2d3",
+    borderColor: "#e9e4d9",
     borderWidth: 1,
-    borderRadius: 19,
+    borderRadius: 16,
     paddingHorizontal: 17,
     paddingVertical: 15,
     marginBottom: 16,
     shadowColor: "#536987",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.055,
+    shadowRadius: 10,
+    elevation: 1,
   },
   avatarButton: {
     width: 64,
@@ -312,10 +313,10 @@ const styles = StyleSheet.create({
   menuCard: {
     overflow: "hidden",
     backgroundColor: colors.white,
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.line,
-    paddingHorizontal: 15,
+    paddingHorizontal: 14,
     shadowColor: "#536987",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.055,
@@ -323,7 +324,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   row: {
-    minHeight: 69,
+    minHeight: 72,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: 1,
@@ -339,7 +340,7 @@ const styles = StyleSheet.create({
   rowIcon: {
     width: 38,
     height: 38,
-    borderRadius: 12,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,

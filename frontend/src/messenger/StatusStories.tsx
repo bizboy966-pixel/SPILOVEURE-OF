@@ -7,10 +7,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import type { Attachment, ChatStatus } from "./types";
 import { protectedFileUrl } from "./api";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8";
-const ink = "#102042";
-const muted = "#7d879a";
+const blue = chatVisual.brand;
+const ink = chatVisual.ink;
+const muted = chatVisual.muted;
 
 type Props = {
   userId: string; version?: number; requestedAuthorId?: string | null; requestedStatusId?: string | null;
@@ -573,34 +574,34 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
 }
 
 const styles = StyleSheet.create({
-  wrap: { backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4", paddingTop: 12 },
+  wrap: { backgroundColor: "#fffefa", borderBottomWidth: 1, borderColor: "#e8ebef", paddingTop: 14 },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 15, marginBottom: 8 },
   title: { color: ink, fontWeight: "900", fontSize: 17 }, subtitle: { color: muted, fontSize: 11, marginTop: 2 },
-  storyRow: { flexDirection: "row", alignItems: "flex-start", gap: 15, paddingHorizontal: 14, paddingBottom: 12 },
+  storyRow: { flexDirection: "row", alignItems: "flex-start", gap: 16, paddingHorizontal: 16, paddingBottom: 13 },
   storyPerson: { width: 62, alignItems: "center", position: "relative" },
   storyRingWrap: { width: 56, height: 56, alignItems: "center", justifyContent: "center", position: "relative" },
-  storyRing: { width: 56, height: 56, borderRadius: 29, borderWidth: 2, padding: 3, alignItems: "center", justifyContent: "center" },
+  storyRing: { width: 58, height: 58, borderRadius: 30, borderWidth: 2, padding: 3, alignItems: "center", justifyContent: "center" },
   storyRingNew: { borderColor: "#13b981" }, storyRingSeen: { borderColor: "#f2a934" },
   storyCount: { position: "absolute", right: 0, top: -2, minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: "#1769e8", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fff" },
   storyCountText: { color: "#fff", fontSize: 9, fontWeight: "900" },
-  storyAvatar: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  storyAvatar: { width: 48, height: 48, borderRadius: 25, backgroundColor: "#edf3fd", alignItems: "center", justifyContent: "center", overflow: "hidden" },
   storyAvatarImage: { width: 46, height: 46, borderRadius: 24 }, storyInitial: { color: blue, fontWeight: "900", fontSize: 18 },
   addStatus: { position: "absolute", right: 1, top: 35, width: 21, height: 21, borderRadius: 11, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
   storyName: { color: ink, fontSize: 10, fontWeight: "700", textAlign: "center", marginTop: 5, width: 60 },
   empty: { color: muted, fontSize: 12, alignSelf: "center", paddingVertical: 17 },
   error: { marginHorizontal: 14, marginBottom: 7, backgroundColor: "#fff1f0", borderRadius: 10, padding: 8 }, errorText: { color: "#b83a42", fontSize: 12 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(10,20,38,.5)", justifyContent: "flex-end" },
-  composeSheet: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: 30 },
+  composeSheet: { backgroundColor: "#fffefa", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 30 },
   sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   sheetTitle: { color: ink, fontSize: 18, fontWeight: "900" },
-  statusInput: { minHeight: 125, maxHeight: 220, color: ink, fontSize: 16, textAlignVertical: "top", backgroundColor: "#f6f8fb", borderRadius: 14, padding: 13, outlineStyle: "none" as any },
+  statusInput: { minHeight: 125, maxHeight: 220, color: ink, fontSize: 16, textAlignVertical: "top", backgroundColor: "#f6f8fb", borderWidth: 1, borderColor: "#e7ebf0", borderRadius: 13, padding: 14, outlineStyle: "none" as any },
   attachmentRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#eef4ff", borderRadius: 10, padding: 9, marginTop: 9 },
   attachmentName: { flex: 1, color: ink, fontSize: 12 },
   privacy: { color: muted, fontSize: 11, marginTop: 10 },
   composeActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14 },
-  mediaButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 18, backgroundColor: "#eef4ff" },
+  mediaButton: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 11, paddingHorizontal: 13, borderRadius: 11, backgroundColor: "#edf4ff", borderWidth: 1, borderColor: "#e1eafb" },
   mediaButtonText: { color: blue, fontSize: 12, fontWeight: "800" },
-  publishButton: { backgroundColor: blue, minWidth: 104, alignItems: "center", justifyContent: "center", paddingVertical: 11, paddingHorizontal: 18, borderRadius: 20 },
+  publishButton: { backgroundColor: blue, minWidth: 104, alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 18, borderRadius: 11 },
   publishText: { color: "#fff", fontSize: 13, fontWeight: "900" }, disabled: { opacity: .48 },
   viewer: { flex: 1, backgroundColor: "#0b1220", justifyContent: "space-between" },
   viewerTop: { paddingTop: 42, paddingHorizontal: 12, zIndex: 2 },

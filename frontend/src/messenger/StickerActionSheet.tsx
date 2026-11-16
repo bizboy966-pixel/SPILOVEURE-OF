@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { AttachmentPreview } from "./ProtectedAttachmentViewer";
+import { chatVisual } from "./chatVisualTokens";
 
 export default function StickerActionSheet({
   preview, saved, packed, onClose, onSave, onRemove, onAddToPack, onRemoveFromPack, onEdit,
@@ -88,15 +89,15 @@ export default function StickerActionSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,.36)", justifyContent: "flex-end" },
+  backdrop: { flex: 1, backgroundColor: "rgba(10,18,32,.38)", justifyContent: "flex-end" },
   dismiss: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: "100%", minHeight: 490, maxHeight: "76%", backgroundColor: "#fff", paddingTop: 10, paddingBottom: 8 },
+  sheet: { width: "100%", minHeight: 490, maxHeight: "76%", backgroundColor: "#fffefa", paddingTop: 12, paddingBottom: 8, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: "#e7eaf0" },
   handle: { alignSelf: "center", width: 38, height: 4, borderRadius: 2, backgroundColor: "#cbd3dd", marginBottom: 8 },
   previewArea: { height: 222, justifyContent: "center", alignItems: "center" },
   close: { position: "absolute", left: 20, top: 18, zIndex: 2, width: 42, height: 42, justifyContent: "center", alignItems: "center" },
   sticker: { width: 205, height: 205 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: "#e7eaf0" },
-  actionRow: { height: 72, flexDirection: "row", alignItems: "center", gap: 28, paddingHorizontal: 32 },
-  actionText: { color: "#172016", fontSize: 18, fontWeight: "400" },
+  actionRow: { height: 72, flexDirection: "row", alignItems: "center", gap: 24, paddingHorizontal: 26 },
+  actionText: { color: chatVisual.ink, fontSize: 16, fontWeight: "600" },
   bottomInset: { height: 8 },
 });

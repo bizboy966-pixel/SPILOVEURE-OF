@@ -21,6 +21,7 @@ import VoiceRecorderControls from "@/src/components/VoiceRecorderControls";
 import { chatProfileUrl } from "./userLinks";
 import ChatWallpaper from "./ChatWallpaper";
 import MessageContextMenu from "./MessageContextMenu";
+import { chatVisual } from "./chatVisualTokens";
 
 type Props = {
   conversation: Conversation; userId: string; onBack: () => void; onChanged: () => void;
@@ -31,7 +32,7 @@ type Props = {
   focusComposer?: boolean;
   focusMessageId?: string;
 };
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 type ChatVisualSettings = {
   appearance?: "light" | "dark";
   message_color?: "blue" | "green" | "gold";
@@ -78,7 +79,7 @@ const isEmojiOnlyMessage = (value: string) => {
   const text = value.trim();
   return !!text && !/[A-Za-z0-9]/.test(text) && /[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/u.test(text);
 };
-const messageColors = { blue: "#dbeafe", green: "#efffde", gold: "#fff1cc" };
+const messageColors = { blue: "#dbeafe", green: chatVisual.sentBubble, gold: "#fff1cc" };
 const logo = require("../../assets/images/spiloveure-logo.png");
 const emojiStorage = createMemoryAdapter();
 const emojiTranslation: Record<CategoryTypes, string> = {
@@ -1425,11 +1426,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
 }
 
 const styles = StyleSheet.create({
-  thread: { flex: 1, backgroundColor: "#b9e3d9", minHeight: 0, position: "relative" },
-  threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "transparent", paddingHorizontal: 11, gap: 8 },
+  thread: { flex: 1, backgroundColor: "#c8ebe3", minHeight: 0, position: "relative" },
+  threadHead: { minHeight: 72, flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,.82)", paddingHorizontal: 12, gap: 9, borderBottomWidth: 1, borderColor: "rgba(16,32,66,.08)" },
   threadHeadDark: { backgroundColor: "#111827" },
-  backButton: { width: 46, height: 46, borderRadius: 24, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  identityPill: { flex: 1, minWidth: 0, height: 54, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 30, backgroundColor: "#fff", paddingHorizontal: 6, paddingVertical: 4 },
+  backButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", flexShrink: 0, borderWidth: 1, borderColor: "#e4eaf0" },
+  identityPill: { flex: 1, minWidth: 0, height: 52, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: "#e6ebf1" },
   headerPillDark: { backgroundColor: "#202b3a", borderColor: "#37465a", borderWidth: 1 },
   identityText: { flex: 1, minWidth: 0, paddingVertical: 3 },
   avatar: { width: 44, height: 44, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
@@ -1437,7 +1438,7 @@ const styles = StyleSheet.create({
   avatarStoryRing: { width: 49, height: 49, borderRadius: 26, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
   avatarPhoto: { width: 44, height: 44, borderRadius: 24 }, avatarPhotoStory: { width: 39, height: 39, borderRadius: 20 }, avatarText: { color: blue, fontWeight: "900", fontSize: 18 },
   name: { fontSize: 16, color: ink, fontWeight: "800" }, nameDark: { color: "#f3f6fb" }, presence: { fontSize: 12, color: muted, marginTop: 2 }, presenceDark: { color: "#aab5c4" }, typing: { color: blue, fontWeight: "700" },
-  headerActionPill: { height: 46, flexDirection: "row", alignItems: "center", borderRadius: 25, backgroundColor: "#fff", paddingHorizontal: 3, flexShrink: 0 },
+  headerActionPill: { height: 44, flexDirection: "row", alignItems: "center", borderRadius: 15, backgroundColor: "#fff", paddingHorizontal: 3, flexShrink: 0, borderWidth: 1, borderColor: "#e6ebf1" },
   headerAction: { width: 39, height: 40, alignItems: "center", justifyContent: "center" },
   headerMenuOverlay: { flex: 1, backgroundColor: "rgba(16,32,66,.14)" },
   headerMenuDismiss: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
@@ -1453,14 +1454,14 @@ const styles = StyleSheet.create({
   pinnedMessageLabel: { color: blue, fontSize: 11, fontWeight: "800" },
   pinnedMessageText: { color: ink, fontSize: 13, marginTop: 2 },
   pinnedMessageTextDark: { color: "#f3f6fb" },
-  history: { flex: 1, minHeight: 0 }, historyContent: { padding: 14, paddingBottom: 14, gap: 8 },
+  history: { flex: 1, minHeight: 0 }, historyContent: { paddingHorizontal: 16, paddingVertical: 16, paddingBottom: 18, gap: 9 },
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },
   empty: { flex: 1, minHeight: 240, justifyContent: "center", alignItems: "center" }, emptyTitle: { fontSize: 17, color: ink, fontWeight: "800" }, emptyText: { marginTop: 7, color: muted, fontSize: 13 },
-  bubbleWrap: { width: "100%", alignItems: "stretch", minWidth: 0 }, ownWrap: { alignItems: "stretch" }, swipeMessage: { width: "100%", alignItems: "flex-start", minWidth: 0 }, swipeMessageOwn: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, position: "relative", borderRadius: 17, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 5, borderWidth: 1, borderColor: "#e9edf3" }, stickerBubble: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, borderRadius: 0 },
-  ownBubble: { alignSelf: "flex-end", backgroundColor: "#efffde", borderColor: "#dcefd2", borderBottomRightRadius: 5 }, otherBubble: { alignSelf: "flex-start", backgroundColor: "#fff", borderColor: "#e5e8e3", borderBottomLeftRadius: 5 },
+  bubbleWrap: { width: "100%", alignItems: "stretch", minWidth: 0 }, ownWrap: { alignItems: "stretch" }, swipeMessage: { width: "100%", alignItems: "flex-start", minWidth: 0 }, swipeMessageOwn: { alignItems: "flex-end" }, bubble: { maxWidth: "88%", minWidth: 0, flexShrink: 1, position: "relative", borderRadius: 18, paddingHorizontal: 13, paddingTop: 9, paddingBottom: 6, borderWidth: 1, borderColor: "#e2e8e1" }, stickerBubble: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, borderRadius: 0 },
+  ownBubble: { alignSelf: "flex-end", backgroundColor: chatVisual.sentBubble, borderColor: "#dcefd2", borderBottomRightRadius: 6 }, otherBubble: { alignSelf: "flex-start", backgroundColor: chatVisual.receivedBubble, borderColor: "#e2e8e1", borderBottomLeftRadius: 6 },
   bubbleTail: { position: "absolute", bottom: -1, width: 11, height: 14 }, ownBubbleTail: { right: -8 }, otherBubbleTail: { left: -8 },
-  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 3, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: "#172016", fontSize: 17, lineHeight: 24, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
+  sender: { fontSize: 12, color: blue, fontWeight: "800", marginBottom: 4, maxWidth: "100%", flexShrink: 1 }, messageText: ({ color: "#172016", fontSize: 16, lineHeight: 23, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere", wordBreak: "break-word" } as any), linkText: { color: blue, textDecorationLine: "underline" }, deleted: { color: muted, fontStyle: "italic" }, forwarded: { fontSize: 11, color: muted, marginBottom: 4 },
   replyQuote: { borderLeftWidth: 3, borderColor: blue, paddingLeft: 8, paddingVertical: 4, marginBottom: 6, backgroundColor: "rgba(23,105,232,.055)", borderTopRightRadius: 7, borderBottomRightRadius: 7, maxWidth: "100%", minWidth: 0 },
   statusReplyCard: { maxWidth: "100%", minWidth: 0, marginBottom: 6, padding: 7, borderLeftWidth: 3, borderLeftColor: blue, borderRadius: 8, backgroundColor: "rgba(23,105,232,.06)" },
   statusReplyHeader: { flexDirection: "row", alignItems: "center", gap: 7, minWidth: 0 },
@@ -1487,7 +1488,7 @@ const styles = StyleSheet.create({
    pickerTabTextDark: { color: "#aab5c4" },
    pickerTabTextActive: { color: blue },
    pickerContent: { flex: 1, minHeight: 0, overflow: "hidden" },
-  composer: { alignSelf: "stretch", minWidth: 0, maxWidth: "100%", flexDirection: "row", flexWrap: "nowrap", alignItems: "flex-end", backgroundColor: "#fff", marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 7, paddingVertical: 7, borderWidth: 1, borderColor: "#e7ecf3", borderRadius: 30, gap: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .12, shadowRadius: 10, elevation: 6, flexShrink: 0 },
+  composer: { alignSelf: "stretch", minWidth: 0, maxWidth: "100%", flexDirection: "row", flexWrap: "nowrap", alignItems: "flex-end", backgroundColor: "#fffefa", marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 8, paddingVertical: 7, borderWidth: 1, borderColor: "#e4e9e8", borderRadius: 20, gap: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .09, shadowRadius: 9, elevation: 4, flexShrink: 0 },
   composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center", flexShrink: 0 }, inputShell: { flex: 1, flexBasis: 0, flexShrink: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, minHeight: 42, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexBasis: 0, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }, recordButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexShrink: 0 }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" },
   composerActionsBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 16 }, composerActionsDismiss: { flex: 1 }, composerActionsSheet: { backgroundColor: "#fff", borderRadius: 22, padding: 12 }, actionsTitle: { color: ink, fontSize: 16, fontWeight: "800", paddingHorizontal: 9, paddingBottom: 8 }, composerActionRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 10, borderTopWidth: 1, borderColor: "#edf0f5" }, composerActionText: { color: ink, fontSize: 14, fontWeight: "600" },

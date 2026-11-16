@@ -15,6 +15,7 @@ import {
   type NotificationSoundSettings,
 } from "./notificationSound";
 import { useI18n } from "@/src/i18n";
+import { chatVisual } from "./chatVisualTokens";
 
 type Props = { userId: string; conversationId?: string };
 type SoundChoice = NotificationSoundSettings["sound"];
@@ -25,7 +26,7 @@ type Settings = NotificationSoundSettings & {
   custom_name?: string;
 };
 const defaults: Settings = { enabled: true, sound_enabled: true, preview: true, sound: "default", inherit: true };
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 const SOUND_LABEL_KEYS: Record<Settings["sound"], string> = {
   default: "chat.notifications.sound_default",
   chime: "chat.notifications.sound_chime",
@@ -389,11 +390,11 @@ export default function NotificationSettingsPanel({ userId, conversationId }: Pr
 }
 
 const styles = StyleSheet.create({
-  wrapper: { borderWidth: 1, borderColor: "#e8edf4", borderRadius: 13, backgroundColor: "#fff", marginVertical: 8, overflow: "hidden" },
-  collapsible: { minHeight: 58, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, gap: 10 },
+  wrapper: { borderWidth: 1, borderColor: "#e5eaf1", borderRadius: 14, backgroundColor: "#fffefa", marginVertical: 9, overflow: "hidden" },
+  collapsible: { minHeight: 62, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 11 },
   headingIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#edf4ff", alignItems: "center", justifyContent: "center" },
   headingCopy: { flex: 1 }, heading: { color: ink, fontWeight: "800", fontSize: 13 }, headingSub: { color: muted, fontSize: 11, marginTop: 2 },
-  body: { paddingHorizontal: 12, paddingBottom: 12, borderTopWidth: 1, borderColor: "#edf0f4" },
+  body: { paddingHorizontal: 14, paddingBottom: 14, borderTopWidth: 1, borderColor: "#edf0f4" },
   loading: { minHeight: 80, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   settingRow: { minHeight: 55, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#eef1f5", paddingVertical: 7 },
   copy: { flex: 1 }, rowTitle: { color: ink, fontSize: 12, fontWeight: "800" }, help: { color: muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
@@ -408,6 +409,6 @@ const styles = StyleSheet.create({
   secondaryText: { color: blue, fontSize: 11, fontWeight: "800" }, removeButton: { alignSelf: "flex-start", paddingVertical: 7 }, removeText: { color: "#bf3e45", fontSize: 11, fontWeight: "700" },
   disclaimer: { color: muted, fontSize: 10, lineHeight: 15, marginTop: 10 }, testButton: { marginTop: 11 }, pushBox: { backgroundColor: "#f7f9fc", borderRadius: 10, padding: 10, marginTop: 13 },
   error: { color: "#bf3e45", fontSize: 11, lineHeight: 16, marginTop: 9 }, success: { color: "#16805f", fontSize: 11, lineHeight: 16, marginTop: 9 },
-  saveButton: { minHeight: 39, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 7, backgroundColor: blue, borderRadius: 20, marginTop: 12 },
+  saveButton: { minHeight: 42, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 7, backgroundColor: blue, borderRadius: 12, marginTop: 14 },
   saveText: { color: "#fff", fontWeight: "800", fontSize: 12 },
 });

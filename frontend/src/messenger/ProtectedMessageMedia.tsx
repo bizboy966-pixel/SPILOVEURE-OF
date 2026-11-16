@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Platform, StyleSheet, Text, TouchableOpacity,
 import { Ionicons } from "@expo/vector-icons";
 import { protectedFileUrl } from "./api";
 import type { Attachment } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
 export default function ProtectedMessageMedia({
   file, onOpen, onLongPress, compact = false, autoLoad = true, maxWidth = 260,
@@ -60,7 +61,7 @@ export default function ProtectedMessageMedia({
 
   if (error) return <View style={[styles.failed, { width, height, maxWidth: "100%" }]}><Image source={require("../../assets/images/spiloveure-logo.png")} style={styles.failedLogo} /></View>;
   if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={isSticker ? "Charger le sticker" : `Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`${isSticker ? "messenger-sticker" : "messenger-media"}-load-${file.id}`}>
-    <Ionicons name={isSticker ? "happy-outline" : "download-outline"} size={25} color="#1769e8" /><Text style={styles.loadText}>{isSticker ? "Charger le sticker" : "Charger le média"}</Text>
+    <Ionicons name={isSticker ? "happy-outline" : "download-outline"} size={25} color={chatVisual.brand} /><Text style={styles.loadText}>{isSticker ? "Charger le sticker" : "Charger le média"}</Text>
   </TouchableOpacity>;
   if (!url) return <View style={[styles.loading, { width, height, maxWidth: "100%" }]}><ActivityIndicator color="#1769e8" /></View>;
   if (isVideo) return <View style={[styles.videoFrame, { width, height, maxWidth: "100%" }]}>
@@ -91,13 +92,13 @@ export default function ProtectedMessageMedia({
 }
 
 const styles = StyleSheet.create({
-  imageFrame: { backgroundColor: "transparent", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
+  imageFrame: { backgroundColor: "transparent", borderRadius: 12, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1, borderWidth: 1, borderColor: "rgba(16,32,66,.08)" },
   stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
   image: { width: "100%", height: "100%", maxWidth: "100%" },
   videoFrame: { position: "relative" },
   video: { backgroundColor: "#080d15", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
   videoExpand: { position: "absolute", right: 8, bottom: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,.68)", alignItems: "center", justifyContent: "center" },
-  loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
+  loading: { backgroundColor: "#f1f5fa", borderWidth: 1, borderColor: "#e3eaf2", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
   loadText: { color: "#1769e8", fontSize: 12, fontWeight: "700", marginTop: 5 },
   failed: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
   failedLogo: { width: 45, height: 45, opacity: .65 },

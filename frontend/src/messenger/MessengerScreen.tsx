@@ -19,9 +19,10 @@ import { useNavigationTransition } from "./NavigationTransition";
 import { normalizeSpvUsername } from "./userLinks";
 import { setActiveNotificationConversation } from "./notificationRuntime";
 import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
+import { chatVisual } from "./chatVisualTokens";
 
 const logo = require("../../assets/images/spiloveure-logo.png");
-const blue = "#1769e8", ink = "#102042", muted = "#8993a4";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = "#8993a4";
 type Filter = "Tous" | "Messages privés" | "Groupes" | "Canaux";
 type Tab = "Échanges" | "Contacts" | "Actus" | "Profil";
 const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
@@ -73,7 +74,17 @@ export default function MessengerScreen() {
     if (typeof document === "undefined") return;
     const style = document.createElement("style");
     style.dataset.spvAccessibility = "true";
-    style.textContent = `.spv-chat-reduce-motion *, .spv-chat-reduce-motion *::before, .spv-chat-reduce-motion *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }`;
+    style.textContent = `
+      [data-testid^="messenger-"]:focus-visible,
+      [data-testid^="profile-settings-"]:focus-visible,
+      [data-testid^="chat-list-"]:focus-visible {
+        outline: 3px solid #c99a45 !important;
+        outline-offset: 3px !important;
+        z-index: 20;
+      }
+      [data-testid^="messenger-"]:hover { transition: opacity 120ms ease, transform 120ms ease; }
+      .spv-chat-reduce-motion *, .spv-chat-reduce-motion *::before, .spv-chat-reduce-motion *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+    `;
     document.head.appendChild(style);
     document.documentElement.classList.toggle("spv-chat-reduce-motion", reduceMotion);
     return () => {
@@ -623,21 +634,21 @@ export default function MessengerScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, minHeight: "100%", backgroundColor: "#f5f7fa" },
+  page: { flex: 1, minHeight: "100%", backgroundColor: chatVisual.canvas },
   workspace: { flex: 1, minHeight: 0, paddingBottom: 84 },
   workspaceThread: { paddingBottom: 0 },
-  workspaceWide: { width: "100%", maxWidth: 1180, alignSelf: "center", flexDirection: "row", borderLeftWidth: 1, borderRightWidth: 1, borderColor: "#e7ebf1" },
-  listPanel: { flex: 1, minHeight: 0, backgroundColor: "#fff", position: "relative" },
-  wideList: { flexGrow: 0, flexShrink: 0, flexBasis: 375, width: 375, borderRightWidth: 1, borderColor: "#e9edf2" },
-  header: { height: 84, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 3, borderBottomWidth: 1, borderColor: "#1d70ed", overflow: "hidden", position: "relative" },
+  workspaceWide: { width: "100%", maxWidth: 1180, alignSelf: "center", flexDirection: "row", borderLeftWidth: 1, borderRightWidth: 1, borderColor: chatVisual.border },
+  listPanel: { flex: 1, minHeight: 0, backgroundColor: chatVisual.surface, position: "relative" },
+  wideList: { flexGrow: 0, flexShrink: 0, flexBasis: 375, width: 375, borderRightWidth: 1, borderColor: chatVisual.border },
+  header: { height: 80, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 6, borderBottomWidth: 1, borderColor: "#1d70ed", overflow: "hidden", position: "relative" },
   goldSwoop: { ...StyleSheet.absoluteFillObject, zIndex: 0, opacity: .95 },
   brand: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9 }, logo: { width: 51, height: 51, borderRadius: 28, backgroundColor: "#0649b5" }, brandTitle: { color: "#fff", fontSize: 17, fontWeight: "900", letterSpacing: .2 }, brandSub: { color: "#fff", fontSize: 16, fontWeight: "800", marginTop: -2 },
   headerIcon: { width: 39, height: 45, alignItems: "center", justifyContent: "center" },
-  filters: { flexGrow: 0, flexShrink: 0, height: 60, flexDirection: "row", alignItems: "center", paddingHorizontal: 6, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#edf0f4" },
-  searchModalPage: { flex: 1, backgroundColor: "#f5f7fa" },
+  filters: { flexGrow: 0, flexShrink: 0, minHeight: 60, flexDirection: "row", alignItems: "center", paddingHorizontal: 9, backgroundColor: chatVisual.surface, borderBottomWidth: 1, borderColor: chatVisual.border },
+  searchModalPage: { flex: 1, backgroundColor: chatVisual.canvas },
   searchModalHeader: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#e9edf3" },
   searchClose: { width: 38, height: 42, alignItems: "center", justifyContent: "center" },
-  searchModalField: { flex: 1, minWidth: 0, height: 43, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 22, backgroundColor: "#f0f3f8" },
+  searchModalField: { flex: 1, minWidth: 0, height: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14, borderRadius: 13, backgroundColor: "#f2f5f9", borderWidth: 1, borderColor: chatVisual.border },
   searchModalInput: { flex: 1, minWidth: 0, color: ink, fontSize: 14, outlineStyle: "none" as any },
   searchModalEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
   searchModalHint: { color: muted, fontSize: 13 },
@@ -649,18 +660,18 @@ const styles = StyleSheet.create({
   searchPhoto: { width: 34, height: 34, borderRadius: 18 },
   memberSearchName: { flex: 1, color: ink, fontSize: 13, fontWeight: "800" }, searchAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#eef4ff" },
   memberSearchEmpty: { color: muted, fontSize: 12, paddingVertical: 10 },
-  discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 2, height: 35, borderRadius: 18, backgroundColor: "#eef4ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
-  filter: { flex: 1, flexBasis: 0, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, borderRadius: 21, marginHorizontal: 1, paddingHorizontal: 3, paddingVertical: 8, backgroundColor: "#f2f4f8" }, filterPrivate: { flexGrow: 1.55 }, filterActive: { backgroundColor: blue }, filterText: { flexShrink: 1, textAlign: "center", color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" }, filterSoon: { color: "#8692a6" },
+  discoverChannels: { marginHorizontal: 13, marginTop: 9, marginBottom: 4, minHeight: 38, borderRadius: 12, backgroundColor: "#f1f6ff", borderWidth: 1, borderColor: "#e1eafb", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, discoverText: { color: blue, fontSize: 12, fontWeight: "800" },
+  filter: { flex: 1, flexBasis: 0, minWidth: 0, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 12, marginHorizontal: 2, paddingHorizontal: 4, paddingVertical: 8, backgroundColor: "#f5f7fa" }, filterPrivate: { flexGrow: 1.55 }, filterActive: { backgroundColor: blue }, filterText: { flexShrink: 1, textAlign: "center", color: "#283958", fontSize: 11, fontWeight: "700" }, filterActiveText: { color: "#fff" }, filterSoon: { color: "#8692a6" },
   filterBadge: { flexShrink: 0, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", backgroundColor: "#e34252" }, filterBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", lineHeight: 13 },
-  conversationRow: { minHeight: 82, minWidth: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 12, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f4f8ff" },
+  conversationRow: { minHeight: 84, minWidth: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, borderBottomWidth: 1, borderColor: "#edf0f3", gap: 13, backgroundColor: "#fff" }, rowSelected: { backgroundColor: "#f5f8fd" },
   avatarRing: { width: 54, height: 54, alignItems: "center", justifyContent: "center" }, avatarRingUnread: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#13b981" }, avatarRingSeen: { width: 60, height: 60, borderRadius: 30, padding: 2, borderWidth: 2, borderColor: "#f2a934" },
   rowAvatar: { width: 54, height: 54, borderRadius: 29, backgroundColor: "#e7effd", alignItems: "center", justifyContent: "center", position: "relative" }, rowAvatarInside: { width: 50, height: 50, borderRadius: 25 }, rowPhoto: { width: 54, height: 54, borderRadius: 28 }, rowPhotoInside: { width: 50, height: 50, borderRadius: 25 }, rowAvatarLetter: { color: blue, fontSize: 22, fontWeight: "900" }, onlineDot: { position: "absolute", width: 13, height: 13, borderRadius: 7, backgroundColor: "#1bb779", bottom: -1, right: 0, borderWidth: 2, borderColor: "#fff" },
   rowOpenTitle: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowControls: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 10 }, rowOpenPreview: { flex: 1, minWidth: 0 },
    rowMain: { flex: 1, minWidth: 0 }, rowTop: { minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 }, rowTitle: { flex: 1, flexShrink: 1, minWidth: 0, color: "#111f3b", fontSize: 15, fontWeight: "800" }, rowTime: { flexShrink: 0, color: "#8b95a5", fontSize: 11 }, rowBottom: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }, preview: { flex: 1, color: "#7e8795", fontSize: 13 }, draftText: { color: "#4f78b8" }, rowMarkers: { flexDirection: "row", alignItems: "center", gap: 5 }, unread: { minWidth: 22, height: 22, borderRadius: 12, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: blue }, unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   rowQuickActions: { flexDirection: "row", gap: 12, paddingTop: 5, opacity: .82 }, quickText: { color: blue, fontSize: 10, fontWeight: "700" },
-  fab: { position: "absolute", right: 19, bottom: 18, width: 62, height: 62, borderRadius: 34, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 7, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .3, shadowRadius: 9 },
+  fab: { position: "absolute", right: 19, bottom: 18, width: 58, height: 58, borderRadius: 18, backgroundColor: blue, alignItems: "center", justifyContent: "center", elevation: 5, shadowColor: "#0d4dac", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .22, shadowRadius: 8 },
   loading: { padding: 18, gap: 18 }, skeleton: { height: 64, borderRadius: 30, backgroundColor: "#f0f3f8" }, emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 }, featureSoon: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, backgroundColor: "#fff" }, emptyCircle: { width: 62, height: 62, borderRadius: 32, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" }, emptyTitle: { color: ink, fontSize: 16, fontWeight: "800", textAlign: "center", marginTop: 13 }, emptyCopy: { color: muted, fontSize: 13, textAlign: "center", marginTop: 7 }, emptyLink: { color: blue, fontSize: 13, fontWeight: "800", marginTop: 10 }, emptyButton: { marginTop: 17, backgroundColor: blue, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 17 }, emptyButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  bottomDock: { position: "absolute", left: 10, right: 10, bottom: 8, zIndex: 5 }, bottomBar: { height: 75, borderRadius: 37, backgroundColor: "#fff", borderWidth: 1, borderColor: "#edf0f4", shadowColor: "#244067", shadowOffset: { width: 0, height: 6 }, shadowOpacity: .12, shadowRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingHorizontal: 4 },
+  bottomDock: { position: "absolute", left: 10, right: 10, bottom: 8, zIndex: 5 }, bottomBar: { height: 70, borderRadius: 22, backgroundColor: "#fffefa", borderWidth: 1, borderColor: "#e8e4d9", shadowColor: "#244067", shadowOffset: { width: 0, height: 4 }, shadowOpacity: .09, shadowRadius: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingHorizontal: 4 },
   navItem: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }, navIconWrap: { width: 29, height: 26, alignItems: "center", justifyContent: "center", position: "relative" }, newsBadge: { position: "absolute", right: -9, top: -6, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 9, backgroundColor: "#e3444b", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fff" }, newsBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" }, navLabel: { color: "#9ca8b8", fontSize: 10, fontWeight: "700" }, navActive: { color: blue }, centerLogoWrap: { width: 67, alignItems: "center", marginTop: -21 }, centerLogo: { width: 58, height: 58, borderRadius: 30, backgroundColor: "#fff", borderWidth: 4, borderColor: "#fff", elevation: 5, alignItems: "center", justifyContent: "center", shadowColor: blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: .2, shadowRadius: 8 }, centerLogoImage: { width: 52, height: 52, borderRadius: 27 },
   welcome: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f4f7fb" }, welcomeLogo: { height: 75, width: 75, borderRadius: 40 }, welcomeTitle: { color: ink, fontSize: 20, fontWeight: "900", marginTop: 12 }, welcomeText: { color: muted, fontSize: 13, marginTop: 6 },
   menuBackdrop: { flex: 1, backgroundColor: "rgba(5,15,34,.1)" }, menu: { position: "absolute", right: 11, top: 74, width: 225, backgroundColor: "#fff", borderRadius: 13, padding: 7, shadowColor: "#11243e", shadowOffset: { width: 0, height: 5 }, shadowOpacity: .2, shadowRadius: 12, elevation: 8 }, menuRow: { height: 44, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 9 }, menuText: { color: ink, fontWeight: "700", fontSize: 13 }, menuSoon: { color: muted, fontSize: 11 },

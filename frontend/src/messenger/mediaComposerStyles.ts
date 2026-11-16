@@ -1,16 +1,17 @@
 import { StyleSheet } from "react-native";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8";
+const blue = chatVisual.brand;
 
 export const mediaComposerStyles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(3,9,20,.94)", justifyContent: "center", alignItems: "center", padding: 10 },
-  sheet: { width: "100%", maxWidth: 620, maxHeight: "96%", minWidth: 0, backgroundColor: "#111a29", borderRadius: 20, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, overflow: "hidden" },
+  sheet: { width: "100%", maxWidth: 620, maxHeight: "96%", minWidth: 0, backgroundColor: "#121d30", borderRadius: 20, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, overflow: "hidden", borderWidth: 1, borderColor: "#34445d" },
   header: { minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, flexShrink: 0 },
   headerSide: { width: 35, minHeight: 40, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  headerTitle: { flex: 1, minWidth: 0, color: "#fff", fontSize: 15, fontWeight: "900", textAlign: "center" },
+  headerTitle: { flex: 1, minWidth: 0, color: "#fff", fontSize: 15, fontWeight: "800", textAlign: "center" },
   sendButton: { minWidth: 92, height: 37, borderRadius: 20, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7, paddingHorizontal: 12, flexShrink: 0 },
   sendText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-  stageArea: { width: "100%", flexShrink: 0, marginTop: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#080d15", borderRadius: 15, overflow: "hidden" },
+  stageArea: { width: "100%", flexShrink: 0, marginTop: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#152235", borderRadius: 15, overflow: "hidden" },
   imageStage: { position: "relative", alignItems: "center", justifyContent: "center", overflow: "hidden", backgroundColor: "#080d15" },
   canvasLayer: { ...StyleSheet.absoluteFillObject },
   drawingLayer: { ...StyleSheet.absoluteFillObject, zIndex: 4 },
@@ -25,7 +26,7 @@ export const mediaComposerStyles = StyleSheet.create({
   editorScroll: { flexShrink: 1, minHeight: 0 },
   editorContent: { paddingBottom: 6 },
   tools: { alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 1 },
-  toolChip: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 18, backgroundColor: "#263346", flexShrink: 0 },
+  toolChip: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: "#263346", flexShrink: 0 },
   toolSelected: { backgroundColor: blue },
   toolText: { color: "#dce6f5", fontSize: 10, fontWeight: "700" },
   toolTextSelected: { color: "#fff" },
@@ -60,7 +61,7 @@ export const mediaComposerStyles = StyleSheet.create({
   textDone: { alignSelf: "flex-end", minHeight: 32, minWidth: 84, borderRadius: 18, backgroundColor: blue, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, marginTop: 3 },
   textDragActive: { borderColor: "rgba(255,255,255,.72)", borderStyle: "dashed", backgroundColor: "rgba(255,255,255,.035)" },
   textDragIdle: { borderColor: "transparent", backgroundColor: "transparent" },
-  caption: { width: "100%", minHeight: 45, maxHeight: 100, color: "#fff", backgroundColor: "#263346", borderRadius: 13, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, textAlignVertical: "top", outlineStyle: "none" as any, marginTop: 6 },
-  error: { color: "#ff9090", fontSize: 12, lineHeight: 17, paddingTop: 6 },
-  privacy: { color: "#aeb8c8", fontSize: 10, textAlign: "center", paddingTop: 7 },
+  caption: { width: "100%", minHeight: 45, maxHeight: 100, color: chatVisual.ink, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e3e9f0", borderRadius: 12, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, textAlignVertical: "top", outlineStyle: "none" as any, marginTop: 7 },
+  error: { color: "#ffaaa6", fontSize: 12, lineHeight: 17, paddingTop: 6 },
+  privacy: { color: chatVisual.muted, fontSize: 10, textAlign: "center", paddingTop: 8 },
 });

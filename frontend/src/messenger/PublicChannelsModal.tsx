@@ -3,8 +3,9 @@ import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, Touc
 import { Ionicons } from "@expo/vector-icons";
 import { messengerApi } from "./api";
 import type { Conversation, PublicChannel } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 export default function PublicChannelsModal({ visible, onClose, onJoined }: {
   visible: boolean; onClose: () => void; onJoined: (conversation: Conversation) => void;
 }) {
@@ -58,16 +59,16 @@ export default function PublicChannelsModal({ visible, onClose, onJoined }: {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.4)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#fff", maxHeight: "90%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 18 },
+  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.34)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#fffefa", maxHeight: "90%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20 },
   head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 13 },
   title: { color: ink, fontSize: 19, fontWeight: "900" }, subtitle: { color: muted, fontSize: 12, marginTop: 4 },
-  search: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, backgroundColor: "#f2f5f9", borderRadius: 22, marginBottom: 8 },
+  search: { height: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e7ebf0", borderRadius: 12, marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
-  channelRow: { minHeight: 67, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#eef1f5" },
+  channelRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#edf0f4" },
   avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center" },
   channelName: { color: ink, fontSize: 14, fontWeight: "800" }, channelMeta: { color: muted, fontSize: 11, marginTop: 3 },
-  join: { height: 34, minWidth: 80, paddingHorizontal: 12, borderRadius: 17, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
+  join: { height: 36, minWidth: 82, paddingHorizontal: 13, borderRadius: 11, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
   joined: { backgroundColor: "#eaf1ff", borderWidth: 1, borderColor: "#d7e5ff" }, joinText: { color: "#fff", fontSize: 12, fontWeight: "800" }, joinedText: { color: blue },
   loading: { padding: 24, alignItems: "center", gap: 8 }, emptyState: { alignItems: "center", padding: 30 }, empty: { color: muted, textAlign: "center", fontSize: 13, padding: 8 }, error: { color: "#c34249", fontSize: 12, paddingVertical: 7 },
 });

@@ -7,8 +7,9 @@ import type { Attachment, ContactState, Person, Post } from "./types";
 import StatusStories from "./StatusStories";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import ProfileSettingsPanel from "./ProfileSettingsPanel";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Person) => Promise<void> };
 export function ContactsPanel({ onStart, onSave }: ContactProps) {
   const [state, setState] = useState<ContactState>({ contacts: [], blocked: [], requests: [], sent: [] });
@@ -195,13 +196,13 @@ export function ProfilePanel(props: ProfileProps) {
 
 const styles = StyleSheet.create({
   deviceHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  panel: { flex: 1, minHeight: 0, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 17 },
-  panelTitle: { fontSize: 20, fontWeight: "900", color: ink, marginBottom: 14 },
+  panel: { flex: 1, minHeight: 0, backgroundColor: "#fffefa", paddingHorizontal: 18, paddingTop: 19 },
+  panelTitle: { fontSize: 21, fontWeight: "800", color: ink, marginBottom: 16, letterSpacing: -0.35 },
   officialHint: { color: muted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  search: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, backgroundColor: "#f2f5f9", borderRadius: 22, marginBottom: 12 },
+  search: { height: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e8edf3", borderRadius: 13, marginBottom: 13 },
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
   sectionTitle: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 17, marginBottom: 9, textTransform: "uppercase", letterSpacing: .5 },
-  personRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderColor: "#eef1f5", position: "relative" },
+  personRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#edf0f4", position: "relative" },
   personRowMenuOpen: { zIndex: 10, overflow: "visible" },
   personIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
   avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center", overflow: "hidden" }, avatarImage: { width: 43, height: 43, borderRadius: 23 }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
@@ -209,11 +210,11 @@ const styles = StyleSheet.create({
   smallAction: { padding: 7 }, saveAction: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, backgroundColor: "#eef4ff", borderRadius: 17, paddingHorizontal: 8 }, saveActionText: { color: blue, fontSize: 10, fontWeight: "800" }, personActions: { position: "absolute", zIndex: 2, right: 0, top: 54, backgroundColor: "#fff", padding: 10, borderRadius: 11, borderWidth: 1, borderColor: "#e7ebf1", shadowColor: "#233", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .15, shadowRadius: 8, elevation: 5 },
   action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, savedLabel: { color: "#13864b", fontSize: 11, fontWeight: "800", padding: 5 }, loadMore: { alignSelf: "center", minWidth: 200, padding: 12, marginVertical: 10, alignItems: "center", borderRadius: 14, backgroundColor: "#edf3ff" }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   empty: { color: muted, fontSize: 13, textAlign: "center", marginTop: 28, paddingHorizontal: 20 }, error: { backgroundColor: "#fff1f0", borderRadius: 10, padding: 10 }, errorText: { color: "#bf3e45", fontSize: 12 },
-  composeCard: { backgroundColor: "#f8faff", borderWidth: 1, borderColor: "#e8edf5", borderRadius: 15, padding: 13, marginBottom: 14 }, composeTitle: { color: ink, fontWeight: "800", marginBottom: 7 },
+  composeCard: { backgroundColor: "#fffefa", borderWidth: 1, borderColor: "#e8e6df", borderRadius: 15, padding: 15, marginBottom: 16 }, composeTitle: { color: ink, fontWeight: "800", marginBottom: 8 },
   feedAttachment: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 7, backgroundColor: "#eef4ff", borderRadius: 8, marginBottom: 5 }, feedAttachmentName: { color: ink, fontSize: 12, flex: 1, minWidth: 0 },
   postInput: { minHeight: 76, color: ink, outlineStyle: "none" as any, fontSize: 14, textAlignVertical: "top" }, composeFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderColor: "#e9edf3", paddingTop: 9 },
   visibility: { flexDirection: "row", gap: 5, alignItems: "center" }, visibilityText: { color: blue, fontSize: 12, fontWeight: "700" }, publish: { backgroundColor: blue, borderRadius: 17, paddingVertical: 8, paddingHorizontal: 16 }, publishText: { color: "#fff", fontSize: 12, fontWeight: "800" }, disabled: { opacity: .45 },
-  postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e9edf3", borderRadius: 15, padding: 13, marginBottom: 12 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, officialTitle: { flexDirection: "row", alignItems: "center", gap: 5 }, postText: ({ color: ink, fontSize: 14, lineHeight: 21, marginTop: 11, marginBottom: 10, maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-word" } as any), postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 9 },
+  postCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e8ebef", borderRadius: 15, padding: 15, marginBottom: 14 }, postHeader: { flexDirection: "row", alignItems: "center", gap: 11 }, officialTitle: { flexDirection: "row", alignItems: "center", gap: 5 }, postText: ({ color: ink, fontSize: 14, lineHeight: 22, marginTop: 12, marginBottom: 11, maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-word" } as any), postActions: { borderTopWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 10 },
   postAction: { paddingVertical: 4 }, comment: { borderTopWidth: 1, borderColor: "#f0f2f5", paddingVertical: 7 }, commentText: { color: ink, fontSize: 12, lineHeight: 18 }, commentRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#f4f6f9", borderRadius: 19, paddingHorizontal: 12, marginTop: 8 }, commentInput: { flex: 1, height: 38, color: ink, outlineStyle: "none" as any, fontSize: 12 },
     profileCard: { alignItems: "center", paddingVertical: 24, backgroundColor: "#f7f9fc", borderRadius: 15, marginBottom: 9 }, profileAvatar: { width: 72, height: 72, borderRadius: 40, backgroundColor: blue, alignItems: "center", justifyContent: "center", marginBottom: 10, overflow: "visible" }, profileAvatarImage: { width: 72, height: 72, borderRadius: 40 }, profileCamera: { position: "absolute", right: -2, bottom: -2, width: 25, height: 25, borderRadius: 13, backgroundColor: blue, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }, profileLetter: { color: "#fff", fontSize: 29, fontWeight: "900" }, profileName: { color: ink, fontWeight: "900", fontSize: 18 },
     personalLinkCard: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 8 }, personalLinkTitle: { color: muted, fontSize: 11, fontWeight: "800" }, personalHandle: { color: ink, fontSize: 15, fontWeight: "900", marginTop: 4 }, personalUrl: ({ color: blue, fontSize: 11, lineHeight: 17, marginTop: 3, overflowWrap: "anywhere", wordBreak: "break-word" } as any), personalLinkActions: { flexDirection: "row", gap: 10, marginTop: 10 }, personalLinkButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#e8f0ff", borderRadius: 18, minHeight: 34, paddingHorizontal: 12 }, personalLinkActionText: { color: blue, fontSize: 12, fontWeight: "800" },

@@ -12,6 +12,7 @@ import ProfileSettingsHome from "./ProfileSettingsHome";
 import ChatListsManager from "./ChatListsManager";
 import { chatProfileUrl } from "./userLinks";
 import type { Conversation, Message } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
 type ProfileSection =
   | "Appareils connectés" | "Compte" | "Confidentialité" | "Listes" | "Discussions"
@@ -38,7 +39,7 @@ type Props = {
   onHighContrastChange?: (value: boolean) => void;
 };
 
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 const isProfileSection = (name: string): name is ProfileSection => [
   "Appareils connectés", "Compte", "Confidentialité", "Listes", "Discussions",
   "Apparence", "Diffusions", "Accessibilité", "Langue de l’application",
@@ -402,37 +403,37 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 0, backgroundColor: "#fff" },
-  detail: { flex: 1, minHeight: 0, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 17 },
+  root: { flex: 1, minHeight: 0, backgroundColor: "#fffefa" },
+  detail: { flex: 1, minHeight: 0, backgroundColor: "#fffefa", paddingHorizontal: 18, paddingTop: 19 },
   detailContent: { paddingBottom: 32 },
   header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
-  back: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#eef4ff", alignItems: "center", justifyContent: "center" },
-  title: { flex: 1, color: ink, fontSize: 20, fontWeight: "900" },
-  info: { flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: "#f4f7fc", borderRadius: 13, padding: 13, marginVertical: 7 },
+  back: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#edf4ff", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e0eafb" },
+  title: { flex: 1, color: ink, fontSize: 20, fontWeight: "800", letterSpacing: -0.35 },
+  info: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#f5f7fa", borderRadius: 13, padding: 14, marginVertical: 8, borderWidth: 1, borderColor: "#ebeff4" },
   infoCopy: { flex: 1, minWidth: 0 },
   rowTitle: { color: ink, fontSize: 14, fontWeight: "700" },
   secondary: { color: muted, fontSize: 12, lineHeight: 18, marginTop: 3 },
-  settingRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderColor: "#eef1f5", paddingVertical: 9 },
+  settingRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderColor: "#edf0f4", paddingVertical: 10 },
   switch: { width: 40, height: 23, borderRadius: 14, backgroundColor: "#d3d9e2", padding: 3, justifyContent: "center" },
   switchOn: { backgroundColor: blue },
   knob: { width: 17, height: 17, backgroundColor: "#fff", borderRadius: 9 },
   knobOn: { alignSelf: "flex-end" },
   choiceBlock: { marginVertical: 10, gap: 8 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  choice: { minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: "#dbe4f0", backgroundColor: "#fff", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  choiceActive: { backgroundColor: "#e8f0ff", borderColor: blue },
+  choice: { minHeight: 38, borderRadius: 11, borderWidth: 1, borderColor: "#dbe4f0", backgroundColor: "#fff", paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  choiceActive: { backgroundColor: "#edf4ff", borderColor: blue },
   choiceText: { color: muted, fontSize: 12, fontWeight: "700" },
   choiceTextActive: { color: blue },
   storageCard: { borderRadius: 14, padding: 14, marginVertical: 8, backgroundColor: "#f5f8ff", borderColor: "#e3ebf8", borderWidth: 1 },
   storageAmount: { color: blue, fontSize: 24, fontWeight: "900", marginTop: 5 },
-  action: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, paddingHorizontal: 12, backgroundColor: "#eef4ff", marginVertical: 6 },
+  action: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, borderColor: "#e1eafb", paddingHorizontal: 14, backgroundColor: "#f2f6fd", marginVertical: 7 },
   refresh: { minHeight: 42, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   actionText: { color: blue, fontWeight: "800", fontSize: 13 },
   actionDisabled: { color: muted },
   dangerText: { color: "#c43e48", fontWeight: "700", fontSize: 12 },
   error: { color: "#bf3e45", backgroundColor: "#fff1f0", padding: 10, borderRadius: 10, marginBottom: 8 },
-  personalLink: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginVertical: 8 },
-  usernameEditor: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginVertical: 8 },
+  personalLink: { backgroundColor: "#f7f8fb", borderColor: "#e5eaf0", borderWidth: 1, borderRadius: 14, padding: 14, marginVertical: 9 },
+  usernameEditor: { backgroundColor: "#f7f8fb", borderColor: "#e5eaf0", borderWidth: 1, borderRadius: 14, padding: 14, marginVertical: 9 },
   usernameInputRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 7 },
   usernameInput: { flex: 1, minWidth: 0, color: ink, fontSize: 14, paddingVertical: 8, paddingHorizontal: 9, backgroundColor: "#fff", borderRadius: 9 },
   usernameSave: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 9, backgroundColor: "#e6efff" },

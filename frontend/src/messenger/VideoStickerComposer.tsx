@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { chatVisual } from "./chatVisualTokens";
 
 type Props = { file: File; onClose: () => void; onConfirm: (start: number, duration: number) => Promise<void> };
 
@@ -81,12 +82,12 @@ export default function VideoStickerComposer({ file, onClose, onConfirm }: Props
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "#000b", justifyContent: "center", alignItems: "center", padding: 14 },
-  sheet: { width: "100%", maxWidth: 520, padding: 16, borderRadius: 20, backgroundColor: "#14212c", gap: 10 },
-  title: { color: "#fff", fontSize: 20, fontWeight: "700" },
-  hint: { color: "#b4c6d6", fontSize: 13 }, label: { color: "#fff", fontSize: 13 },
+  backdrop: { flex: 1, backgroundColor: "rgba(10,18,32,.74)", justifyContent: "center", alignItems: "center", padding: 14 },
+  sheet: { width: "100%", maxWidth: 520, padding: 18, borderRadius: 20, backgroundColor: "#fffefa", gap: 11, borderWidth: 1, borderColor: "#e2e8ef" },
+  title: { color: chatVisual.ink, fontSize: 19, fontWeight: "800", letterSpacing: -0.25 },
+  hint: { color: chatVisual.muted, fontSize: 13 }, label: { color: chatVisual.ink, fontSize: 13, fontWeight: "600" },
   preview: { height: 240, maxHeight: "35vh" as any, width: "100%" },
-  error: { color: "#ffaaa6", fontSize: 13 },
+  error: { color: "#b73540", fontSize: 13 },
   actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  send: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 22, backgroundColor: "#1769e8" },
+  send: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 11, backgroundColor: chatVisual.brand },
 });

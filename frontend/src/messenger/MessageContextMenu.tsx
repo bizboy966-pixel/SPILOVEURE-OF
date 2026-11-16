@@ -3,6 +3,7 @@ import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "rea
 import { Ionicons } from "@expo/vector-icons";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import type { Message } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
 type Props = {
   message: Message | null;
@@ -101,7 +102,7 @@ export default function MessageContextMenu({
             accessibilityLabel="Afficher tous les emojis"
             testID="messenger-context-more-reactions"
           >
-            <Ionicons name="add-circle-outline" size={27} color="#1769e8" />
+            <Ionicons name="add-circle-outline" size={27} color={chatVisual.brand} />
           </TouchableOpacity>
         </View>
         <View
@@ -163,11 +164,11 @@ export default function MessageContextMenu({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(10,18,30,.12)" },
+  backdrop: { flex: 1, backgroundColor: "rgba(16,32,66,.16)" },
   reactionBar: {
-    position: "absolute", height: 54, flexDirection: "row", alignItems: "center", borderRadius: 28, backgroundColor: "#fff",
-    paddingLeft: 7, paddingRight: 5, shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2, shadowRadius: 12, elevation: 12,
+    position: "absolute", height: 54, flexDirection: "row", alignItems: "center", borderRadius: 16, backgroundColor: "#fffefa",
+    paddingLeft: 7, paddingRight: 5, borderWidth: 1, borderColor: "#e5eaf1", shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14, shadowRadius: 12, elevation: 8,
   },
   reactionScroll: { flex: 1, minWidth: 0 },
   reactionRow: { alignItems: "center", gap: 2, paddingRight: 3 },
@@ -175,14 +176,14 @@ const styles = StyleSheet.create({
   moreReactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
   reactionEmoji: { fontSize: 25 },
   menu: {
-    position: "absolute", overflow: "hidden", borderRadius: 16, backgroundColor: "#fff",
-    paddingVertical: 4, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2, shadowRadius: 12, elevation: 12,
+    position: "absolute", overflow: "hidden", borderRadius: 14, backgroundColor: "#fffefa", borderWidth: 1, borderColor: "#e6eaf0",
+    paddingVertical: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14, shadowRadius: 12, elevation: 8,
   },
-  action: { minHeight: 47, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 15 },
+  action: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 16 },
   actionText: { color: "#202833", fontSize: 15, fontWeight: "500", flexShrink: 1 },
   dangerText: { color: "#d73546" },
-  emojiSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden", paddingTop: 8 },
+  emojiSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fffefa", borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden", paddingTop: 10, borderWidth: 1, borderColor: "#e7eaf0" },
   emojiSheetHeader: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   emojiSheetTitle: { color: "#202833", fontSize: 14, fontWeight: "700" },
 });

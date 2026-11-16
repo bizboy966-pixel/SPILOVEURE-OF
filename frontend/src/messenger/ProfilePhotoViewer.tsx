@@ -32,10 +32,10 @@ export default function ProfilePhotoViewer({ photo, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#080b12", alignItems: "center", justifyContent: "center" },
+  screen: { flex: 1, backgroundColor: "#101827", alignItems: "center", justifyContent: "center" },
   header: { position: "absolute", zIndex: 1, top: Platform.OS === "ios" ? 48 : 18, left: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-  backButton: { width: 42, height: 42, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,.15)" },
-  closeButton: { width: 42, height: 42, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,.15)" },
+  backButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,.13)", borderWidth: 1, borderColor: "rgba(255,255,255,.15)" },
+  closeButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,.13)", borderWidth: 1, borderColor: "rgba(255,255,255,.15)" },
   title: { color: "#fff", fontSize: 15, fontWeight: "700", flex: 1, textAlign: "center" },
   photo: { width: "100%", height: "100%" },
   footer: { position: "absolute", left: 18, right: 18, bottom: Platform.OS === "ios" ? 38 : 20, alignItems: "center", gap: 5 },

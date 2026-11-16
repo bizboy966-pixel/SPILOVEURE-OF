@@ -3,8 +3,9 @@ import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextI
 import { Ionicons } from "@expo/vector-icons";
 import { messengerApi } from "./api";
 import type { ScheduledMessage } from "./types";
+import { chatVisual } from "./chatVisualTokens";
 
-const blue = "#1769e8", ink = "#102042", muted = "#7d879a";
+const blue = chatVisual.brand, ink = chatVisual.ink, muted = chatVisual.muted;
 function toLocalInputValue(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -52,7 +53,7 @@ export default function ScheduledMessages({ conversationId, visible, onClose }: 
       type: "datetime-local", value: scheduledAt, min: minValue,
       onChange: (event: any) => setScheduledAt(event.currentTarget.value),
       "aria-label": "Date et heure d’envoi",
-      style: { width: "100%", height: 43, boxSizing: "border-box", borderRadius: 10, border: "1px solid #dce3ed", padding: "0 11px", color: ink, background: "#fff", fontSize: 14 },
+        style: { width: "100%", height: 44, boxSizing: "border-box", borderRadius: 11, border: "1px solid #dce3ed", padding: "0 12px", color: ink, backgroundColor: "#fff", fontSize: 14 },
     })
     : <TextInput value={scheduledAt} onChangeText={setScheduledAt} placeholder="AAAA-MM-JJ HH:mm" style={styles.dateInput} accessibilityLabel="Date et heure d’envoi" />;
 
@@ -82,12 +83,12 @@ export default function ScheduledMessages({ conversationId, visible, onClose }: 
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.4)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#fff", maxHeight: "91%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
+  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.34)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#fffefa", maxHeight: "91%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 },
   head: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 13 }, title: { color: ink, fontSize: 19, fontWeight: "900" }, subtitle: { color: muted, fontSize: 12, marginTop: 3 },
-  messageInput: { minHeight: 78, maxHeight: 130, borderRadius: 11, backgroundColor: "#f4f6f9", padding: 12, color: ink, fontSize: 14, textAlignVertical: "top", outlineStyle: "none" as any },
+  messageInput: { minHeight: 82, maxHeight: 130, borderRadius: 12, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e7ebf0", padding: 13, color: ink, fontSize: 14, textAlignVertical: "top", outlineStyle: "none" as any },
   dateWrap: { marginTop: 10 }, dateInput: { width: "100%", height: 43, borderRadius: 10, borderWidth: 1, borderColor: "#dce3ed", paddingHorizontal: 11, color: ink },
   silentRow: { minHeight: 43, flexDirection: "row", alignItems: "center", gap: 8 }, silentText: { color: ink, fontSize: 13 },
-  error: { color: "#c34249", fontSize: 12, paddingVertical: 5 }, createButton: { height: 44, backgroundColor: blue, borderRadius: 22, alignItems: "center", justifyContent: "center", marginTop: 4 }, createText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  error: { color: "#c34249", fontSize: 12, paddingVertical: 5 }, createButton: { height: 46, backgroundColor: blue, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 }, createText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   section: { color: muted, fontSize: 12, fontWeight: "900", marginTop: 18, marginBottom: 7, textTransform: "uppercase" }, list: { maxHeight: 250 }, item: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#edf0f4", paddingVertical: 9 }, itemDate: { color: ink, fontSize: 13, fontWeight: "800" }, itemText: { color: "#4c5870", fontSize: 12, marginTop: 3 }, status: { color: blue, fontSize: 10, fontWeight: "700", marginTop: 3 }, failed: { color: "#c34249" }, cancelButton: { padding: 10 }, empty: { textAlign: "center", color: muted, fontSize: 13, padding: 18 },
 });
