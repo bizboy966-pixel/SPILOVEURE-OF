@@ -25,7 +25,7 @@ type Props = {
   onSave: () => void;
 };
 
-const quickReactions = ["⭐", "❤️", "👍", "🔥", "🥰", "👋", "😁"];
+const quickReactions = ["❤️", "👍", "🔥", "🥰", "😂"];
 const emojiStorage = createMemoryAdapter();
 const emojiTranslation: Record<CategoryTypes, string> = {
   smileys_emotion: "Visages", people_body: "Personnes", animals_nature: "Animaux et nature",
@@ -43,6 +43,8 @@ export default function MessageContextMenu({
   const media = message.attachments?.some(file => !file.view_once &&
     (file.mime.startsWith("image/") || file.mime.startsWith("video/") || !file.mime.startsWith("audio/")),
   );
+  const reactionBarWidth = Math.min(360, screenWidth - 24);
+  const reactionBarLeft = Math.max(12, Math.min(screenWidth - reactionBarWidth - 12, left));
   const actions = [
     { label: "Répondre", icon: "arrow-undo-outline" as const, onPress: onReply, testID: "reply" },
     ...(message.text || message.attachments?.length
@@ -62,23 +64,23 @@ export default function MessageContextMenu({
     <Modal transparent visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.backdrop} testID="messenger-message-context">
         <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} accessibilityLabel="Fermer les options du message" />
-        <View style={[styles.reactionBar, { left, top: Math.max(12, top - 60), maxWidth: screenWidth - 24 }]} testID="messenger-message-reactions">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reactionRow}>
+        <View style={[styles.reactionBar, { left: reactionBarLeft, width: reactionBarWidth, top: Math.max(12, top - 60) }]} testID="messenger-message-reactions">
+          <ScrollView style={styles.reactionScroll} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reactionRow}>
             {quickReactions.map(emoji => (
               <TouchableOpacity key={emoji} onPress={() => onReact(emoji)} style={styles.reactionButton} accessibilityRole="button" accessibilityLabel={`Réagir ${emoji}`} testID={`messenger-context-react-${emoji}`}>
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity
-              onPress={() => setShowAllEmoji(value => !value)}
-              style={styles.moreReactionButton}
-              accessibilityRole="button"
-              accessibilityLabel="Afficher tous les emojis"
-              testID="messenger-context-more-reactions"
-            >
-              <Ionicons name="add-circle-outline" size={27} color="#1769e8" />
-            </TouchableOpacity>
           </ScrollView>
+          <TouchableOpacity
+            onPress={() => setShowAllEmoji(value => !value)}
+            style={styles.moreReactionButton}
+            accessibilityRole="button"
+            accessibilityLabel="Afficher tous les emojis"
+            testID="messenger-context-more-reactions"
+          >
+            <Ionicons name="add-circle-outline" size={27} color="#1769e8" />
+          </TouchableOpacity>
         </View>
         <View
           style={[
@@ -141,12 +143,13 @@ export default function MessageContextMenu({
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(10,18,30,.18)" },
   reactionBar: {
-    position: "absolute", minHeight: 54, borderRadius: 28, backgroundColor: "#fff",
-    paddingHorizontal: 8, shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
+    position: "absolute", height: 54, flexDirection: "row", alignItems: "center", borderRadius: 28, backgroundColor: "#fff",
+    paddingLeft: 7, paddingRight: 5, shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2, shadowRadius: 12, elevation: 12,
   },
-  reactionRow: { alignItems: "center", gap: 3, paddingRight: 4 },
-  reactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
+  reactionScroll: { flex: 1, minWidth: 0 },
+  reactionRow: { alignItems: "center", gap: 2, paddingRight: 3 },
+  reactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   moreReactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
   reactionEmoji: { fontSize: 25 },
   menu: {
