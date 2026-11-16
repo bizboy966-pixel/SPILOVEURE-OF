@@ -32,3 +32,9 @@ Le bouton flottant Support doit être visible uniquement sur la page d’accueil
 **Why:** L’utilisateur a explicitement restreint l’affichage de ce bouton au dashboard.
 
 **How to apply:** Cette règle concerne le bouton flottant ; ne pas supprimer les autres accès au support sans demande.
+
+Les stickers doivent rester distincts des photos et vidéos dans le Chat : rendu sans cadre de média, toucher ouvrant les actions propres au sticker et à ses favoris ; les médias classiques gardent leur aperçu séparé.
+
+**Why:** L’utilisateur a corrigé plusieurs fois la confusion entre un sticker et une pièce jointe photo.
+
+**How to apply:** Maintenir des chemins d’affichage et d’interaction séparés. Le toucher d’un sticker sert notamment à l’ajouter ou le retirer des favoris ; l’appui long conserve les actions générales du message.

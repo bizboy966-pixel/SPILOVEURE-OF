@@ -14,6 +14,7 @@ import MediaComposer from "./MediaComposer";
 import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import StickerPickerPanel from "./StickerPickerPanel";
+import StickerActionSheet from "./StickerActionSheet";
 import VideoStickerComposer from "./VideoStickerComposer";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
@@ -1211,13 +1212,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       <Modal visible={!!forwarding} transparent animationType="fade" onRequestClose={() => setForwarding(null)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Transférer vers</Text><ScrollView style={{ maxHeight: 340 }}>{targets.filter(target => target.id !== conversation.id).map(target => <TouchableOpacity key={target.id} onPress={() => forward(target)} style={styles.targetRow}><Text style={styles.targetName}>{target.title}</Text><Ionicons name="chevron-forward" size={18} color={muted} /></TouchableOpacity>)}</ScrollView><TouchableOpacity onPress={() => setForwarding(null)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
-      <ProtectedAttachmentViewer
-        preview={attachmentPreview}
-        onClose={() => setAttachmentPreview(null)}
-        onSaveSticker={savePreviewSticker}
-        onRemoveSticker={removePreviewSticker}
-        stickerSaved={Boolean(attachmentPreview?.fileId && savedStickers.some(file => file.id === attachmentPreview.fileId))}
-      />
+      {attachmentPreview?.sticker
+        ? <StickerActionSheet
+          preview={attachmentPreview}
+          saved={Boolean(attachmentPreview.fileId && savedStickers.some(file => file.id === attachmentPreview.fileId))}
+          onClose={() => setAttachmentPreview(null)}
+          onSave={savePreviewSticker}
+          onRemove={removePreviewSticker}
+        />
+        : <ProtectedAttachmentViewer preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />}
       <MessageContextMenu
         message={contextMessage}
         left={contextPosition.left}

@@ -59,12 +59,12 @@ export default function ProtectedMessageMedia({
   }, [url, isVideo, compact]);
 
   if (error) return <View style={[styles.failed, { width, height, maxWidth: "100%" }]}><Image source={require("../../assets/images/spiloveure-logo.png")} style={styles.failedLogo} /></View>;
-  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`messenger-media-load-${file.id}`}>
-    <Ionicons name="download-outline" size={25} color="#1769e8" /><Text style={styles.loadText}>Charger le média</Text>
+  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={isSticker ? "Charger le sticker" : `Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`${isSticker ? "messenger-sticker" : "messenger-media"}-load-${file.id}`}>
+    <Ionicons name={isSticker ? "happy-outline" : "download-outline"} size={25} color="#1769e8" /><Text style={styles.loadText}>{isSticker ? "Charger le sticker" : "Charger le média"}</Text>
   </TouchableOpacity>;
   if (!url) return <View style={[styles.loading, { width, height, maxWidth: "100%" }]}><ActivityIndicator color="#1769e8" /></View>;
   if (isVideo) return <View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} />;
-  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir le sticker" : `Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
+  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir les actions du sticker" : `Ouvrir la photo ${file.name}`} testID={`${isSticker ? "messenger-sticker" : "messenger-image"}-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
     <Image
       source={{ uri: url }}
       resizeMode={isSticker ? "contain" : "cover"}
