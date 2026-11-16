@@ -7,7 +7,7 @@ import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/auth";
 
 type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
-const API = process.env.EXPO_PUBLIC_BACKEND_URL;
+const API = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 /**
  * Generic payment success / status-tracking page.

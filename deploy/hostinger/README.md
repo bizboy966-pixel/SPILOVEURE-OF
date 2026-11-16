@@ -53,6 +53,21 @@ docker compose restart backend
 cd /opt/spiloveure && git pull && cd deploy/hostinger && docker compose up -d --build
 ```
 
+## Relier le preview Replit à l’API du VPS
+Le preview peut appeler l’API HTTPS du VPS par le proxy de développement Replit.
+MongoDB reste privé dans Docker ; ne publiez pas le port `27017` et ne configurez
+pas de tunnel SSH pour ce flux.
+
+1. Mettre à jour et reconstruire le VPS avec les changements du dépôt, puis vérifier
+   que `backend.env` contient `CORS_ORIGINS=https://spiloveure.org`.
+2. Dans Replit, définir `SPV_PREVIEW_API_UPSTREAM=https://spiloveure.org` uniquement
+   dans l’environnement **Development**, puis redémarrer le workflow `SPILOVEURE`.
+   Laisser `EXPO_PUBLIC_BACKEND_URL` vide dans le preview Web : les appels restent
+   sur le domaine Replit et le gateway les relaie à l’API VPS.
+3. Chaque requête du preview utilisera alors la base réelle et pourra créer ou
+   modifier des données de production. Supprimer `SPV_PREVIEW_API_UPSTREAM` et
+   redémarrer le workflow pour revenir à la base locale isolée.
+
 ## Sauvegarde manuelle de la base
 ```bash
 docker compose exec mongo mongodump --out /dump/backup-$(date +%F)
