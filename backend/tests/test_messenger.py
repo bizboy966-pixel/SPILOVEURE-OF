@@ -158,6 +158,9 @@ def test_reactions_and_pin(chat):
     path = f"/conversations/{cid}/messages/{mid}"
     assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "👍"}).json()["reactions"]["👍"] == ["bob"]
     assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "👍"}).json()["reactions"]["👍"] == []
+    assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "🥳"}).json()["reactions"]["🥳"] == ["bob"]
+    assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "👨‍👩‍👧‍👦"}).status_code == 200
+    assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "1️⃣"}).status_code == 200
     assert call(chat, "post", path + "/reaction", json={"emoji": "$bad.path"}).status_code == 400
     assert call(chat, "post", path + "/pin").json()["pinned"] is True
 

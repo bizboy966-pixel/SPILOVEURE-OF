@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import Svg, { Path } from "react-native-svg";
@@ -37,6 +37,28 @@ type ChatVisualSettings = {
   high_contrast?: boolean;
   auto_load_media?: boolean;
 };
+
+function AnimatedReactionChip({ emoji, ids, userId, onPress, testID }: {
+  emoji: string;
+  ids: string[];
+  userId: string;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const scale = useRef(new Animated.Value(0.72)).current;
+  useEffect(() => {
+    Animated.spring(scale, { toValue: 1, damping: 8, stiffness: 220, mass: 0.7, useNativeDriver: true }).start();
+  }, [scale]);
+  const mine = ids.includes(userId);
+  return (
+    <Animated.View style={[styles.reactionChip, mine && styles.reactionChipMine, { transform: [{ scale }] }]}>
+      <TouchableOpacity onPress={onPress} accessibilityRole="button" testID={testID}
+        accessibilityLabel={`${mine ? "Retirer" : "Ajouter"} la réaction ${emoji}`}>
+        <Text style={styles.reaction}>{emoji} {ids.length}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 const messageColors = { blue: "#dbeafe", green: "#efffde", gold: "#fff1cc" };
 const logo = require("../../assets/images/spiloveure-logo.png");
 const emojiStorage = createMemoryAdapter();
@@ -228,7 +250,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const native = event?.nativeEvent || {};
     const pageX = Number(native.pageX ?? native.clientX) || windowWidth / 2;
     const pageY = Number(native.pageY ?? native.clientY) || windowHeight / 2;
-    const menuWidth = Math.min(288, windowWidth - 24);
+    const menuWidth = Math.min(360, windowWidth - 24);
     setContextPosition({
       left: Math.max(12, Math.min(windowWidth - menuWidth - 12, pageX - menuWidth / 2)),
       top: Math.max(74, Math.min(windowHeight - Math.min(420, windowHeight - 100) - 16, pageY - 28)),
@@ -876,14 +898,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               })()}
                 {message.client_id && failedIds.includes(message.client_id) && <TouchableOpacity onPress={() => retrySend(message.client_id!)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity>}
               </View>
-              {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <TouchableOpacity
+              {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <AnimatedReactionChip
                 key={emoji}
+                emoji={emoji}
+                ids={ids}
+                userId={userId}
                 onPress={() => void action(message, "reaction", { emoji })}
-                accessibilityRole="button"
-                accessibilityLabel={`${ids.includes(userId) ? "Retirer" : "Ajouter"} la réaction ${emoji}`}
                 testID={`messenger-message-reaction-${message.id}-${emoji}`}
-                style={[styles.reactionChip, ids.includes(userId) && styles.reactionChipMine]}
-              ><Text style={styles.reaction}>{emoji} {ids.length}</Text></TouchableOpacity>)}
+              />)}
               <View pointerEvents="none" style={[styles.bubbleTail, own ? styles.ownBubbleTail : styles.otherBubbleTail]}>
                 <Svg width={11} height={14} viewBox="0 0 11 14">
                  <Path d={own ? "M0 0 C0 8 3 12 11 14 L0 14 Z" : "M11 0 C11 8 8 12 0 14 L11 14 Z"} fill={own ? ownBubbleColor : "#fff"} />

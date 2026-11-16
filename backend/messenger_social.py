@@ -10,7 +10,41 @@ from messenger_core import (
 )
 
 api = APIRouter()
-REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👎", "🎉", "👏"]
+
+
+def is_emoji_reaction(value: str) -> bool:
+    """Accept emoji grapheme sequences, including ZWJ, skin tones, and flags."""
+    if not value or value != value.strip():
+        return False
+    has_emoji = False
+    has_keycap = "\u20e3" in value
+    for char in value:
+        codepoint = ord(char)
+        if (
+            0x1F000 <= codepoint <= 0x1FAFF
+            or 0x2600 <= codepoint <= 0x27FF
+            or 0x2300 <= codepoint <= 0x23FF
+            or 0x2B00 <= codepoint <= 0x2BFF
+            or codepoint in {
+                0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139,
+                0x2328, 0x23CF, 0x24C2, 0x3030, 0x303D, 0x3297, 0x3299,
+            }
+            or 0x2194 <= codepoint <= 0x2199
+            or 0x21A9 <= codepoint <= 0x21AA
+            or 0x23E9 <= codepoint <= 0x23FA
+            or 0x25AA <= codepoint <= 0x25FE
+            or 0x2934 <= codepoint <= 0x2935
+            or 0x2B05 <= codepoint <= 0x2B07
+            or 0x1F1E6 <= codepoint <= 0x1F1FF
+        ):
+            has_emoji = True
+            continue
+        if codepoint in (0x200D, 0xFE0E, 0xFE0F, 0x20E3) or 0x1F3FB <= codepoint <= 0x1F3FF or 0xE0020 <= codepoint <= 0xE007F:
+            continue
+        if has_keycap and char in "#*0123456789":
+            continue
+        return False
+    return has_emoji or (has_keycap and any(char in "#*0123456789" for char in value))
 
 
 async def notify_active_chat_users(db):
@@ -22,7 +56,7 @@ async def notify_active_chat_users(db):
 
 
 async def toggle_reaction(collection, mid, emoji, uid):
-    if emoji not in REACTIONS:
+    if not is_emoji_reaction(emoji):
         raise HTTPException(400, "Réaction non prise en charge.")
     key = "reactions." + emoji
     # Atomic pull/add prevents lost updates from other participants.

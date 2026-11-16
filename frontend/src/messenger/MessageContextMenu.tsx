@@ -43,7 +43,8 @@ export default function MessageContextMenu({
   const media = message.attachments?.some(file => !file.view_once &&
     (file.mime.startsWith("image/") || file.mime.startsWith("video/") || !file.mime.startsWith("audio/")),
   );
-  const reactionBarWidth = Math.min(360, screenWidth - 24);
+  const menuWidth = Math.min(360, screenWidth - 24);
+  const reactionBarWidth = menuWidth;
   const reactionBarLeft = Math.max(12, Math.min(screenWidth - reactionBarWidth - 12, left));
   const actions = [
     { label: "Répondre", icon: "arrow-undo-outline" as const, onPress: onReply, testID: "reply" },
@@ -59,7 +60,6 @@ export default function MessageContextMenu({
     ...(canEdit ? [{ label: "Modifier", icon: "create-outline" as const, onPress: onEdit, testID: "edit" }] : []),
     ...(canDelete ? [{ label: "Supprimer", icon: "trash-outline" as const, onPress: onDelete, testID: "delete", danger: true }] : []),
   ];
-  const menuWidth = Math.min(288, screenWidth - 24);
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.backdrop} testID="messenger-message-context">
