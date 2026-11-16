@@ -11,7 +11,7 @@ from fastapi import HTTPException, Request, Response
 from pymongo import ReturnDocument
 
 from auth import JWT_SECRET, decode_token
-from identity_policy import activated, main_ready, password_created, email_verified
+from identity_policy import activated, chat_access_allowed, main_ready, password_created, email_verified
 
 COOKIE = "spv_chat_session"
 DAY = timedelta(days=1)
@@ -110,7 +110,7 @@ async def session_row(db, session_id):
     if not row:
         return None
     user = await db.users.find_one({"id": row["user_id"]})
-    if not available(user) or not email_verified(user) or digest(user["email"].lower()) != row["email_digest"]:
+    if not available(user) or not chat_access_allowed(user) or digest(user["email"].lower()) != row["email_digest"]:
         return None
     return row, user
 
@@ -156,6 +156,7 @@ async def state(request, user, claims=None):
     cookie = await cookie_identity(request)
     return {
         "user": safe_user(user), "email_verified": email_verified(user),
+        "chat_access_allowed": chat_access_allowed(user),
         "activated": activated(user), "password_created": password_created(user),
         "chat_authenticated": bool(cookie and cookie[1]["id"] == user["id"]),
         "main_authenticated": bool(

@@ -19,6 +19,11 @@ def email_verified(user):
     )
 
 
+def chat_access_allowed(user):
+    """Keep the email bypass limited to the one explicitly designated preview account."""
+    return email_verified(user) or str(user.get("username", "")).casefold() == "preview_test_b02606"
+
+
 def onboarding_path_allowed(path, method="GET"):
     # Existing payment handlers still authenticate normally. This list never
     # exposes marketplace, balances, transfers, withdrawals or admin APIs.

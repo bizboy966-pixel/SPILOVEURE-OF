@@ -122,13 +122,13 @@ export const BottomNav: React.FC = () => {
       }
       (async () => {
         try {
-          const main = await api.get<{ user: { id: string }; email_verified: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
+          const main = await api.get<{ user: { id: string }; email_verified: boolean; chat_access_allowed?: boolean; main_authenticated?: boolean; chat_authenticated?: boolean }>("/identity/state", { credentials: "include" });
           const existing = await api.get<{ user: { id: string } }>("/identity/chat/session", { auth: false, credentials: "include" }).catch(() => null);
           if (existing && existing.user?.id !== main.user?.id) {
             if (typeof window !== "undefined") window.alert(t("chat.session_conflict"));
             return;
           }
-          if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
+          if (!(main.chat_access_allowed ?? main.email_verified) || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
           await api.post("/identity/chat/open", undefined, { credentials: "include" });
           await refreshChat();
           await clearChatLogoutMarker();

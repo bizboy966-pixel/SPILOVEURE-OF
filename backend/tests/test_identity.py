@@ -286,6 +286,45 @@ def test_activated_unverified_account_can_use_main_platform_but_not_chat(identit
     assert client.get("/api/identity/chat/session").status_code == 401
 
 
+def test_named_preview_test_account_can_open_chat_without_verifying_email(identity_app):
+    app, client = identity_app
+    user = {
+        "id": "preview-test-user", "username": "preview_test_b02606",
+        "email": "preview-test@example.com", "phone": "+22891112222",
+        "country": "TG", "status": "active", "max_level": 1, "role": "user",
+        "password_hash": hash_password("PreviewPassword9!"), "email_verified": False,
+    }
+    asyncio.run(app.state.db.users.insert_one(user))
+    headers = main_header(create_access_token(user["id"], "user"))
+
+    state = client.get("/api/identity/state", headers=headers).json()
+    assert state["email_verified"] is False
+    assert state["chat_access_allowed"] is True
+    assert client.post("/api/identity/chat/open", headers=headers).status_code == 200
+    assert client.get("/api/identity/chat/session").status_code == 200
+
+    unchanged = asyncio.run(app.state.db.users.find_one({"id": user["id"]}))
+    assert unchanged["email_verified"] is False
+
+
+def test_only_exact_preview_test_username_can_bypass_chat_email_verification(identity_app):
+    app, client = identity_app
+    user = {
+        "id": "other-preview-user", "username": "preview_test_b02606_other",
+        "email": "other-preview@example.com", "phone": "+22891113333",
+        "country": "TG", "status": "active", "max_level": 1, "role": "user",
+        "password_hash": hash_password("PreviewPassword9!"), "email_verified": False,
+    }
+    asyncio.run(app.state.db.users.insert_one(user))
+    headers = main_header(create_access_token(user["id"], "user"))
+
+    state = client.get("/api/identity/state", headers=headers).json()
+    assert state["email_verified"] is False
+    assert state["chat_access_allowed"] is False
+    assert client.post("/api/identity/chat/open", headers=headers).status_code == 403
+    assert client.get("/api/identity/chat/session").status_code == 401
+
+
 def test_main_expiry_does_not_expire_chat_and_unlock_needs_only_password(identity_app):
     data = register(identity_app).json()
     verify(identity_app, data["access_token"])

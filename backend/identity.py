@@ -20,7 +20,7 @@ from identity_core import (
     establish_chat, identity, now, rate_limit, remote_key, renew_chat, require_chat,
     safe_user, state,
 )
-from identity_policy import activated, password_created, email_verified
+from identity_policy import activated, chat_access_allowed, password_created, email_verified
 from levels import COUNTRIES
 from push_notifications import TokenIn, register_push_token
 from referral_defaults import registration_sponsor
@@ -203,7 +203,7 @@ async def open_chat(request: Request, response: Response):
     if not principal:
         raise HTTPException(401, "Connectez-vous ou vérifiez votre adresse e-mail.")
     user, claims = principal
-    if not email_verified(user):
+    if not chat_access_allowed(user):
         raise HTTPException(403, "EMAIL_VERIFICATION_REQUIRED")
     cookie = await cookie_identity(request)
     if claims.get("scope") in ("onboarding", "main_onboarding") and not (cookie and cookie[1]["id"] == user["id"]):

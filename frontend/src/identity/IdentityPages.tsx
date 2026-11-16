@@ -10,7 +10,7 @@ import { theme } from "@/src/theme";
 import { countryDisplayName, matchesCountry } from "./countrySearch";
 
 type Country = { code: string; name: string; dial: string; flag: string };
-type IdentityState = { user: any; email_verified: boolean; activated: boolean; password_created: boolean; chat_authenticated: boolean; main_authenticated: boolean };
+type IdentityState = { user: any; email_verified: boolean; chat_access_allowed: boolean; activated: boolean; password_created: boolean; chat_authenticated: boolean; main_authenticated: boolean };
 const logo = require("@/assets/images/spiloveure-logo.png");
 
 function Page({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
@@ -143,7 +143,7 @@ export function VerifyEmailPage() {
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const [remaining, setRemaining] = useState(0); const [expires, setExpires] = useState(0); const [modal, setModal] = useState(false);
   useEffect(() => { api.get<IdentityState>(`/identity/state${source}`, { credentials: "include" }).then(v => { setState(v); setEmail(v.user?.email || ""); if (v.email_verified) setError(""); }).catch(() => setState(null)); }, [source]);
   useEffect(() => { if (!remaining && !expires) return; const t = setInterval(() => { setRemaining(v => Math.max(0, v - 1)); setExpires(v => Math.max(0, v - 1)); }, 1000); return () => clearInterval(t); }, [remaining > 0, expires > 0]);
-  const canOpenChatWithoutCode = !!state?.email_verified && (!!state.main_authenticated || !!state.chat_authenticated);
+  const canOpenChatWithoutCode = !!state?.chat_access_allowed && (!!state.main_authenticated || !!state.chat_authenticated);
   const requestCode = async () => { setBusy(true); setError(""); try { const r = await api.post<{ challenge_id: string; expires_in: number; resend_after: number }>(`/identity/email/request${source}`, { ...(state ? {} : { email: email.trim() }) }, { credentials: "include" }); setChallenge(r.challenge_id); setExpires(r.expires_in); setRemaining(r.resend_after); setDigits(["", "", "", "", "", ""]); setModal(true); setTimeout(() => inputs.current[0]?.focus(), 80); } catch (e: any) { setError(e?.detail || "Le code n’a pas pu être envoyé. Le service d’envoi est peut-être indisponible."); } finally { setBusy(false); } };
   const changeDigit = (index: number, value: string) => {
     const chars = value.replace(/\D/g, "");
@@ -153,7 +153,7 @@ export function VerifyEmailPage() {
     if (!chars && index > 0) inputs.current[index - 1]?.focus();
   };
   const verify = async () => { const code = digits.join(""); if (!/^\d{6}$/.test(code)) { setError("Saisissez les six chiffres du code."); return; } setBusy(true); setError(""); try { const verified = await api.post<IdentityState>(`/identity/email/verify${source}`, { challenge_id: challenge, code }, { credentials: "include" }); const chatUser = await refreshChat(); if (!chatUser || chatUser.id !== verified.user?.id) throw { detail: "La session Chat ouverte ne correspond pas au compte vérifié. Déconnectez la session actuelle avant de continuer." }; await clearChatLogoutMarker(); setModal(false); router.replace(safeVerificationReturn(p.returnTo) as any); } catch (e: any) { setError(e?.detail || "Code incorrect ou expiré. Demandez un nouveau code si nécessaire."); } finally { setBusy(false); } };
-  return <Page title="Vérifiez votre adresse e-mail" subtitle={email ? `Nous enverrons un code à ${email}.` : "Saisissez l’adresse associée à votre compte pour retrouver votre Chat."}>
+  return <Page title={canOpenChatWithoutCode ? "Votre espace SPILOVEURE Chat" : "Vérifiez votre adresse e-mail"} subtitle={canOpenChatWithoutCode && !state?.email_verified ? "Ce compte de test peut accéder directement au Chat." : email ? `Nous enverrons un code à ${email}.` : "Saisissez l’adresse associée à votre compte pour retrouver votre Chat."}>
     {!state && <TextInput accessibilityLabel="Adresse e-mail" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" placeholder="vous@exemple.com" style={s.input} />}
     {p.expired === "1" && <Text style={s.recoveryNotice}>Votre session Chat a expiré. Vérifiez à nouveau votre adresse pour retrouver le Chat.</Text>}
     {state?.email_verified && !canOpenChatWithoutCode && <Text style={s.recoveryNotice}>Cette adresse est déjà vérifiée, mais cet appareil n’a pas de session autorisée. Saisissez le code reçu par e-mail pour autoriser cet appareil.</Text>}

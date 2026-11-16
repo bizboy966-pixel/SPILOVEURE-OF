@@ -26,3 +26,9 @@ Le nom d’utilisateur modifiable est propre au Chat et ne remplace pas le nom d
 **Why:** L’utilisateur a confirmé le périmètre « Chat uniquement » le 16 novembre 2026.
 
 **How to apply:** Stocker et afficher séparément l’alias Chat. Ne pas modifier les identifiants ni les liens de la plateforme principale.
+
+Seul le compte de test explicitement désigné `preview_test_b02606` peut ouvrir le Chat sans vérification d’e-mail. Cette exception ne marque pas son adresse comme vérifiée et ne s’étend pas aux comptes similaires.
+
+**Why:** L’utilisateur a confirmé ce compte précis pour tester l’accès direct au Chat, sans désactiver la vérification pour ses autres comptes.
+
+**How to apply:** Appliquer l’exception uniquement aux autorisations Chat et à la validité de sa session Chat. Conserver la vérification réelle pour les autres comptes et ne pas changer les règles d’accès à la plateforme principale, aux paiements ou à la récupération du mot de passe.
