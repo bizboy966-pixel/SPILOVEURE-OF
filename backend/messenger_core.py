@@ -252,6 +252,8 @@ async def attachments_checked(db, supplied, user, scope):
         if not stored:
             raise HTTPException(400, "Pièce jointe non autorisée.")
         keys = ["id", "name", "mime", "size", "url"]
+        if stored.get("sticker"):
+            keys.append("sticker")
         if "duration_seconds" in stored:
             keys.append("duration_seconds")
         if stored.get("view_once"):

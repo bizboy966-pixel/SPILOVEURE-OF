@@ -13,11 +13,9 @@ export default function ProtectedMessageMedia({
   const [requested, setRequested] = useState(autoLoad);
   const videoHost = useRef<View | null>(null);
   const isVideo = file.mime.startsWith("video/");
-  const isSticker = file.name.startsWith("sticker-");
-  const width = Math.max(1, Math.min(isSticker ? 150 : compact ? 132 : 260, maxWidth));
-  const height = isSticker
-    ? Math.min(200, Math.max(80, width / aspect))
-    : Math.min(compact ? 144 : 320, Math.max(112, width / aspect));
+  const isSticker = file.sticker || file.name.startsWith("sticker-");
+  const width = Math.max(1, Math.min(isSticker ? 150 : compact ? 132 : 260, maxWidth, isSticker ? 150 : (compact ? 144 : 380) * aspect));
+  const height = isSticker ? width : width / aspect;
 
   useEffect(() => { if (autoLoad) setRequested(true); }, [autoLoad]);
   useEffect(() => {
@@ -43,6 +41,9 @@ export default function ProtectedMessageMedia({
     video.controls = true;
     video.preload = "metadata";
     video.playsInline = true;
+    video.onloadedmetadata = () => {
+      if (video.videoWidth && video.videoHeight) setAspect(video.videoWidth / video.videoHeight);
+    };
     video.style.width = "100%";
     video.style.height = "100%";
     video.style.maxHeight = compact ? "144px" : "320px";
@@ -66,7 +67,7 @@ export default function ProtectedMessageMedia({
   return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir le sticker" : `Ouvrir la photo ${file.name}`} testID={`messenger-image-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
     <Image
       source={{ uri: url }}
-      resizeMode="contain"
+      resizeMode={isSticker ? "contain" : "cover"}
       onLoad={(event: any) => {
         const { width: naturalWidth, height: naturalHeight } = event.nativeEvent.source || {};
         if (naturalWidth && naturalHeight) setAspect(naturalWidth / naturalHeight);
@@ -77,10 +78,10 @@ export default function ProtectedMessageMedia({
 }
 
 const styles = StyleSheet.create({
-  imageFrame: { backgroundColor: "#101827", borderRadius: 12, overflow: "hidden", marginTop: 5, minWidth: 0, flexShrink: 1 },
+  imageFrame: { backgroundColor: "transparent", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
   stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
   image: { width: "100%", height: "100%", maxWidth: "100%" },
-  video: { backgroundColor: "#080d15", borderRadius: 12, overflow: "hidden", marginTop: 5, minWidth: 0, flexShrink: 1 },
+  video: { backgroundColor: "#080d15", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
   loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
   loadText: { color: "#1769e8", fontSize: 12, fontWeight: "700", marginTop: 5 },
   failed: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },

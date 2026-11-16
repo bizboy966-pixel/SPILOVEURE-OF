@@ -506,3 +506,72 @@ def test_non_sticker_images_cannot_be_added_to_sticker_favorites(chat):
         chat, "post", f"/conversations/{cid}/messages/{sent['id']}/stickers/{upload['id']}/save",
     )
     assert response.status_code == 404
+
+
+def test_sticker_metadata_and_remove_favorite_preserves_messages(chat):
+    cid = conversation(chat)
+    upload = call(chat, "post", f"/conversations/{cid}/files",
+                  files={"file": ("drawing.png", b"image", "image/png")}, data={"sticker": "true"}).json()
+    assert upload["sticker"] is True
+    sent = message(chat, cid, attachments=[upload], text="").json()
+    assert sent["attachments"][0]["sticker"] is True
+    path = f"/conversations/{cid}/messages/{sent['id']}/stickers/{upload['id']}/save"
+    assert call(chat, "post", path, "eve").status_code == 404
+    assert call(chat, "post", path, "bob").status_code == 200
+    assert call(chat, "post", path).status_code == 200
+    assert call(chat, "delete", f"/stickers/{upload['id']}", "bob").status_code == 200
+    assert call(chat, "get", "/stickers", "bob").json() == []
+    assert len(call(chat, "get", "/stickers").json()) == 1
+    assert chat[0].get(upload["url"], headers=auth("bob")).status_code == 200
+    assert len(call(chat, "get", f"/conversations/{cid}/messages", "bob").json()["items"]) == 1
+
+
+def test_builtin_sticker_pack_is_sendable_but_cannot_escape_directory(chat):
+    cid = conversation(chat)
+    pack = call(chat, "get", "/sticker-pack").json()
+    assert len(pack) == 8
+    assert chat[0].get(pack[0]["url"], headers=auth()).status_code == 200
+    copied = call(chat, "post", f"/stickers/{pack[0]['id']}/copy", json={"conversation_id": cid})
+    assert copied.status_code == 200, copied.text
+    assert copied.json()["sticker"] is True
+    assert message(chat, cid, attachments=[copied.json()], text="").status_code == 200
+    assert call(chat, "post", "/stickers/pack-unknown/copy", json={"conversation_id": cid}).status_code == 404
+
+
+def test_video_sticker_trims_to_animated_webp(chat, tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("FFmpeg/FFprobe unavailable")
+    cid = conversation(chat)
+    video_path = tmp_path / "input.mp4"
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=96x128:d=2:r=12",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", str(video_path),
+    ], check=True)
+    response = call(chat, "post", f"/conversations/{cid}/stickers/video",
+                    files={"file": ("input.mp4", video_path.read_bytes(), "video/mp4")},
+                    data={"start": "0.5", "duration": "0.8"})
+    assert response.status_code == 200, response.text
+    file = response.json()
+    assert file["sticker"] is True and file["mime"] == "image/webp"
+    output = chat[0].get(file["url"], headers=auth()).content
+    assert output[:4] == b"RIFF" and output[8:12] == b"WEBP"
+    chunks, offset = [], 12
+    while offset + 8 <= len(output):
+        tag = output[offset:offset + 4]
+        size = int.from_bytes(output[offset + 4:offset + 8], "little")
+        chunks.append((tag, output[offset + 8:offset + 8 + size]))
+        offset += 8 + size + size % 2
+    canvas = next(data for tag, data in chunks if tag == b"VP8X")
+    assert int.from_bytes(canvas[4:7], "little") + 1 == 512
+    assert int.from_bytes(canvas[7:10], "little") + 1 == 512
+    assert any(tag == b"ANIM" for tag, _ in chunks)
+    assert 7 <= sum(tag == b"ANMF" for tag, _ in chunks) <= 11
+    assert message(chat, cid, attachments=[file], text="").status_code == 200
+    for data, uid in [({"start": "0", "duration": "7"}, "alice"),
+                      ({"start": "10", "duration": "1"}, "alice"),
+                      ({"start": "0", "duration": "1"}, "eve")]:
+        invalid = call(chat, "post", f"/conversations/{cid}/stickers/video", uid,
+                       files={"file": ("input.mp4", video_path.read_bytes(), "video/mp4")}, data=data)
+        assert invalid.status_code in (400, 404, 422)

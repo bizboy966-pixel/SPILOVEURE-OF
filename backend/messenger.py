@@ -788,7 +788,9 @@ from messenger_social import api as social_api  # noqa: E402
 from messenger_files import api as files_api  # noqa: E402
 from messenger_delivery import api as delivery_api  # noqa: E402
 from messenger_stickers import api as stickers_api  # noqa: E402
+from messenger_sticker_video import api as sticker_video_api  # noqa: E402
 api.include_router(social_api)
 api.include_router(files_api)
 api.include_router(delivery_api)
 api.include_router(stickers_api)
+api.include_router(sticker_video_api)

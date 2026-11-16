@@ -27,18 +27,20 @@ function StickerThumbnail({ file, darkMode }: { file: Attachment; darkMode: bool
 type Props = {
   stickers: Attachment[];
   savedStickers: Attachment[];
+  builtinStickers: Attachment[];
   darkMode: boolean;
   error?: string;
   onSelect: (file: Attachment) => void;
   onCreate: () => void;
 };
 
-export default function StickerPickerPanel({ stickers, savedStickers, darkMode, error, onSelect, onCreate }: Props) {
+export default function StickerPickerPanel({ stickers, savedStickers, builtinStickers, darkMode, error, onSelect, onCreate }: Props) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const savedIds = new Set(savedStickers.map(file => file.id));
   const shownSaved = savedStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
   const shownRecent = stickers.filter(file => !savedIds.has(file.id) && file.name.toLowerCase().includes(normalizedQuery));
+  const shownPack = builtinStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
   return (
     <View style={[styles.panel, darkMode && styles.panelDark]} testID="messenger-sticker-picker">
       <View style={[styles.searchBox, darkMode && styles.searchBoxDark]}>
@@ -55,7 +57,7 @@ export default function StickerPickerPanel({ stickers, savedStickers, darkMode, 
       </View>
       <View style={styles.sectionHeading}>
         <Text style={[styles.sectionTitle, darkMode && styles.textDark]}>Stickers</Text>
-        <TouchableOpacity onPress={onCreate} style={styles.createButton} accessibilityRole="button" accessibilityLabel="Créer un sticker à partir d’une image" testID="messenger-create-sticker">
+        <TouchableOpacity onPress={onCreate} style={styles.createButton} accessibilityRole="button" accessibilityLabel="Créer un sticker depuis une photo ou une vidéo" testID="messenger-create-sticker">
           <Ionicons name="create-outline" size={17} color="#1769e8" />
           <Text style={styles.createText}>Créer un sticker</Text>
         </TouchableOpacity>
@@ -74,11 +76,18 @@ export default function StickerPickerPanel({ stickers, savedStickers, darkMode, 
             <StickerThumbnail file={file} darkMode={darkMode} />
           </TouchableOpacity>
         ))}
+        {!!shownPack.length && <Text style={[styles.groupTitle, darkMode && styles.textMutedDark]}>Pack libre · Twemoji</Text>}
+        {shownPack.map(file => (
+          <TouchableOpacity key={file.id} onPress={() => onSelect(file)} style={[styles.stickerTile, darkMode && styles.tileDark]} accessibilityRole="button" accessibilityLabel={`Envoyer ${file.name}`}>
+            <StickerThumbnail file={file} darkMode={darkMode} />
+          </TouchableOpacity>
+        ))}
+        <Text style={styles.attribution}>Twemoji © Twitter et contributeurs · CC BY 4.0{'\n'}github.com/twitter/twemoji · creativecommons.org/licenses/by/4.0/</Text>
         <TouchableOpacity onPress={onCreate} style={[styles.createTile, darkMode && styles.tileDark]} accessibilityLabel="Créer un sticker" testID="messenger-create-sticker-tile">
           <Ionicons name="add-circle-outline" size={28} color="#1769e8" />
           <Text style={styles.createTileText}>Créer</Text>
         </TouchableOpacity>
-        {!shownRecent.length && !shownSaved.length && <Text style={[styles.emptyText, darkMode && styles.textMutedDark]}>{query ? "Aucun sticker trouvé." : "Les stickers que vous créez apparaîtront ici."}</Text>}
+        {!shownRecent.length && !shownSaved.length && !shownPack.length && <Text style={[styles.emptyText, darkMode && styles.textMutedDark]}>{query ? "Aucun sticker trouvé." : "Les stickers que vous créez apparaîtront ici."}</Text>}
       </ScrollView>
     </View>
   );
@@ -106,5 +115,6 @@ const styles = StyleSheet.create({
   createTileText: { color: "#1769e8", fontSize: 11, fontWeight: "700" },
   emptyText: { flex: 1, minWidth: "100%", textAlign: "center", color: "#7d879a", fontSize: 12, paddingTop: 24 },
   errorText: { color: "#c33", fontSize: 11, paddingVertical: 5, paddingHorizontal: 4 },
+  attribution: { width: "100%", color: "#7d879a", fontSize: 9, paddingVertical: 8 },
   textMutedDark: { color: "#aab5c4" },
 });

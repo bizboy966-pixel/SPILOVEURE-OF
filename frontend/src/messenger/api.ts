@@ -23,7 +23,7 @@ export const messengerApi = {
     api.post<Message>(`/messenger/conversations/${encodeURIComponent(id)}/messages`, payload),
   markConversationDelivered: (conversationId: string) =>
     api.post(`/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`, {}),
-  file: async (id: string, file: File, durationSeconds?: number, viewOnce = false) =>
+  file: async (id: string, file: File, durationSeconds?: number, viewOnce = false, sticker = false) =>
     api.upload<Attachment>(
       `/messenger/conversations/${encodeURIComponent(id)}/files`,
       file,
@@ -31,9 +31,14 @@ export const messengerApi = {
       {
         ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
         ...(viewOnce ? { view_once: "true" } : {}),
+        ...(sticker ? { sticker: "true" } : {}),
       },
     ),
   stickers: () => api.get<Attachment[]>("/messenger/stickers"),
+  stickerPack: () => api.get<Attachment[]>("/messenger/sticker-pack"),
+  removeSticker: (id: string) => api.delete(`/messenger/stickers/${encodeURIComponent(id)}`),
+  videoSticker: (id: string, file: File, start: number, duration: number) =>
+    api.upload<Attachment>(`/messenger/conversations/${encodeURIComponent(id)}/stickers/video`, file, "file", { start, duration }),
   saveSticker: (conversationId: string, messageId: string, fileId: string) =>
     api.post<Attachment>(
       `/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stickers/${encodeURIComponent(fileId)}/save`,

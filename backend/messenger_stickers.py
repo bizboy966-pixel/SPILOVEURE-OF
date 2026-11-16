@@ -11,17 +11,23 @@ from pymongo.errors import DuplicateKeyError
 
 from messenger_core import administrator, chat_user, identifier, member, now
 from messenger_files import MAX_DAILY, MAX_BYTES, upload_root
+from messenger_sticker_pack import PACK_NAMES, PACK_ROOT, pack_file
 
 api = APIRouter()
 MAX_SAVED_STICKERS = 200
 
 
 def attachment(file: dict) -> dict:
-    return {key: file[key] for key in ("id", "name", "mime", "size", "url")}
+    return {**{key: file[key] for key in ("id", "name", "mime", "size", "url")}, "sticker": True}
 
 
 class CopyStickerIn(BaseModel):
     conversation_id: str
+
+
+@api.get("/sticker-pack")
+async def builtin_stickers(user=Depends(chat_user)):
+    return [pack_file("pack-" + key) for key in PACK_NAMES]
 
 
 @api.get("/stickers")
@@ -44,7 +50,7 @@ async def save_sticker(cid: str, mid: str, fid: str, request: Request, user=Depe
         "id": mid, "conversation_id": cid, "deleted": False, "attachments.id": fid,
     })
     file = await db.spv_files.find_one({"id": fid, "scope": cid})
-    if not message or not file or not file.get("name", "").lower().startswith("sticker-"):
+    if not message or not file or not (file.get("sticker") or file.get("name", "").lower().startswith("sticker-")):
         raise HTTPException(404, "Ce sticker n’est plus disponible.")
     if not file.get("mime", "").startswith("image/") or file.get("view_once"):
         raise HTTPException(400, "Seuls les stickers image peuvent être enregistrés.")
@@ -66,6 +72,13 @@ async def save_sticker(cid: str, mid: str, fid: str, request: Request, user=Depe
     return attachment(file)
 
 
+@api.delete("/stickers/{fid}")
+async def remove_sticker(fid: str, request: Request, user=Depends(chat_user)):
+    # Removing a favorite never deletes messages or another user's collection.
+    await request.app.state.db.spv_stickers.delete_one({"user_id": user["id"], "file_id": fid})
+    return {"ok": True}
+
+
 @api.post("/stickers/{fid}/copy")
 async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Depends(chat_user)):
     db = request.app.state.db
@@ -74,9 +87,10 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
         conv["kind"] == "group" and (conv.get("permissions") or {}).get("send_messages") == "admins"
     ):
         administrator(conv, user)
-    if not await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid}):
+    builtin = pack_file(fid)
+    if not builtin and not await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid}):
         raise HTTPException(404, "Sticker enregistré introuvable.")
-    source = await db.spv_files.find_one({"id": fid})
+    source = builtin or await db.spv_files.find_one({"id": fid})
     if not source or not source.get("mime", "").startswith("image/") or source.get("view_once"):
         raise HTTPException(404, "Sticker enregistré introuvable.")
     size = int(source.get("size") or 0)
@@ -91,7 +105,7 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
     if len(previous) >= 100 or used + size > MAX_DAILY:
         raise HTTPException(429, "Le quota quotidien de fichiers est atteint.")
 
-    source_path = upload_root() / source["id"]
+    source_path = (PACK_ROOT / (fid.removeprefix("pack-") + ".png")) if builtin else upload_root() / source["id"]
     if not source_path.is_file():
         raise HTTPException(404, "Le fichier de ce sticker n’est plus disponible.")
     new_id = identifier()
@@ -106,6 +120,7 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
             "id": new_id, "owner_id": user["id"], "scope": body.conversation_id,
             "name": name, "size": size, "mime": source["mime"],
             "url": "/api/messenger/files/" + new_id, "created_at": now(),
+            "sticker": True,
         }
         await db.spv_files.insert_one(copied)
     except Exception:

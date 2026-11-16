@@ -14,6 +14,7 @@ import MediaComposer from "./MediaComposer";
 import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
 import StickerPickerPanel from "./StickerPickerPanel";
+import VideoStickerComposer from "./VideoStickerComposer";
 import SwipeToReply from "@/src/components/SwipeToReply";
 import VoiceMessage from "@/src/components/VoiceMessage";
 import VoiceRecorderControls from "@/src/components/VoiceRecorderControls";
@@ -199,6 +200,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [messageError, setMessageError] = useState("");
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [savedStickers, setSavedStickers] = useState<Attachment[]>([]);
+  const [builtinStickers, setBuiltinStickers] = useState<Attachment[]>([]);
   const [stickerLibraryError, setStickerLibraryError] = useState("");
   const [pendingMedia, setPendingMedia] = useState<File[] | null>(null);
   const [text, setText] = useState(conversation.draft || "");
@@ -208,6 +210,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [pickerTab, setPickerTab] = useState<"emoji" | "stickers">("emoji");
   const [composerActionsOpen, setComposerActionsOpen] = useState(false);
   const [pendingStickerCreation, setPendingStickerCreation] = useState(false);
+  const [stickerVideo, setStickerVideo] = useState<File | null>(null);
   const [reply, setReply] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
@@ -235,15 +238,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     () => messages
       .filter(message => message.sender_id === userId)
       .flatMap(message => message.attachments || [])
-      .filter(file => file.name.startsWith("sticker-") && file.mime.startsWith("image/") && !file.view_once)
+      .filter(file => (file.sticker || file.name.startsWith("sticker-")) && file.mime.startsWith("image/") && !file.view_once)
       .reverse()
       .slice(0, 24),
     [messages, userId],
   );
   useEffect(() => {
     let active = true;
-    messengerApi.stickers()
-      .then(items => { if (active) { setSavedStickers(items); setStickerLibraryError(""); } })
+    Promise.all([messengerApi.stickers(), messengerApi.stickerPack()])
+      .then(([items, pack]) => { if (active) { setSavedStickers(items); setBuiltinStickers(pack); setStickerLibraryError(""); } })
       .catch((error: any) => { if (active) setStickerLibraryError(error?.detail || "Les stickers enregistrés ne sont pas disponibles."); });
     return () => { active = false; };
   }, [userId]);
@@ -599,10 +602,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     );
     setSavedStickers(current => [saved, ...current.filter(file => file.id !== saved.id)]);
   };
+  const removePreviewSticker = async () => {
+    if (!attachmentPreview?.fileId) return;
+    const id = attachmentPreview.fileId;
+    await messengerApi.removeSticker(id);
+    setSavedStickers(current => current.filter(file => file.id !== id));
+  };
   const selectSticker = async (file: Attachment) => {
     setEmojiPickerOpen(false);
     try {
-      const attachment = savedStickers.some(saved => saved.id === file.id)
+      const attachment = file.id.startsWith("pack-") || savedStickers.some(saved => saved.id === file.id)
         ? await messengerApi.copySticker(conversation.id, file.id)
         : file;
       await send({ attachments: [attachment], text: "" });
@@ -637,13 +646,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (!canSend || typeof document === "undefined") return;
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/jpeg,image/webp";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif,video/*";
     input.onchange = () => {
       try {
         const selected = input.files?.[0];
         if (!selected) return;
         const file = normalizeMediaFile(selected);
         validateChatFiles([file]);
+        if (file.type.startsWith("video/")) {
+          setStickerVideo(file); setEmojiPickerOpen(false); return;
+        }
         setPendingStickerCreation(true);
         setPendingMedia([file]);
         setEmojiPickerOpen(false);
@@ -662,9 +674,9 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     validateChatFiles(filesToSend);
     const attached: Attachment[] = [];
     for (const file of filesToSend) {
-      attached.push(await messengerApi.file(conversation.id, file));
+      attached.push(await messengerApi.file(conversation.id, file, undefined, false, pendingStickerCreation));
     }
-    await send({ attachments: attached, text: caption });
+    await send({ attachments: attached, text: pendingStickerCreation ? "" : caption });
     setPendingMedia(null);
     setPendingStickerCreation(false);
   };
@@ -939,16 +951,19 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         {messages.map(message => {
           const own = message.sender_id === userId;
           const quoted = message.reply_to ? messages.find(item => item.id === message.reply_to) : undefined;
-          const stickerFiles = (message.attachments || []).filter(file => file.name.toLowerCase().startsWith("sticker-") && file.mime.startsWith("image/"));
+          const stickerFiles = (message.attachments || []).filter(file => (file.sticker || file.name.toLowerCase().startsWith("sticker-")) && file.mime.startsWith("image/"));
           const mediaFiles = (message.attachments || []).filter(file =>
             (file.mime.startsWith("image/") || file.mime.startsWith("video/"))
-            && !file.name.toLowerCase().startsWith("sticker-"));
+            && !(file.sticker || file.name.toLowerCase().startsWith("sticker-")));
           const stickerOnlyMessage = stickerFiles.length === 1 && !mediaFiles.length
             && !message.text && !message.reply_to && !message.forwarded_from && !message.status_reply;
+          const mediaOnlyMessage = mediaFiles.length === 1 && !message.text && !message.reply_to
+            && !message.forwarded_from && !message.status_reply && !stickerFiles.length;
           const bubble = <View
              style={[
                styles.bubble, own ? styles.ownBubble : styles.otherBubble,
                stickerOnlyMessage && styles.stickerBubble,
+               mediaOnlyMessage && { padding: 3, paddingBottom: 3, borderRadius: 13 },
                { backgroundColor: stickerOnlyMessage ? "transparent" : own ? ownBubbleColor : darkMode ? "#263244" : "#fff" },
                darkMode && { borderColor: "#3a4759" },
                 focusedMessageId === message.id && styles.focusedBubble,
@@ -957,7 +972,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
             accessibilityLabel={`${own ? "Message envoyé" : `Message de ${message.sender_name}`}${message.text ? ` : ${message.text}` : message.attachments?.some(file => file.mime.startsWith("audio/")) ? " : message vocal" : ""}`}
             testID={`messenger-message-bubble-${message.id}`}
           >
-              {!own && <Text style={styles.sender}>{message.sender_name}</Text>}
+              {!own && !stickerOnlyMessage && !mediaOnlyMessage && <Text style={styles.sender}>{message.sender_name}</Text>}
               {message.deleted ? <Text style={styles.deleted}>Message supprimé</Text> : <>
                 {message.forwarded_from && <Text style={styles.forwarded}>Message transféré</Text>}
                 {!!message.reply_to && <View style={styles.replyQuote} testID={`messenger-reply-quote-${message.id}`}>
@@ -977,11 +992,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                       <ProtectedMessageMedia key={file.id} file={file} compact maxWidth={180} onOpen={() => openAttachment(file)} />)}
                   </View>}
                 </View>}
-                {!!stickerFiles.length && <View style={[styles.stickerGroup, own ? styles.ownStickerGroup : styles.otherStickerGroup]}>
+                {!!stickerFiles.length && <View style={[styles.stickerGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {stickerFiles.map(file =>
                     <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={() => openSticker(file, message.id)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
-                {!!mediaFiles.length && <View style={[styles.mediaGroup, own ? styles.ownMediaGroup : styles.otherMediaGroup]}>
+                {!!mediaFiles.length && <View style={[styles.mediaGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {mediaFiles.map(file =>
                     <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={() => openAttachment(file)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
@@ -1007,7 +1022,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                     <Text style={styles.fileLabel} numberOfLines={1}>{file.name}</Text><Ionicons name="download-outline" size={16} color={blue} />
                   </TouchableOpacity>)}
               </>}
-              <View style={styles.meta}><Text style={styles.time}>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{message.edited_at ? " · modifié" : ""}</Text>{own && (() => {
+              <View style={[styles.meta, mediaOnlyMessage && { position: "absolute", bottom: 7, right: 8, backgroundColor: "#0007", borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1 }]}><Text style={[styles.time, mediaOnlyMessage && { color: "#fff" }]}>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{message.edited_at ? " · modifié" : ""}</Text>{own && (() => {
                 const peers = conversation.members.filter(memberId => memberId !== userId);
                 const read = peers.length > 0 && peers.every(peerId => message.read_by?.includes(peerId));
                 const delivered = peers.some(peerId => message.delivered_by?.includes(peerId));
@@ -1186,6 +1201,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         </View> : <StickerPickerPanel
           stickers={recentStickers}
           savedStickers={savedStickers}
+          builtinStickers={builtinStickers}
           darkMode={darkMode}
           error={stickerLibraryError}
           onCreate={createSticker}
@@ -1199,6 +1215,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         preview={attachmentPreview}
         onClose={() => setAttachmentPreview(null)}
         onSaveSticker={savePreviewSticker}
+        onRemoveSticker={removePreviewSticker}
         stickerSaved={Boolean(attachmentPreview?.fileId && savedStickers.some(file => file.id === attachmentPreview.fileId))}
       />
       <MessageContextMenu
@@ -1252,10 +1269,19 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       <MediaComposer
         visible={!!pendingMedia}
         files={pendingMedia || []}
-        initialCaption={text}
+        initialCaption={pendingStickerCreation ? "" : text}
         onClose={() => { setPendingMedia(null); setPendingStickerCreation(false); }}
         onConfirm={sendSelectedMedia}
       />
+      {stickerVideo && <VideoStickerComposer
+        file={stickerVideo}
+        onClose={() => setStickerVideo(null)}
+        onConfirm={async (start, duration) => {
+          const attachment = await messengerApi.videoSticker(conversation.id, stickerVideo, start, duration);
+          await send({ attachments: [attachment], text: "" });
+          setStickerVideo(null);
+        }}
+      />}
       {canSend && scheduledEnabled && <ScheduledMessages conversationId={conversation.id} visible={scheduleOpen} onClose={() => setScheduleOpen(false)} />}
       <Modal visible={sharingContact} transparent animationType="slide" onRequestClose={() => setSharingContact(false)}>
         <View style={styles.modalBackdrop}><View style={styles.forwardModal}><Text style={styles.modalTitle}>Partager un contact</Text>
@@ -1309,7 +1335,7 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { width: "100%", flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "stretch", alignItems: "flex-end" }, otherMediaGroup: { alignSelf: "stretch", alignItems: "flex-start" }, stickerGroup: { width: "100%", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, maxWidth: "100%", minWidth: 0 }, ownStickerGroup: { alignSelf: "stretch", justifyContent: "flex-end" }, otherStickerGroup: { alignSelf: "stretch", justifyContent: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "flex-end", alignItems: "flex-end" }, otherMediaGroup: { alignSelf: "flex-start", alignItems: "flex-start" }, stickerGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, maxWidth: "100%", minWidth: 0 }, ownStickerGroup: { alignSelf: "flex-end", justifyContent: "flex-end" }, otherStickerGroup: { alignSelf: "flex-start", justifyContent: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: "#77966f" }, receipt: { color: "#77966f", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#77966f" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reactionChip: { alignSelf: "flex-start", marginTop: 3, borderRadius: 12, borderWidth: 1, borderColor: "#e4e9ef", backgroundColor: "#fff" }, reactionChipMine: { borderColor: "#8db4f3", backgroundColor: "#edf4ff" }, reaction: { color: ink, fontSize: 12, paddingHorizontal: 7, paddingVertical: 2 },
   uploadingText: { color: muted, fontSize: 11, marginTop: 3, alignSelf: "flex-end" },

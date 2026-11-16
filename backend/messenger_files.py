@@ -83,7 +83,7 @@ async def storage_usage(request: Request, user=Depends(chat_user)):
     }
 
 
-async def store(request, user, file, scope, duration_seconds=None, view_once=False):
+async def store(request, user, file, scope, duration_seconds=None, view_once=False, sticker=False):
     db = request.app.state.db
     filename = Path((file.filename or "fichier").replace("\\", "/")).name[:180]
     suffix = Path(filename).suffix.lower()
@@ -114,10 +114,14 @@ async def store(request, user, file, scope, duration_seconds=None, view_once=Fal
             mime = "audio/webm"
         if view_once and (scope == "feed" or not mime.startswith("audio/")):
             raise HTTPException(400, "L’écoute unique est réservée aux messages vocaux.")
+        if sticker and not mime.startswith("image/"):
+            raise HTTPException(400, "Convertissez la vidéo en sticker animé avant l’envoi.")
         row = {
             "id": fid, "owner_id": user["id"], "scope": scope, "name": filename,
             "size": size, "mime": mime, "url": "/api/messenger/files/" + fid, "created_at": now(),
         }
+        if sticker:
+            row["sticker"] = True
         if duration_seconds is not None:
             if not mime.startswith("audio/") or not math.isfinite(duration_seconds) or not 0 < duration_seconds <= 7200:
                 raise HTTPException(400, "La durée du message vocal est invalide.")
@@ -135,6 +139,8 @@ async def store(request, user, file, scope, duration_seconds=None, view_once=Fal
         keys.append("duration_seconds")
     if row.get("view_once"):
         keys.append("view_once")
+    if row.get("sticker"):
+        keys.append("sticker")
     return {key: row[key] for key in keys}
 
 
@@ -145,12 +151,13 @@ async def upload(
     file: UploadFile = File(...),
     duration_seconds: float | None = Form(default=None, ge=0, le=7200),
     view_once: bool = Form(default=False),
+    sticker: bool = Form(default=False),
     user=Depends(chat_user),
 ):
     conv = await member(request.app.state.db, cid, user)
     if conv["kind"] == "channel":
         administrator(conv, user)
-    return await store(request, user, file, cid, duration_seconds, view_once)
+    return await store(request, user, file, cid, duration_seconds, view_once, sticker)
 
 
 @api.post("/feed/files")
@@ -160,6 +167,10 @@ async def upload_feed(request: Request, file: UploadFile = File(...), user=Depen
 
 @api.get("/files/{fid}")
 async def download(fid: str, request: Request, user=Depends(chat_user)):
+    from messenger_sticker_pack import PACK_ROOT, pack_file
+    builtin = pack_file(fid)
+    if builtin:
+        return FileResponse(PACK_ROOT / (fid.removeprefix("pack-") + ".png"), media_type="image/png")
     db = request.app.state.db
     row = await db.spv_files.find_one({"id": fid})
     if not row:
