@@ -969,6 +969,35 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           </View>
         </View>
       </Modal>
+      <Modal visible={!!deletePromptMessage} transparent animationType="fade" onRequestClose={() => setDeletePromptMessage(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.forwardModal} testID="messenger-delete-options">
+            <Text style={styles.modalTitle}>Supprimer le message</Text>
+            <TouchableOpacity
+              style={styles.deleteOption}
+              onPress={() => deletePromptMessage && void action(deletePromptMessage, "delete", { scope: "me" })}
+              testID="messenger-delete-for-me"
+            >
+              <Ionicons name="person-outline" size={19} color={blue} />
+              <Text style={styles.targetName}>Supprimer pour moi</Text>
+            </TouchableOpacity>
+            {deletePromptMessage && (
+              conversation.kind === "private" || conversation.kind === "saved"
+              || deletePromptMessage.sender_id === userId || isChannelAdmin
+            ) && <TouchableOpacity
+              style={styles.deleteOption}
+              onPress={() => deletePromptMessage && void action(deletePromptMessage, "delete", { scope: "everyone" })}
+              testID="messenger-delete-for-everyone"
+            >
+              <Ionicons name="people-outline" size={19} color="#d73546" />
+              <Text style={[styles.targetName, { color: "#d73546" }]}>Supprimer pour tout le monde</Text>
+            </TouchableOpacity>}
+            <TouchableOpacity onPress={() => setDeletePromptMessage(null)} style={styles.deleteCancel}>
+              <Text style={styles.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       {canSend && emojiPickerOpen && <View style={[styles.emojiPickerPanel, { height: emojiPickerHeight }]} testID="messenger-emoji-picker">
         <EmojiKeyboard
           onEmojiSelected={item => insertEmoji(item.emoji)}
@@ -1002,7 +1031,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         screenHeight={windowHeight}
         canPin={conversation.kind === "private" || isChannelAdmin}
         canEdit={!!contextMessage && contextMessage.sender_id === userId && !contextMessage.deleted}
-        canDelete={!!contextMessage && (contextMessage.sender_id === userId || isChannelAdmin) && !contextMessage.deleted}
+        canDelete={!!contextMessage && !contextMessage.deleted}
         onClose={() => setContextMessage(null)}
         onReply={() => contextMessage && beginReply(contextMessage)}
         onReact={emoji => contextMessage && void action(contextMessage, "reaction", { emoji })}
@@ -1022,7 +1051,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           setContextMessage(null);
           requestAnimationFrame(() => composerInput.current?.focus());
         }}
-        onDelete={() => contextMessage && void action(contextMessage, "delete")}
+        onDelete={() => {
+          if (!contextMessage) return;
+          setDeletePromptMessage(contextMessage);
+          setContextMessage(null);
+        }}
         onSave={() => contextMessage && void saveMessageMedia(contextMessage)}
       />
       <Modal visible={headerMenuOpen} transparent animationType="fade" onRequestClose={() => setHeaderMenuOpen(false)}>
@@ -1098,9 +1131,10 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: 250 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: 260, alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "flex-end" }, otherMediaGroup: { alignSelf: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 4 }, time: { fontSize: 10, color: "#77966f" }, receipt: { color: "#77966f", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#77966f" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
-  reaction: { alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 7, paddingVertical: 2, fontSize: 12, marginTop: 3 },
+  reactionChip: { alignSelf: "flex-start", marginTop: 3, borderRadius: 12, borderWidth: 1, borderColor: "#e4e9ef", backgroundColor: "#fff" }, reactionChipMine: { borderColor: "#8db4f3", backgroundColor: "#edf4ff" }, reaction: { color: ink, fontSize: 12, paddingHorizontal: 7, paddingVertical: 2 },
+  uploadingText: { color: muted, fontSize: 11, marginTop: 3, alignSelf: "flex-end" },
   focusedBubble: { borderColor: "#2684ff", borderWidth: 2 },
   replyBanner: { backgroundColor: "#fff", borderTopWidth: 1, borderColor: "#e8edf5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, paddingVertical: 8, gap: 8 }, replyBannerCopy: { flex: 1, borderLeftWidth: 3, borderColor: blue, paddingLeft: 9 }, replyBannerLabel: { color: blue, fontSize: 11, fontWeight: "800" }, replyBannerText: { color: muted, fontSize: 12, flex: 1 },
   recordStatus: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#dd3e45" }, recordText: { flex: 1, color: ink, fontSize: 13 }, cancelText: { color: "#d64545", fontWeight: "700", padding: 7 },
@@ -1110,5 +1144,5 @@ const styles = StyleSheet.create({
   composerIcon: { width: 37, height: 44, alignItems: "center", justifyContent: "center", flexShrink: 0 }, inputShell: { flex: 1, flexBasis: 0, flexShrink: 1, flexDirection: "row", alignItems: "flex-end", minWidth: 0, minHeight: 42, backgroundColor: "#f2f5f9", borderRadius: 24, paddingLeft: 11, paddingRight: 5 }, input: { flex: 1, flexBasis: 0, flexShrink: 1, minWidth: 0, maxHeight: 176, minHeight: 42, borderRadius: 21, backgroundColor: "transparent", paddingHorizontal: 3, paddingTop: 10, paddingBottom: 8, color: ink, fontSize: 16, lineHeight: 22, outlineStyle: "none" as any }, inputAttach: { width: 36, height: 42, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }, recordButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: blue, alignItems: "center", justifyContent: "center", flexShrink: 0 }, sendLogo: { width: 37, height: 37, borderRadius: 19, backgroundColor: "#fff" },
   composerActionsBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 16 }, composerActionsDismiss: { flex: 1 }, composerActionsSheet: { backgroundColor: "#fff", borderRadius: 22, padding: 12 }, actionsTitle: { color: ink, fontSize: 16, fontWeight: "800", paddingHorizontal: 9, paddingBottom: 8 }, composerActionRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 10, borderTopWidth: 1, borderColor: "#edf0f5" }, composerActionText: { color: ink, fontSize: 14, fontWeight: "600" },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(15,28,50,.35)", justifyContent: "center", alignItems: "center", padding: 20 }, forwardModal: { backgroundColor: "#fff", borderRadius: 18, padding: 18, width: "100%", maxWidth: 380 }, modalTitle: { fontSize: 18, fontWeight: "800", color: ink, marginBottom: 12 }, targetRow: { minHeight: 48, borderBottomWidth: 1, borderColor: "#edf0f4", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, targetName: { color: ink, fontWeight: "700" }, deleteOption: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#edf0f4" }, deleteCancel: { alignItems: "flex-end", paddingTop: 10 },
 });

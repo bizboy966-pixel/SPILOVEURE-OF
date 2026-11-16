@@ -412,6 +412,8 @@ async def messages(cid: str, request: Request, before: str = "", q: str = Query(
     conv = await member(db, cid, user)
     query = {
         "conversation_id": cid,
+        "deleted": False,
+        "hidden_for": {"$nin": [user["id"]]},
         "$or": [
             {"expires_at": {"$exists": False}}, {"expires_at": None},
             {"expires_at": {"$gt": datetime.now(timezone.utc)}},
@@ -424,7 +426,7 @@ async def messages(cid: str, request: Request, before: str = "", q: str = Query(
             {"created_at": anchor["created_at"], "id": {"$lt": anchor["id"]}},
         ]}]
     if q.strip():
-        query.update({"text": {"$regex": re.escape(q.strip()), "$options": "i"}, "deleted": False})
+        query.update({"text": {"$regex": re.escape(q.strip()), "$options": "i"}})
     rows = await db.spv_messages.find(query).sort([("created_at", -1), ("id", -1)]).limit(limit + 1).to_list(limit + 1)
     return {"items": await message_views(db, reversed(rows[:limit]), user["id"]),
             "has_more": len(rows) > limit}
@@ -436,6 +438,7 @@ async def message_by_id(cid: str, mid: str, request: Request, user=Depends(chat_
     conv = await member(db, cid, user)
     msg = await db.spv_messages.find_one({
         "id": mid, "conversation_id": cid, "deleted": False,
+        "hidden_for": {"$nin": [user["id"]]},
         "$or": [
             {"expires_at": {"$exists": False}}, {"expires_at": None},
             {"expires_at": {"$gt": datetime.now(timezone.utc)}},
@@ -611,17 +614,36 @@ async def edit(cid: str, mid: str, body: TextIn, request: Request, user=Depends(
 
 
 @api.delete("/conversations/{cid}/messages/{mid}")
-async def delete_message(cid: str, mid: str, request: Request, user=Depends(chat_user)):
+async def delete_message(
+    cid: str, mid: str, request: Request,
+    scope: str = Query(default="everyone", pattern="^(me|everyone)$"),
+    user=Depends(chat_user),
+):
     db = request.app.state.db
     conv = await member(db, cid, user)
     msg = await get_message(db, conv, mid)
-    if msg["sender_id"] != user["id"] and not (conv["kind"] in ("group", "channel") and user["id"] in conv["admins"]):
-        raise HTTPException(403, "Vous ne pouvez pas supprimer ce message.")
+    if msg.get("deleted"):
+        return {"ok": True, "scope": scope}
+    if scope == "me":
+        await db.spv_messages.update_one(
+            {"id": mid, "conversation_id": cid}, {"$addToSet": {"hidden_for": user["id"]}},
+        )
+        await event(db, [user["id"]], {"type": "updated", "conversation_id": cid, "message_id": mid})
+        return {"ok": True, "scope": "me"}
+    can_delete_everyone = (
+        conv["kind"] in ("private", "saved")
+        or msg["sender_id"] == user["id"]
+        or (conv["kind"] in ("group", "channel") and (
+            user["id"] in conv["admins"] or user["id"] == conv["owner_id"]
+        ))
+    )
+    if not can_delete_everyone:
+        raise HTTPException(403, "Vous ne pouvez pas supprimer ce message pour tout le monde.")
     await db.spv_messages.update_one({"id": mid}, {"$set": {
         "text": "", "attachments": [], "deleted": True, "reactions": {}, "pinned": False,
     }})
-    await notify(db, conv)
-    return {"ok": True}
+    await notify(db, conv, "updated", message_id=mid)
+    return {"ok": True, "scope": "everyone"}
 
 
 @api.post("/conversations/{cid}/messages/{mid}/reaction")

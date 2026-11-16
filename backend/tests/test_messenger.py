@@ -100,18 +100,39 @@ def test_read_receipts_unread_and_idempotency(chat):
     assert "bob" in call(chat, "get", f"/conversations/{cid}/messages").json()["items"][0]["read_by"]
 
 
-def test_message_authorization_and_tombstones(chat):
+def test_message_authorization_and_delete_for_everyone(chat):
     cid = conversation(chat)
     mid = message(chat, cid).json()["id"]
     path = f"/conversations/{cid}/messages/{mid}"
     assert call(chat, "patch", path, "bob", json={"text": "piraté"}).status_code == 403
-    assert call(chat, "delete", path, "bob").status_code == 403
+    assert call(chat, "delete", path, "bob", params={"scope": "everyone"}).status_code == 200
     assert call(chat, "get", f"/conversations/{cid}/messages", "eve").status_code == 404
-    assert call(chat, "patch", path, json={"text": "Corrigé"}).json()["edited_at"]
-    assert call(chat, "delete", path).status_code == 200
-    row = call(chat, "get", f"/conversations/{cid}/messages").json()["items"][0]
-    assert row["deleted"] is True and row["text"] == "" and row["attachments"] == []
-    assert call(chat, "patch", path, json={"text": "Restauré"}).status_code == 403
+    assert call(chat, "patch", path, json={"text": "Corrigé"}).status_code == 403
+    assert call(chat, "get", f"/conversations/{cid}/messages").json()["items"] == []
+
+
+def test_delete_for_me_hides_only_for_requesting_member(chat):
+    cid = conversation(chat)
+    mid = message(chat, cid).json()["id"]
+    path = f"/conversations/{cid}/messages/{mid}"
+    assert call(chat, "get", "/conversations", "bob").json()[0]["unread"] == 1
+    assert call(chat, "delete", path, "bob", params={"scope": "me"}).json()["scope"] == "me"
+    assert call(chat, "get", f"/conversations/{cid}/messages", "bob").json()["items"] == []
+    bob_view = call(chat, "get", "/conversations", "bob").json()[0]
+    assert bob_view["unread"] == 0 and bob_view["last_message"] is None
+    assert call(chat, "get", f"/conversations/{cid}/messages", "alice").json()["items"][0]["id"] == mid
+    assert call(chat, "delete", path, "bob", params={"scope": "everyone"}).status_code == 200
+    assert call(chat, "get", f"/conversations/{cid}/messages", "alice").json()["items"] == []
+
+
+def test_group_member_can_hide_message_but_only_author_or_admin_can_delete_everyone(chat):
+    cid = conversation(chat, "group")
+    mid = message(chat, cid).json()["id"]
+    path = f"/conversations/{cid}/messages/{mid}"
+    assert call(chat, "delete", path, "bob", params={"scope": "everyone"}).status_code == 403
+    assert call(chat, "delete", path, "bob", params={"scope": "me"}).status_code == 200
+    assert call(chat, "get", f"/conversations/{cid}/messages", "bob").json()["items"] == []
+    assert call(chat, "delete", path, "alice", params={"scope": "everyone"}).status_code == 200
 
 
 def test_message_link_lookup_requires_membership_and_hides_deleted_messages(chat):

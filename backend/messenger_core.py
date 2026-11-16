@@ -149,11 +149,13 @@ async def conversation_view(db, conv, uid):
         {"expires_at": {"$gt": datetime.now(timezone.utc)}},
     ]}
     last = await db.spv_messages.find_one(
-        {"conversation_id": conv["id"], **expiry_filter}, sort=[("created_at", -1), ("id", -1)]
+        {"conversation_id": conv["id"], "deleted": False, "hidden_for": {"$nin": [uid]}, **expiry_filter},
+        sort=[("created_at", -1), ("id", -1)],
     )
     unread = await db.spv_messages.count_documents({
         "conversation_id": conv["id"], "sender_id": {"$ne": uid},
         "created_at": {"$gt": pref.get("read_at", "")}, "deleted": False,
+        "hidden_for": {"$nin": [uid]},
         **expiry_filter,
     })
     is_saved = bool(conv.get("is_saved") or conv.get("kind") == "saved")
