@@ -19,6 +19,7 @@ MAIL_FROM = "SPILOVEURE <no-reply@spiloveure.org>"
 MAIL_PROVIDER = "resend"
 MAIL_RESEND_DOMAIN_ID = "a7343814-9ca0-48a3-aa34-5e5add0b7a1a"
 MAIL_DOMAIN_VERIFIED = "1"
+SPV_PREVIEW_API_UPSTREAM = "https://spiloveure.org"
 
 [workflows]
 runButton = "Project"
