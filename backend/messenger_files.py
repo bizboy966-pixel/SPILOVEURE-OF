@@ -49,6 +49,8 @@ async def cleanup_expired_message_files(db):
             continue
         if await db.spv_stickers.find_one({"file_id": row["id"]}):
             continue
+        if await db.spv_sticker_pack_items.find_one({"file_id": row["id"]}):
+            continue
         (upload_root() / row["id"]).unlink(missing_ok=True)
         await db.spv_files.delete_one({"id": row["id"], "expires_at": {"$lte": current}})
 
@@ -176,10 +178,12 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
     if not row:
         raise HTTPException(404, "Fichier introuvable.")
     saved_sticker = await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid})
-    if row.get("expires_at") and row["expires_at"] <= datetime.now(timezone.utc) and not saved_sticker:
+    packed_sticker = await db.spv_sticker_pack_items.find_one({"user_id": user["id"], "file_id": fid})
+    retained_sticker = bool(saved_sticker or packed_sticker)
+    if row.get("expires_at") and row["expires_at"] <= datetime.now(timezone.utc) and not retained_sticker:
         await cleanup_expired_message_files(db)
         raise HTTPException(404, "Ce média a expiré.")
-    if row["scope"] != "feed" and not saved_sticker:
+    if row["scope"] != "feed" and not retained_sticker:
         await member(db, row["scope"], user)
     elif row["owner_id"] != user["id"]:
         from messenger_social import visible_post
@@ -193,7 +197,7 @@ async def download(fid: str, request: Request, user=Depends(chat_user)):
                     raise HTTPException(404, "Fichier introuvable.")
                 from messenger_social import visible_status
                 await visible_status(db, status["id"], user)
-    if row["scope"] != "feed" and row["owner_id"] != user["id"] and not saved_sticker:
+    if row["scope"] != "feed" and row["owner_id"] != user["id"] and not retained_sticker:
         if not await db.spv_messages.find_one({
             "conversation_id": row["scope"], "attachments.id": fid, "deleted": False,
         }):

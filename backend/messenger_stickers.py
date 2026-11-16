@@ -15,6 +15,7 @@ from messenger_sticker_pack import PACK_NAMES, PACK_ROOT, pack_file
 
 api = APIRouter()
 MAX_SAVED_STICKERS = 200
+MAX_STICKER_PACK_ITEMS = 200
 
 
 def attachment(file: dict) -> dict:
@@ -40,6 +41,54 @@ async def saved_stickers(request: Request, user=Depends(chat_user)):
         if file and file.get("mime", "").startswith("image/") and not file.get("view_once"):
             result.append(attachment(file))
     return result
+
+
+@api.get("/sticker-pack/mine")
+async def my_sticker_pack(request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    entries = await db.spv_sticker_pack_items.find({"user_id": user["id"]}).sort("added_at", -1).to_list(MAX_STICKER_PACK_ITEMS)
+    result = []
+    for entry in entries:
+        file = await db.spv_files.find_one({"id": entry["file_id"]})
+        if file and file.get("mime", "").startswith("image/") and not file.get("view_once"):
+            result.append(attachment(file))
+    return result
+
+
+@api.post("/conversations/{cid}/messages/{mid}/stickers/{fid}/pack")
+async def add_to_sticker_pack(cid: str, mid: str, fid: str, request: Request, user=Depends(chat_user)):
+    db = request.app.state.db
+    await member(db, cid, user)
+    message = await db.spv_messages.find_one({
+        "id": mid, "conversation_id": cid, "deleted": False, "attachments.id": fid,
+    })
+    file = await db.spv_files.find_one({"id": fid, "scope": cid})
+    if not message or not file or not (file.get("sticker") or file.get("name", "").lower().startswith("sticker-")):
+        raise HTTPException(404, "Ce sticker n’est plus disponible.")
+    if not file.get("mime", "").startswith("image/") or file.get("view_once"):
+        raise HTTPException(400, "Seuls les stickers peuvent être ajoutés à un pack.")
+    expires_at = file.get("expires_at")
+    if expires_at and expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(404, "Ce sticker a expiré.")
+    existing = await db.spv_sticker_pack_items.find_one({"user_id": user["id"], "file_id": fid})
+    if existing:
+        return attachment(file)
+    if await db.spv_sticker_pack_items.count_documents({"user_id": user["id"]}) >= MAX_STICKER_PACK_ITEMS:
+        raise HTTPException(429, "Votre pack contient déjà 200 stickers.")
+    try:
+        await db.spv_sticker_pack_items.insert_one({
+            "user_id": user["id"], "file_id": fid, "added_at": now(),
+            "source_conversation_id": cid, "source_message_id": mid,
+        })
+    except DuplicateKeyError:
+        pass
+    return attachment(file)
+
+
+@api.delete("/stickers/{fid}/pack")
+async def remove_from_sticker_pack(fid: str, request: Request, user=Depends(chat_user)):
+    await request.app.state.db.spv_sticker_pack_items.delete_one({"user_id": user["id"], "file_id": fid})
+    return {"ok": True}
 
 
 @api.post("/conversations/{cid}/messages/{mid}/stickers/{fid}/save")
@@ -88,7 +137,9 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
     ):
         administrator(conv, user)
     builtin = pack_file(fid)
-    if not builtin and not await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid}):
+    favorite = await db.spv_stickers.find_one({"user_id": user["id"], "file_id": fid})
+    packed = await db.spv_sticker_pack_items.find_one({"user_id": user["id"], "file_id": fid})
+    if not builtin and not favorite and not packed:
         raise HTTPException(404, "Sticker enregistré introuvable.")
     source = builtin or await db.spv_files.find_one({"id": fid})
     if not source or not source.get("mime", "").startswith("image/") or source.get("view_once"):

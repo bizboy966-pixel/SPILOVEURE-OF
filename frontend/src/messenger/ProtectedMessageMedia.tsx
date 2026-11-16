@@ -5,8 +5,8 @@ import { protectedFileUrl } from "./api";
 import type { Attachment } from "./types";
 
 export default function ProtectedMessageMedia({
-  file, onOpen, compact = false, autoLoad = true, maxWidth = 260,
-}: { file: Attachment; onOpen: () => void; compact?: boolean; autoLoad?: boolean; maxWidth?: number }) {
+  file, onOpen, onLongPress, compact = false, autoLoad = true, maxWidth = 260,
+}: { file: Attachment; onOpen: () => void; onLongPress?: (event: any) => void; compact?: boolean; autoLoad?: boolean; maxWidth?: number }) {
   const [url, setUrl] = useState("");
   const [aspect, setAspect] = useState(4 / 3);
   const [error, setError] = useState(false);
@@ -59,12 +59,12 @@ export default function ProtectedMessageMedia({
   }, [url, isVideo, compact]);
 
   if (error) return <View style={[styles.failed, { width, height, maxWidth: "100%" }]}><Image source={require("../../assets/images/spiloveure-logo.png")} style={styles.failedLogo} /></View>;
-  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={isSticker ? "Charger le sticker" : `Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`${isSticker ? "messenger-sticker" : "messenger-media"}-load-${file.id}`}>
+  if (!url && !requested) return <TouchableOpacity onPress={() => setRequested(true)} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={isSticker ? "Charger le sticker" : `Charger le média ${file.name}`} style={[styles.loading, { width, height, maxWidth: "100%" }]} testID={`${isSticker ? "messenger-sticker" : "messenger-media"}-load-${file.id}`}>
     <Ionicons name={isSticker ? "happy-outline" : "download-outline"} size={25} color="#1769e8" /><Text style={styles.loadText}>{isSticker ? "Charger le sticker" : "Charger le média"}</Text>
   </TouchableOpacity>;
   if (!url) return <View style={[styles.loading, { width, height, maxWidth: "100%" }]}><ActivityIndicator color="#1769e8" /></View>;
-  if (isVideo) return <View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} />;
-  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir les actions du sticker" : `Ouvrir la photo ${file.name}`} testID={`${isSticker ? "messenger-sticker" : "messenger-image"}-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
+  if (isVideo) return <TouchableOpacity activeOpacity={1} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={`Options de la vidéo ${file.name}`} testID={`messenger-video-${file.id}`}><View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} /></TouchableOpacity>;
+  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir les actions du sticker" : `Ouvrir la photo ${file.name}`} testID={`${isSticker ? "messenger-sticker" : "messenger-image"}-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
     <Image
       source={{ uri: url }}
       resizeMode={isSticker ? "contain" : "cover"}

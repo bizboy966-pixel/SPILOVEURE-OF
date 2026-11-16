@@ -201,6 +201,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [messageError, setMessageError] = useState("");
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [savedStickers, setSavedStickers] = useState<Attachment[]>([]);
+  const [packStickers, setPackStickers] = useState<Attachment[]>([]);
   const [builtinStickers, setBuiltinStickers] = useState<Attachment[]>([]);
   const [stickerLibraryError, setStickerLibraryError] = useState("");
   const [pendingMedia, setPendingMedia] = useState<File[] | null>(null);
@@ -219,7 +220,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [contextMessage, setContextMessage] = useState<Message | null>(null);
   const [deletePromptMessage, setDeletePromptMessage] = useState<Message | null>(null);
-  const [contextPosition, setContextPosition] = useState({ left: 12, top: 100 });
+  const [contextAnchor, setContextAnchor] = useState({ left: 12, top: 100, width: 1, height: 1 });
+  const messagePressables = useRef(new Map<string, any>());
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
@@ -246,8 +248,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   );
   useEffect(() => {
     let active = true;
-    Promise.all([messengerApi.stickers(), messengerApi.stickerPack()])
-      .then(([items, pack]) => { if (active) { setSavedStickers(items); setBuiltinStickers(pack); setStickerLibraryError(""); } })
+    Promise.all([messengerApi.stickers(), messengerApi.stickerPack(), messengerApi.myStickerPack()])
+      .then(([items, pack, mine]) => { if (active) { setSavedStickers(items); setBuiltinStickers(pack); setPackStickers(mine); setStickerLibraryError(""); } })
       .catch((error: any) => { if (active) setStickerLibraryError(error?.detail || "Les stickers enregistrés ne sont pas disponibles."); });
     return () => { active = false; };
   }, [userId]);
@@ -292,12 +294,19 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const native = event?.nativeEvent || {};
     const pageX = Number(native.pageX ?? native.clientX) || windowWidth / 2;
     const pageY = Number(native.pageY ?? native.clientY) || windowHeight / 2;
-    const menuWidth = Math.min(360, windowWidth - 24);
-    setContextPosition({
-      left: Math.max(12, Math.min(windowWidth - menuWidth - 12, pageX - menuWidth / 2)),
-      top: Math.max(74, Math.min(windowHeight - Math.min(420, windowHeight - 100) - 16, pageY - 28)),
-    });
-    setContextMessage(message);
+    const setAnchor = (left: number, top: number, width: number, height: number) => {
+      setContextAnchor({ left, top, width: Math.max(1, width), height: Math.max(1, height) });
+      setContextMessage(message);
+    };
+    const target = messagePressables.current.get(message.id);
+    if (target?.measureInWindow) {
+      target.measureInWindow((left: number, top: number, width: number, height: number) => {
+        if (Number.isFinite(top) && height > 1) setAnchor(left, top, width, height);
+        else setAnchor(pageX, pageY - 24, 1, 48);
+      });
+    } else {
+      setAnchor(pageX, pageY - 24, 1, 48);
+    }
   };
 
   const loadMessages = async (q?: string, mode: "replace" | "merge" = "replace") => {
@@ -609,10 +618,37 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     await messengerApi.removeSticker(id);
     setSavedStickers(current => current.filter(file => file.id !== id));
   };
+  const addPreviewStickerToPack = async () => {
+    const preview = attachmentPreview;
+    if (!preview?.sticker || !preview.fileId) throw new Error("Ce sticker n’est plus disponible.");
+    const added = await messengerApi.addStickerToPack(
+      preview.sticker.conversationId, preview.sticker.messageId, preview.fileId,
+    );
+    setPackStickers(current => [added, ...current.filter(file => file.id !== added.id)]);
+  };
+  const removePreviewStickerFromPack = async () => {
+    if (!attachmentPreview?.fileId) return;
+    const id = attachmentPreview.fileId;
+    await messengerApi.removeStickerFromPack(id);
+    setPackStickers(current => current.filter(file => file.id !== id));
+  };
+  const editPreviewSticker = async () => {
+    const preview = attachmentPreview;
+    if (!preview?.sticker || !preview.url || typeof File === "undefined") return;
+    const blob = await (await fetch(preview.url)).blob();
+    const originalName = preview.name.replace(/^sticker-/i, "");
+    const editedFile = normalizeMediaFile(new File([blob], `sticker-${originalName || "modifie.webp"}`, {
+      type: blob.type || preview.mime, lastModified: Date.now(),
+    }));
+    setPendingStickerCreation(true);
+    setPendingMedia([editedFile]);
+    URL.revokeObjectURL(preview.url);
+    setAttachmentPreview(null);
+  };
   const selectSticker = async (file: Attachment) => {
     setEmojiPickerOpen(false);
     try {
-      const attachment = file.id.startsWith("pack-") || savedStickers.some(saved => saved.id === file.id)
+      const attachment = file.id.startsWith("pack-") || savedStickers.some(saved => saved.id === file.id) || packStickers.some(saved => saved.id === file.id)
         ? await messengerApi.copySticker(conversation.id, file.id)
         : file;
       await send({ attachments: [attachment], text: "" });
@@ -960,6 +996,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
             && !message.text && !message.reply_to && !message.forwarded_from && !message.status_reply;
           const mediaOnlyMessage = mediaFiles.length === 1 && !message.text && !message.reply_to
             && !message.forwarded_from && !message.status_reply && !stickerFiles.length;
+          const hasStickerAttachment = stickerFiles.length > 0;
           const bubble = <View
              style={[
                styles.bubble, own ? styles.ownBubble : styles.otherBubble,
@@ -989,17 +1026,17 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                     <Ionicons name="arrow-forward" size={15} color={blue} />
                   </TouchableOpacity>
                   {!!message.status_reply.attachments?.length && <View style={styles.statusReplyMedia}>
-                    {message.status_reply.attachments.slice(0, 1).map(file =>
-                      <ProtectedMessageMedia key={file.id} file={file} compact maxWidth={180} onOpen={() => openAttachment(file)} />)}
+                     {message.status_reply.attachments.slice(0, 1).map(file =>
+                       <ProtectedMessageMedia key={file.id} file={file} compact maxWidth={180} onOpen={() => openAttachment(file)} onLongPress={event => openMessageContext(message, event)} />)}
                   </View>}
                 </View>}
                 {!!stickerFiles.length && <View style={[styles.stickerGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {stickerFiles.map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={() => openSticker(file, message.id)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={() => openSticker(file, message.id)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!mediaFiles.length && <View style={[styles.mediaGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {mediaFiles.map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={() => openAttachment(file)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={() => openAttachment(file)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!message.text && (isEmojiOnlyMessage(message.text)
                   ? <AnimatedEmojiMessage
@@ -1053,8 +1090,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
             setTimeout(() => setFocusedMessageId(current => current === message.id ? null : current), 2400);
           };
           const rowActionsPressable = <Pressable
+            ref={(node: any) => {
+              if (node) messagePressables.current.set(message.id, node);
+              else messagePressables.current.delete(message.id);
+            }}
             style={[styles.swipeMessage, own && styles.swipeMessageOwn]}
-            onPress={event => openMessageContext(message, event)}
+            onPress={!hasStickerAttachment ? event => openMessageContext(message, event) : undefined}
             onLongPress={event => openMessageContext(message, event)}
             delayLongPress={420}
             testID={`messenger-message-press-${message.id}`}
@@ -1202,6 +1243,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         </View> : <StickerPickerPanel
           stickers={recentStickers}
           savedStickers={savedStickers}
+          packStickers={packStickers}
           builtinStickers={builtinStickers}
           darkMode={darkMode}
           error={stickerLibraryError}
@@ -1216,15 +1258,18 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         ? <StickerActionSheet
           preview={attachmentPreview}
           saved={Boolean(attachmentPreview.fileId && savedStickers.some(file => file.id === attachmentPreview.fileId))}
+          packed={Boolean(attachmentPreview.fileId && packStickers.some(file => file.id === attachmentPreview.fileId))}
           onClose={() => setAttachmentPreview(null)}
           onSave={savePreviewSticker}
           onRemove={removePreviewSticker}
+          onAddToPack={addPreviewStickerToPack}
+          onRemoveFromPack={removePreviewStickerFromPack}
+          onEdit={editPreviewSticker}
         />
         : <ProtectedAttachmentViewer preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />}
       <MessageContextMenu
         message={contextMessage}
-        left={contextPosition.left}
-        top={contextPosition.top}
+        anchor={contextAnchor}
         screenWidth={windowWidth}
         screenHeight={windowHeight}
         canPin={conversation.kind === "private" || isChannelAdmin}

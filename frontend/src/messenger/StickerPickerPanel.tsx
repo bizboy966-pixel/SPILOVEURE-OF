@@ -27,6 +27,7 @@ function StickerThumbnail({ file, darkMode }: { file: Attachment; darkMode: bool
 type Props = {
   stickers: Attachment[];
   savedStickers: Attachment[];
+  packStickers: Attachment[];
   builtinStickers: Attachment[];
   darkMode: boolean;
   error?: string;
@@ -34,13 +35,15 @@ type Props = {
   onCreate: () => void;
 };
 
-export default function StickerPickerPanel({ stickers, savedStickers, builtinStickers, darkMode, error, onSelect, onCreate }: Props) {
+export default function StickerPickerPanel({ stickers, savedStickers, packStickers, builtinStickers, darkMode, error, onSelect, onCreate }: Props) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const savedIds = new Set(savedStickers.map(file => file.id));
   const shownSaved = savedStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
-  const shownRecent = stickers.filter(file => !savedIds.has(file.id) && file.name.toLowerCase().includes(normalizedQuery));
-  const shownPack = builtinStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
+  const packIds = new Set(packStickers.map(file => file.id));
+  const shownUserPack = packStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
+  const shownRecent = stickers.filter(file => !savedIds.has(file.id) && !packIds.has(file.id) && file.name.toLowerCase().includes(normalizedQuery));
+  const shownBuiltin = builtinStickers.filter(file => file.name.toLowerCase().includes(normalizedQuery));
   return (
     <View style={[styles.panel, darkMode && styles.panelDark]} testID="messenger-sticker-picker">
       <View style={[styles.searchBox, darkMode && styles.searchBoxDark]}>
@@ -70,14 +73,20 @@ export default function StickerPickerPanel({ stickers, savedStickers, builtinSti
             <StickerThumbnail file={file} darkMode={darkMode} />
           </TouchableOpacity>
         ))}
+        {!!shownUserPack.length && <Text style={[styles.groupTitle, darkMode && styles.textMutedDark]}>Mon pack de stickers</Text>}
+        {shownUserPack.map(file => (
+          <TouchableOpacity key={`pack-${file.id}`} onPress={() => onSelect(file)} style={[styles.stickerTile, darkMode && styles.tileDark]} accessibilityRole="button" accessibilityLabel={`Envoyer le sticker de mon pack ${file.name}`}>
+            <StickerThumbnail file={file} darkMode={darkMode} />
+          </TouchableOpacity>
+        ))}
         {!!shownRecent.length && <Text style={[styles.groupTitle, darkMode && styles.textMutedDark]}>Récents</Text>}
         {shownRecent.map(file => (
           <TouchableOpacity key={`recent-${file.id}`} onPress={() => onSelect(file)} style={[styles.stickerTile, darkMode && styles.tileDark]} accessibilityRole="button" accessibilityLabel={`Envoyer le sticker ${file.name}`} testID={`messenger-sticker-${file.id}`}>
             <StickerThumbnail file={file} darkMode={darkMode} />
           </TouchableOpacity>
         ))}
-        {!!shownPack.length && <Text style={[styles.groupTitle, darkMode && styles.textMutedDark]}>Pack libre · Twemoji</Text>}
-        {shownPack.map(file => (
+        {!!shownBuiltin.length && <Text style={[styles.groupTitle, darkMode && styles.textMutedDark]}>Pack libre · Twemoji</Text>}
+        {shownBuiltin.map(file => (
           <TouchableOpacity key={file.id} onPress={() => onSelect(file)} style={[styles.stickerTile, darkMode && styles.tileDark]} accessibilityRole="button" accessibilityLabel={`Envoyer ${file.name}`}>
             <StickerThumbnail file={file} darkMode={darkMode} />
           </TouchableOpacity>
@@ -87,7 +96,7 @@ export default function StickerPickerPanel({ stickers, savedStickers, builtinSti
           <Ionicons name="add-circle-outline" size={28} color="#1769e8" />
           <Text style={styles.createTileText}>Créer</Text>
         </TouchableOpacity>
-        {!shownRecent.length && !shownSaved.length && !shownPack.length && <Text style={[styles.emptyText, darkMode && styles.textMutedDark]}>{query ? "Aucun sticker trouvé." : "Les stickers que vous créez apparaîtront ici."}</Text>}
+        {!shownRecent.length && !shownSaved.length && !shownUserPack.length && !shownBuiltin.length && <Text style={[styles.emptyText, darkMode && styles.textMutedDark]}>{query ? "Aucun sticker trouvé." : "Les stickers que vous créez apparaîtront ici."}</Text>}
       </ScrollView>
     </View>
   );

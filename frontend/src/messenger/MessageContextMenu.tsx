@@ -6,8 +6,7 @@ import type { Message } from "./types";
 
 type Props = {
   message: Message | null;
-  left: number;
-  top: number;
+  anchor: { left: number; top: number; width: number; height: number };
   screenWidth: number;
   screenHeight: number;
   canPin: boolean;
@@ -35,18 +34,21 @@ const emojiTranslation: Record<CategoryTypes, string> = {
 };
 
 export default function MessageContextMenu({
-  message, left, top, screenWidth, screenHeight, canPin, canEdit, canDelete,
+  message, anchor, screenWidth, screenHeight, canPin, canEdit, canDelete,
   onClose, onReply, onReact, onCopy, onCopyLink, onForward, onPin, onEdit, onDelete, onSave,
 }: Props) {
   const [showAllEmoji, setShowAllEmoji] = useState(false);
   if (!message) return null;
+  const isSticker = message.attachments?.some(file => file.sticker || file.name.toLowerCase().startsWith("sticker-")) || false;
   const media = message.attachments?.some(file => !file.view_once &&
     (file.mime.startsWith("image/") || file.mime.startsWith("video/") || !file.mime.startsWith("audio/")),
   );
-  const menuWidth = Math.min(360, screenWidth - 24);
-  const reactionBarWidth = menuWidth;
-  const reactionBarLeft = Math.max(12, Math.min(screenWidth - reactionBarWidth - 12, left));
-  const actions = [
+  const menuWidth = Math.min(isSticker ? 240 : 300, screenWidth - 32);
+  const reactionBarWidth = Math.min(320, screenWidth - 24);
+  const centerX = anchor.left + anchor.width / 2;
+  const reactionBarLeft = Math.max(12, Math.min(screenWidth - reactionBarWidth - 12, centerX - reactionBarWidth / 2));
+  const menuLeft = Math.max(12, Math.min(screenWidth - menuWidth - 12, centerX - menuWidth / 2));
+  const generalActions = [
     { label: "Répondre", icon: "arrow-undo-outline" as const, onPress: onReply, testID: "reply" },
     ...(message.text || message.attachments?.length
       ? [{ label: "Copier", icon: "copy-outline" as const, onPress: onCopy, testID: "copy" }]
@@ -60,11 +62,31 @@ export default function MessageContextMenu({
     ...(canEdit ? [{ label: "Modifier", icon: "create-outline" as const, onPress: onEdit, testID: "edit" }] : []),
     ...(canDelete ? [{ label: "Supprimer", icon: "trash-outline" as const, onPress: onDelete, testID: "delete", danger: true }] : []),
   ];
+  const actions = isSticker
+    ? (canDelete ? [{ label: "Supprimer", icon: "trash-outline" as const, onPress: onDelete, testID: "delete", danger: true }] : [])
+    : generalActions;
+  const menuHeight = Math.min(actions.length * 51 + 10, Math.max(70, screenHeight * 0.48));
+  const reactionHeight = 54;
+  const gap = 7;
+  const belowReactionTop = anchor.top + anchor.height + 7;
+  const belowMenuTop = belowReactionTop + reactionHeight + gap;
+  let reactionTop = belowReactionTop;
+  let menuTop = belowMenuTop;
+  if (belowMenuTop + menuHeight > screenHeight - 12) {
+    const aboveMenuTop = anchor.top - reactionHeight - gap - menuHeight - 7;
+    if (aboveMenuTop >= 12) {
+      menuTop = aboveMenuTop;
+      reactionTop = aboveMenuTop + menuHeight + gap;
+    } else {
+      reactionTop = Math.max(12, Math.min(screenHeight - reactionHeight - 12, anchor.top - reactionHeight - 7));
+      menuTop = Math.max(12, Math.min(screenHeight - menuHeight - 12, reactionTop + reactionHeight + gap));
+    }
+  }
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.backdrop} testID="messenger-message-context">
         <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} accessibilityLabel="Fermer les options du message" />
-        <View style={[styles.reactionBar, { left: reactionBarLeft, width: reactionBarWidth, top: Math.max(12, top - 60) }]} testID="messenger-message-reactions">
+        <View style={[styles.reactionBar, { left: reactionBarLeft, width: reactionBarWidth, top: reactionTop }]} testID="messenger-message-reactions">
           <ScrollView style={styles.reactionScroll} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reactionRow}>
             {quickReactions.map(emoji => (
               <TouchableOpacity key={emoji} onPress={() => onReact(emoji)} style={styles.reactionButton} accessibilityRole="button" accessibilityLabel={`Réagir ${emoji}`} testID={`messenger-context-react-${emoji}`}>
@@ -86,10 +108,10 @@ export default function MessageContextMenu({
           style={[
             styles.menu,
             {
-              left,
-              top,
+              left: menuLeft,
+              top: menuTop,
               width: menuWidth,
-              maxHeight: Math.max(180, screenHeight - top - 12),
+              maxHeight: menuHeight,
             },
           ]}
           testID="messenger-message-actions"
@@ -141,7 +163,7 @@ export default function MessageContextMenu({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(10,18,30,.18)" },
+  backdrop: { flex: 1, backgroundColor: "rgba(10,18,30,.12)" },
   reactionBar: {
     position: "absolute", height: 54, flexDirection: "row", alignItems: "center", borderRadius: 28, backgroundColor: "#fff",
     paddingLeft: 7, paddingRight: 5, shadowColor: "#152238", shadowOffset: { width: 0, height: 4 },
@@ -153,12 +175,12 @@ const styles = StyleSheet.create({
   moreReactionButton: { width: 42, height: 46, alignItems: "center", justifyContent: "center" },
   reactionEmoji: { fontSize: 25 },
   menu: {
-    position: "absolute", overflow: "hidden", borderRadius: 18, backgroundColor: "#fff",
-    paddingVertical: 5, shadowColor: "#102042", shadowOffset: { width: 0, height: 7 },
-    shadowOpacity: 0.23, shadowRadius: 18, elevation: 14,
+    position: "absolute", overflow: "hidden", borderRadius: 16, backgroundColor: "#fff",
+    paddingVertical: 4, shadowColor: "#102042", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2, shadowRadius: 12, elevation: 12,
   },
-  action: { minHeight: 47, flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 17 },
-  actionText: { color: "#202833", fontSize: 15, fontWeight: "500" },
+  action: { minHeight: 47, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 15 },
+  actionText: { color: "#202833", fontSize: 15, fontWeight: "500", flexShrink: 1 },
   dangerText: { color: "#d73546" },
   emojiSheet: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden", paddingTop: 8 },
   emojiSheetHeader: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },

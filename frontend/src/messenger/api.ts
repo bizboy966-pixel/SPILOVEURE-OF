@@ -36,6 +36,10 @@ export const messengerApi = {
     ),
   stickers: () => api.get<Attachment[]>("/messenger/stickers"),
   stickerPack: () => api.get<Attachment[]>("/messenger/sticker-pack"),
+  myStickerPack: () => api.get<Attachment[]>("/messenger/sticker-pack/mine"),
+  addStickerToPack: (conversationId: string, messageId: string, fileId: string) =>
+    api.post<Attachment>(`/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stickers/${encodeURIComponent(fileId)}/pack`, {}),
+  removeStickerFromPack: (fileId: string) => api.delete(`/messenger/stickers/${encodeURIComponent(fileId)}/pack`),
   removeSticker: (id: string) => api.delete(`/messenger/stickers/${encodeURIComponent(id)}`),
   videoSticker: (id: string, file: File, start: number, duration: number) =>
     api.upload<Attachment>(`/messenger/conversations/${encodeURIComponent(id)}/stickers/video`, file, "file", { start, duration }),

@@ -60,6 +60,8 @@ async def initialize(db):
     await db.spv_files.create_index("id", unique=True)
     await db.spv_files.create_index("expires_at")
     await db.spv_stickers.create_index([("user_id", 1), ("file_id", 1)], unique=True)
+    await db.spv_sticker_pack_items.create_index([("user_id", 1), ("file_id", 1)], unique=True)
+    await db.spv_sticker_pack_items.create_index([("user_id", 1), ("added_at", -1)])
     await db.spv_posts.create_index("id", unique=True)
     await db.spv_statuses.create_index("id", unique=True)
     await db.spv_statuses.create_index([("author_id", 1), ("expires_at", 1)])

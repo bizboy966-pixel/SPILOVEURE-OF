@@ -526,6 +526,60 @@ def test_sticker_metadata_and_remove_favorite_preserves_messages(chat):
     assert len(call(chat, "get", f"/conversations/{cid}/messages", "bob").json()["items"]) == 1
 
 
+def test_received_sticker_can_be_added_to_personal_pack_and_reused(chat):
+    source_cid = conversation(chat, "group", ["bob"])
+    uploaded = call(
+        chat, "post", f"/conversations/{source_cid}/files",
+        files={"file": ("sticker-wave.webp", b"sticker-bytes", "image/webp")},
+        data={"sticker": "true"},
+    ).json()
+    sent = message(chat, source_cid, client_id="sticker-pack-source", attachments=[uploaded]).json()
+    path = f"/conversations/{source_cid}/messages/{sent['id']}/stickers/{uploaded['id']}/pack"
+
+    added = call(chat, "post", path, "bob")
+    assert added.status_code == 200, added.text
+    assert [item["id"] for item in call(chat, "get", "/sticker-pack/mine", "bob").json()] == [uploaded["id"]]
+    assert call(chat, "post", path, "eve").status_code == 404
+
+    asyncio.run(chat[1].spv_files.update_one(
+        {"id": uploaded["id"]}, {"$set": {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)}},
+    ))
+    asyncio.run(chat[1].spv_messages.update_one({"id": sent["id"]}, {"$set": {"deleted": True}}))
+    asyncio.run(__import__("messenger_files").cleanup_expired_message_files(chat[1]))
+    assert chat[0].get(uploaded["url"], headers=auth("bob")).status_code == 200
+
+    target_cid = conversation(chat, "group", ["bob", "eve"])
+    copied = call(chat, "post", f"/stickers/{uploaded['id']}/copy", "bob", json={"conversation_id": target_cid})
+    assert copied.status_code == 200, copied.text
+    assert message(chat, target_cid, "bob", "sticker-pack-reused", attachments=[copied.json()]).status_code == 200
+    assert chat[0].get(copied.json()["url"], headers=auth("eve")).status_code == 200
+
+    assert call(chat, "delete", f"/stickers/{uploaded['id']}/pack", "bob").status_code == 200
+    assert call(chat, "get", "/sticker-pack/mine", "bob").json() == []
+    asyncio.run(__import__("messenger_files").cleanup_expired_message_files(chat[1]))
+    assert chat[0].get(uploaded["url"], headers=auth("bob")).status_code == 404
+
+
+def test_only_stickers_from_visible_messages_can_be_added_to_pack(chat):
+    cid = conversation(chat, "group", ["bob"])
+    photo = call(
+        chat, "post", f"/conversations/{cid}/files",
+        files={"file": ("photo.png", b"photo", "image/png")},
+    ).json()
+    photo_message = message(chat, cid, client_id="normal-photo", attachments=[photo]).json()
+    photo_path = f"/conversations/{cid}/messages/{photo_message['id']}/stickers/{photo['id']}/pack"
+    assert call(chat, "post", photo_path, "bob").status_code == 404
+
+    sticker = call(
+        chat, "post", f"/conversations/{cid}/files",
+        files={"file": ("sticker.png", b"sticker", "image/png")}, data={"sticker": "true"},
+    ).json()
+    sticker_message = message(chat, cid, client_id="visible-sticker", attachments=[sticker]).json()
+    valid_path = f"/conversations/{cid}/messages/{sticker_message['id']}/stickers/{sticker['id']}/pack"
+    assert call(chat, "post", valid_path, "bob").status_code == 200
+    assert call(chat, "post", valid_path, "eve").status_code == 404
+
+
 def test_builtin_sticker_pack_is_sendable_but_cannot_escape_directory(chat):
     cid = conversation(chat)
     pack = call(chat, "get", "/sticker-pack").json()
