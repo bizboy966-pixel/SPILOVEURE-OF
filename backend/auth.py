@@ -85,11 +85,23 @@ async def get_current_user(
     if user.get("status") == "banned":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte banni.")
     from identity_policy import main_ready, onboarding_path_allowed
-    onboarding = payload.get("scope") == "onboarding"
-    restricted = onboarding or (user.get("auth_flow_version") == 2 and not main_ready(user))
+    scope = payload.get("scope")
+    onboarding = scope == "onboarding"
+    # Account onboarding credentials stay narrow until activation. The Chat
+    # cookie remains separate; only an explicit main-onboarding bearer can
+    # become a platform session once activation and password requirements pass.
+    promote_account_session = (
+        scope == "main_onboarding"
+        and user.get("auth_flow_version") == 2
+        and main_ready(user)
+    )
+    restricted = (
+        (scope in ("onboarding", "main_onboarding") and not promote_account_session)
+        or (user.get("auth_flow_version") == 2 and not main_ready(user))
+    )
     if restricted and not onboarding_path_allowed(request.url.path, request.method):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "MAIN_AUTHENTICATION_REQUIRED")
-    user["session_scope"] = "onboarding" if onboarding else "main"
+    user["session_scope"] = "onboarding" if restricted else "main"
     return user
 
 

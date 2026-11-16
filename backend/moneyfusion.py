@@ -15,11 +15,12 @@ import os
 import re
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
+import httpx as fx_httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -54,6 +55,11 @@ PAYOUT_STATUS_URL = f"{API_ROOT}/api/v1/payout/check-status"
 CATALOG_CACHE_SECONDS = 3600
 ACTIVATION_FEE_XOF = 2650
 PAYIN_PROVIDER = "moneyfusion"
+FX_API_URL = "https://api.frankfurter.dev/v2/rates"
+FX_CACHE_KEY = "moneyfusion_fx_cache"
+FX_REFRESH_SECONDS = 12 * 60 * 60
+FX_MAX_RATE_AGE_DAYS = 5
+FX_SOURCE = "Frankfurter (taux de référence)"
 
 api = APIRouter(prefix="/api/payments/moneyfusion", tags=["moneyfusion"])
 webhooks = APIRouter(prefix="/api/webhooks/moneyfusion", tags=["moneyfusion-webhooks"])
@@ -182,9 +188,116 @@ def _amount_from_xof(cfg: dict, amount_xof: float, currency: str) -> Optional[fl
         return None
     if not math.isfinite(float(amount_xof)):
         return None
-    unit = Decimal("0.01") if currency.upper() in ("USD", "GHS", "KES") else Decimal("1")
+    code = currency.upper()
+    zero_decimal = {"BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
+                    "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF"}
+    three_decimal = {"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"}
+    digits = 0 if code in zero_decimal else 3 if code in three_decimal else 2
+    unit = Decimal(1).scaleb(-digits)
     amount = (Decimal(str(amount_xof)) * Decimal(str(rate))).quantize(unit, rounding=ROUND_HALF_UP)
     return float(amount) if amount > 0 else None
+
+
+def _fx_cache_is_usable(cache: dict, currencies: set[str]) -> bool:
+    if not cache:
+        return False
+    fetched_at = cache.get("fetched_at")
+    if isinstance(fetched_at, str):
+        try:
+            fetched_at = datetime.fromisoformat(fetched_at)
+        except ValueError:
+            return False
+    if not isinstance(fetched_at, datetime):
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    if (_now() - fetched_at).total_seconds() > FX_REFRESH_SECONDS:
+        return False
+    rates = cache.get("rates_per_xof") or {}
+    dates = cache.get("rate_dates") or {}
+    today = _now().date()
+    for code in currencies - {"XOF", "XAF"}:
+        try:
+            rate = float(rates[code])
+            rate_date = datetime.strptime(str(dates[code]), "%Y-%m-%d").date()
+        except (KeyError, TypeError, ValueError):
+            return False
+        if not math.isfinite(rate) or rate <= 0:
+            return False
+        if (today - rate_date).days < 0 or (today - rate_date).days > FX_MAX_RATE_AGE_DAYS:
+            return False
+    return True
+
+
+async def automatic_fx_rates(db, currencies, *, force: bool = False) -> dict:
+    """Get daily reference rates against XOF, with a bounded, fail-closed cache."""
+    codes = {str(code or "").strip().upper() for code in currencies}
+    codes.discard("")
+    if any(not re.fullmatch(r"[A-Z]{3}", code) for code in codes):
+        raise HTTPException(400, "Code devise invalide.")
+    requested = codes | {"XOF", "XAF"}
+    doc = await db.app_settings.find_one({"key": FX_CACHE_KEY}) or {}
+    cache = doc.get("value") if isinstance(doc.get("value"), dict) else {}
+    if not force and _fx_cache_is_usable(cache, requested):
+        return cache
+
+    foreign = sorted(requested - {"XOF", "XAF"})
+    updated = {
+        "rates_per_xof": {
+            **(cache.get("rates_per_xof") or {}),
+            "XOF": 1.0,
+            "XAF": 1.0,
+        },
+        "rate_dates": {
+            **(cache.get("rate_dates") or {}),
+            "XOF": "parité fixe",
+            "XAF": "parité fixe",
+        },
+    }
+    if foreign:
+        try:
+            async with fx_httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.get(
+                    FX_API_URL,
+                    params={"base": "XOF", "quotes": ",".join(foreign)},
+                )
+            response.raise_for_status()
+            rows = response.json()
+            for row in rows if isinstance(rows, list) else []:
+                code = str(row.get("quote") or "").upper()
+                if code not in foreign or str(row.get("base") or "").upper() != "XOF":
+                    continue
+                rate = float(row.get("rate"))
+                rate_date = datetime.strptime(str(row.get("date")), "%Y-%m-%d").date()
+                age_days = (_now().date() - rate_date).days
+                if not math.isfinite(rate) or rate <= 0 or age_days < 0 or age_days > FX_MAX_RATE_AGE_DAYS:
+                    continue
+                updated["rates_per_xof"][code] = rate
+                updated["rate_dates"][code] = rate_date.isoformat()
+            missing = [code for code in foreign if code not in updated["rates_per_xof"]]
+            if missing:
+                raise ValueError("Missing FX quotes")
+        except Exception:
+            if _fx_cache_is_usable(cache, requested):
+                return cache
+            log.warning("MoneyFusion automatic FX rates unavailable; refusing conversion.")
+            raise HTTPException(
+                503,
+                "Le taux de conversion automatique est momentanément indisponible. Aucun paiement n’a été lancé.",
+            ) from None
+
+    updated["rate_date"] = max(
+        (value for value in updated["rate_dates"].values() if value != "parité fixe"),
+        default=None,
+    )
+    updated["fetched_at"] = _now()
+    updated["source"] = FX_SOURCE
+    await db.app_settings.update_one(
+        {"key": FX_CACHE_KEY},
+        {"$set": {"key": FX_CACHE_KEY, "value": updated, "updated_at": _now()}},
+        upsert=True,
+    )
+    return updated
 
 
 def _safe_checkout_url(value: str) -> bool:
@@ -526,12 +639,18 @@ async def public_catalog(request: Request):
             # The hosted checkout does not accept an operator field. Do not
             # expose a country unless every listed operator remains enabled.
             if ops and len(ops) == len(entry["operators"]):
-                amount = _amount_from_xof(cfg, ACTIVATION_FEE_XOF, entry["currency"])
+                try:
+                    fx = await automatic_fx_rates(db, [entry["currency"]])
+                except HTTPException:
+                    continue
+                fx_cfg = {**cfg, "rates_per_xof": fx.get("rates_per_xof") or {}}
+                amount = _amount_from_xof(fx_cfg, ACTIVATION_FEE_XOF, entry["currency"])
                 if amount is not None:
                     countries.append({
                         "country_code": entry["country_code"],
                         "country": entry["country"], "currency": entry["currency"],
                         "amount": amount, "operators": entry["operators"],
+                        "fx_rate_date": (fx.get("rate_dates") or {}).get(entry["currency"], "parité fixe"),
                     })
     return {
         "enabled": bool(countries),
@@ -577,9 +696,11 @@ async def initiate_payin(data: PayInRequest, request: Request,
     amount_xof = ACTIVATION_FEE_XOF if kind == "activation" else float(data.amount_xof or 0)
     if not math.isfinite(amount_xof) or amount_xof <= 0:
         raise HTTPException(400, "Montant de paiement invalide.")
-    amount = _amount_from_xof(cfg, amount_xof, currency)
+    fx = await automatic_fx_rates(db, [currency])
+    fx_cfg = {**cfg, "rates_per_xof": fx.get("rates_per_xof") or {}}
+    amount = _amount_from_xof(fx_cfg, amount_xof, currency)
     if amount is None:
-        raise HTTPException(400, f"Le taux de conversion {currency}/XOF n’est pas configuré.")
+        raise HTTPException(503, f"Le taux de conversion automatique {currency}/XOF est indisponible.")
     level = int(data.level)
     if kind == "activation" and level != 1:
         raise HTTPException(400, "MoneyFusion est configuré uniquement pour l’activation du Niveau 1.")
@@ -603,7 +724,9 @@ async def initiate_payin(data: PayInRequest, request: Request,
         "level": level if kind == "activation" else None,
         "amount": amount, "currency": currency,
         "base_amount_xof": amount_xof,
-        "fx_rate_per_xof": _rate_for(cfg, currency),
+        "fx_rate_per_xof": _rate_for(fx_cfg, currency),
+        "fx_rate_date": (fx.get("rate_dates") or {}).get(currency, "parité fixe"),
+        "fx_source": fx.get("source") or FX_SOURCE,
         "phone": _local_phone(data.phone, country_code),
         "country_code": country_code, "status": "pending",
         "activation_done": False, "created_at": now, "updated_at": now,
@@ -778,9 +901,14 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
         return {"auto_dispatched": False, "reason": "country_unsupported"}
     currency = catalog_country["currency"]
     net_xof = float(withdrawal.get("net_payout") or withdrawal.get("amount") or 0)
-    amount = _amount_from_xof(cfg, net_xof, currency)
+    try:
+        fx = await automatic_fx_rates(db, [currency])
+    except HTTPException:
+        return {"auto_dispatched": False, "reason": "fx_rate_unavailable"}
+    fx_cfg = {**cfg, "rates_per_xof": fx.get("rates_per_xof") or {}}
+    amount = _amount_from_xof(fx_cfg, net_xof, currency)
     if amount is None:
-        return {"auto_dispatched": False, "reason": "currency_rate_missing"}
+        return {"auto_dispatched": False, "reason": "fx_rate_unavailable"}
     phone = _local_phone(str(withdrawal.get("phone") or ""), cc)
     if not re.fullmatch(r"\d{6,15}", phone):
         return {"auto_dispatched": False, "reason": "phone_missing"}
@@ -798,7 +926,9 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
         "_id": wd_id,
         "wd_id": wd_id, "user_id": withdrawal.get("user_id"),
         "amount": amount, "amount_xof": net_xof, "currency": currency,
-        "fx_rate_per_xof": _rate_for(cfg, currency),
+        "fx_rate_per_xof": _rate_for(fx_cfg, currency),
+        "fx_rate_date": (fx.get("rate_dates") or {}).get(currency, "parité fixe"),
+        "fx_source": fx.get("source") or FX_SOURCE,
         "country_code": cc, "operator_code": selected["operator_code"],
         "phone": phone, "status": "submitting", "created_at": _now(),
     }

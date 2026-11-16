@@ -1,11 +1,14 @@
 """Contacts, privacy preferences and the community feed."""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from messenger_core import (
-    Attachment, ReactionIn, TextIn, allowed_pair, attachments_checked,
+    Attachment, ReactionIn, TextIn, allowed_pair, attachments_checked, display_name,
     chat_user, clean, event, identifier, now, person, rate_limit,
 )
 
@@ -68,7 +71,9 @@ async def toggle_reaction(collection, mid, emoji, uid):
 
 async def profile_list(db, ids):
     result = []
-    async for row in db.users.find({"id": {"$in": ids}}, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1}):
+    async for row in db.users.find({"id": {"$in": ids}}, {
+        "id": 1, "username": 1, "chat_username": 1, "avatar_url": 1, "profile_photo": 1,
+    }):
         result.append(await person(db, row))
     return result
 
@@ -126,6 +131,49 @@ async def delete_contact(peer: str, request: Request, user=Depends(chat_user)):
     ]})
     await event(db, [uid, peer], {"type": "updated"})
     return {"ok": True}
+
+
+class ChatUsernameIn(BaseModel):
+    username: str = Field(min_length=2, max_length=60)
+
+
+@api.patch("/profile")
+async def update_chat_profile(body: ChatUsernameIn, request: Request, user=Depends(chat_user)):
+    db, uid = request.app.state.db, user["id"]
+    username = body.username.strip()
+    username = re.sub(r"^(?:SPV@|@)", "", username, flags=re.IGNORECASE)
+    if not re.fullmatch(r"[\w.-]{2,60}", username, flags=re.UNICODE):
+        raise HTTPException(400, "Utilisez 2 à 60 lettres, chiffres, points, tirets ou tirets bas.")
+    normalized = username.casefold()
+    pattern = {"$regex": "^" + re.escape(username) + "$", "$options": "i"}
+    owner = await db.users.find_one({
+        "id": {"$ne": uid},
+        "$or": [
+            {"username": pattern},
+            {"chat_username": pattern},
+            {"chat_username_normalized": normalized},
+        ],
+    }, {"id": 1})
+    if owner:
+        raise HTTPException(409, "Ce nom d’utilisateur est déjà utilisé.")
+    try:
+        await db.users.update_one({"id": uid}, {"$set": {
+            "chat_username": username,
+            "chat_username_normalized": normalized,
+            "chat_username_updated_at": now(),
+        }})
+    except DuplicateKeyError:
+        raise HTTPException(409, "Ce nom d’utilisateur est déjà utilisé.") from None
+    recipients = {uid}
+    async for conv in db.spv_conversations.find({"members": uid}, {"members": 1}):
+        recipients.update(conv.get("members") or [])
+    contacts = await db.spv_contacts.find({
+        "$or": [{"user_id": uid}, {"peer_id": uid}],
+    }, {"user_id": 1, "peer_id": 1}).to_list(2000)
+    for row in contacts:
+        recipients.add(row["peer_id"] if row.get("user_id") == uid else row["user_id"])
+    await event(db, list(recipients), {"type": "profile"})
+    return {"username": username, "chat_username": username}
 
 
 @api.post("/blocks/{peer}")
@@ -310,7 +358,7 @@ async def comment(post_id: str, body: TextIn, request: Request, user=Depends(cha
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=2),
     })
     await db.spv_posts.update_one({"id": post_id, "comments.499": {"$exists": False}}, {"$push": {"comments": {
-        "id": identifier(), "user_id": user["id"], "username": user.get("username", "Membre"),
+        "id": identifier(), "user_id": user["id"], "username": display_name(user),
         "text": body.text.strip(), "created_at": now(),
     }}})
     await event(db, [post["author_id"]], {"type": "feed"})
@@ -410,7 +458,7 @@ async def publish_status(body: StatusIn, request: Request, user=Depends(chat_use
     stamp = now()
     row = {
         "id": identifier(), "author_id": uid, "sender_id": uid,
-        "author_name": user.get("username", "Membre"), "text": body.text.strip(),
+        "author_name": display_name(user), "text": body.text.strip(),
         "attachments": attachments, "created_at": stamp,
         "expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
         "viewed_by": [], "liked_by": [],

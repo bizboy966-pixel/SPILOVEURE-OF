@@ -84,7 +84,7 @@ async def register_account(data, request):
         if isinstance(exc, DuplicateKeyError):
             raise HTTPException(409, "Un compte utilise déjà ces informations.") from None
         raise
-    return {"access_token": create_access_token(uid, "user", scope="onboarding"),
+    return {"access_token": create_access_token(uid, "user", scope="main_onboarding"),
             "token_type": "bearer", "user": {**safe_user(user), "session_scope": "onboarding"}}
 
 
@@ -206,7 +206,7 @@ async def open_chat(request: Request, response: Response):
     if not email_verified(user):
         raise HTTPException(403, "EMAIL_VERIFICATION_REQUIRED")
     cookie = await cookie_identity(request)
-    if claims.get("scope") == "onboarding" and not (cookie and cookie[1]["id"] == user["id"]):
+    if claims.get("scope") in ("onboarding", "main_onboarding") and not (cookie and cookie[1]["id"] == user["id"]):
         # Knowing an address at registration is not proof of ownership.
         # Another device may have verified that address in the meantime.
         raise HTTPException(403, "Vérifiez votre e-mail sur cet appareil pour ouvrir le Chat.")
@@ -271,7 +271,7 @@ async def register_chat_push(body: TokenIn, request: Request, user=Depends(requi
 @router.post("/onboarding-session")
 async def onboarding_session(request: Request):
     user, _ = await identity(request)
-    return {"access_token": create_access_token(user["id"], user.get("role", "user"), scope="onboarding", auth_version=user.get("auth_version", 0)),
+    return {"access_token": create_access_token(user["id"], user.get("role", "user"), scope="main_onboarding", auth_version=user.get("auth_version", 0)),
             "user": {**safe_user(user), "session_scope": "onboarding"}, "token_type": "bearer"}
 
 
@@ -335,8 +335,6 @@ async def unlock(data: UnlockIn, request: Request):
     await rate_limit(db, "unlock-ip:" + remote_key(request), 40, 900)
     if not activated(user):
         raise HTTPException(403, "ACTIVATION_REQUIRED")
-    if not email_verified(user):
-        raise HTTPException(403, "EMAIL_VERIFICATION_REQUIRED")
     if not password_created(user):
         raise HTTPException(403, "PASSWORD_CREATION_REQUIRED")
     if not await asyncio.to_thread(verify_password, data.password, user.get("password_hash", "")):

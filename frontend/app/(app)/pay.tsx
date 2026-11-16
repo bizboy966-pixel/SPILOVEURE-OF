@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Image, Linking, Modal, SafeAreaView, ScrollView,
+  ActivityIndicator, BackHandler, Image, Linking, Modal, SafeAreaView, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -73,6 +73,18 @@ export default function Pay() {
   const [err, setErr] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "pending" | "success" | "failed">("idle");
+  useEffect(() => {
+    if (phase !== "pending") return;
+    const backGuard = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => backGuard.remove();
+  }, [phase]);
+  useEffect(() => {
+    if (phase !== "pending" || typeof window === "undefined") return;
+    const restorePaymentPage = () => window.history.pushState({ paymentPending: true }, "", window.location.href);
+    restorePaymentPage();
+    window.addEventListener("popstate", restorePaymentPage);
+    return () => window.removeEventListener("popstate", restorePaymentPage);
+  }, [phase]);
   const [cryptoAddr, setCryptoAddr] = useState<{
     address?: string; qr?: string; amount?: number; asset?: string; network?: string;
   } | null>(null);
@@ -321,9 +333,11 @@ export default function Pay() {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="pay-back">
-          <Ionicons name="chevron-back" size={22} color={theme.colors.textPrimary} />
-        </TouchableOpacity>
+        {phase === "pending"
+          ? <View style={{ width: 40 }} />
+          : <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="pay-back">
+              <Ionicons name="chevron-back" size={22} color={theme.colors.textPrimary} />
+            </TouchableOpacity>}
         <Text style={styles.title}>Activer mon compte</Text>
         <View style={{ width: 40 }} />
       </View>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
@@ -30,7 +30,7 @@ type Settings = {
 };
 type StorageUsage = { file_count: number; used_bytes: number; daily_upload_limit_bytes: number; max_file_bytes: number };
 type Props = {
-  user: { id: string; username: string; email?: string; phone?: string; country?: string; profile_photo?: string };
+  user: { id: string; username: string; account_username?: string; chat_username?: string; email?: string; phone?: string; country?: string; profile_photo?: string };
   onOpenContacts?: () => void;
   onOpenChats?: () => void;
   onAppearanceChange?: (value: "light" | "dark") => void;
@@ -47,7 +47,7 @@ const isProfileSection = (name: string): name is ProfileSection => [
 
 export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats, onAppearanceChange, onReduceMotionChange, onHighContrastChange }: Props) {
   const router = useRouter();
-  const { logout } = useChat();
+  const { logout, refresh: refreshChat } = useChat();
   const { lang, setLang, t } = useI18n();
   const [section, setSection] = useState<ProfileSection | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -64,7 +64,30 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
   const [linkCopied, setLinkCopied] = useState(false);
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [storageLoading, setStorageLoading] = useState(false);
+  const [chatUsername, setChatUsername] = useState(user.chat_username || user.username);
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameNotice, setUsernameNotice] = useState("");
   const personalLink = chatProfileUrl(user.username);
+  useEffect(() => setChatUsername(user.chat_username || user.username), [user.id, user.username, user.chat_username]);
+  const saveChatUsername = async () => {
+    const username = chatUsername.trim().replace(/^(?:SPV@|@)/i, "");
+    if (!/^[\p{L}\p{N}_.-]{2,60}$/u.test(username)) {
+      setError("Utilisez 2 à 60 lettres, chiffres, points, tirets ou tirets bas.");
+      return;
+    }
+    setUsernameSaving(true);
+    setUsernameNotice("");
+    try {
+      await api.patch("/messenger/profile", { username });
+      await refreshChat();
+      setError("");
+      setUsernameNotice("Nom d’utilisateur du Chat mis à jour.");
+    } catch (e: any) {
+      setError(e?.detail || "Impossible de modifier le nom d’utilisateur.");
+    } finally {
+      setUsernameSaving(false);
+    }
+  };
   const sectionTitleKey: Partial<Record<ProfileSection, string>> = {
     "Appareils connectés": "connected_devices", "Compte": "account",
     "Confidentialité": "privacy", "Listes": "lists", "Discussions": "chats",
@@ -251,12 +274,23 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
             {!session.current && <TouchableOpacity onPress={() => void revokeSession(session.id)} accessibilityRole="button" accessibilityLabel="Terminer cette session"><Text style={styles.dangerText}>Déconnecter</Text></TouchableOpacity>}
           </View>)}
           {!sessionsLoading && sessions.length === 0 ? <Text style={styles.secondary}>Aucune session disponible.</Text> : null}
-          {action("Se déconnecter de cet appareil", async () => { await logout(); router.replace("/verify-email" as any); }, "log-out-outline")}
+          {action("Se déconnecter de cet appareil", async () => { await logout(); router.replace("/(auth)/login" as any); }, "log-out-outline")}
         </>;
       case "Compte":
         return <>
           {info("Identifiants", "L’e-mail, le nom d’utilisateur ou le numéro de téléphone permettent de se connecter avec le même mot de passe.")}
-          <View style={styles.settingRow}><View><Text style={styles.secondary}>Nom d’utilisateur</Text><Text style={styles.rowTitle}>{user.username}</Text></View></View>
+          <View style={styles.settingRow}><View><Text style={styles.secondary}>Nom d’utilisateur du compte principal</Text><Text style={styles.rowTitle}>{user.account_username || user.username}</Text></View></View>
+          <View style={styles.usernameEditor}>
+            <Text style={styles.secondary}>Nom d’utilisateur SPILOVEURE Chat</Text>
+            <View style={styles.usernameInputRow}>
+              <Text style={styles.handle}>SPV@</Text>
+              <TextInput value={chatUsername} onChangeText={setChatUsername} autoCapitalize="none" autoCorrect={false} maxLength={60} placeholder="nom_utilisateur" style={styles.usernameInput} accessibilityLabel="Nom d’utilisateur du Chat" />
+              <TouchableOpacity onPress={() => void saveChatUsername()} disabled={usernameSaving} style={styles.usernameSave}>
+                <Text style={styles.actionText}>{usernameSaving ? "…" : "Enregistrer"}</Text>
+              </TouchableOpacity>
+            </View>
+            {usernameNotice ? <Text style={styles.usernameNotice}>{usernameNotice}</Text> : null}
+          </View>
           <View style={styles.settingRow}><View><Text style={styles.secondary}>E-mail</Text><Text style={styles.rowTitle}>{user.email || "Non renseigné"}</Text></View></View>
           <View style={styles.settingRow}><View><Text style={styles.secondary}>Téléphone</Text><Text style={styles.rowTitle}>{user.phone || "Non renseigné"}</Text></View></View>
           {action("Réinitialiser le mot de passe", () => router.push("/forgot-password" as any), "lock-closed-outline")}
@@ -398,6 +432,11 @@ const styles = StyleSheet.create({
   dangerText: { color: "#c43e48", fontWeight: "700", fontSize: 12 },
   error: { color: "#bf3e45", backgroundColor: "#fff1f0", padding: 10, borderRadius: 10, marginBottom: 8 },
   personalLink: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginVertical: 8 },
+  usernameEditor: { backgroundColor: "#f5f8ff", borderColor: "#e1eaff", borderWidth: 1, borderRadius: 14, padding: 13, marginVertical: 8 },
+  usernameInputRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 7 },
+  usernameInput: { flex: 1, minWidth: 0, color: ink, fontSize: 14, paddingVertical: 8, paddingHorizontal: 9, backgroundColor: "#fff", borderRadius: 9 },
+  usernameSave: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 9, backgroundColor: "#e6efff" },
+  usernameNotice: { color: "#13864b", fontSize: 12, fontWeight: "700", marginTop: 7 },
   handle: { color: ink, fontSize: 15, fontWeight: "900", marginTop: 5 },
   link: { color: blue, fontSize: 11, lineHeight: 17, marginTop: 3, overflowWrap: "anywhere", wordBreak: "break-word" } as any,
   linkActions: { flexDirection: "row", gap: 10, marginTop: 10 },

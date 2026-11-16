@@ -18,6 +18,7 @@ import { ContactsPanel, FeedPanel, ProfilePanel } from "./CommunityPanels";
 import { useNavigationTransition } from "./NavigationTransition";
 import { normalizeSpvUsername } from "./userLinks";
 import { setActiveNotificationConversation } from "./notificationRuntime";
+import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
 
 const logo = require("../../assets/images/spiloveure-logo.png");
 const blue = "#1769e8", ink = "#102042", muted = "#8993a4";
@@ -43,6 +44,18 @@ export default function MessengerScreen() {
   const wide = width >= 760;
   const [photoPreview, setPhotoPreview] = useState<{ uri: string; label: string } | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [logoutMarkerChecked, setLogoutMarkerChecked] = useState(false);
+  const [explicitlyLoggedOut, setExplicitlyLoggedOut] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void wasChatExplicitlyLoggedOut().then(loggedOut => {
+      if (!active) return;
+      setExplicitlyLoggedOut(loggedOut);
+      setLogoutMarkerChecked(true);
+      if (loggedOut) router.replace("/(auth)/login" as any);
+    });
+    return () => { active = false; };
+  }, [router]);
   useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
   useEffect(() => {
     if (!user?.id) return;
@@ -69,12 +82,12 @@ export default function MessengerScreen() {
     };
   }, [reduceMotion]);
   useEffect(() => {
-    if (!sessionExpired) return;
+    if (!sessionExpired || !logoutMarkerChecked || explicitlyLoggedOut) return;
     const returnTo = directUsernameParam
       ? `/messenger?username=${encodeURIComponent(directUsernameParam)}`
       : "/messenger";
     router.replace(`/verify-email?source=chat&expired=1&returnTo=${encodeURIComponent(returnTo)}` as any);
-  }, [sessionExpired, directUsernameParam, router]);
+  }, [sessionExpired, directUsernameParam, router, logoutMarkerChecked, explicitlyLoggedOut]);
   const [tab, setTab] = useState<Tab>("Échanges");
   const [filter, setFilter] = useState<Filter>("Tous");
   const [filterReadyFor, setFilterReadyFor] = useState<string | null>(null);
@@ -511,7 +524,7 @@ export default function MessengerScreen() {
     { key: "Échanges", icon: "chatbubbles", label: "Échanges" }, { key: "Contacts", icon: "people", label: "Contacts" },
     { key: "Actus", icon: "megaphone", label: "Statuts" }, { key: "Profil", icon: "person", label: "Profil" },
   ];
-  if (chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
+  if (!logoutMarkerChecked || explicitlyLoggedOut || chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
   return <View style={[styles.page, appearance === "dark" && { backgroundColor: "#0b1220" }]}>
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>

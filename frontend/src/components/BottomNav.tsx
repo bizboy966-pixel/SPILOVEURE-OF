@@ -9,6 +9,7 @@ import { useAuth } from "../auth";
 import { useNavigationTransition } from "../messenger/NavigationTransition";
 import { useChat } from "../chat/ChatContext";
 import { useI18n } from "../i18n";
+import { clearChatLogoutMarker } from "../chat/chatLaunchState";
 
 /**
  * Floating bottom navigation (v14 — mockup-driven refresh).
@@ -111,6 +112,7 @@ export const BottomNav: React.FC = () => {
   const goto = (route: string) => {
     if (route.includes("/messenger")) {
       if (chatUser && (!user || chatUser.id === user.id)) {
+        void clearChatLogoutMarker();
         navTransition.toChat(() => router.push("/messenger" as any));
         return;
       }
@@ -129,6 +131,7 @@ export const BottomNav: React.FC = () => {
           if (!main.email_verified || !(main.main_authenticated || main.chat_authenticated)) { router.push("/verify-email" as any); return; }
           await api.post("/identity/chat/open", undefined, { credentials: "include" });
           await refreshChat();
+          await clearChatLogoutMarker();
           navTransition.toChat(() => router.push("/messenger" as any));
         } catch (e: any) {
           if (e?.status === 401) router.push("/verify-email" as any);

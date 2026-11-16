@@ -244,6 +244,18 @@ def test_people_privacy_settings(chat):
     assert call(chat, "get", "/people?q=bo").json()[0]["last_seen"] is None
 
 
+def test_people_directory_lists_platform_users_and_chat_username_is_separate(chat):
+    rows = call(chat, "get", "/people").json()
+    assert {row["id"] for row in rows} == {"bob", "eve", "pending"}
+    updated = call(chat, "patch", "/profile", json={"username": "AliceChat"}).json()
+    assert updated["chat_username"] == "AliceChat"
+    assert call(chat, "get", "/people?q=SPV%40AliceChat").json() == []
+    rows = call(chat, "get", "/people?q=SPV%40AliceChat", uid="bob").json()
+    assert rows[0]["id"] == "alice"
+    assert rows[0]["username"] == "AliceChat"
+    assert asyncio.run(chat[1].users.find_one({"id": "alice"}))["username"] == "Alice"
+
+
 def test_files_protected_and_metadata_not_trusted(chat):
     cid = conversation(chat)
     result = call(chat, "post", f"/conversations/{cid}/files",

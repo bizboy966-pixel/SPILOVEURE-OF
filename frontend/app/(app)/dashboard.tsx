@@ -66,6 +66,7 @@ export default function Dashboard() {
   const [photoModal, setPhotoModal] = useState(false);
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [trading, setTrading] = useState<{ enabled: boolean; telegram_url: string; title: string; description: string; button_label: string } | null>(null);
+  const [chatEmailUnverified, setChatEmailUnverified] = useState(false);
   const badges = useServiceBadges();
   const { guardAction, guardedNavigate, showModal, isPending } = useActivationGuard();
 
@@ -97,6 +98,15 @@ export default function Dashboard() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!user?.id) { setChatEmailUnverified(false); return; }
+    let active = true;
+    api.get<{ email_verified?: boolean }>("/identity/state")
+      .then(state => { if (active) setChatEmailUnverified(state.email_verified === false); })
+      .catch(() => { if (active) setChatEmailUnverified((user as any)?.email_verified === false); });
+    return () => { active = false; };
+  }, [user?.id, (user as any)?.email_verified]);
 
   // v26 (2026-02-14) — Trading Telegram card (config from Admin Panel).
   useEffect(() => {
@@ -185,6 +195,16 @@ export default function Dashboard() {
           onAvatarPress={() => setPhotoModal(true)}
           onBalancePress={() => router.push("/(app)/withdrawal" as any)}
         />
+        {chatEmailUnverified && <View style={styles.emailVerifyCard} testID="dashboard-chat-email-verification">
+          <Ionicons name="mail-unread-outline" size={21} color="#1769e8" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.emailVerifyTitle}>Vérifiez votre e-mail pour utiliser le Chat</Text>
+            <Text style={styles.emailVerifyText}>Votre tableau de bord reste accessible. La vérification ne concerne que SPILOVEURE Chat.</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push("/verify-email?returnTo=%2Fmessenger" as any)} style={styles.emailVerifyButton}>
+            <Text style={styles.emailVerifyButtonText}>Vérifier</Text>
+          </TouchableOpacity>
+        </View>}
 
         {/* ─── Quick Actions ─── */}
         <View style={styles.quickActionsRow} testID="dashboard-quick-actions">
@@ -380,6 +400,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: theme.colors.primary,
   },
   notifBadgeTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  emailVerifyCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: 13, marginTop: 12, borderRadius: 15, backgroundColor: "#edf4ff", borderWidth: 1, borderColor: "#d7e5ff" },
+  emailVerifyTitle: { color: "#15356b", fontSize: 13, fontWeight: "800" },
+  emailVerifyText: { color: "#536782", fontSize: 11, lineHeight: 16, marginTop: 3 },
+  emailVerifyButton: { backgroundColor: "#1769e8", borderRadius: 11, paddingVertical: 9, paddingHorizontal: 12 },
+  emailVerifyButtonText: { color: "#fff", fontSize: 12, fontWeight: "800" },
 
   quickActionsRow: {
     flexDirection: "row",

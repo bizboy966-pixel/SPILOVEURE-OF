@@ -15,6 +15,7 @@ import { api } from "@/src/api";
 import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { theme } from "@/src/theme";
 import { useI18n } from "@/src/i18n";
+import { clearChatLogoutMarker } from "@/src/chat/chatLaunchState";
 
 export default function Login() {
   const { t } = useI18n();
@@ -50,7 +51,9 @@ export default function Login() {
     setChatError("");
     try {
       await api.get("/identity/chat/session", { auth: false, credentials: "include" });
-      await refreshChat();
+      const chatUser = await refreshChat();
+      if (!chatUser) throw { detail: "La session Chat n’a pas pu être reprise." };
+      await clearChatLogoutMarker();
       router.push("/messenger" as any);
     } catch (e: any) {
       if (e?.status === 401) router.push("/verify-email?source=chat" as any);

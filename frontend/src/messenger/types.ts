@@ -1,4 +1,4 @@
-export type Person = { id: string; username: string; avatar?: string; online?: boolean; last_seen?: string };
+export type Person = { id: string; username: string; avatar?: string; online?: boolean; last_seen?: string; is_saved?: boolean };
 export type ReadReceipts = Record<string, string>;
 export type Attachment = {
   id: string; name: string; mime: string; size: number; url: string; duration_seconds?: number;

@@ -1,7 +1,8 @@
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, setChatUnauthorizedHandler } from "@/src/api";
+import { markChatLoggedOut } from "./chatLaunchState";
 
-export type ChatUser = { id: string; username: string; email?: string; profile_photo?: string };
+export type ChatUser = { id: string; username: string; account_username?: string; chat_username?: string; email?: string; profile_photo?: string };
 type ChatContextType = { user: ChatUser | null; loading: boolean; sessionExpired: boolean; refresh: () => Promise<ChatUser | null>; logout: () => Promise<void> };
 const ChatContext = createContext<ChatContextType | null>(null);
 
@@ -14,9 +15,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const state = await api.get<{ user: ChatUser }>("/identity/chat/session", { auth: false, credentials: "include" });
-      setUser(state.user);
+      const chatUser = {
+        ...state.user,
+        account_username: state.user.username,
+        username: state.user.chat_username || state.user.username,
+      };
+      setUser(chatUser);
       setSessionExpired(false);
-      return state.user;
+      return chatUser;
     } catch (error: any) {
       if (error?.status === 401) {
         setUser(null);
@@ -34,7 +40,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
   const logout = useCallback(async () => {
     try { await api.post("/identity/chat/logout", undefined, { auth: false, credentials: "include" }); }
-    finally { setUser(null); setSessionExpired(false); }
+    finally {
+      await markChatLoggedOut();
+      setUser(null);
+      setSessionExpired(false);
+    }
   }, []);
   return <ChatContext.Provider value={{ user, loading, sessionExpired, refresh, logout }}>{children}</ChatContext.Provider>;
 }

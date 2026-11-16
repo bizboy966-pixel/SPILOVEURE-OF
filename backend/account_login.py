@@ -41,7 +41,7 @@ async def login_account(data, request):
         raise HTTPException(401, "Identifiants invalides.")
     if user.get("status") == "banned":
         raise HTTPException(403, "Compte banni.")
-    scope = "onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
+    scope = "main_onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
     token = create_access_token(user["id"], user.get("role", "user"), scope=scope, auth_version=user.get("auth_version", 0))
     user.pop("password_hash", None)
     user.pop("_id", None)

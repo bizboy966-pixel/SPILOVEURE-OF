@@ -12,7 +12,7 @@ from pymongo.errors import DuplicateKeyError
 
 from messenger_core import (
     BroadcastIn, ChatListIn, ConversationIn, ConversationPatch, MemberIn, MessageIn, ReactionIn, TextIn,
-    administrator, allowed_pair, attachments_checked, chat_user, clean, message_views,
+    administrator, allowed_pair, attachments_checked, chat_user, clean, display_name, message_views,
     conversation_view, default_permissions, event, get_message, identifier, member, notify, now,
     person, rate_limit, ticket,
 )
@@ -23,7 +23,13 @@ api.include_router(notification_api)
 
 
 @api.get("/people")
-async def people(request: Request, q: str = Query(default="", max_length=100), user=Depends(chat_user)):
+async def people(
+    request: Request,
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
+    user=Depends(chat_user),
+):
     import re
     query = q.strip()
     exact_username = False
@@ -33,14 +39,31 @@ async def people(request: Request, q: str = Query(default="", max_length=100), u
     elif query.startswith("@"):
         query = query[1:].strip()
         exact_username = True
-    if len(query) < 2:
+    if query and len(query) < 2:
         return []
     username_pattern = f"^{re.escape(query)}$" if exact_username else re.escape(query)
+    blocked = await request.app.state.db.spv_blocks.find({
+        "$or": [{"user_id": user["id"]}, {"peer_id": user["id"]}],
+    }, {"user_id": 1, "peer_id": 1}).to_list(2000)
+    blocked_ids = {
+        row["peer_id"] if row.get("user_id") == user["id"] else row["user_id"]
+        for row in blocked
+    }
+    conditions = [
+        {"id": {"$ne": user["id"], "$nin": list(blocked_ids)}},
+        {"status": {"$nin": ["banned", "blocked", "deleted"]}},
+    ]
+    if query:
+        conditions.append({"$or": [
+            {"username": {"$regex": username_pattern, "$options": "i"}},
+            {"chat_username": {"$regex": username_pattern, "$options": "i"}},
+        ]})
     rows = []
-    async for row in request.app.state.db.users.find({
-        "id": {"$ne": user["id"]}, "status": {"$nin": ["banned", "blocked"]},
-        "username": {"$regex": username_pattern, "$options": "i"},
-    }, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1}).limit(30):
+    cursor = request.app.state.db.users.find(
+        {"$and": conditions},
+        {"id": 1, "username": 1, "chat_username": 1, "avatar_url": 1, "profile_photo": 1},
+    ).sort("username", 1).skip(offset).limit(limit)
+    async for row in cursor:
         rows.append(await person(request.app.state.db, row))
     return rows
 
@@ -566,7 +589,7 @@ async def deliver_message(db, cid, body, user):
     stamp = now()
     delivered_by = await online_recipients(db, conv, uid)
     msg = {
-        **key, "id": identifier(), "sender_name": user.get("username", "Membre"),
+        **key, "id": identifier(), "sender_name": display_name(user),
         "text": body.text.strip(), "attachments": attachments, "reply_to": body.reply_to,
         "status_reply": status_reply, "forwarded_from": forwarded,
         "silent": body.silent, "created_at": stamp,
@@ -712,7 +735,7 @@ async def typing(cid: str, request: Request, user=Depends(chat_user)):
     previous = await db.spv_presence.find_one({"user_id": user["id"]}) or {}
     if previous.get("typing_at", "") < cutoff:
         await db.spv_presence.update_one({"user_id": user["id"]}, {"$set": {"typing_at": now()}}, upsert=True)
-        await notify(db, conv, "typing", user_id=user["id"], username=user.get("username", "Membre"))
+        await notify(db, conv, "typing", user_id=user["id"], username=display_name(user))
     return {"ok": True}
 
 

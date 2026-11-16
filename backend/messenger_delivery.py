@@ -234,7 +234,7 @@ async def deliver_push_once(db):
             body = message.get("text") or ("Pièce jointe" if message.get("attachments") else "Nouveau message")
             results.append(await _send(
                 db, [token["token"] for token in tokens if token["user_id"] == uid],
-                title=sender.get("username", "SPILOVEURE Chat") if settings["preview"] else "SPILOVEURE Chat",
+                title=(sender.get("chat_username") or sender.get("username", "SPILOVEURE Chat")) if settings["preview"] else "SPILOVEURE Chat",
                 body=body[:300] if settings["preview"] else "Vous avez reçu un nouveau message.",
                 link="/messenger?conversation=" + conv["id"],
                 data={"conversation_id": conv["id"], "message_id": row["id"], "kind": "chat",

@@ -52,7 +52,8 @@ export const messengerApi = {
     api.post<Attachment>(`/messenger/stickers/${encodeURIComponent(fileId)}/copy`, {
       conversation_id: conversationId,
     }),
-  people: (q: string) => api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}`),
+  people: (q = "", limit = 50, offset = 0) =>
+    api.get<Person[]>(`/messenger/people?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`),
   publicChannels: (q = "") => api.get<PublicChannel[]>(`/messenger/channels?q=${encodeURIComponent(q)}`),
   joinChannel: (id: string) => api.post<Conversation>(`/messenger/channels/${encodeURIComponent(id)}/join`),
   scheduledMessages: (id: string) => api.get<ScheduledMessage[]>(`/messenger/conversations/${encodeURIComponent(id)}/scheduled`),

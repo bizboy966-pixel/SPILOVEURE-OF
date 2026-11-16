@@ -273,7 +273,17 @@ def test_legacy_passwordless_account_can_set_password_only_after_activation_and_
     assert created.status_code == 200
     assert client.get("/api/test/protected", headers=main_header(created.json()["access_token"])).status_code == 200
     assert client.post("/api/identity/password", json=body).status_code == 409
-    assert client.get("/api/test/protected", headers=main_header(data["access_token"])).status_code == 403
+    assert client.get("/api/test/protected", headers=main_header(data["access_token"])).status_code == 200
+
+
+def test_activated_unverified_account_can_use_main_platform_but_not_chat(identity_app):
+    data = register(identity_app).json()
+    activate(identity_app, data["user"]["id"])
+    client = identity_app[1]
+    headers = main_header(data["access_token"])
+    assert client.get("/api/test/protected", headers=headers).status_code == 200
+    assert client.post("/api/identity/chat/open", headers=headers).status_code == 403
+    assert client.get("/api/identity/chat/session").status_code == 401
 
 
 def test_main_expiry_does_not_expire_chat_and_unlock_needs_only_password(identity_app):
@@ -304,6 +314,8 @@ def test_pending_chat_can_resume_only_payment(identity_app):
     headers = main_header(result.json()["access_token"])
     assert identity_app[1].get("/api/payments/ref/status", headers=headers).status_code == 200
     assert identity_app[1].get("/api/test/protected", headers=headers).status_code == 403
+    activate(identity_app, data["user"]["id"])
+    assert identity_app[1].get("/api/test/protected", headers=headers).status_code == 200
 
 
 def test_legacy_password_unchanged_and_verification_not_required_twice(identity_app):
@@ -371,7 +383,8 @@ def test_registered_email_verification_on_another_device_does_not_grant_attacker
         body = {"password": "OwnerPassword9!", "password_confirm": "OwnerPassword9!"}
         assert attacker.post("/api/identity/password", json=body, headers=headers).status_code == 403
         assert owner.post("/api/identity/password?source=chat", json=body).status_code == 200
-        assert attacker.get("/api/test/protected", headers=headers).status_code == 403
+        assert attacker.get("/api/test/protected", headers=headers).status_code == 200
+        assert attacker.post("/api/identity/chat/open", headers=headers).status_code == 403
 
 
 def test_source_chat_never_unlocks_a_different_main_account(identity_app):

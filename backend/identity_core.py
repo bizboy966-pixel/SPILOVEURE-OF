@@ -26,7 +26,7 @@ def digest(value):
 
 
 def safe_user(user):
-    fields = ("id", "username", "email", "country", "phone", "role", "status",
+    fields = ("id", "username", "chat_username", "email", "country", "phone", "role", "status",
               "max_level", "profile_photo", "preferred_language", "auth_flow_version")
     return {**{k: user[k] for k in fields if k in user},
             "email_verified": email_verified(user),

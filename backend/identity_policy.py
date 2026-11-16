@@ -35,4 +35,6 @@ def onboarding_path_allowed(path, method="GET"):
 
 
 def main_ready(user):
-    return activated(user) and password_created(user) and email_verified(user)
+    # Email ownership gates SPILOVEURE Chat only. Main-platform access is
+    # granted after payment activation and password creation.
+    return activated(user) and password_created(user)

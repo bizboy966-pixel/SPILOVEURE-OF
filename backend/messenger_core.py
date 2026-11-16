@@ -45,6 +45,7 @@ async def initialize(db):
     await db.spv_messages.create_index([("conversation_id", 1), ("created_at", -1)])
     await db.spv_messages.create_index("expires_at", expireAfterSeconds=0)
     await db.spv_contacts.create_index([("user_id", 1), ("peer_id", 1)], unique=True)
+    await db.users.create_index("chat_username_normalized", unique=True, sparse=True)
     await db.spv_blocks.create_index([("user_id", 1), ("peer_id", 1)], unique=True)
     await db.spv_preferences.create_index([("user_id", 1), ("conversation_id", 1)], unique=True)
     await db.spv_settings.create_index("user_id", unique=True)
@@ -122,6 +123,10 @@ async def person(db, user):
     return (await people_views(db, [user]))[0]
 
 
+def display_name(user):
+    return user.get("chat_username") or user.get("username", "Membre")
+
+
 async def people_views(db, users):
     ids = [user["id"] for user in users]
     settings = {row["user_id"]: row async for row in db.spv_settings.find({"user_id": {"$in": ids}})}
@@ -133,7 +138,7 @@ async def people_views(db, users):
         visible = settings.get(user["id"], {}).get("show_presence", True)
         connections = presence.get(user["id"], {}).get("online_count", 1)
         result.append({
-            "id": user["id"], "username": user.get("username", "Membre"),
+            "id": user["id"], "username": display_name(user),
             "avatar": user.get("profile_photo") or user.get("avatar_url", ""),
             "online": bool(visible and connections > 0 and seen and seen > cutoff),
             "last_seen": seen if visible else None,
@@ -144,7 +149,8 @@ async def people_views(db, users):
 async def conversation_view(db, conv, uid):
     pref = await db.spv_preferences.find_one({"user_id": uid, "conversation_id": conv["id"]}) or {}
     users = await db.users.find(
-        {"id": {"$in": conv["members"]}}, {"id": 1, "username": 1, "avatar_url": 1, "profile_photo": 1},
+        {"id": {"$in": conv["members"]}},
+        {"id": 1, "username": 1, "chat_username": 1, "avatar_url": 1, "profile_photo": 1},
     ).to_list(200)
     profiles = await people_views(db, users)
     expiry_filter = {"$or": [

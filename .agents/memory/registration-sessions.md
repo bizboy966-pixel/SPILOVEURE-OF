@@ -7,7 +7,7 @@ Le Chat doit être accessible après vérification unique de l’e-mail par code
 
 **Why:** L’utilisateur le demande dans « NOUVELLE PROCÉDURE D’INSCRIPTION, DE VÉRIFICATION EMAIL ET DE GESTION DES SESSIONS – SPILOVEURE ».
 
-**How to apply:** Faire respecter les états côté serveur. Retour depuis le Chat : compte non activé vers paiement ; compte activé vers saisie simple du mot de passe avant le tableau de bord. Ne pas modifier la durée d’inactivité existante, les montants, prestataires, confirmations ou règles d’activation. Conserver la landing page, le parrainage et les données existantes ; préparer une migration sauvegardable et réversible.
+**How to apply:** Faire respecter les états côté serveur. Le Chat reste indépendant de l’activation et de la session principale. Après activation et mot de passe, l’e-mail non vérifié ne bloque pas le tableau de bord ; seule l’entrée au Chat exige sa vérification. Ne pas modifier la durée d’inactivité existante, les montants, prestataires, confirmations ou règles d’activation. Conserver la landing page, le parrainage et les données existantes ; préparer une migration sauvegardable et réversible.
 
 Conserver le formulaire (pseudo, téléphone, pays, parrainage et conditions) avant le paiement. Le préremplir depuis les nouvelles étapes de pays et d’e-mail. Resend est le fournisseur choisi pour SPILOVEURE.
 
@@ -20,3 +20,9 @@ Créer et confirmer désormais le mot de passe sur « Créer votre compte », av
 **Why:** L’utilisateur a remplacé explicitement l’ancienne création du mot de passe après paiement et a précisé que « numéro du compte » signifie le numéro de téléphone.
 
 **How to apply:** Conserver les contrôles distincts de vérification e-mail et d’activation ; ne pas demander aux comptes qui ont déjà un mot de passe de le recréer. Garder la création différée pour les anciens comptes qui n’en ont pas encore.
+
+Le nom d’utilisateur modifiable est propre au Chat et ne remplace pas le nom d’utilisateur du compte principal, utilisé pour la connexion, le parrainage et les paiements.
+
+**Why:** L’utilisateur a confirmé le périmètre « Chat uniquement » le 16 novembre 2026.
+
+**How to apply:** Stocker et afficher séparément l’alias Chat. Ne pas modifier les identifiants ni les liens de la plateforme principale.

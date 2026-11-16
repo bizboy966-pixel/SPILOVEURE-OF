@@ -548,11 +548,7 @@ export default function AdminHome() {
             <TouchableOpacity
               onPress={() => {
                 if (tab !== "dashboard") { setTab("dashboard"); return; }
-                try {
-                  // @ts-ignore canGoBack exists in expo-router web
-                  if (router.canGoBack && router.canGoBack()) router.back();
-                  else router.replace("/services" as any);
-                } catch { router.replace("/services" as any); }
+                router.replace("/(app)/dashboard" as any);
               }}
               style={styles.backBtn}
               testID="admin-back-btn"

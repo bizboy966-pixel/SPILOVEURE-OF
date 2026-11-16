@@ -56,7 +56,7 @@ export default function AppLayout() {
     return user.status === "active" && (user.max_level || 0) >= 1;
   }, [user]);
   const needsAccountAccess = !!user && user.auth_flow_version === 2 && isActivated &&
-    (user.session_scope === "onboarding" || !user.email_verified || !user.main_password_created);
+    !user.main_password_created;
 
   // v27d (2026-02-14) — compute the "bounce" decision at render time so
   // we can short-circuit `<Stack>` BEFORE the target screen has a chance

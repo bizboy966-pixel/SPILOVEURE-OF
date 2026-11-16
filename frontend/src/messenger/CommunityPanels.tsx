@@ -13,14 +13,40 @@ type ContactProps = { onStart: (person: Person) => void; onSave?: (person: Perso
 export function ContactsPanel({ onStart, onSave }: ContactProps) {
   const [state, setState] = useState<ContactState>({ contacts: [], blocked: [], requests: [], sent: [] });
   const [results, setResults] = useState<Person[]>([]);
+  const [directory, setDirectory] = useState<Person[]>([]);
+  const [directoryOffset, setDirectoryOffset] = useState(0);
+  const [directoryHasMore, setDirectoryHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [menu, setMenu] = useState<string | null>(null);
   const refresh = async () => {
-    try { setState(await api.get<ContactState>("/messenger/contacts")); setError(""); }
+    try {
+      const contacts = await api.get<ContactState>("/messenger/contacts");
+      setState(contacts);
+      const members = await messengerApi.people("", 50, 0);
+      setDirectory(members);
+      setDirectoryOffset(members.length);
+      setDirectoryHasMore(members.length === 50);
+      setError("");
+    }
     catch (e: any) { setError(e?.detail || "Chargement des contacts impossible."); }
     finally { setLoading(false); }
+  };
+  const loadMoreMembers = async () => {
+    if (loadingMore || !directoryHasMore) return;
+    setLoadingMore(true);
+    try {
+      const members = await messengerApi.people("", 50, directoryOffset);
+      setDirectory(old => {
+        const ids = new Set(old.map(person => person.id));
+        return [...old, ...members.filter(person => !ids.has(person.id))];
+      });
+      setDirectoryOffset(directoryOffset + members.length);
+      setDirectoryHasMore(members.length === 50);
+    } catch (e: any) { setError(e?.detail || "Impossible de charger les autres membres."); }
+    finally { setLoadingMore(false); }
   };
   useEffect(() => { refresh(); }, []);
   useEffect(() => {
@@ -37,7 +63,11 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
       <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.personName} numberOfLines={1}>{person.username}</Text><Text style={styles.personMeta}>{label || (person.online ? "En ligne" : "Membre SPILOVEURE")}</Text></View>
     </TouchableOpacity>
     <TouchableOpacity onPress={() => onStart(person)} style={styles.smallAction}><Ionicons name="chatbubble-outline" size={18} color={blue} /></TouchableOpacity>
-    {onSave && <TouchableOpacity onPress={() => run(() => onSave(person))} style={styles.saveAction} accessibilityRole="button" accessibilityLabel={`Enregistrer ${person.username} et épingler la discussion`} testID={`messenger-contact-save-${person.id}`}><Ionicons name="bookmark-outline" size={17} color={blue} /><Text style={styles.saveActionText}>Enregistrer</Text></TouchableOpacity>}
+    {onSave && state.contacts.some(p => p.id === person.id)
+      ? <Text style={styles.savedLabel}>Enregistré</Text>
+      : onSave && state.sent.includes(person.id)
+        ? <Text style={styles.pendingRequest}>Demande envoyée</Text>
+        : onSave && <TouchableOpacity onPress={() => run(() => onSave(person))} style={styles.saveAction} accessibilityRole="button" accessibilityLabel={`Enregistrer ${person.username} et ouvrir la discussion`} testID={`messenger-contact-save-${person.id}`}><Ionicons name="bookmark-outline" size={17} color={blue} /><Text style={styles.saveActionText}>Enregistrer</Text></TouchableOpacity>}
     <TouchableOpacity onPress={() => setMenu(menu === person.id ? null : person.id)} style={styles.smallAction} accessibilityRole="button" accessibilityLabel={`Options pour ${person.username}`} accessibilityState={{ expanded: menu === person.id }} testID={`messenger-contact-menu-toggle-${person.id}`}><Ionicons name="ellipsis-horizontal" size={19} color={muted} /></TouchableOpacity>
     {menu === person.id && <View style={styles.personActions} testID={`messenger-contact-menu-${person.id}`}>
       {state.contacts.some(p => p.id === person.id)
@@ -58,10 +88,13 @@ export function ContactsPanel({ onStart, onSave }: ContactProps) {
     {error ? <TouchableOpacity onPress={refresh} style={styles.error}><Text style={styles.errorText}>{error} · Réessayer</Text></TouchableOpacity> : null}
     <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
       {loading ? <ActivityIndicator color={blue} style={{ marginTop: 28 }} /> : null}
-      {query.trim().length >= 2 && <><Text style={styles.sectionTitle}>Résultats</Text>{results.length ? results.map(p => personRow(p, state.sent.includes(p.id) ? "Demande envoyée" : undefined)) : !loading ? <Text style={styles.empty}>Aucun membre trouvé.</Text> : null}</>}
+      {query.trim().length >= 2 && <><Text style={styles.sectionTitle}>Résultats</Text>{results.length ? results.map(p => personRow(p, state.contacts.some(saved => saved.id === p.id) ? "Contact enregistré" : state.sent.includes(p.id) ? "Demande envoyée" : "Non enregistré")) : !loading ? <Text style={styles.empty}>Aucun membre trouvé.</Text> : null}</>}
+      {!query && <><Text style={styles.sectionTitle}>Utilisateurs de la plateforme · {directory.length}</Text>
+        {directory.map(person => personRow(person, state.contacts.some(saved => saved.id === person.id) ? "Contact enregistré" : state.sent.includes(person.id) ? "Demande envoyée" : person.online ? "En ligne · Non enregistré" : "Non enregistré"))}
+        {directoryHasMore && <TouchableOpacity onPress={loadMoreMembers} disabled={loadingMore} style={styles.loadMore}>{loadingMore ? <ActivityIndicator color={blue} /> : <Text style={styles.saveActionText}>Afficher plus de membres</Text>}</TouchableOpacity>}
+        {!loading && directory.length === 0 ? <Text style={styles.empty}>Aucun utilisateur à afficher.</Text> : null}
+      </>}
       {!query && state.requests.length > 0 && <><Text style={styles.sectionTitle}>Demandes reçues</Text>{state.requests.map(p => <View key={p.id}>{personRow(p, "Demande de contact")}<TouchableOpacity onPress={() => run(() => api.post(`/messenger/contacts/${encodeURIComponent(p.id)}/accept`))} style={styles.accept}><Text style={styles.acceptText}>Accepter</Text></TouchableOpacity></View>)}</>}
-      {!query && <><Text style={styles.sectionTitle}>Mes contacts · {state.contacts.length}</Text>{state.contacts.map(p => personRow(p))}</>}
-      {!loading && !query && !state.contacts.length && !state.requests.length && <Text style={styles.empty}>Vos contacts SPILOVEURE apparaîtront ici.</Text>}
       {!query && state.blocked.length > 0 && <><Text style={styles.sectionTitle}>Comptes bloqués</Text>{state.blocked.map(p => <View key={p.id}>{personRow(p, "Bloqué")}<TouchableOpacity onPress={() => run(() => api.delete(`/messenger/blocks/${encodeURIComponent(p.id)}`))}><Text style={styles.action}>Débloquer</Text></TouchableOpacity></View>)}</>}
     </ScrollView>
   </View>;
@@ -174,7 +207,7 @@ const styles = StyleSheet.create({
   avatar: { width: 43, height: 43, borderRadius: 23, backgroundColor: "#e4edff", justifyContent: "center", alignItems: "center", overflow: "hidden" }, avatarImage: { width: 43, height: 43, borderRadius: 23 }, avatarText: { color: blue, fontSize: 17, fontWeight: "900" },
   personName: { color: ink, fontSize: 14, fontWeight: "800" }, personMeta: { color: muted, fontSize: 11, marginTop: 3 },
   smallAction: { padding: 7 }, saveAction: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, backgroundColor: "#eef4ff", borderRadius: 17, paddingHorizontal: 8 }, saveActionText: { color: blue, fontSize: 10, fontWeight: "800" }, personActions: { position: "absolute", zIndex: 2, right: 0, top: 54, backgroundColor: "#fff", padding: 10, borderRadius: 11, borderWidth: 1, borderColor: "#e7ebf1", shadowColor: "#233", shadowOffset: { width: 0, height: 3 }, shadowOpacity: .15, shadowRadius: 8, elevation: 5 },
-  action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  action: { color: blue, fontWeight: "700", fontSize: 12 }, pendingRequest: { color: muted, fontSize: 11, fontWeight: "700", padding: 5 }, savedLabel: { color: "#13864b", fontSize: 11, fontWeight: "800", padding: 5 }, loadMore: { alignSelf: "center", minWidth: 200, padding: 12, marginVertical: 10, alignItems: "center", borderRadius: 14, backgroundColor: "#edf3ff" }, accept: { alignSelf: "flex-end", backgroundColor: blue, borderRadius: 15, paddingVertical: 7, paddingHorizontal: 13, marginTop: -8, marginBottom: 8 }, acceptText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   empty: { color: muted, fontSize: 13, textAlign: "center", marginTop: 28, paddingHorizontal: 20 }, error: { backgroundColor: "#fff1f0", borderRadius: 10, padding: 10 }, errorText: { color: "#bf3e45", fontSize: 12 },
   composeCard: { backgroundColor: "#f8faff", borderWidth: 1, borderColor: "#e8edf5", borderRadius: 15, padding: 13, marginBottom: 14 }, composeTitle: { color: ink, fontWeight: "800", marginBottom: 7 },
   feedAttachment: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 7, backgroundColor: "#eef4ff", borderRadius: 8, marginBottom: 5 }, feedAttachmentName: { color: ink, fontSize: 12, flex: 1, minWidth: 0 },

@@ -36,7 +36,7 @@ def test_new_password_works_with_all_identifiers_without_unlocking_pending_accou
     data = result.json()
     assert data["user"]["id"] == created["user"]["id"]
     assert "password_hash" not in data["user"]
-    assert decode_token(data["access_token"])["scope"] == "onboarding"
+    assert decode_token(data["access_token"])["scope"] == "main_onboarding"
     assert identity_app[1].get("/api/test/protected", headers=main_header(data["access_token"])).status_code == 403
 
 

@@ -5,9 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/auth";
+import { api } from "@/src/api";
 
 type Status = "checking" | "paid" | "pending" | "failed" | "unknown";
-const API = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 /**
  * Generic payment success / status-tracking page.
@@ -18,7 +18,7 @@ export default function PaymentSuccess() {
   const { t } = useI18n();
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string; token?: string }>();
-  const { token: authToken, user } = useAuth();
+  const { user, loading: authLoading, refresh } = useAuth();
   const [status, setStatus] = useState<Status>("checking");
   const [amount, setAmount] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string>("");
@@ -37,7 +37,8 @@ export default function PaymentSuccess() {
 
   // Poll the status endpoint until we have a definitive result
   useEffect(() => {
-    if (!ref || !authToken) {
+    if (authLoading) return;
+    if (!ref || !user) {
       if (!ref) setStatus("unknown");
       return;
     }
@@ -46,14 +47,9 @@ export default function PaymentSuccess() {
     const poll = async () => {
       attempts += 1;
       try {
-        const r = await fetch(`${API}/api/payments/secure/status?ref=${encodeURIComponent(ref)}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
-        if (!r.ok) {
-          if (!cancelled && attempts < 20) setTimeout(poll, 4000);
-          return;
-        }
-        const data = await r.json();
+        const data = await api.get<{ status: string; amount?: number; currency?: string }>(
+          `/payments/secure/status?ref=${encodeURIComponent(ref)}`,
+        );
         if (cancelled) return;
         setAmount(data.amount ?? null);
         setCurrency(data.currency ?? "");
@@ -62,6 +58,8 @@ export default function PaymentSuccess() {
           if (typeof window !== "undefined" && window.sessionStorage) {
             try { window.sessionStorage.removeItem("pay_ref"); } catch {}
           }
+          await refresh();
+          if (!cancelled) router.replace("/(app)/dashboard" as any);
         } else if (data.status === "failed") {
           setStatus("failed");
         } else if (attempts < 40) {
@@ -77,7 +75,7 @@ export default function PaymentSuccess() {
     return () => {
       cancelled = true;
     };
-  }, [ref, authToken]);
+  }, [ref, authLoading, user?.id, refresh, router]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -128,10 +126,10 @@ export default function PaymentSuccess() {
         <View style={{ height: 24 }} />
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => router.replace("/(app)/services")}
+          onPress={() => router.replace(status === "failed" ? "/(app)/pay" as any : "/(app)/dashboard" as any)}
           testID="payment-success-go-home"
         >
-          <Text style={styles.btnText}>{t("payment.access_account")}</Text>
+          <Text style={styles.btnText}>{status === "failed" ? "Réessayer le paiement" : "Accéder au tableau de bord"}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -140,9 +138,9 @@ export default function PaymentSuccess() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center", padding: 20 },
-  card: { width: "100%", maxWidth: 460, backgroundColor: theme.colors.card, borderRadius: 22, padding: 24, alignItems: "center" },
+  card: { width: "100%", maxWidth: 460, backgroundColor: theme.colors.surface, borderRadius: 22, padding: 24, alignItems: "center" },
   iconCircle: { width: 110, height: 110, borderRadius: 60, alignItems: "center", justifyContent: "center", marginBottom: 12 },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: "800", marginTop: 12, textAlign: "center" },
+  title: { color: theme.colors.textPrimary, fontSize: 22, fontWeight: "800", marginTop: 12, textAlign: "center" },
   sub: { color: theme.colors.textSecondary, fontSize: 14, marginTop: 8, textAlign: "center", lineHeight: 20 },
   btn: { backgroundColor: theme.colors.primary, paddingVertical: 14, paddingHorizontal: 22, borderRadius: 14, width: "100%", alignItems: "center" },
   btnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
