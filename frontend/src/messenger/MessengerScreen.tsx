@@ -389,9 +389,18 @@ export default function MessengerScreen() {
     const hasActiveStatus = !!statusAuthorId && statusAuthorIds.has(statusAuthorId);
     const hasUnreadStatus = !!statusAuthorId && statusUnreadAuthorIds.has(statusAuthorId);
     const openConversation = () => onSelect ? onSelect() : setSelected(item);
-    return <View key={item.id} style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]} testID={`messenger-conversation-${item.id}`}>
+    return <TouchableOpacity
+      key={item.id}
+      style={[styles.conversationRow, selected?.id === item.id && styles.rowSelected]}
+      onPress={openConversation}
+      activeOpacity={0.82}
+      accessibilityRole="button"
+      accessibilityLabel={`Ouvrir la conversation ${item.title}`}
+      testID={`messenger-conversation-${item.id}`}
+    >
       <View style={[styles.avatarRing, hasActiveStatus && (hasUnreadStatus ? styles.avatarRingUnread : styles.avatarRingSeen)]}>
-        <TouchableOpacity style={[styles.rowAvatar, hasActiveStatus && styles.rowAvatarInside]} onPress={() => {
+        <TouchableOpacity style={[styles.rowAvatar, hasActiveStatus && styles.rowAvatarInside]} onPress={event => {
+          event.stopPropagation();
           if (hasActiveStatus && statusAuthorId) openStatusFor(statusAuthorId);
           else if (photo) setPhotoPreview({ uri: photo, label: item.title });
         }} disabled={!photo && !hasActiveStatus} activeOpacity={0.8} accessibilityRole={photo || hasActiveStatus ? "button" : undefined} accessibilityLabel={hasActiveStatus ? `Voir le statut de ${item.title}` : photo ? `Afficher la photo de ${item.title}` : `Profil de ${item.title}`} testID={`messenger-conversation-avatar-${item.id}`}>
@@ -401,27 +410,27 @@ export default function MessengerScreen() {
       </View>
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <TouchableOpacity style={styles.rowOpenTitle} onPress={() => openConversation()} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la conversation ${item.title}`}>
+          <View style={styles.rowOpenTitle}>
             <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
             <Text style={styles.rowTime}>{item.last_message?.created_at ? new Date(item.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</Text>
-          </TouchableOpacity>
+          </View>
           <View style={styles.rowControls}>
-            <TouchableOpacity onPress={() => runPreference(item, "pinned")} hitSlop={8} accessibilityRole="button" accessibilityLabel={item.pinned ? "Désenregistrer la discussion" : "Enregistrer la discussion"} testID={`messenger-pin-${item.id}`}><Ionicons name={item.pinned ? "bookmark" : "bookmark-outline"} size={16} color={item.pinned ? blue : muted} /></TouchableOpacity>
-            <TouchableOpacity onPress={() => setRowMenu(rowMenu === item.id ? null : item.id)} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity>
+            <TouchableOpacity onPress={event => { event.stopPropagation(); void runPreference(item, "pinned"); }} hitSlop={8} accessibilityRole="button" accessibilityLabel={item.pinned ? "Désenregistrer la discussion" : "Enregistrer la discussion"} testID={`messenger-pin-${item.id}`}><Ionicons name={item.pinned ? "bookmark" : "bookmark-outline"} size={16} color={item.pinned ? blue : muted} /></TouchableOpacity>
+            <TouchableOpacity onPress={event => { event.stopPropagation(); setRowMenu(rowMenu === item.id ? null : item.id); }} hitSlop={8} accessibilityLabel="Autres options de la discussion"><Ionicons name="ellipsis-horizontal" size={16} color={muted} /></TouchableOpacity>
           </View>
         </View>
-        <TouchableOpacity style={styles.rowOpenPreview} onPress={() => openConversation()} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel={`Ouvrir la discussion ${item.title}`}>
+        <View style={styles.rowOpenPreview}>
           <View style={styles.rowBottom}><Text style={[styles.preview, !!item.draft && !item.last_message?.text && styles.draftText]} numberOfLines={1}>{item.draft && !item.last_message?.text ? "Brouillon : " : ""}{preview}</Text>
             <View style={styles.rowMarkers}>{item.muted && <Ionicons name="notifications-off" size={13} color="#9ba4b3" />}{item.pinned && <Ionicons name="pin" size={13} color={blue} />}{item.unread > 0 && <View style={styles.unread} accessibilityLabel={`${item.unread} messages non lus`} testID={`messenger-conversation-unread-${item.id}`}><Text style={styles.unreadText}>{item.unread > 999 ? "999+" : item.unread}</Text></View>}</View>
           </View>
-        </TouchableOpacity>
+        </View>
         {rowMenu === item.id && <View style={styles.rowQuickActions}>
-          <TouchableOpacity onPress={() => runPreference(item, "pinned")}><Text style={styles.quickText}>{item.pinned ? "Désépingler" : "Épingler"}</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => runPreference(item, "muted")}><Text style={styles.quickText}>{item.muted ? "Activer le son" : "Sourdine"}</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => runPreference(item, "archived")}><Text style={styles.quickText}>{item.archived ? "Restaurer" : "Archiver"}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={event => { event.stopPropagation(); void runPreference(item, "pinned"); }}><Text style={styles.quickText}>{item.pinned ? "Désépingler" : "Épingler"}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={event => { event.stopPropagation(); void runPreference(item, "muted"); }}><Text style={styles.quickText}>{item.muted ? "Activer le son" : "Sourdine"}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={event => { event.stopPropagation(); void runPreference(item, "archived"); }}><Text style={styles.quickText}>{item.archived ? "Restaurer" : "Archiver"}</Text></TouchableOpacity>
         </View>}
       </View>
-    </View>;
+    </TouchableOpacity>;
   };
   const chatList = <View style={[styles.listPanel, wide && styles.wideList, appearance === "dark" && { backgroundColor: "#111827" }]}>
     <LinearGradient colors={["#063ba8", "#0057ee"]} style={styles.header}>
