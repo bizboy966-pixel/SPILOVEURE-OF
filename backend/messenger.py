@@ -429,7 +429,8 @@ async def remove_conversation(cid: str, request: Request, user=Depends(chat_user
 
 @api.get("/conversations/{cid}/messages")
 async def messages(cid: str, request: Request, before: str = "", q: str = Query(default="", max_length=200),
-                   limit: int = Query(default=50, ge=1, le=100), user=Depends(chat_user)):
+                   limit: int = Query(default=50, ge=1, le=100), pinned_only: bool = False,
+                   user=Depends(chat_user)):
     import re
     db = request.app.state.db
     conv = await member(db, cid, user)
@@ -442,6 +443,8 @@ async def messages(cid: str, request: Request, before: str = "", q: str = Query(
             {"expires_at": {"$gt": datetime.now(timezone.utc)}},
         ],
     }
+    if pinned_only:
+        query["pinned"] = True
     if before:
         anchor = await get_message(db, conv, before)
         query["$and"] = [{"$or": [

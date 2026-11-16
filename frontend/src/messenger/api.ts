@@ -14,6 +14,10 @@ export const messengerApi = {
     if (q) params.set("q", q);
     return api.get<{ items: Message[]; has_more: boolean }>(`/messenger/conversations/${encodeURIComponent(id)}/messages?${params}`);
   },
+  pinnedMessages: (id: string) =>
+    api.get<{ items: Message[]; has_more: boolean }>(
+      `/messenger/conversations/${encodeURIComponent(id)}/messages?limit=50&pinned_only=true`,
+    ),
   message: (conversationId: string, messageId: string) =>
     api.get<Message>(`/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`),
   send: (id: string, payload: {

@@ -6,13 +6,18 @@ import type { Attachment } from "./types";
 
 export type AttachmentPreview = {
   url: string; mime: string; name: string; fileId?: string;
+  releaseUrl?: boolean;
   sticker?: { conversationId: string; messageId: string };
 };
 
-export async function openProtectedAttachment(file: Attachment, onPreview: (preview: AttachmentPreview) => void) {
-  const url = await protectedFileUrl(file.id);
+export async function openProtectedAttachment(
+  file: Attachment,
+  onPreview: (preview: AttachmentPreview) => void,
+  loadedUrl?: string,
+) {
+  const url = loadedUrl || await protectedFileUrl(file.id);
   if (file.mime.startsWith("image/") || file.mime.startsWith("audio/") || file.mime.startsWith("video/")) {
-    onPreview({ url, mime: file.mime, name: file.name });
+    onPreview({ url, mime: file.mime, name: file.name, releaseUrl: !loadedUrl });
     return;
   }
   if (typeof document === "undefined") return;
@@ -42,7 +47,7 @@ export function ProtectedAttachmentViewer({
     };
   }, [preview]);
   const close = () => {
-    if (preview?.url) URL.revokeObjectURL(preview.url);
+    if (preview?.releaseUrl && preview.url) URL.revokeObjectURL(preview.url);
     onClose();
   };
   return <Modal visible={!!preview} transparent animationType="fade" onRequestClose={close}>

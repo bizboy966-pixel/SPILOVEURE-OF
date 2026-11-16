@@ -163,6 +163,11 @@ def test_reactions_and_pin(chat):
     assert call(chat, "post", path + "/reaction", "bob", json={"emoji": "1️⃣"}).status_code == 200
     assert call(chat, "post", path + "/reaction", json={"emoji": "$bad.path"}).status_code == 400
     assert call(chat, "post", path + "/pin").json()["pinned"] is True
+    pinned = call(chat, "get", f"/conversations/{cid}/messages?pinned_only=true")
+    assert pinned.status_code == 200
+    assert [item["id"] for item in pinned.json()["items"]] == [mid]
+    assert call(chat, "post", path + "/pin").json()["pinned"] is False
+    assert call(chat, "get", f"/conversations/{cid}/messages?pinned_only=true").json()["items"] == []
 
 
 def test_history_pagination_and_literal_search(chat):

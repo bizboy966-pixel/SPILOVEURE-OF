@@ -5,8 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import Svg, { Path } from "react-native-svg";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
-import { messengerApi } from "./api";
-import { protectedFileUrl } from "./api";
+import { messengerApi, protectedFileUrl } from "./api";
 import type { Attachment, ContactState, Conversation, Message, Person, ReadReceipts } from "./types";
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
@@ -178,6 +177,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const emojiPickerHeight = Math.min(420, Math.max(180, windowHeight - 300));
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+  const [jumpingToPinned, setJumpingToPinned] = useState(false);
   const [visualSettings, setVisualSettings] = useState<ChatVisualSettings>({});
   useEffect(() => {
     let active = true;
@@ -222,6 +223,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [deletePromptMessage, setDeletePromptMessage] = useState<Message | null>(null);
   const [contextAnchor, setContextAnchor] = useState({ left: 12, top: 100, width: 1, height: 1 });
   const messagePressables = useRef(new Map<string, any>());
+  const messageLayoutY = useRef(new Map<string, number>());
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
@@ -326,9 +328,20 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     } catch (e: any) { setMessageError(e?.detail || "Impossible de charger l’historique."); }
     finally { setLoading(false); }
   };
+  const loadPinnedMessages = async () => {
+    try {
+      const result = await messengerApi.pinnedMessages(conversation.id);
+      setPinnedMessages(result.items);
+    } catch {
+      setPinnedMessages([]);
+    }
+  };
   useEffect(() => {
     setMessages([]);
+    setPinnedMessages([]);
+    messageLayoutY.current.clear();
     loadMessages();
+    loadPinnedMessages();
   // The thread belongs to a conversation id; text is intentionally not a fetch dependency.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id]);
@@ -357,6 +370,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (lastVersion.current !== version) {
       lastVersion.current = version;
       loadMessages(undefined, "merge");
+      loadPinnedMessages();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
@@ -427,6 +441,42 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       const result = await messengerApi.messages(conversation.id, oldest.id);
       setMessages(prev => mergeMessages(prev, result.items)); setMore(result.has_more);
     } catch (e: any) { setMessageError(e?.detail || "Impossible de charger les anciens messages."); }
+  };
+  const jumpToPinnedMessage = async (messageId: string) => {
+    if (jumpingToPinned) return;
+    setJumpingToPinned(true);
+    try {
+      let loadedMessages = messages;
+      let hasOlder = more;
+      while (!loadedMessages.some(message => message.id === messageId) && hasOlder && loadedMessages.length) {
+        const page = await messengerApi.messages(conversation.id, loadedMessages[0].id);
+        if (!page.items.length) {
+          hasOlder = false;
+          break;
+        }
+        loadedMessages = mergeMessages(loadedMessages, page.items);
+        hasOlder = page.has_more;
+        setMessages(loadedMessages);
+        setMore(hasOlder);
+      }
+      if (!loadedMessages.some(message => message.id === messageId)) {
+        setMessageError("Le message épinglé n’est plus disponible.");
+        return;
+      }
+      nearBottom.current = false;
+      focusPendingMessage.current = messageId;
+      setFocusedMessageId(messageId);
+      const y = messageLayoutY.current.get(messageId);
+      if (y !== undefined) {
+        focusPendingMessage.current = null;
+        requestAnimationFrame(() => scroll.current?.scrollTo({ y: Math.max(0, y - 64), animated: true }));
+        setTimeout(() => setFocusedMessageId(current => current === messageId ? null : current), 2400);
+      }
+    } catch (error: any) {
+      setMessageError(error?.detail || "Impossible d’ouvrir le message épinglé.");
+    } finally {
+      setJumpingToPinned(false);
+    }
   };
   const send = async (extra: Partial<{ attachments: Attachment[]; forwarded_from: string; text: string }> = {}) => {
     const content = (extra.text ?? text).trim();
@@ -541,9 +591,18 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       if (kind === "delete") await fetchAction(`${root}?scope=${body?.scope === "me" ? "me" : "everyone"}`, "DELETE");
       if (kind === "reaction") updated = await fetchAction(`${root}/reaction`, "POST", body);
       if (kind === "pin") updated = await fetchAction(`${root}/pin`, "POST");
-      if (kind === "edit" && updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
-      else if (kind === "delete") setMessages(prev => prev.filter(m => m.id !== message.id));
+       if (kind === "edit" && updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
+       else if (kind === "delete") {
+         setMessages(prev => prev.filter(m => m.id !== message.id));
+         setPinnedMessages(prev => prev.filter(item => item.id !== message.id));
+       }
       else if (updated) setMessages(prev => prev.map(m => m.id === message.id ? updated! : m));
+       if (kind === "pin" && updated) {
+         setPinnedMessages(previous => [
+           ...previous.filter(item => item.id !== updated!.id),
+           ...(updated!.pinned ? [updated!] : []),
+         ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+       }
       setContextMessage(null);
       setDeletePromptMessage(null);
       return true;
@@ -590,16 +649,17 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (method === "DELETE") return api.delete(path);
     return api.post<Message>(path, body);
   };
-  const openAttachment = async (file: Attachment) => {
+  const openAttachment = async (file: Attachment, loadedUrl?: string) => {
     try {
-      await openProtectedAttachment(file, setAttachmentPreview);
+      await openProtectedAttachment(file, setAttachmentPreview, loadedUrl);
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e.message); }
   };
-  const openSticker = async (file: Attachment, messageId: string) => {
+  const openSticker = async (file: Attachment, messageId: string, loadedUrl?: string) => {
     try {
-      const url = await protectedFileUrl(file.id);
+      const url = loadedUrl || await protectedFileUrl(file.id);
       setAttachmentPreview({
         url, mime: file.mime, name: file.name, fileId: file.id,
+        releaseUrl: !loadedUrl,
         sticker: { conversationId: conversation.id, messageId },
       });
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e?.message || "Impossible d’ouvrir ce sticker."); }
@@ -642,7 +702,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     }));
     setPendingStickerCreation(true);
     setPendingMedia([editedFile]);
-    URL.revokeObjectURL(preview.url);
+    if (preview.releaseUrl) URL.revokeObjectURL(preview.url);
     setAttachmentPreview(null);
   };
   const selectSticker = async (file: Attachment) => {
@@ -961,6 +1021,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const presence = conversation.is_saved ? "Votre espace privé" : otherPerson?.online ? "En ligne" : otherPerson?.last_seen
     ? `Vu ${new Date(otherPerson.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
     : conversation.kind === "private" ? "Membre SPILOVEURE" : `${conversation.member_profiles.length} membres`;
+  const pinnedMessage = pinnedMessages[0];
+  const pinnedMessagePreview = pinnedMessage?.text
+    || pinnedMessage?.attachments?.[0]?.name
+    || "Pièce jointe";
 
   return (
     <View style={[styles.thread, { backgroundColor: darkMode ? "#111827" : "#b9e3d9" }]}>
@@ -981,6 +1045,21 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         </View>
       </View>
       {searching && <View style={[styles.searchRow, { backgroundColor: chatSurface }]}><TextInput value={historyQuery} onChangeText={setHistoryQuery} placeholder="Rechercher dans l’historique" style={styles.searchInput} onSubmitEditing={() => loadMessages(historyQuery)} /><TouchableOpacity onPress={() => loadMessages(historyQuery)}><Ionicons name="search" size={20} color={blue} /></TouchableOpacity></View>}
+      {pinnedMessage && <TouchableOpacity
+        style={[styles.pinnedMessageBanner, darkMode && styles.pinnedMessageBannerDark]}
+        onPress={() => void jumpToPinnedMessage(pinnedMessage.id)}
+        disabled={jumpingToPinned}
+        accessibilityRole="button"
+        accessibilityLabel={`Aller au message épinglé : ${pinnedMessagePreview}`}
+        testID="messenger-pinned-message-banner"
+      >
+        <Ionicons name="pin" size={19} color={blue} />
+        <View style={styles.pinnedMessageCopy}>
+          <Text style={styles.pinnedMessageLabel}>Message épinglé{pinnedMessages.length > 1 ? ` · ${pinnedMessages.length}` : ""}</Text>
+          <Text numberOfLines={1} style={[styles.pinnedMessageText, darkMode && styles.pinnedMessageTextDark]}>{pinnedMessagePreview}</Text>
+        </View>
+        {jumpingToPinned ? <ActivityIndicator size="small" color={blue} /> : <Ionicons name="chevron-forward" size={19} color={muted} />}
+      </TouchableOpacity>}
       <ScrollView ref={scroll} style={[styles.history, { backgroundColor: chatSurface }]} contentContainerStyle={[styles.historyContent, { backgroundColor: chatSurface }]} onContentSizeChange={handleHistoryContentSizeChange} onScroll={handleHistoryScroll} scrollEventThrottle={100}>
         {more && <TouchableOpacity onPress={fetchOlder} style={styles.older}><Text style={styles.olderText}>Charger les messages précédents</Text></TouchableOpacity>}
         {messageError ? <TouchableOpacity onPress={() => loadMessages(historyQuery || undefined)} style={styles.historyError}><Text style={styles.historyErrorText}>{messageError} · Réessayer</Text></TouchableOpacity> : null}
@@ -1027,16 +1106,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                   </TouchableOpacity>
                   {!!message.status_reply.attachments?.length && <View style={styles.statusReplyMedia}>
                      {message.status_reply.attachments.slice(0, 1).map(file =>
-                       <ProtectedMessageMedia key={file.id} file={file} compact maxWidth={180} onOpen={() => openAttachment(file)} onLongPress={event => openMessageContext(message, event)} />)}
+                        <ProtectedMessageMedia key={file.id} file={file} compact maxWidth={180} onOpen={url => openAttachment(file, url)} onLongPress={event => openMessageContext(message, event)} />)}
                   </View>}
                 </View>}
                 {!!stickerFiles.length && <View style={[styles.stickerGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {stickerFiles.map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={() => openSticker(file, message.id)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={url => openSticker(file, message.id, url)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!mediaFiles.length && <View style={[styles.mediaGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {mediaFiles.map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={() => openAttachment(file)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} compact={message.attachments.length > 1} maxWidth={mediaMaxWidth} onOpen={url => openAttachment(file, url)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!message.text && (isEmojiOnlyMessage(message.text)
                   ? <AnimatedEmojiMessage
@@ -1083,6 +1162,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               </View>}
             </View>;
           const handleMessageLayout = (event: any) => {
+            messageLayoutY.current.set(message.id, event.nativeEvent.layout.y);
             if (focusPendingMessage.current !== message.id) return;
             focusPendingMessage.current = null;
             const y = Math.max(0, event.nativeEvent.layout.y - 64);
@@ -1367,6 +1447,12 @@ const styles = StyleSheet.create({
   headerMenuText: { fontSize: 13, color: ink, fontWeight: "700" },
   searchRow: { backgroundColor: "#fff", flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   searchInput: { flex: 1, height: 44, fontSize: 14, color: ink },
+  pinnedMessageBanner: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 12, marginTop: 5, marginBottom: 3, paddingHorizontal: 12, borderRadius: 13, borderLeftWidth: 3, borderLeftColor: blue, backgroundColor: "#fff" },
+  pinnedMessageBannerDark: { backgroundColor: "#1b2635" },
+  pinnedMessageCopy: { flex: 1, minWidth: 0 },
+  pinnedMessageLabel: { color: blue, fontSize: 11, fontWeight: "800" },
+  pinnedMessageText: { color: ink, fontSize: 13, marginTop: 2 },
+  pinnedMessageTextDark: { color: "#f3f6fb" },
   history: { flex: 1, minHeight: 0 }, historyContent: { padding: 14, paddingBottom: 14, gap: 8 },
   older: { alignSelf: "center", backgroundColor: "#e8f0ff", borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14 }, olderText: { color: blue, fontSize: 12, fontWeight: "700" },
   historyError: { alignSelf: "center", backgroundColor: "#fff0ef", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }, historyErrorText: { color: "#c33", fontSize: 12, fontWeight: "700" },

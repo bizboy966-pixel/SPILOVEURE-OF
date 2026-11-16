@@ -22,7 +22,7 @@ export default function StickerActionSheet({
   useEffect(() => { setIsSaved(saved); setIsPacked(packed); }, [preview?.fileId, saved, packed]);
 
   const close = () => {
-    if (preview?.url) URL.revokeObjectURL(preview.url);
+    if (preview?.releaseUrl && preview.url) URL.revokeObjectURL(preview.url);
     onClose();
   };
   const runAction = async (key: "favorite" | "pack" | "edit", action: () => Promise<void>) => {
@@ -51,7 +51,7 @@ export default function StickerActionSheet({
     accessibilityRole="button"
     testID={testID}
   >
-    {busy === key ? <ActivityIndicator color="#d4d9df" /> : <Ionicons name={icon} size={25} color="#b7bdc3" />}
+    {busy === key ? <ActivityIndicator color="#1769e8" /> : <Ionicons name={icon} size={25} color="#64748b" />}
     <Text style={styles.actionText}>{busy === key ? "Veuillez patienter…" : label}</Text>
   </TouchableOpacity>;
 
@@ -62,7 +62,7 @@ export default function StickerActionSheet({
         <View style={styles.handle} />
         <View style={styles.previewArea}>
           <TouchableOpacity style={styles.close} onPress={close} accessibilityLabel="Fermer les actions du sticker">
-            <Ionicons name="close" size={25} color="#f5f6f7" />
+            <Ionicons name="close" size={25} color="#172016" />
           </TouchableOpacity>
           {preview?.url ? <Image
             source={{ uri: preview.url }}
@@ -90,13 +90,13 @@ export default function StickerActionSheet({
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,.36)", justifyContent: "flex-end" },
   dismiss: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: "100%", minHeight: 490, maxHeight: "76%", backgroundColor: "#111619", paddingTop: 10, paddingBottom: 8 },
-  handle: { alignSelf: "center", width: 38, height: 4, borderRadius: 2, backgroundColor: "#778087", marginBottom: 8 },
+  sheet: { width: "100%", minHeight: 490, maxHeight: "76%", backgroundColor: "#fff", paddingTop: 10, paddingBottom: 8 },
+  handle: { alignSelf: "center", width: 38, height: 4, borderRadius: 2, backgroundColor: "#cbd3dd", marginBottom: 8 },
   previewArea: { height: 222, justifyContent: "center", alignItems: "center" },
   close: { position: "absolute", left: 20, top: 18, zIndex: 2, width: 42, height: 42, justifyContent: "center", alignItems: "center" },
   sticker: { width: 205, height: 205 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: "#31383d" },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: "#e7eaf0" },
   actionRow: { height: 72, flexDirection: "row", alignItems: "center", gap: 28, paddingHorizontal: 32 },
-  actionText: { color: "#f1f3f4", fontSize: 18, fontWeight: "400" },
+  actionText: { color: "#172016", fontSize: 18, fontWeight: "400" },
   bottomInset: { height: 8 },
 });

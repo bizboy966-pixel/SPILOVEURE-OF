@@ -6,7 +6,7 @@ import type { Attachment } from "./types";
 
 export default function ProtectedMessageMedia({
   file, onOpen, onLongPress, compact = false, autoLoad = true, maxWidth = 260,
-}: { file: Attachment; onOpen: () => void; onLongPress?: (event: any) => void; compact?: boolean; autoLoad?: boolean; maxWidth?: number }) {
+}: { file: Attachment; onOpen: (loadedUrl?: string) => void; onLongPress?: (event: any) => void; compact?: boolean; autoLoad?: boolean; maxWidth?: number }) {
   const [url, setUrl] = useState("");
   const [aspect, setAspect] = useState(4 / 3);
   const [error, setError] = useState(false);
@@ -63,8 +63,21 @@ export default function ProtectedMessageMedia({
     <Ionicons name={isSticker ? "happy-outline" : "download-outline"} size={25} color="#1769e8" /><Text style={styles.loadText}>{isSticker ? "Charger le sticker" : "Charger le média"}</Text>
   </TouchableOpacity>;
   if (!url) return <View style={[styles.loading, { width, height, maxWidth: "100%" }]}><ActivityIndicator color="#1769e8" /></View>;
-  if (isVideo) return <TouchableOpacity activeOpacity={1} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={`Options de la vidéo ${file.name}`} testID={`messenger-video-${file.id}`}><View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} /></TouchableOpacity>;
-  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(); }} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir les actions du sticker" : `Ouvrir la photo ${file.name}`} testID={`${isSticker ? "messenger-sticker" : "messenger-image"}-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
+  if (isVideo) return <View style={[styles.videoFrame, { width, height, maxWidth: "100%" }]}>
+    <TouchableOpacity activeOpacity={1} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={`Options de la vidéo ${file.name}`} testID={`messenger-video-${file.id}`}>
+      <View ref={videoHost} style={[styles.video, { width, height, maxWidth: "100%" }]} />
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={styles.videoExpand}
+      onPress={event => { event.stopPropagation?.(); onOpen(url); }}
+      accessibilityRole="button"
+      accessibilityLabel={`Ouvrir la vidéo ${file.name} en grand`}
+      testID={`messenger-video-open-${file.id}`}
+    >
+      <Ionicons name="expand-outline" size={18} color="#fff" />
+    </TouchableOpacity>
+  </View>;
+  return <TouchableOpacity onPress={event => { event.stopPropagation?.(); onOpen(url); }} onLongPress={event => { event.stopPropagation?.(); onLongPress?.(event); }} delayLongPress={420} accessibilityRole="button" accessibilityLabel={isSticker ? "Ouvrir les actions du sticker" : `Ouvrir la photo ${file.name}`} testID={`${isSticker ? "messenger-sticker" : "messenger-image"}-${file.id}`} style={[styles.imageFrame, isSticker && styles.stickerFrame, { width, height, maxWidth: "100%" }]}>
     <Image
       source={{ uri: url }}
       resizeMode={isSticker ? "contain" : "cover"}
@@ -81,7 +94,9 @@ const styles = StyleSheet.create({
   imageFrame: { backgroundColor: "transparent", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
   stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
   image: { width: "100%", height: "100%", maxWidth: "100%" },
+  videoFrame: { position: "relative" },
   video: { backgroundColor: "#080d15", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
+  videoExpand: { position: "absolute", right: 8, bottom: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,.68)", alignItems: "center", justifyContent: "center" },
   loading: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
   loadText: { color: "#1769e8", fontSize: 12, fontWeight: "700", marginTop: 5 },
   failed: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
