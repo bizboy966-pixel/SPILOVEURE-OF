@@ -20,7 +20,10 @@ from identity_core import (
     establish_chat, identity, now, rate_limit, remote_key, renew_chat, require_chat,
     safe_user, state,
 )
-from identity_policy import activated, chat_access_allowed, password_created, email_verified
+from identity_policy import (
+    activated, chat_access_allowed, email_verified, isolated_chat_preview_enabled,
+    password_created,
+)
 from levels import COUNTRIES
 from push_notifications import TokenIn, register_push_token
 from referral_defaults import registration_sponsor
@@ -212,6 +215,21 @@ async def open_chat(request: Request, response: Response):
         raise HTTPException(403, "Vérifiez votre e-mail sur cet appareil pour ouvrir le Chat.")
     await establish_chat(request, response, user)
     return {**await state(request, user, claims), "chat_authenticated": True}
+
+
+@router.post("/preview/chat/open")
+async def open_isolated_preview_chat(request: Request, response: Response):
+    if not isolated_chat_preview_enabled():
+        raise HTTPException(404, "Route introuvable.")
+    user = await request.app.state.db.users.find_one({
+        "username": "preview_test_b02606",
+        "preview_test_account": True,
+        "status": {"$nin": ["banned", "blocked", "deleted"]},
+    })
+    if not user:
+        raise HTTPException(404, "Le compte de démonstration n’est pas disponible.")
+    await establish_chat(request, response, user)
+    return {**await state(request, user), "chat_authenticated": True}
 
 
 @router.get("/chat/session")

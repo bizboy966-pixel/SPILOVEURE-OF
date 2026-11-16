@@ -1,4 +1,5 @@
 """Narrow access rules for new onboarding accounts; legacy accounts are unchanged."""
+import os
 import re
 
 
@@ -19,9 +20,22 @@ def email_verified(user):
     )
 
 
+def isolated_chat_preview_enabled():
+    return (
+        os.environ.get("SPV_ISOLATED_CHAT_PREVIEW") == "1"
+        and os.environ.get("SPV_PREVIEW_MODE") == "isolated"
+        and os.environ.get("DB_NAME") == "spiloveure_local_development"
+        and os.environ.get("MONGO_URL") == "mongodb://127.0.0.1:27017"
+    )
+
+
 def chat_access_allowed(user):
-    """Keep the email bypass limited to the one explicitly designated preview account."""
-    return email_verified(user) or str(user.get("username", "")).casefold() == "preview_test_b02606"
+    """Allow only the seeded preview account to bypass email verification in isolated dev."""
+    return email_verified(user) or (
+        isolated_chat_preview_enabled()
+        and user.get("preview_test_account") is True
+        and str(user.get("username", "")).casefold() == "preview_test_b02606"
+    )
 
 
 def onboarding_path_allowed(path, method="GET"):

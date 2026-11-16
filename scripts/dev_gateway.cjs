@@ -41,6 +41,18 @@ function parsePreviewApiUpstream(raw) {
   return url.origin;
 }
 
+function resolvePreviewApiUpstream(mode, raw) {
+  if (mode === "isolated") return null;
+  if (mode !== "vps") {
+    throw new Error("SPV_PREVIEW_MODE must be explicitly set to isolated or vps.");
+  }
+  const upstream = parsePreviewApiUpstream(raw);
+  if (!upstream) {
+    throw new Error("SPV_PREVIEW_API_UPSTREAM is required in VPS preview mode.");
+  }
+  return upstream;
+}
+
 function isBackendPath(requestUrl) {
   let pathname;
   try {
@@ -132,16 +144,16 @@ function createGateway({
 }
 
 if (require.main === module) {
-  const apiUpstream = parsePreviewApiUpstream(process.env.SPV_PREVIEW_API_UPSTREAM);
-  if (!apiUpstream) {
-    throw new Error(
-      "SPV_PREVIEW_API_UPSTREAM is required; the Replit workflow no longer starts a local API or MongoDB.",
-    );
+  const mode = process.env.SPV_PREVIEW_MODE;
+  const apiUpstream = resolvePreviewApiUpstream(mode, process.env.SPV_PREVIEW_API_UPSTREAM);
+  if (mode === "isolated") {
+    console.log("Isolated local preview enabled; VPS API is not used.");
+  } else {
+    console.log(`Preview API proxy enabled for ${apiUpstream}`);
   }
-  console.log(`Preview API proxy enabled for ${apiUpstream}`);
   createGateway({ apiUpstream }).listen(5000, "0.0.0.0", () => {
     console.log("SPILOVEURE development gateway listening on port 5000");
   });
 }
 
-module.exports = { createGateway, isBackendPath, parsePreviewApiUpstream };
+module.exports = { createGateway, isBackendPath, parsePreviewApiUpstream, resolvePreviewApiUpstream };

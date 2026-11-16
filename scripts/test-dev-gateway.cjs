@@ -6,6 +6,7 @@ const {
   createGateway,
   isBackendPath,
   parsePreviewApiUpstream,
+  resolvePreviewApiUpstream,
 } = require("./dev_gateway.cjs");
 
 function listen(server) {
@@ -41,6 +42,10 @@ async function main() {
   assert.throws(() => parsePreviewApiUpstream("https://spiloveure.org.evil.test"));
   assert.throws(() => parsePreviewApiUpstream("https://spiloveure.org:8443"));
   assert.throws(() => parsePreviewApiUpstream("https://spiloveure.org/api"));
+  assert.equal(resolvePreviewApiUpstream("isolated", "https://spiloveure.org"), null);
+  assert.equal(resolvePreviewApiUpstream("vps", "https://spiloveure.org"), "https://spiloveure.org");
+  assert.throws(() => resolvePreviewApiUpstream("vps", ""));
+  assert.throws(() => resolvePreviewApiUpstream("unknown", ""));
   assert.equal(isBackendPath("/api/messenger/ws?ticket=one"), true);
   assert.equal(isBackendPath("/"), false);
 

@@ -286,13 +286,18 @@ def test_activated_unverified_account_can_use_main_platform_but_not_chat(identit
     assert client.get("/api/identity/chat/session").status_code == 401
 
 
-def test_named_preview_test_account_can_open_chat_without_verifying_email(identity_app):
+def test_named_preview_test_account_can_open_chat_without_verifying_email(identity_app, monkeypatch):
     app, client = identity_app
+    monkeypatch.setenv("SPV_ISOLATED_CHAT_PREVIEW", "1")
+    monkeypatch.setenv("SPV_PREVIEW_MODE", "isolated")
+    monkeypatch.setenv("DB_NAME", "spiloveure_local_development")
+    monkeypatch.setenv("MONGO_URL", "mongodb://127.0.0.1:27017")
     user = {
         "id": "preview-test-user", "username": "preview_test_b02606",
         "email": "preview-test@example.com", "phone": "+22891112222",
         "country": "TG", "status": "active", "max_level": 1, "role": "user",
         "password_hash": hash_password("PreviewPassword9!"), "email_verified": False,
+        "preview_test_account": True,
     }
     asyncio.run(app.state.db.users.insert_one(user))
     headers = main_header(create_access_token(user["id"], "user"))
@@ -307,13 +312,38 @@ def test_named_preview_test_account_can_open_chat_without_verifying_email(identi
     assert unchanged["email_verified"] is False
 
 
-def test_only_exact_preview_test_username_can_bypass_chat_email_verification(identity_app):
+def test_preview_chat_bypass_is_unavailable_outside_isolated_environment(identity_app, monkeypatch):
     app, client = identity_app
+    monkeypatch.delenv("SPV_ISOLATED_CHAT_PREVIEW", raising=False)
+    monkeypatch.delenv("SPV_PREVIEW_MODE", raising=False)
+    monkeypatch.delenv("DB_NAME", raising=False)
+    monkeypatch.delenv("MONGO_URL", raising=False)
+    user = {
+        "id": "preview-test-outside", "username": "preview_test_b02606",
+        "email": "preview-test-outside@example.com", "phone": "+22891114444",
+        "country": "TG", "status": "active", "max_level": 1, "role": "user",
+        "password_hash": hash_password("PreviewPassword9!"), "email_verified": False,
+        "preview_test_account": True,
+    }
+    asyncio.run(app.state.db.users.insert_one(user))
+    headers = main_header(create_access_token(user["id"], "user"))
+
+    assert client.post("/api/identity/chat/open", headers=headers).status_code == 403
+    assert client.post("/api/identity/preview/chat/open").status_code == 404
+
+
+def test_only_exact_marked_preview_account_can_bypass_chat_email_verification(identity_app, monkeypatch):
+    app, client = identity_app
+    monkeypatch.setenv("SPV_ISOLATED_CHAT_PREVIEW", "1")
+    monkeypatch.setenv("SPV_PREVIEW_MODE", "isolated")
+    monkeypatch.setenv("DB_NAME", "spiloveure_local_development")
+    monkeypatch.setenv("MONGO_URL", "mongodb://127.0.0.1:27017")
     user = {
         "id": "other-preview-user", "username": "preview_test_b02606_other",
         "email": "other-preview@example.com", "phone": "+22891113333",
         "country": "TG", "status": "active", "max_level": 1, "role": "user",
         "password_hash": hash_password("PreviewPassword9!"), "email_verified": False,
+        "preview_test_account": True,
     }
     asyncio.run(app.state.db.users.insert_one(user))
     headers = main_header(create_access_token(user["id"], "user"))
@@ -323,6 +353,26 @@ def test_only_exact_preview_test_username_can_bypass_chat_email_verification(ide
     assert state["chat_access_allowed"] is False
     assert client.post("/api/identity/chat/open", headers=headers).status_code == 403
     assert client.get("/api/identity/chat/session").status_code == 401
+
+
+def test_isolated_preview_entry_opens_only_the_seeded_demo_account(identity_app, monkeypatch):
+    app, client = identity_app
+    monkeypatch.setenv("SPV_ISOLATED_CHAT_PREVIEW", "1")
+    monkeypatch.setenv("SPV_PREVIEW_MODE", "isolated")
+    monkeypatch.setenv("DB_NAME", "spiloveure_local_development")
+    monkeypatch.setenv("MONGO_URL", "mongodb://127.0.0.1:27017")
+    asyncio.run(app.state.db.users.insert_one({
+        "id": "preview-test-entry", "username": "preview_test_b02606",
+        "email": "preview-entry@example.test", "phone": "00000000", "country": "TG",
+        "status": "active", "max_level": 1, "role": "user", "email_verified": False,
+        "preview_test_account": True,
+    }))
+
+    opened = client.post("/api/identity/preview/chat/open")
+    assert opened.status_code == 200
+    assert opened.json()["user"]["id"] == "preview-test-entry"
+    assert opened.json()["email_verified"] is False
+    assert client.get("/api/identity/chat/session").status_code == 200
 
 
 def test_main_expiry_does_not_expire_chat_and_unlock_needs_only_password(identity_app):

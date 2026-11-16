@@ -17,6 +17,8 @@ import { theme } from "@/src/theme";
 import { useI18n } from "@/src/i18n";
 import { clearChatLogoutMarker } from "@/src/chat/chatLaunchState";
 
+const ISOLATED_CHAT_PREVIEW = process.env.EXPO_PUBLIC_SPV_ISOLATED_PREVIEW === "1";
+
 export default function Login() {
   const { t } = useI18n();
   const router = useRouter();
@@ -50,6 +52,20 @@ export default function Login() {
     setChatLoading(true);
     setChatError("");
     try {
+      if (ISOLATED_CHAT_PREVIEW) {
+        const opened = await api.post<{ user: { id: string } }>(
+          "/identity/preview/chat/open",
+          undefined,
+          { auth: false, credentials: "include" }
+        );
+        const chatUser = await refreshChat();
+        if (!chatUser || chatUser.id !== opened.user?.id) {
+          throw { detail: "La session de démonstration n’a pas pu être ouverte." };
+        }
+        await clearChatLogoutMarker();
+        router.replace("/messenger" as any);
+        return;
+      }
       await api.get("/identity/chat/session", { auth: false, credentials: "include" });
       const chatUser = await refreshChat();
       if (!chatUser) throw { detail: "La session Chat n’a pas pu être reprise." };

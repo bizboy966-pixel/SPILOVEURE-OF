@@ -27,8 +27,8 @@ Le nom d’utilisateur modifiable est propre au Chat et ne remplace pas le nom d
 
 **How to apply:** Stocker et afficher séparément l’alias Chat. Ne pas modifier les identifiants ni les liens de la plateforme principale.
 
-Seul le compte de test explicitement désigné `preview_test_b02606` peut ouvrir le Chat sans vérification d’e-mail. Cette exception ne marque pas son adresse comme vérifiée et ne s’étend pas aux comptes similaires.
+Dans le mode de preview local isolé uniquement, le compte de démonstration `preview_test_b02606` peut ouvrir le Chat sans vérification d’e-mail. L’exception ne marque pas l’adresse comme vérifiée et ne s’étend pas aux comptes similaires ni au VPS.
 
-**Why:** L’utilisateur a confirmé ce compte précis pour tester l’accès direct au Chat, sans désactiver la vérification pour ses autres comptes.
+**Why:** L’utilisateur a confirmé le compte précis et choisi des données de test isolées pour tester l’accès direct dans le preview, sans changer l’authentification VPS.
 
-**How to apply:** Appliquer l’exception uniquement aux autorisations Chat et à la validité de sa session Chat. Conserver la vérification réelle pour les autres comptes et ne pas changer les règles d’accès à la plateforme principale, aux paiements ou à la récupération du mot de passe.
+**How to apply:** N’activer l’exception que si le mode de preview isolé, la base locale dédiée et MongoDB local sont tous confirmés. Conserver la vérification réelle ailleurs et ne pas changer l’accès principal, les paiements ou la récupération du mot de passe.
