@@ -45,8 +45,8 @@ La refonte visuelle générale peut s’inspirer de la finition et de la hiérar
 
 **How to apply:** Utiliser des styles et tokens propres au Chat ; ne pas modifier les flux, API, données ou règles métier dans le cadre d’une demande visuelle.
 
-Pour toute modification ou tout ajout futur relevant de la refonte, conserver le même niveau de finition professionnel, cohérent avec l’identité SPILOVEURE et les références validées.
+Par défaut, toute nouvelle construction, modification ou tout ajout dans le Chat doit reprendre le même style de refonte professionnel, cohérent avec l’identité SPILOVEURE et les références validées.
 
-**Why:** L’utilisateur demande explicitement que les prochaines modifications et additions liées à la refonte soient réalisées avec le même niveau de qualité professionnelle.
+**Why:** L’utilisateur demande explicitement que toutes les prochaines constructions, modifications et additions du Chat utilisent automatiquement le même style professionnel de refonte.
 
-**How to apply:** Appliquer cette exigence aux futurs changements de refonte du Chat ; intégrer les ajouts de façon homogène, vérifier les interactions et l’affichage responsive, et préserver les fonctionnalités existantes.
+**How to apply:** Appliquer ce style par défaut aux nouvelles pages, fonctionnalités et composants du Chat ; intégrer chaque ajout de façon homogène, vérifier les interactions et l’affichage responsive, et préserver les fonctionnalités existantes.
