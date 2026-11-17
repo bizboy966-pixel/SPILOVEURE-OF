@@ -9,6 +9,16 @@ Ne pas confondre le verrouillage du workspace de développement avec celui du fr
 
 **How to apply:** Vérifier les dépendances et capacités du conteneur cible avant de livrer une fonctionnalité dépendante du runtime, notamment les transports WebSocket. Conserver les validations dans une base locale isolée : le démarrage complet de la plateforme lance aussi des traitements métier existants.
 
+Les compilations EAS doivent choisir leur version de Node indépendamment de
+Replit et de Hostinger.
+
+**Why:** Même pour un APK de production, EAS installe les dépendances de
+développement. Son image Android par défaut peut fournir une version de Node
+plus ancienne que celle exigée par un outil de lint transitif.
+
+**How to apply:** Vérifier la version Node dans les journaux du build EAS et
+respecter les moteurs exigés par le lockfile, sans désactiver leurs contrôles.
+
 L’utilisateur confirme mettre à jour le site sur le VPS Hostinger manuellement avec des commandes. Séparer explicitement l’envoi du code sur GitHub du déploiement sur le VPS.
 
 **Why:** L’utilisateur veut préparer Android sans perturber son site en service et demande à être prévenu avant une action pouvant affecter Hostinger.
