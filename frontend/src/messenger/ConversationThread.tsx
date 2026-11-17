@@ -232,6 +232,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [targets, setTargets] = useState<Conversation[]>([]);
   const [recording, setRecording] = useState(false);
+  const [recordingLocked, setRecordingLocked] = useState(false);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [recordingViewOnce, setRecordingViewOnce] = useState(false);
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(() => Array.from({ length: 38 }, () => 5));
@@ -271,6 +272,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const recordingElapsed = useRef({ activeMs: 0, segmentStartedAt: 0 });
+  const voiceHold = useRef({
+    active: false,
+    started: false,
+    locked: false,
+    releasePending: false,
+    startY: 0,
+    timer: null as ReturnType<typeof setTimeout> | null,
+    suppressPress: false,
+  });
   const localVoiceUrls = useRef(new Set<string>());
   const discardRecording = useRef(false);
   const sendRecordingAfterStop = useRef(false);
@@ -434,6 +444,8 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     return () => clearInterval(timer);
   }, [recording, recordingPaused]);
   useEffect(() => () => {
+    if (voiceHold.current.timer) clearTimeout(voiceHold.current.timer);
+    voiceHold.current.active = false;
     discardRecording.current = true;
     sendRecordingAfterStop.current = false;
     if (recorder.current && recorder.current.state !== "inactive") recorder.current.stop();
@@ -454,40 +466,50 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       setMessages(prev => mergeMessages(prev, result.items)); setMore(result.has_more);
     } catch (e: any) { setMessageError(e?.detail || "Impossible de charger les anciens messages."); }
   };
+  const jumpToMessage = async (messageId: string, missingMessage: string) => {
+    let loadedMessages = messages;
+    let hasOlder = more;
+    while (!loadedMessages.some(message => message.id === messageId) && hasOlder && loadedMessages.length) {
+      const page = await messengerApi.messages(conversation.id, loadedMessages[0].id);
+      if (!page.items.length) {
+        hasOlder = false;
+        break;
+      }
+      loadedMessages = mergeMessages(loadedMessages, page.items);
+      hasOlder = page.has_more;
+      setMessages(loadedMessages);
+      setMore(hasOlder);
+    }
+    if (!loadedMessages.some(message => message.id === messageId)) {
+      setMessageError(missingMessage);
+      return;
+    }
+    nearBottom.current = false;
+    focusPendingMessage.current = messageId;
+    setFocusedMessageId(messageId);
+    const y = messageLayoutY.current.get(messageId);
+    if (y !== undefined) {
+      focusPendingMessage.current = null;
+      requestAnimationFrame(() => scroll.current?.scrollTo({ y: Math.max(0, y - 64), animated: true }));
+      setTimeout(() => setFocusedMessageId(current => current === messageId ? null : current), 2400);
+    }
+  };
   const jumpToPinnedMessage = async (messageId: string) => {
     if (jumpingToPinned) return;
     setJumpingToPinned(true);
     try {
-      let loadedMessages = messages;
-      let hasOlder = more;
-      while (!loadedMessages.some(message => message.id === messageId) && hasOlder && loadedMessages.length) {
-        const page = await messengerApi.messages(conversation.id, loadedMessages[0].id);
-        if (!page.items.length) {
-          hasOlder = false;
-          break;
-        }
-        loadedMessages = mergeMessages(loadedMessages, page.items);
-        hasOlder = page.has_more;
-        setMessages(loadedMessages);
-        setMore(hasOlder);
-      }
-      if (!loadedMessages.some(message => message.id === messageId)) {
-        setMessageError("Le message épinglé n’est plus disponible.");
-        return;
-      }
-      nearBottom.current = false;
-      focusPendingMessage.current = messageId;
-      setFocusedMessageId(messageId);
-      const y = messageLayoutY.current.get(messageId);
-      if (y !== undefined) {
-        focusPendingMessage.current = null;
-        requestAnimationFrame(() => scroll.current?.scrollTo({ y: Math.max(0, y - 64), animated: true }));
-        setTimeout(() => setFocusedMessageId(current => current === messageId ? null : current), 2400);
-      }
+      await jumpToMessage(messageId, "Le message épinglé n’est plus disponible.");
     } catch (error: any) {
       setMessageError(error?.detail || "Impossible d’ouvrir le message épinglé.");
     } finally {
       setJumpingToPinned(false);
+    }
+  };
+  const jumpToReplyMessage = async (messageId: string) => {
+    try {
+      await jumpToMessage(messageId, "Le message cité n’est plus disponible.");
+    } catch (error: any) {
+      setMessageError(error?.detail || "Impossible d’ouvrir le message cité.");
     }
   };
   const send = async (extra: Partial<{ attachments: Attachment[]; forwarded_from: string; text: string }> = {}) => {
@@ -529,15 +551,36 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     }
   };
   const handleHistoryContentSizeChange = () => {
-    if (!initialScrollPending.current && !nearBottom.current) return;
-    scroll.current?.scrollToEnd({ animated: !initialScrollPending.current });
-    initialScrollPending.current = false;
-    nearBottom.current = true;
+    if (initialScrollPending.current) {
+      scroll.current?.scrollToEnd({ animated: false });
+      nearBottom.current = true;
+      return;
+    }
+    if (!nearBottom.current) return;
+    scroll.current?.scrollToEnd({ animated: true });
   };
   const handleHistoryScroll = (event: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     nearBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 90;
   };
+  useEffect(() => {
+    if (loading || !initialScrollPending.current || focusMessageId) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      if (!initialScrollPending.current) return;
+      scroll.current?.scrollToEnd({ animated: false });
+      secondFrame = requestAnimationFrame(() => {
+        if (!initialScrollPending.current) return;
+        scroll.current?.scrollToEnd({ animated: false });
+        initialScrollPending.current = false;
+        nearBottom.current = true;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [loading, messages.length, conversation.id, focusMessageId]);
   const insertEmoji = (emoji: string) => {
     const current = draftValue.current;
     const start = Math.max(0, Math.min(composerSelection.start, current.length));
@@ -871,6 +914,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     if (context && context.state !== "closed") void context.close().catch(() => {});
   };
   const cancelVoiceRecording = () => {
+    if (voiceHold.current.timer) clearTimeout(voiceHold.current.timer);
+    voiceHold.current.active = false;
+    voiceHold.current.started = false;
+    voiceHold.current.locked = false;
+    voiceHold.current.releasePending = false;
+    setRecordingLocked(false);
     discardRecording.current = true;
     sendRecordingAfterStop.current = false;
     if (recorder.current?.state !== "inactive") recorder.current?.stop();
@@ -901,10 +950,13 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const sendVoiceRecording = () => {
     const rec = recorder.current;
     if (!rec || rec.state === "inactive") return;
+    voiceHold.current.active = false;
+    voiceHold.current.releasePending = false;
     sendRecordingAfterStop.current = true;
     setVoiceSending(true);
     rec.stop();
     setRecording(false);
+    setRecordingLocked(false);
     setRecordingPaused(false);
   };
   const toggleRecordingViewOnce = () => {
@@ -954,6 +1006,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         const durationSeconds = Math.max(0.1, elapsed / 1000);
         recordingElapsed.current = { activeMs: 0, segmentStartedAt: 0 };
         setRecording(false);
+        setRecordingLocked(false);
         setRecordingPaused(false);
         if (!discardRecording.current && sendRecordingAfterStop.current) {
           sendRecordingAfterStop.current = false;
@@ -971,9 +1024,70 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       recorder.current = rec;
       recordingElapsed.current = { activeMs: 0, segmentStartedAt: Date.now() };
       setRecordSeconds(0);
+      setRecordingLocked(voiceHold.current.locked);
       setRecording(true);
       rec.start(100);
-    } catch { if (typeof window !== "undefined") window.alert("Autorisez le microphone pour enregistrer."); }
+      if (voiceHold.current.releasePending && !voiceHold.current.locked) {
+        voiceHold.current.releasePending = false;
+        requestAnimationFrame(sendVoiceRecording);
+      }
+    } catch {
+      voiceHold.current.active = false;
+      voiceHold.current.started = false;
+      voiceHold.current.locked = false;
+      voiceHold.current.releasePending = false;
+      setRecordingLocked(false);
+      if (typeof window !== "undefined") window.alert("Autorisez le microphone pour enregistrer.");
+    }
+  };
+  const startVoiceHold = (event: any) => {
+    if (recording || voiceSending) return;
+    const hold = voiceHold.current;
+    if (hold.timer) clearTimeout(hold.timer);
+    hold.active = true;
+    hold.started = false;
+    hold.locked = false;
+    hold.releasePending = false;
+    hold.suppressPress = false;
+    hold.startY = Number(event?.nativeEvent?.pageY) || 0;
+    hold.timer = setTimeout(() => {
+      hold.timer = null;
+      if (!hold.active) return;
+      hold.started = true;
+      void voice();
+    }, 280);
+  };
+  const moveVoiceHold = (event: any) => {
+    const hold = voiceHold.current;
+    if (!hold.active || !hold.started || hold.locked) return;
+    const touch = event?.nativeEvent?.touches?.[0] || event?.nativeEvent?.changedTouches?.[0];
+    const currentY = Number(touch?.pageY ?? event?.nativeEvent?.pageY);
+    if (!Number.isFinite(currentY) || hold.startY <= 0 || hold.startY - currentY < 72) return;
+    hold.locked = true;
+    setRecordingLocked(true);
+  };
+  const finishVoiceHold = () => {
+    const hold = voiceHold.current;
+    if (hold.timer) {
+      clearTimeout(hold.timer);
+      hold.timer = null;
+    }
+    if (!hold.active) return;
+    hold.active = false;
+    if (!hold.started) return;
+    hold.suppressPress = true;
+    setTimeout(() => { hold.suppressPress = false; }, 500);
+    if (hold.locked) return;
+    const rec = recorder.current;
+    if (rec && rec.state !== "inactive") sendVoiceRecording();
+    else hold.releasePending = true;
+  };
+  const pressVoiceButton = () => {
+    if (voiceHold.current.suppressPress) {
+      voiceHold.current.suppressPress = false;
+      return;
+    }
+    if (!voiceHold.current.started) void voice();
   };
   const forward = async (target: Conversation) => {
     if (!forwarding) return;
@@ -1053,7 +1167,11 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     || "Pièce jointe";
 
   return (
-    <View style={[styles.thread, { backgroundColor: darkMode ? "#111827" : "#b9e3d9" }]}>
+    <View
+      style={[styles.thread, { backgroundColor: darkMode ? "#111827" : "#b9e3d9" }]}
+      onTouchMove={moveVoiceHold}
+      onTouchEnd={finishVoiceHold}
+    >
       {!darkMode && <ChatWallpaper />}
       <View style={[styles.threadHead, { backgroundColor: chatSurface }, darkMode && styles.threadHeadDark]}>
         <TouchableOpacity onPress={onBack} style={[styles.backButton, darkMode && styles.headerPillDark]} accessibilityLabel="Retour aux conversations" testID="messenger-back"><Ionicons name="arrow-back" size={23} color={blue} /></TouchableOpacity>
@@ -1118,10 +1236,16 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
               {!own && !stickerOnlyMessage && !mediaOnlyMessage && <Text style={styles.sender}>{message.sender_name}</Text>}
               {message.deleted ? <Text style={styles.deleted}>Message supprimé</Text> : <>
                 {message.forwarded_from && <Text style={styles.forwarded}>Message transféré</Text>}
-                {!!message.reply_to && <View style={styles.replyQuote} testID={`messenger-reply-quote-${message.id}`}>
+                {!!message.reply_to && <TouchableOpacity
+                  style={styles.replyQuote}
+                  onPress={event => { event.stopPropagation?.(); void jumpToReplyMessage(message.reply_to!); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Aller au message cité"
+                  testID={`messenger-reply-quote-${message.id}`}
+                >
                   <Text style={styles.replyQuoteSender}>{quoted?.sender_name || "Message précédent"}</Text>
                   <Text numberOfLines={2} style={styles.replyQuotePreview}>{quoted?.deleted ? "Message supprimé" : quoted?.text || quoted?.attachments?.[0]?.name || "Pièce jointe"}</Text>
-                </View>}
+                </TouchableOpacity>}
                 {message.status_reply && <View style={styles.statusReplyCard} testID={`messenger-status-reply-${message.id}`}>
                   <TouchableOpacity style={styles.statusReplyHeader} onPress={event => { event.stopPropagation?.(); onOpenStatus?.(message.status_reply?.author_id, message.status_reply?.status_id); }} accessibilityRole="button" accessibilityLabel={`Revoir le statut de ${message.status_reply.author_name}`}>
                     <View style={styles.statusReplyCopy}>
@@ -1229,6 +1353,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       {canSend && (recording || voiceSending) ? <VoiceRecorderControls
         seconds={recordSeconds}
         waveform={recordingWaveform}
+        locked={recordingLocked}
         paused={recordingPaused}
         viewOnce={recordingViewOnce}
         darkMode={darkMode}
@@ -1267,7 +1392,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         </View>
         {canSend && (text.trim() || editing
             ? <TouchableOpacity style={styles.sendButton} onPress={() => editing ? action(editing, "edit", { text }).then(ok => { if (ok) { setEditing(null); changeDraft(""); } }) : send()} accessibilityLabel="Envoyer le message" testID="messenger-send"><Image source={logo} style={styles.sendLogo} resizeMode="contain" testID="messenger-send-brand" /></TouchableOpacity>
-            : <TouchableOpacity onPress={voice} style={styles.recordButton} accessibilityLabel="Enregistrer un message vocal" testID="messenger-record-voice"><Ionicons name="mic" size={22} color="#fff" /></TouchableOpacity>)}
+            : <TouchableOpacity
+              onPress={pressVoiceButton}
+              onPressIn={startVoiceHold}
+              onPressOut={finishVoiceHold}
+              style={styles.recordButton}
+              accessibilityLabel="Maintenir puis glisser vers le haut pour verrouiller l’enregistrement vocal"
+              testID="messenger-record-voice"
+            ><Ionicons name="mic" size={22} color="#fff" /></TouchableOpacity>)}
       </View>}
       <Modal visible={composerActionsOpen} transparent animationType="fade" onRequestClose={() => setComposerActionsOpen(false)}>
         <View style={styles.composerActionsBackdrop}>

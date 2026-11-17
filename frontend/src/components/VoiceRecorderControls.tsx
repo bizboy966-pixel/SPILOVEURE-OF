@@ -8,6 +8,7 @@ type Props = {
   waveform: number[];
   paused: boolean;
   viewOnce: boolean;
+  locked?: boolean;
   darkMode?: boolean;
   sending?: boolean;
   onCancel: () => void;
@@ -17,7 +18,7 @@ type Props = {
 };
 
 export default function VoiceRecorderControls({
-  seconds, waveform, paused, viewOnce, darkMode = false, sending = false,
+  seconds, waveform, paused, viewOnce, locked = false, darkMode = false, sending = false,
   onCancel, onTogglePause, onToggleViewOnce, onSend,
 }: Props) {
   return (
@@ -60,6 +61,10 @@ export default function VoiceRecorderControls({
             <Text style={[styles.onceLabel, viewOnce && styles.onceLabelActive]}>1</Text>
           </TouchableOpacity>
         </View>
+        {locked && <View style={styles.lockedHint} testID="messenger-voice-locked">
+          <Ionicons name="lock-closed" size={14} color="#148c55" />
+          <Text style={[styles.lockedText, darkMode && styles.textDark]}>Enregistrement verrouillé · appuyez sur envoyer ou supprimer</Text>
+        </View>}
         <View style={styles.controlsRow}>
           <TouchableOpacity
             onPress={onCancel}
@@ -107,6 +112,8 @@ const styles = StyleSheet.create({
   duration: { minWidth: 46, color: "#202833", fontSize: 18, fontVariant: ["tabular-nums"], fontWeight: "600" },
   waveform: { flex: 1, height: 42, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 2, overflow: "hidden" },
   waveBar: { width: 3, minWidth: 2, borderRadius: 3 },
+  lockedHint: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 2 },
+  lockedText: { color: "#148c55", fontSize: 11, fontWeight: "700" },
   onceButton: { width: 42, height: 42, borderRadius: 21, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#e9edf1" },
   onceButtonActive: { backgroundColor: "#148c55" },
   onceLabel: { marginLeft: -6, marginTop: 5, color: "#495463", fontSize: 10, fontWeight: "900" },

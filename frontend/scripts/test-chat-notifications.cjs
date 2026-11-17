@@ -72,6 +72,32 @@ test("conversation header follows the rounded Telegram-style back, identity and 
   assert.match(thread, /testID="messenger-scheduled-open"/);
 });
 
+test("conversation opens on the latest message without animating the initial scroll", () => {
+  const thread = fs.readFileSync(path.join(root, "src/messenger/ConversationThread.tsx"), "utf8");
+  assert.match(thread, /if \(initialScrollPending\.current\) \{\s*scroll\.current\?\.scrollToEnd\(\{ animated: false \}\)/);
+  assert.match(thread, /if \(loading \|\| !initialScrollPending\.current \|\| focusMessageId\) return;/);
+  assert.match(thread, /messages\.length, conversation\.id, focusMessageId/);
+});
+
+test("tapping a reply quote jumps to and highlights its original message", () => {
+  const thread = fs.readFileSync(path.join(root, "src/messenger/ConversationThread.tsx"), "utf8");
+  assert.match(thread, /onPress=\{event => \{ event\.stopPropagation\?\.\(\); void jumpToReplyMessage\(message\.reply_to!\); \}\}/);
+  assert.match(thread, /const jumpToReplyMessage = async \(messageId: string\)/);
+  assert.match(thread, /focusPendingMessage\.current = messageId/);
+  assert.match(thread, /setFocusedMessageId\(messageId\)/);
+});
+
+test("voice recording can be locked by holding and swiping upward", () => {
+  const thread = fs.readFileSync(path.join(root, "src/messenger/ConversationThread.tsx"), "utf8");
+  const controls = fs.readFileSync(path.join(root, "src/components/VoiceRecorderControls.tsx"), "utf8");
+  assert.match(thread, /onPressIn=\{startVoiceHold\}/);
+  assert.match(thread, /onTouchMove=\{moveVoiceHold\}/);
+  assert.match(thread, /hold\.startY - currentY < 72/);
+  assert.match(thread, /locked=\{recordingLocked\}/);
+  assert.match(controls, /testID="messenger-voice-locked"/);
+  assert.match(controls, /Enregistrement verrouillé/);
+});
+
 test("messenger stays inside Safari's visible viewport while the keyboard opens and closes", () => {
   const screen = fs.readFileSync(path.join(root, "src/messenger/MessengerScreen.tsx"), "utf8");
   assert.match(screen, /window\.visualViewport/);
