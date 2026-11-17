@@ -44,3 +44,9 @@ La refonte visuelle générale peut s’inspirer de la finition et de la hiérar
 **Why:** Le cahier des charges de refonte fourni par l’utilisateur autorise une amélioration visuelle de tout le Chat, tout en interdisant le changement d’identité, d’organisation et de comportement.
 
 **How to apply:** Utiliser des styles et tokens propres au Chat ; ne pas modifier les flux, API, données ou règles métier dans le cadre d’une demande visuelle.
+
+Pour toute modification ou tout ajout futur relevant de la refonte, conserver le même niveau de finition professionnel, cohérent avec l’identité SPILOVEURE et les références validées.
+
+**Why:** L’utilisateur demande explicitement que les prochaines modifications et additions liées à la refonte soient réalisées avec le même niveau de qualité professionnelle.
+
+**How to apply:** Appliquer cette exigence aux futurs changements de refonte du Chat ; intégrer les ajouts de façon homogène, vérifier les interactions et l’affichage responsive, et préserver les fonctionnalités existantes.
