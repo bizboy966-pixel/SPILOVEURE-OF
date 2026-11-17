@@ -19,7 +19,12 @@
       "developmentClient": false,
       "credentialsSource": "remote",
       "android": { "buildType": "apk" },
-      "env": { "SPV_ANDROID_RELEASE": "1" }
+      "environment": "production",
+      "env": {
+        "SPV_ANDROID_RELEASE": "1",
+        "EXPO_PUBLIC_BACKEND_URL": "https://spiloveure.org",
+        "ANDROID_VERSION_CODE": "1"
+      }
     }
   }
 }

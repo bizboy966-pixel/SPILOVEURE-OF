@@ -8,10 +8,10 @@ function externalizeReplitUrls(lockfile) {
   return lockfile.replaceAll(INTERNAL_PREFIX, PUBLIC_PREFIX);
 }
 
-function prepareTestBuildLockfile() {
-  if (process.env.EAS_BUILD_PROFILE !== "test-apk" ||
+function prepareAndroidBuildLockfile() {
+  if (!["test-apk", "production-apk"].includes(process.env.EAS_BUILD_PROFILE) ||
       process.env.EAS_BUILD_PLATFORM !== "android") {
-    console.log("Skipping isolated APK lockfile preparation outside Android test-apk.");
+    console.log("Skipping APK lockfile preparation outside Android APK profiles.");
     return;
   }
 
@@ -23,15 +23,15 @@ function prepareTestBuildLockfile() {
     throw new Error(`Could not prepare Expo dependency URLs (${remaining} remain).`);
   }
   if (updated === original) {
-    throw new Error("No Replit-only dependency URLs were found; refusing an unexplained retry.");
+    throw new Error("No Replit-only dependency URLs were found; refusing an unexplained rewrite.");
   }
 
   fs.writeFileSync(lockPath, updated);
   console.log(
-    `Prepared the temporary EAS test-build lockfile (${original.split(INTERNAL_PREFIX).length - 1} package URLs now use the public Yarn registry).`
+    `Prepared the temporary EAS Android lockfile (${original.split(INTERNAL_PREFIX).length - 1} package URLs now use the public Yarn registry).`
   );
 }
 
-if (require.main === module) prepareTestBuildLockfile();
+if (require.main === module) prepareAndroidBuildLockfile();
 
 module.exports = { externalizeReplitUrls };
