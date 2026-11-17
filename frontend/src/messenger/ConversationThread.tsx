@@ -12,6 +12,7 @@ import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPrev
 import MediaComposer from "./MediaComposer";
 import { normalizeMediaFile, validateChatFiles } from "./mediaFiles";
 import ProtectedMessageMedia from "./ProtectedMessageMedia";
+import ReplyAttachmentPreview from "./ReplyAttachmentPreview";
 import StickerPickerPanel from "./StickerPickerPanel";
 import StickerActionSheet from "./StickerActionSheet";
 import VideoStickerComposer from "./VideoStickerComposer";
@@ -1244,7 +1245,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                   testID={`messenger-reply-quote-${message.id}`}
                 >
                   <Text style={styles.replyQuoteSender}>{quoted?.sender_name || "Message précédent"}</Text>
-                  <Text numberOfLines={2} style={styles.replyQuotePreview}>{quoted?.deleted ? "Message supprimé" : quoted?.text || quoted?.attachments?.[0]?.name || "Pièce jointe"}</Text>
+                  <ReplyAttachmentPreview
+                    message={quoted}
+                    dark={darkMode}
+                    onThumbnailPress={() => void jumpToReplyMessage(message.reply_to!)}
+                    testID={`messenger-reply-preview-content-${message.id}`}
+                  />
                 </TouchableOpacity>}
                 {message.status_reply && <View style={styles.statusReplyCard} testID={`messenger-status-reply-${message.id}`}>
                   <TouchableOpacity style={styles.statusReplyHeader} onPress={event => { event.stopPropagation?.(); onOpenStatus?.(message.status_reply?.author_id, message.status_reply?.status_id); }} accessibilityRole="button" accessibilityLabel={`Revoir le statut de ${message.status_reply.author_name}`}>
@@ -1345,7 +1351,10 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         })}
       </ScrollView>
       {reply && <View style={[styles.replyBanner, { backgroundColor: chatSurface }]} testID="messenger-reply-preview">
-        <View style={styles.replyBannerCopy}><Text style={styles.replyBannerLabel}>Réponse à {reply.sender_name}</Text><Text numberOfLines={1} style={styles.replyBannerText}>{reply.deleted ? "Message supprimé" : reply.text || reply.attachments?.[0]?.name || "Pièce jointe"}</Text></View>
+        <View style={styles.replyBannerCopy}>
+          <Text style={styles.replyBannerLabel}>Réponse à {reply.sender_name}</Text>
+          <ReplyAttachmentPreview message={reply} dark={darkMode} maxLines={1} />
+        </View>
         <TouchableOpacity onPress={() => setReply(null)} accessibilityLabel="Annuler la réponse"><Ionicons name="close" size={19} color={blue} /></TouchableOpacity>
       </View>}
       {editing && <View style={styles.replyBanner}><Text style={styles.replyBannerText}>Modification du message</Text><TouchableOpacity onPress={() => { setEditing(null); changeDraft(""); }}><Ionicons name="close" size={19} color={blue} /></TouchableOpacity></View>}
@@ -1633,7 +1642,7 @@ const styles = StyleSheet.create({
   statusReplyTitle: { color: blue, fontSize: 11, fontWeight: "800" },
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
-  replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
+   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
   fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "flex-end", alignItems: "flex-end" }, otherMediaGroup: { alignSelf: "flex-start", alignItems: "flex-start" }, stickerGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, maxWidth: "100%", minWidth: 0 }, ownStickerGroup: { alignSelf: "flex-end", justifyContent: "flex-end" }, otherStickerGroup: { alignSelf: "flex-start", justifyContent: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, voiceLoadError: { width: "100%", maxWidth: 280, gap: 4 }, voiceLoadErrorText: { color: "#a33b35", fontSize: 11, lineHeight: 15, paddingHorizontal: 6 }, sendFailure: { alignSelf: "flex-end", alignItems: "flex-end", maxWidth: 280, paddingTop: 3 }, sendFailureText: { color: "#a33b35", fontSize: 11, lineHeight: 15, textAlign: "right" }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 5 }, time: { fontSize: 10, color: "#71836d" }, receipt: { color: "#71836d", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#71836d" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reactionChip: { alignSelf: "flex-start", marginTop: 3, borderRadius: 12, borderWidth: 1, borderColor: "#e4e9ef", backgroundColor: "#fff" }, reactionChipMine: { borderColor: "#8db4f3", backgroundColor: "#edf4ff" }, reaction: { color: ink, fontSize: 12, paddingHorizontal: 7, paddingVertical: 2 },
