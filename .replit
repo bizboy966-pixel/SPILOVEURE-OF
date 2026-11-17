@@ -28,7 +28,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "SPV_PREVIEW_MODE=isolated DB_NAME=spiloveure_local_development MONGO_URL=mongodb://127.0.0.1:27017 bash scripts/start-dev.sh"
+args = "SPV_PREVIEW_MODE=vps SPV_PREVIEW_API_UPSTREAM=https://spiloveure.org bash scripts/start-dev.sh"
 waitForPort = 5000
 
 [[ports]]
