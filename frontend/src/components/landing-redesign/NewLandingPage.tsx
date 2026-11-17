@@ -40,7 +40,6 @@ const BENEFITS: { icon: IconName; key: string }[] = [
   { icon: "megaphone-outline", key: "ads" },
   { icon: "school-outline", key: "training" },
   { icon: "book-outline", key: "books" },
-  { icon: "bar-chart-outline", key: "charts" },
 ];
 
 export default function NewLandingPage({
@@ -184,6 +183,8 @@ export default function NewLandingPage({
             </View>
           </View>
 
+          <PromoVisuals t={t} />
+
           <View style={[styles.serviceGrid, medium && styles.serviceGridMedium]}>
             {SERVICES.map((service) => (
               <View
@@ -203,8 +204,6 @@ export default function NewLandingPage({
             ))}
           </View>
 
-          <PromoVisuals t={t} />
-
           <View style={[styles.benefits, wide && styles.benefitsWide]}>
             {BENEFITS.map((benefit, index) => (
               <View
@@ -220,8 +219,7 @@ export default function NewLandingPage({
             ))}
           </View>
 
-        </LinearGradient>
-        <View style={styles.actionFooter}>
+          <View style={styles.actionFooter} testID="landing-redesign-action-footer">
           <View style={[styles.footerActions, footerActionsRow && styles.footerActionsRow]}>
             <Pressable
               onPress={onPreview}
@@ -270,7 +268,8 @@ export default function NewLandingPage({
               <Ionicons name="arrow-forward" size={17} color="#192346" />
             </Pressable>
           </View>
-        </View>
+          </View>
+        </LinearGradient>
       </ScrollView>
     </SafeAreaView>
   );
