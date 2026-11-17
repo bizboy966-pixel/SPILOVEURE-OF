@@ -48,7 +48,9 @@ const STEPS: { icon: IconName; key: string }[] = [
   { key: "step3", icon: "cash-outline" },
 ];
 
-export default function LandingPage({ refCode = "" }: { refCode?: string }) {
+type LandingPageProps = { refCode?: string; hideEntryActions?: boolean };
+
+export default function LandingPage({ refCode = "", hideEntryActions = false }: LandingPageProps) {
   const router = useRouter();
   const { t, lang, setLang } = useI18n();
   const { width } = useWindowDimensions();
@@ -137,30 +139,32 @@ export default function LandingPage({ refCode = "" }: { refCode?: string }) {
               </Text>
               <Text style={styles.heroSubtitle}>{t("landing.hero.subtitle")}</Text>
 
-              <View style={[styles.heroCtas, isTablet && { flexDirection: "row" }]}>
-                <Pressable
-                  onPress={goRegister}
-                  style={({ pressed }) => [
-                    styles.ctaPrimary,
-                    pressed && { transform: [{ scale: 0.98 }] },
-                  ]}
-                  testID="landing-register-btn"
-                >
-                  <Text style={styles.ctaPrimaryText}>
-                    {t("landing.hero.cta_primary")}
-                  </Text>
-                  <Ionicons name="arrow-forward" size={18} color={theme.colors.primary} />
-                </Pressable>
-                <Pressable
-                  onPress={goLogin}
-                  style={styles.ctaGhost}
-                  testID="landing-login-cta"
-                >
-                  <Text style={styles.ctaGhostText}>
-                    {t("landing.hero.cta_secondary")}
-                  </Text>
-                </Pressable>
-              </View>
+              {!hideEntryActions && (
+                <View style={[styles.heroCtas, isTablet && { flexDirection: "row" }]}>
+                  <Pressable
+                    onPress={goRegister}
+                    style={({ pressed }) => [
+                      styles.ctaPrimary,
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
+                    testID="landing-register-btn"
+                  >
+                    <Text style={styles.ctaPrimaryText}>
+                      {t("landing.hero.cta_primary")}
+                    </Text>
+                    <Ionicons name="arrow-forward" size={18} color={theme.colors.primary} />
+                  </Pressable>
+                  <Pressable
+                    onPress={goLogin}
+                    style={styles.ctaGhost}
+                    testID="landing-login-cta"
+                  >
+                    <Text style={styles.ctaGhostText}>
+                      {t("landing.hero.cta_secondary")}
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
 
               <View style={styles.trustRow}>
                 <Ionicons name="shield-checkmark" size={16} color="#C7D9FF" />
@@ -257,14 +261,16 @@ export default function LandingPage({ refCode = "" }: { refCode?: string }) {
             <Ionicons name="rocket" size={30} color="#fff" />
             <Text style={styles.finalCtaTitle}>{t("landing.cta.title")}</Text>
             <Text style={styles.finalCtaSubtitle}>{t("landing.cta.subtitle")}</Text>
-            <Pressable
-              onPress={goRegister}
-              style={styles.ctaPrimary}
-              testID="landing-final-cta"
-            >
-              <Text style={styles.ctaPrimaryText}>{t("landing.cta.button")}</Text>
-              <Ionicons name="arrow-forward" size={18} color={theme.colors.primary} />
-            </Pressable>
+            {!hideEntryActions && (
+              <Pressable
+                onPress={goRegister}
+                style={styles.ctaPrimary}
+                testID="landing-final-cta"
+              >
+                <Text style={styles.ctaPrimaryText}>{t("landing.cta.button")}</Text>
+                <Ionicons name="arrow-forward" size={18} color={theme.colors.primary} />
+              </Pressable>
+            )}
           </LinearGradient>
         </View>
 

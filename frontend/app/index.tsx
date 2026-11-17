@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import LandingPage from "@/src/components/LandingPage";
+import NewLandingPage from "@/src/components/landing-redesign/NewLandingPage";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
@@ -48,7 +48,15 @@ export default function Index() {
   if (!showLanding) {
     return <View style={styles.loading}><ActivityIndicator color={theme.colors.primary} /></View>;
   }
-  return <LandingPage refCode={refCode} />;
+  const refQS = refCode ? `?ref=${encodeURIComponent(refCode)}` : "";
+  return (
+    <NewLandingPage
+      refCode={refCode}
+      onPreview={() => router.push(`/legacy-landing${refQS}` as any)}
+      onLogin={() => router.push(`/(auth)/login${refQS}` as any)}
+      onRegister={() => router.push(`/welcome${refQS}` as any)}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
