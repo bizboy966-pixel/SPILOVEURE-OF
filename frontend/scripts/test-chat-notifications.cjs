@@ -72,6 +72,17 @@ test("conversation header follows the rounded Telegram-style back, identity and 
   assert.match(thread, /testID="messenger-scheduled-open"/);
 });
 
+test("messenger stays inside Safari's visible viewport while the keyboard opens and closes", () => {
+  const screen = fs.readFileSync(path.join(root, "src/messenger/MessengerScreen.tsx"), "utf8");
+  assert.match(screen, /window\.visualViewport/);
+  assert.match(screen, /visualViewport\?\.addEventListener\("resize", measureViewport\)/);
+  assert.match(screen, /body\.style\.overflow = "hidden"/);
+  assert.match(screen, /position: "fixed"/);
+  assert.match(screen, /height: webViewport\.height/);
+  assert.match(screen, /visualViewport\?\.removeEventListener\("resize", measureViewport\)/);
+  assert.match(screen, /window\.scrollTo\(0, originalScrollY\)/);
+});
+
 test("missing custom sounds report an error instead of silently replacing them", async () => {
   const audio = soundModule();
   await assert.rejects(audio.playNotificationSound("test", "global", {

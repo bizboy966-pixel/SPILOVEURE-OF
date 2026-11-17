@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -29,6 +29,51 @@ const filters: Filter[] = ["Tous", "Messages privés", "Groupes", "Canaux"];
 
 export default function MessengerScreen() {
   const router = useRouter();
+  const [webViewport, setWebViewport] = useState<{ top: number; height: number } | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || typeof document === "undefined") return;
+    const visualViewport = window.visualViewport;
+    const html = document.documentElement;
+    const body = document.body;
+    const originalHtmlOverflow = html.style.overflow;
+    const originalHtmlHeight = html.style.height;
+    const originalBodyOverflow = body.style.overflow;
+    const originalBodyHeight = body.style.height;
+    const originalScrollY = window.scrollY;
+
+    // Keep Safari from scrolling the whole document to reveal the focused input.
+    // The chat itself is resized to the visible viewport below, above the keyboard.
+    html.style.overflow = "hidden";
+    html.style.height = "100%";
+    body.style.overflow = "hidden";
+    body.style.height = "100%";
+
+    const measureViewport = () => {
+      const next = {
+        top: Math.max(0, Math.round(visualViewport?.offsetTop ?? 0)),
+        height: Math.max(1, Math.round(visualViewport?.height ?? window.innerHeight)),
+      };
+      setWebViewport(previous => previous?.top === next.top && previous.height === next.height ? previous : next);
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    measureViewport();
+    visualViewport?.addEventListener("resize", measureViewport);
+    visualViewport?.addEventListener("scroll", measureViewport);
+    window.addEventListener("resize", measureViewport);
+    window.addEventListener("orientationchange", measureViewport);
+
+    return () => {
+      visualViewport?.removeEventListener("resize", measureViewport);
+      visualViewport?.removeEventListener("scroll", measureViewport);
+      window.removeEventListener("resize", measureViewport);
+      window.removeEventListener("orientationchange", measureViewport);
+      html.style.overflow = originalHtmlOverflow;
+      html.style.height = originalHtmlHeight;
+      body.style.overflow = originalBodyOverflow;
+      body.style.height = originalBodyHeight;
+      window.scrollTo(0, originalScrollY);
+    };
+  }, []);
   const params = useLocalSearchParams<{ invite?: string | string[]; username?: string | string[]; conversation?: string | string[]; message?: string | string[]; notificationAction?: string | string[] }>();
   const conversationParam = Array.isArray(params.conversation) ? params.conversation[0] : params.conversation;
   const messageParam = Array.isArray(params.message) ? params.message[0] : params.message;
@@ -536,7 +581,21 @@ export default function MessengerScreen() {
     { key: "Actus", icon: "megaphone", label: "Actus" }, { key: "Profil", icon: "person", label: "Profil" },
   ];
   if (!logoutMarkerChecked || explicitlyLoggedOut || chatLoading || !user) return <View style={styles.page}><View style={styles.emptyState}><View style={styles.loading}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View><Text style={styles.emptyCopy}>Connexion sécurisée au Chat…</Text></View></View>;
-  return <View style={[styles.page, appearance === "dark" && { backgroundColor: "#0b1220" }]}>
+  return <View style={[
+    styles.page,
+    appearance === "dark" && { backgroundColor: "#0b1220" },
+    Platform.OS === "web" && webViewport && {
+      position: "fixed",
+      top: webViewport.top,
+      left: 0,
+      right: 0,
+      width: "100%",
+      height: webViewport.height,
+      minHeight: 0,
+      flex: 0,
+      overflow: "hidden",
+    } as any,
+  ]}>
     <View style={[styles.workspace, selected && styles.workspaceThread, wide && styles.workspaceWide]}>
       {tab === "Échanges" ? <>
         {(!selected || wide) && chatList}
