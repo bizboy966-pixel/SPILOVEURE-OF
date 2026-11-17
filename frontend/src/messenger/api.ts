@@ -105,6 +105,71 @@ function uploadFilename(file: File): string {
   return `upload${extByMime[mime] || ""}`;
 }
 
+function decodeR2ErrorBody(body: string): { code?: string; message?: string } {
+  const text = body.trim();
+  if (!text) return {};
+  try {
+    const value = JSON.parse(text);
+    const code = value?.Code || value?.code;
+    const message = value?.Message || value?.message || value?.detail;
+    return {
+      ...(typeof code === "string" ? { code: code.slice(0, 100) } : {}),
+      ...(typeof message === "string" ? { message: message.slice(0, 240) } : {}),
+    };
+  } catch {
+    const xmlCode = text.match(/<Code>([^<]{1,100})<\/Code>/i)?.[1];
+    const xmlMessage = text.match(/<Message>([^<]{1,240})<\/Message>/i)?.[1];
+    if (xmlCode || xmlMessage) {
+      return {
+        ...(xmlCode ? { code: xmlCode } : {}),
+        ...(xmlMessage ? { message: xmlMessage.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">") } : {}),
+      };
+    }
+    if (text.length <= 240 && !/^<!doctype html|^<html/i.test(text)) return { message: text };
+    return {};
+  }
+}
+
+async function responseError(response: Response, operation: string): Promise<Error & { status?: number; code?: string }> {
+  const details = decodeR2ErrorBody(await response.text().catch(() => ""));
+  const reason = [details.code, details.message].filter(Boolean).join(" — ");
+  const error: Error & { status?: number; code?: string } = new Error(
+    `${operation} (HTTP ${response.status})${reason ? ` : ${reason}` : ""}`,
+  );
+  error.status = response.status;
+  error.code = details.code;
+  return error;
+}
+
+function directUploadNetworkError(error: unknown): Error {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return new Error("Envoi R2 impossible : cet appareil indique qu’il est hors connexion.");
+  }
+  const nativeMessage = error instanceof Error ? error.message : "";
+  const detail = nativeMessage && !/failed to fetch|network request failed|load failed/i.test(nativeMessage)
+    ? ` (${nativeMessage})`
+    : "";
+  return new Error(
+    `Aucune réponse de R2${detail}. Le navigateur masque la cause exacte d’un échec réseau (par exemple CORS ou connexion interrompue). Vérifiez le réseau et la règle CORS pour https://spiloveure.org.`,
+  );
+}
+
+export function messengerErrorMessage(error: any, fallback: string): string {
+  const detail = typeof error?.detail === "string" ? error.detail.trim() : "";
+  const message = typeof error?.message === "string" ? error.message.trim() : "";
+  const status = Number.isFinite(error?.status) ? Number(error.status) : undefined;
+  if (detail) return `${detail}${status ? ` (HTTP ${status})` : ""}`;
+  if (message && !/^(failed to fetch|network request failed|load failed)$/i.test(message)) return message;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return "Envoi impossible : cet appareil indique qu’il est hors connexion.";
+  }
+  if (error instanceof TypeError || /^(failed to fetch|network request failed|load failed)$/i.test(message)) {
+    return "Aucune réponse du serveur. Le navigateur masque la cause exacte (réseau ou CORS). Vérifiez la connexion puis réessayez.";
+  }
+  if (status) return `La requête a échoué (HTTP ${status}).`;
+  return fallback;
+}
+
 async function uploadChatFile(
   ticketPath: string,
   legacyPath: string,
@@ -128,8 +193,9 @@ async function uploadChatFile(
     mime: file.type,
     ...metadata,
   });
+  let response: Response;
   try {
-    const response = await fetch(ticket.upload_url, {
+    response = await fetch(ticket.upload_url, {
       method: "PUT",
       mode: "cors",
       credentials: "omit",
@@ -137,11 +203,14 @@ async function uploadChatFile(
       headers: ticket.headers,
       body: file,
     });
-    if (!response.ok) throw new Error(`R2 a refusé le transfert (${response.status}).`);
   } catch (error) {
     await api.delete(`/messenger/uploads/${encodeURIComponent(ticket.id)}`).catch(() => {});
-    if (error instanceof Error && error.message.startsWith("R2 a refusé")) throw error;
-    throw new Error("Envoi direct vers R2 impossible. Vérifiez la configuration CORS du bucket.");
+    throw directUploadNetworkError(error);
+  }
+  if (!response.ok) {
+    const error = await responseError(response, "R2 a refusé le transfert");
+    await api.delete(`/messenger/uploads/${encodeURIComponent(ticket.id)}`).catch(() => {});
+    throw error;
   }
   return api.post<Attachment>(`/messenger/uploads/${encodeURIComponent(ticket.id)}/complete`, {});
 }
@@ -161,11 +230,7 @@ export async function protectedFileUrl(fileId: string, download = false): Promis
         { credentials: "include", cache: "no-store", signal: controller?.signal },
       );
       if (legacyResponse.status === 401) reportChatUnauthorized();
-      if (!legacyResponse.ok) {
-        const error: any = new Error("Impossible d’ouvrir ce fichier.");
-        error.status = legacyResponse.status;
-        throw error;
-      }
+      if (!legacyResponse.ok) throw await responseError(legacyResponse, "Impossible d’ouvrir ce fichier");
       return URL.createObjectURL(await legacyResponse.blob());
     }
     const query = download ? "?download=true" : "";
@@ -173,11 +238,7 @@ export async function protectedFileUrl(fileId: string, download = false): Promis
       credentials: "include", cache: "no-store", signal: controller?.signal,
     });
     if (response.status === 401) reportChatUnauthorized();
-    if (!response.ok) {
-      const error: any = new Error("Impossible d’ouvrir ce fichier.");
-      error.status = response.status;
-      throw error;
-    }
+    if (!response.ok) throw await responseError(response, "Impossible d’obtenir le lien du fichier");
     const result = await response.json();
     if (result.direct && typeof result.url === "string") return result.url;
     const fileUrl = new URL(result.url, base || window.location.origin).toString();
@@ -185,11 +246,7 @@ export async function protectedFileUrl(fileId: string, download = false): Promis
       credentials: "include", cache: "no-store", signal: controller?.signal,
     });
     if (fileResponse.status === 401) reportChatUnauthorized();
-    if (!fileResponse.ok) {
-      const error: any = new Error("Impossible d’ouvrir ce fichier.");
-      error.status = fileResponse.status;
-      throw error;
-    }
+    if (!fileResponse.ok) throw await responseError(fileResponse, "Impossible de télécharger le fichier");
     return URL.createObjectURL(await fileResponse.blob());
   } catch (error: any) {
     if (controller?.signal.aborted) throw new Error("Le chargement du fichier a expiré. Réessayez.");

@@ -5,7 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import Svg, { Path } from "react-native-svg";
 import { createMemoryAdapter, EmojiKeyboard, type CategoryTypes } from "@softwhere-uz/react-native-emoji-keyboard";
 import { api } from "@/src/api";
-import { messengerApi, protectedFileUrl } from "./api";
+import { messengerApi, messengerErrorMessage, protectedFileUrl } from "./api";
 import type { Attachment, ContactState, Conversation, Message, Person, ReadReceipts } from "./types";
 import ScheduledMessages from "./ScheduledMessages";
 import { openProtectedAttachment, ProtectedAttachmentViewer, type AttachmentPreview } from "./ProtectedAttachmentViewer";
@@ -112,7 +112,7 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
 
 function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment; own: boolean; autoLoad?: boolean }) {
   const [src, setSrc] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const viewOnce = Boolean(file.view_once && !own);
   const [viewOnceOpened, setViewOnceOpened] = useState(Boolean(file.view_once_opened));
@@ -135,7 +135,7 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
     }).catch((loadError: any) => {
       if (!active) return;
       if (viewOnce && loadError?.status === 410) setViewOnceOpened(true);
-      else setError(true);
+      else setError(messengerErrorMessage(loadError, "Impossible de charger ce vocal."));
     });
     return () => {
       active = false;
@@ -148,7 +148,7 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
     <Ionicons name="timer-outline" size={18} color="#6d9271" />
   </View>;
   if (viewOnce && !requested) return <TouchableOpacity
-    onPress={() => { setError(false); setRequested(true); }}
+    onPress={() => { setError(""); setRequested(true); }}
     accessibilityRole="button"
     accessibilityLabel="Ouvrir le message vocal une seule fois"
     testID={`messenger-voice-once-open-${file.id}`}
@@ -161,9 +161,12 @@ function ProtectedVoicePlayer({ file, own, autoLoad = true }: { file: Attachment
   if (!requested) return <TouchableOpacity onPress={() => setRequested(true)} accessibilityRole="button" accessibilityLabel={`Charger le vocal ${file.name}`} testID={`messenger-voice-load-${file.id}`} style={styles.voiceLoad}>
     <Ionicons name="download-outline" size={20} color={blue} /><Text style={styles.fileLabel}>Charger le vocal</Text>
   </TouchableOpacity>;
-  if (error) return <TouchableOpacity onPress={() => { setError(false); setAttempt(value => value + 1); }} accessibilityRole="button" accessibilityLabel="Réessayer de charger le vocal" testID={`messenger-voice-retry-${file.id}`} style={styles.voiceLoad}>
-    <Ionicons name="refresh-outline" size={18} color={blue} /><Text style={styles.fileLabel}>Vocal indisponible · Réessayer</Text>
-  </TouchableOpacity>;
+  if (error) return <View style={styles.voiceLoadError}>
+    <TouchableOpacity onPress={() => { setError(""); setAttempt(value => value + 1); }} accessibilityRole="button" accessibilityLabel="Réessayer de charger le vocal" testID={`messenger-voice-retry-${file.id}`} style={styles.voiceLoad}>
+      <Ionicons name="refresh-outline" size={18} color={blue} /><Text style={styles.fileLabel}>Réessayer le vocal</Text>
+    </TouchableOpacity>
+    <Text style={styles.voiceLoadErrorText} numberOfLines={4}>{error}</Text>
+  </View>;
   return <VoiceMessage
     src={src}
     durationSeconds={file.duration_seconds}
@@ -235,6 +238,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
   const [voiceSending, setVoiceSending] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [failedMessages, setFailedMessages] = useState<Record<string, string>>({});
   const [sharingContact, setSharingContact] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [silent, setSilent] = useState(false);
@@ -249,6 +253,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       .slice(0, 24),
     [messages, userId],
   );
+  const clearFailedMessage = (clientId: string) => setFailedMessages(previous => {
+    if (!previous[clientId]) return previous;
+    const next = { ...previous };
+    delete next[clientId];
+    return next;
+  });
   useEffect(() => {
     let active = true;
     Promise.all([messengerApi.stickers(), messengerApi.stickerPack(), messengerApi.myStickerPack()])
@@ -322,6 +332,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       if (mode === "merge") {
         const resolved = new Set(result.items.filter(message => message.sender_id === userId).map(message => message.client_id).filter(Boolean));
         setFailedIds(previous => previous.filter(id => !resolved.has(id)));
+        setFailedMessages(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => !resolved.has(id))));
         resolved.forEach(id => { if (id) delete retries.current[id]; });
       }
       setMore(result.has_more);
@@ -501,8 +512,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       const sent = await transmit();
       setMessages(prev => prev.map(m => m.client_id === client_id ? sent : m)); onChanged();
       delete retries.current[client_id];
-    } catch {
+    } catch (error) {
       setFailedIds(prev => prev.includes(client_id) ? prev : [...prev, client_id]);
+      setFailedMessages(previous => ({
+        ...previous,
+        [client_id]: messengerErrorMessage(error, "L’envoi du message a échoué."),
+      }));
     }
   };
   const updateComposer = (value: string) => {
@@ -559,6 +574,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       .map(file => file.local_url)
       .filter((url): url is string => Boolean(url)) || [];
     setFailedIds(prev => prev.filter(id => id !== clientId));
+    clearFailedMessage(clientId);
     setMessages(previous => previous.map(message => message.client_id === clientId ? {
       ...message,
       attachments: message.attachments.map(file => file.local_url
@@ -569,13 +585,18 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       const sent = await retry();
       setMessages(prev => prev.map(m => m.client_id === clientId ? sent : m));
       delete retries.current[clientId];
+      clearFailedMessage(clientId);
       pendingUrls.forEach(url => {
         URL.revokeObjectURL(url);
         localVoiceUrls.current.delete(url);
       });
       onChanged();
-    } catch {
+    } catch (error) {
       setFailedIds(prev => [...prev, clientId]);
+      setFailedMessages(previous => ({
+        ...previous,
+        [clientId]: messengerErrorMessage(error, "L’envoi du message a échoué."),
+      }));
       setMessages(previous => previous.map(message => message.client_id === clientId ? {
         ...message,
         attachments: message.attachments.map(file => file.local_url
@@ -822,8 +843,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
         localVoiceUrls.current.delete(localUrl);
         URL.revokeObjectURL(localUrl);
         onChanged();
-      } catch {
+      } catch (error) {
         setFailedIds(previous => previous.includes(client_id) ? previous : [...previous, client_id]);
+        setFailedMessages(previous => ({
+          ...previous,
+          [client_id]: messengerErrorMessage(error, "L’envoi du vocal a échoué."),
+        }));
         setMessages(previous => previous.map(message => message.client_id === client_id ? {
           ...message,
           attachments: message.attachments.map(item => item.local_url === localUrl
@@ -1146,8 +1171,15 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 const delivered = peers.some(peerId => message.delivered_by?.includes(peerId));
                 return <Text style={[styles.receipt, delivered && styles.receiptDelivered, read && styles.receiptRead]} accessibilityLabel={read ? "Lu" : delivered ? "Distribué" : "Envoyé"}>{read || delivered ? "✓✓" : "✓"}</Text>;
               })()}
-                {message.client_id && failedIds.includes(message.client_id) && <TouchableOpacity onPress={() => retrySend(message.client_id!)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity>}
               </View>
+              {message.client_id && failedIds.includes(message.client_id) && <View style={styles.sendFailure}>
+                <Text style={styles.sendFailureText} numberOfLines={4}>
+                  {failedMessages[message.client_id] || "L’envoi du message a échoué."}
+                </Text>
+                <TouchableOpacity onPress={() => retrySend(message.client_id!)}>
+                  <Text style={styles.retryText}>Réessayer</Text>
+                </TouchableOpacity>
+              </View>}
               {Object.entries(message.reactions || {}).filter(([, ids]) => ids.length).map(([emoji, ids]) => <AnimatedReactionChip
                 key={`${emoji}-${ids.length}`}
                 emoji={emoji}
@@ -1470,7 +1502,7 @@ const styles = StyleSheet.create({
   statusReplyText: ({ color: muted, fontSize: 11, marginTop: 2, overflowWrap: "anywhere" } as any),
   statusReplyMedia: { marginTop: 6, maxWidth: 220, alignSelf: "flex-start" },
   replyQuoteSender: ({ color: blue, fontSize: 11, fontWeight: "800", maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any), replyQuotePreview: ({ color: muted, fontSize: 11, marginTop: 2, maxWidth: "100%", flexShrink: 1, overflowWrap: "anywhere" } as any),
-  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "flex-end", alignItems: "flex-end" }, otherMediaGroup: { alignSelf: "flex-start", alignItems: "flex-start" }, stickerGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, maxWidth: "100%", minWidth: 0 }, ownStickerGroup: { alignSelf: "flex-end", justifyContent: "flex-end" }, otherStickerGroup: { alignSelf: "flex-start", justifyContent: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
+  fileChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#f2f6fd", borderRadius: 10, padding: 9, marginTop: 5, maxWidth: "100%", minWidth: 0 }, mediaGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 4, maxWidth: "100%", minWidth: 0 }, ownMediaGroup: { alignSelf: "flex-end", alignItems: "flex-end" }, otherMediaGroup: { alignSelf: "flex-start", alignItems: "flex-start" }, stickerGroup: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, maxWidth: "100%", minWidth: 0 }, ownStickerGroup: { alignSelf: "flex-end", justifyContent: "flex-end" }, otherStickerGroup: { alignSelf: "flex-start", justifyContent: "flex-start" }, ownAttachment: { alignSelf: "flex-end" }, voiceCard: { width: 250, maxWidth: "100%", minWidth: 0, borderRadius: 14, paddingHorizontal: 0, marginTop: 4, alignSelf: "flex-start" }, voiceLoad: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 14, backgroundColor: "#edf2fa", paddingHorizontal: 12 }, voiceLoadError: { width: "100%", maxWidth: 280, gap: 4 }, voiceLoadErrorText: { color: "#a33b35", fontSize: 11, lineHeight: 15, paddingHorizontal: 6 }, sendFailure: { alignSelf: "flex-end", alignItems: "flex-end", maxWidth: 280, paddingTop: 3 }, sendFailureText: { color: "#a33b35", fontSize: 11, lineHeight: 15, textAlign: "right" }, onceOpened: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 14, backgroundColor: "#edf2fa" }, onceOpenedText: { flex: 1, color: "#66865e", fontSize: 13, fontWeight: "700" }, fileLabel: { flex: 1, fontSize: 13, color: ink },
   meta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 5 }, time: { fontSize: 10, color: "#71836d" }, receipt: { color: "#71836d", fontSize: 11, fontWeight: "700" }, receiptDelivered: { color: "#71836d" }, receiptRead: { color: blue }, retryText: { color: "#c33", fontWeight: "800", fontSize: 10 },
   reactionChip: { alignSelf: "flex-start", marginTop: 3, borderRadius: 12, borderWidth: 1, borderColor: "#e4e9ef", backgroundColor: "#fff" }, reactionChipMine: { borderColor: "#8db4f3", backgroundColor: "#edf4ff" }, reaction: { color: ink, fontSize: 12, paddingHorizontal: 7, paddingVertical: 2 },
   uploadingText: { color: muted, fontSize: 11, marginTop: 3, alignSelf: "flex-end" },
