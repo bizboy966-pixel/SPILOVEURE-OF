@@ -1,59 +1,7 @@
-modules = ["python-3.12", "bash", "nodejs-22"]
+modules = ["python-3.12", "nodejs-20", "bash"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "chromium", "libiconv", "libxcrypt", "mongodb-ce", "openssl", "pkg-config", "rustc"]
 
 [agent]
 expertMode = true
-
-[userenv]
-
-[userenv.development]
-ADMIN_EMAIL = "preview-admin@example.invalid"
-DB_NAME = "spiloveure_local_development"
-MONGO_URL = "mongodb://127.0.0.1:27017"
-FRONTEND_APP_JSON = "/home/runner/workspace/frontend/app.json"
-UPLOADS_DIR = "/home/runner/workspace/.local/dev-uploads"
-MAIL_FROM = "SPILOVEURE <no-reply@spiloveure.org>"
-MAIL_PROVIDER = "resend"
-MAIL_RESEND_DOMAIN_ID = "a7343814-9ca0-48a3-aa34-5e5add0b7a1a"
-MAIL_DOMAIN_VERIFIED = "1"
-EXPO_PUBLIC_SPV_ISOLATED_PREVIEW = "1"
-SPV_PREVIEW_MODE = "isolated"
-
-[workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "SPILOVEURE"
-
-[[workflows.workflow]]
-name = "SPILOVEURE"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash scripts/start-dev.sh"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 180000
