@@ -8,8 +8,9 @@ import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
 import { theme } from "@/src/theme";
 
 export default function Index() {
-  const params = useLocalSearchParams<{ ref?: string }>();
+  const params = useLocalSearchParams<{ ref?: string; showLanding?: string }>();
   const refCode = typeof params.ref === "string" ? params.ref : "";
+  const forceLanding = params.showLanding === "1";
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { user: chatUser, loading: chatLoading } = useChat();
@@ -17,6 +18,10 @@ export default function Index() {
   const routed = useRef(false);
 
   useEffect(() => {
+    if (forceLanding) {
+      setShowLanding(true);
+      return;
+    }
     if (authLoading || chatLoading || routed.current) return;
     let active = true;
     void (async () => {
@@ -43,7 +48,7 @@ export default function Index() {
       setShowLanding(true);
     })();
     return () => { active = false; };
-  }, [authLoading, chatLoading, chatUser, user, router]);
+  }, [authLoading, chatLoading, chatUser, user, router, forceLanding]);
 
   if (!showLanding) {
     return <View style={styles.loading}><ActivityIndicator color={theme.colors.primary} /></View>;

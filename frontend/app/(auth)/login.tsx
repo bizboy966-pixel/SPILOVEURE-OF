@@ -3,7 +3,7 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, TouchableOpacity, Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -22,6 +22,9 @@ const ISOLATED_CHAT_PREVIEW = process.env.EXPO_PUBLIC_SPV_ISOLATED_PREVIEW === "
 export default function Login() {
   const { t } = useI18n();
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string }>();
+  const refCode = typeof params.ref === "string" ? params.ref : "";
+  const landingHref = `/?showLanding=1${refCode ? `&ref=${encodeURIComponent(refCode)}` : ""}`;
   const { signIn } = useAuth();
   const { refresh: refreshChat } = useChat();
   const [email, setEmail] = useState("");
@@ -167,7 +170,7 @@ export default function Login() {
 
             <View style={styles.bottomRow}>
               <Text style={styles.bottomText}>{t("auth.no_account_yet")}</Text>
-              <TouchableOpacity onPress={() => router.push("/(auth)/register")} testID="goto-register">
+              <TouchableOpacity onPress={() => router.replace(landingHref as any)} testID="goto-register">
                 <Text style={styles.link}> {t("auth.signup_link")}</Text>
               </TouchableOpacity>
             </View>
