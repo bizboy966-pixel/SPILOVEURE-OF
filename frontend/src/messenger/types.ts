@@ -50,4 +50,5 @@ export type ScheduledMessage = {
 export type MessengerCapabilities = {
   scheduled_messages: boolean; public_channels: boolean; push_configured: boolean;
   calls: false; calls_reason: string; end_to_end_encryption: false;
+  r2_direct_uploads?: boolean;
 };

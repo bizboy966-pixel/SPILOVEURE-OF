@@ -149,7 +149,7 @@ export function FeedPanel({ userId, version = 0, requestedStatusAuthor, requeste
         const uploaded: Attachment[] = [];
         for (const file of Array.from(input.files || [])) {
           if (file.size > 20 * 1024 * 1024) throw new Error(`${file.name} dépasse 20 Mo.`);
-          uploaded.push(await api.upload<Attachment>("/messenger/feed/files", file));
+          uploaded.push(await messengerApi.feedFile(file));
         }
         setAttachments(old => [...old, ...uploaded]);
       } catch (e: any) { setError(e?.detail || e.message || "Téléversement impossible."); }

@@ -16,9 +16,12 @@ export async function openProtectedAttachment(
   onPreview: (preview: AttachmentPreview) => void,
   loadedUrl?: string,
 ) {
-  const url = loadedUrl || await protectedFileUrl(file.id);
-  if (file.mime.startsWith("image/") || file.mime.startsWith("audio/") || file.mime.startsWith("video/")) {
-    onPreview({ url, mime: file.mime, name: file.name, releaseUrl: !loadedUrl });
+  const isDisplayMedia = file.mime.startsWith("image/") || file.mime.startsWith("audio/") || file.mime.startsWith("video/");
+  const url = file.view_once && loadedUrl
+    ? loadedUrl
+    : await protectedFileUrl(file.id, !isDisplayMedia);
+  if (isDisplayMedia) {
+    onPreview({ url, mime: file.mime, name: file.name, releaseUrl: url.startsWith("blob:") });
     return;
   }
   if (typeof document === "undefined") return;

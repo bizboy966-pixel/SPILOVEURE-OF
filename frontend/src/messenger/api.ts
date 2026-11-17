@@ -27,17 +27,24 @@ export const messengerApi = {
     api.post<Message>(`/messenger/conversations/${encodeURIComponent(id)}/messages`, payload),
   markConversationDelivered: (conversationId: string) =>
     api.post(`/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`, {}),
-  file: async (id: string, file: File, durationSeconds?: number, viewOnce = false, sticker = false) =>
-    api.upload<Attachment>(
+  file: (id: string, file: File, durationSeconds?: number, viewOnce = false, sticker = false) =>
+    uploadChatFile(
+      `/messenger/conversations/${encodeURIComponent(id)}/files/upload-url`,
       `/messenger/conversations/${encodeURIComponent(id)}/files`,
       file,
-      "file",
+      {
+        ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
+        ...(viewOnce ? { view_once: true } : {}),
+        ...(sticker ? { sticker: true } : {}),
+      },
       {
         ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
         ...(viewOnce ? { view_once: "true" } : {}),
         ...(sticker ? { sticker: "true" } : {}),
       },
     ),
+  feedFile: (file: File) =>
+    uploadChatFile("/messenger/feed/files/upload-url", "/messenger/feed/files", file, {}, {}),
   stickers: () => api.get<Attachment[]>("/messenger/stickers"),
   stickerPack: () => api.get<Attachment[]>("/messenger/sticker-pack"),
   myStickerPack: () => api.get<Attachment[]>("/messenger/sticker-pack/mine"),
@@ -68,13 +75,101 @@ export const messengerApi = {
   capabilities: () => api.get<MessengerCapabilities>("/messenger/capabilities"),
 };
 
-export async function protectedFileUrl(fileId: string): Promise<string> {
+type UploadTicket = { id: string; upload_url: string; headers: Record<string, string> };
+let capabilitiesCache: { value: MessengerCapabilities; expiresAt: number } | null = null;
+
+async function getMessengerCapabilities(): Promise<MessengerCapabilities> {
+  if (capabilitiesCache && capabilitiesCache.expiresAt > Date.now()) return capabilitiesCache.value;
+  const value = await messengerApi.capabilities();
+  capabilitiesCache = { value, expiresAt: Date.now() + 60_000 };
+  return value;
+}
+
+function uploadFilename(file: File): string {
+  if (file.name && /\.[a-z0-9]{2,8}$/i.test(file.name)) return file.name;
+  const mime = file.type.split(";")[0].toLowerCase();
+  const extByMime: Record<string, string> = {
+    "audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a",
+    "audio/mpeg": ".mp3", "audio/wav": ".wav", "video/mp4": ".mp4",
+    "video/webm": ".webm", "video/quicktime": ".mov", "video/3gpp": ".3gp",
+    "video/3gpp2": ".3g2", "image/jpeg": ".jpg", "image/png": ".png",
+    "image/gif": ".gif", "image/webp": ".webp", "application/pdf": ".pdf",
+    "text/plain": ".txt", "text/csv": ".csv", "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/zip": ".zip", "application/gzip": ".gz", "text/vcard": ".vcf",
+  };
+  return `upload${extByMime[mime] || ""}`;
+}
+
+async function uploadChatFile(
+  ticketPath: string,
+  legacyPath: string,
+  file: File,
+  metadata: Record<string, string | number | boolean>,
+  legacyFields: Record<string, string | number>,
+): Promise<Attachment> {
+  const capabilities = await getMessengerCapabilities();
+  if (capabilities.r2_direct_uploads === undefined) {
+    // Keep previews and older VPS builds working while the new backend is
+    // prepared. The updated backend reports false if its R2 credentials are
+    // missing, in which case we fail rather than silently storing locally.
+    return api.upload<Attachment>(legacyPath, file, "file", legacyFields);
+  }
+  if (!capabilities.r2_direct_uploads) {
+    throw new Error("Le stockage R2 du Chat n’est pas encore configuré sur le serveur.");
+  }
+  const ticket = await api.post<UploadTicket>(ticketPath, {
+    name: uploadFilename(file),
+    size: file.size,
+    mime: file.type,
+    ...metadata,
+  });
+  try {
+    const response = await fetch(ticket.upload_url, {
+      method: "PUT",
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+      headers: ticket.headers,
+      body: file,
+    });
+    if (!response.ok) throw new Error(`R2 a refusé le transfert (${response.status}).`);
+  } catch (error) {
+    await api.delete(`/messenger/uploads/${encodeURIComponent(ticket.id)}`).catch(() => {});
+    if (error instanceof Error && error.message.startsWith("R2 a refusé")) throw error;
+    throw new Error("Envoi direct vers R2 impossible. Vérifiez la configuration CORS du bucket.");
+  }
+  return api.post<Attachment>(`/messenger/uploads/${encodeURIComponent(ticket.id)}/complete`, {});
+}
+
+export async function protectedFileUrl(fileId: string, download = false): Promise<string> {
   if (typeof window === "undefined" || typeof URL === "undefined") throw new Error("Fichier indisponible");
-  const base = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+  const base = (process.env.EXPO_PUBLIC_BACKEND_URL || "").replace(/\/+$/, "");
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), 30_000) : null;
   try {
-    const response = await fetch(`${base}/api/messenger/files/${encodeURIComponent(fileId)}`, {
+    const capabilities = await getMessengerCapabilities();
+    if (capabilities.r2_direct_uploads === undefined) {
+      // Older VPS versions stream the file from their protected endpoint and
+      // do not expose the short-lived R2 URL route yet.
+      const legacyResponse = await fetch(
+        `${base}/api/messenger/files/${encodeURIComponent(fileId)}`,
+        { credentials: "include", cache: "no-store", signal: controller?.signal },
+      );
+      if (legacyResponse.status === 401) reportChatUnauthorized();
+      if (!legacyResponse.ok) {
+        const error: any = new Error("Impossible d’ouvrir ce fichier.");
+        error.status = legacyResponse.status;
+        throw error;
+      }
+      return URL.createObjectURL(await legacyResponse.blob());
+    }
+    const query = download ? "?download=true" : "";
+    const response = await fetch(`${base}/api/messenger/files/${encodeURIComponent(fileId)}/url${query}`, {
       credentials: "include", cache: "no-store", signal: controller?.signal,
     });
     if (response.status === 401) reportChatUnauthorized();
@@ -83,7 +178,19 @@ export async function protectedFileUrl(fileId: string): Promise<string> {
       error.status = response.status;
       throw error;
     }
-    return URL.createObjectURL(await response.blob());
+    const result = await response.json();
+    if (result.direct && typeof result.url === "string") return result.url;
+    const fileUrl = new URL(result.url, base || window.location.origin).toString();
+    const fileResponse = await fetch(fileUrl, {
+      credentials: "include", cache: "no-store", signal: controller?.signal,
+    });
+    if (fileResponse.status === 401) reportChatUnauthorized();
+    if (!fileResponse.ok) {
+      const error: any = new Error("Impossible d’ouvrir ce fichier.");
+      error.status = fileResponse.status;
+      throw error;
+    }
+    return URL.createObjectURL(await fileResponse.blob());
   } catch (error: any) {
     if (controller?.signal.aborted) throw new Error("Le chargement du fichier a expiré. Réessayez.");
     throw error;

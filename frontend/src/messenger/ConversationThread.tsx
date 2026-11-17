@@ -629,14 +629,14 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
     const files = (message.attachments || []).filter(file => !file.view_once);
     try {
       for (const file of files) {
-        const url = await protectedFileUrl(file.id);
+        const url = await protectedFileUrl(file.id, true);
         const link = document.createElement("a");
         link.href = url;
         link.download = file.name || `spiloveure-${file.id}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        if (url.startsWith("blob:")) window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       }
       setContextMessage(null);
     } catch (e: any) {
@@ -655,12 +655,12 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
       await openProtectedAttachment(file, setAttachmentPreview, loadedUrl);
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e.message); }
   };
-  const openSticker = async (file: Attachment, messageId: string, loadedUrl?: string) => {
+  const openSticker = async (file: Attachment, messageId: string) => {
     try {
-      const url = loadedUrl || await protectedFileUrl(file.id);
+      const url = await protectedFileUrl(file.id);
       setAttachmentPreview({
         url, mime: file.mime, name: file.name, fileId: file.id,
-        releaseUrl: !loadedUrl,
+        releaseUrl: url.startsWith("blob:"),
         sticker: { conversationId: conversation.id, messageId },
       });
     } catch (e: any) { if (typeof window !== "undefined") window.alert(e?.message || "Impossible d’ouvrir ce sticker."); }
@@ -964,7 +964,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
           const file = new File([blob], source.name || `fichier-${source.id}`, { type: source.mime || blob.type });
           attachments.push(await messengerApi.file(target.id, file, source.duration_seconds));
         } finally {
-          URL.revokeObjectURL(protectedUrl);
+          if (protectedUrl.startsWith("blob:")) URL.revokeObjectURL(protectedUrl);
         }
       }
       await messengerApi.send(target.id, { text: forwarding.text, client_id: makeId(), attachments, forwarded_from: forwarding.id });
@@ -1112,7 +1112,7 @@ export default function ConversationThread({ conversation, userId, onBack, onCha
                 </View>}
                 {!!stickerFiles.length && <View style={[styles.stickerGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {stickerFiles.map(file =>
-                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={url => openSticker(file, message.id, url)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
+                    <ProtectedMessageMedia key={file.id} file={file} maxWidth={mediaMaxWidth} onOpen={() => openSticker(file, message.id)} onLongPress={event => openMessageContext(message, event)} autoLoad={visualSettings.auto_load_media !== false} />)}
                 </View>}
                 {!!mediaFiles.length && <View style={[styles.mediaGroup, { maxWidth: mediaMaxWidth }, own ? { alignSelf: "flex-end", justifyContent: "flex-end" } : { alignSelf: "flex-start" }]}>
                   {mediaFiles.map(file =>

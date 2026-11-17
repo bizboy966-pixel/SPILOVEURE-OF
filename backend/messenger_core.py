@@ -257,7 +257,7 @@ async def attachments_checked(db, supplied, user, scope):
     result = []
     for item in supplied:
         stored = await db.spv_files.find_one({"id": item.id, "owner_id": user["id"], "scope": scope})
-        if not stored:
+        if not stored or stored.get("status") not in (None, "ready"):
             raise HTTPException(400, "Pièce jointe non autorisée.")
         keys = ["id", "name", "mime", "size", "url"]
         if stored.get("sticker"):

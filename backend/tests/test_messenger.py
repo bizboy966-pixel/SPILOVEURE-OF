@@ -15,11 +15,12 @@ from datetime import timedelta
 
 
 @pytest.fixture
-def chat(tmp_path, monkeypatch):
+def chat(tmp_path, monkeypatch, fake_r2_storage):
     monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     app = FastAPI()
     app.state.db = AsyncMongoMockClient(tz_aware=True).messenger_tests
     app.include_router(api)
+    fake_r2_storage(app)
 
     async def seed():
         await initialize(app.state.db)
