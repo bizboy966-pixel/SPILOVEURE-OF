@@ -72,14 +72,14 @@ export default function Pay() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"idle" | "pending" | "success" | "failed">("idle");
+  const [phase, setPhase] = useState<"idle" | "pending" | "review" | "success" | "failed">("idle");
   useEffect(() => {
-    if (phase !== "pending") return;
+    if (phase !== "pending" && phase !== "review") return;
     const backGuard = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => backGuard.remove();
   }, [phase]);
   useEffect(() => {
-    if (phase !== "pending" || typeof window === "undefined") return;
+    if ((phase !== "pending" && phase !== "review") || typeof window === "undefined") return;
     const restorePaymentPage = () => window.history.pushState({ paymentPending: true }, "", window.location.href);
     restorePaymentPage();
     window.addEventListener("popstate", restorePaymentPage);
@@ -299,19 +299,26 @@ export default function Pay() {
 
   // Poll pending payment → dashboard on success.
   useEffect(() => {
-    if (phase !== "pending" || !ref) return;
+    if ((phase !== "pending" && phase !== "review") || !ref) return;
     let missed = 0;
     const t = setInterval(async () => {
       try {
         const r = await api.get<any>(`/payments/${ref}/status`);
         missed = 0;
+        setErr(null);
         const s = String(r.status || "").toLowerCase();
-        if (["paid", "success", "validated", "completed"].includes(s) || r.activation_done === true) {
+        if (r.activation_done === true) {
           setPhase("success"); try { await refresh?.(); } catch {}
           setTimeout(() => {
             if (typeof window !== "undefined") window.location.href = "/dashboard";
             else router.replace("/(app)/dashboard" as any);
           }, 1200);
+        } else if (s === "review" || ["paid", "success", "validated", "completed"].includes(s)) {
+          setPhase("review");
+          setPendingMsg(
+            r.message ||
+            `Le paiement a été reçu, mais l’activation n’est pas confirmée. Ne payez pas une seconde fois. Référence : ${ref}.`,
+          );
         } else if (["failed", "rejected", "cancelled", "canceled", "expired"].includes(s)) {
           setPhase("failed");
         }
@@ -319,7 +326,7 @@ export default function Pay() {
         missed += 1;
         if (missed >= 6) setErr(translate("payment.verify_failed"));
       }
-    }, currentGateway === "biztranspay" ? 10000 : 3000);
+    }, currentGateway === "biztranspay" || currentGateway === "moneyfusion" ? 10000 : 3000);
     return () => clearInterval(t);
   }, [phase, ref, refresh, router, currentGateway]);
 
@@ -352,7 +359,7 @@ export default function Pay() {
           <Text style={styles.amountSub}>Montant fixe · frais inclus · non modifiable</Text>
         </View>
 
-        <MoneyFusionActivation pendingOnly />
+        {!moneyfusionReference ? <MoneyFusionActivation pendingOnly /> : null}
 
         {catalogErr && <Text style={styles.err}>❌ {catalogErr}</Text>}
         {!catalog && !catalogErr && (
@@ -556,14 +563,18 @@ export default function Pay() {
         )}
 
         {/* Pending state */}
-        {phase === "pending" && (
+        {(phase === "pending" || phase === "review") && (
           <View style={styles.pendingCard}>
-            <ActivityIndicator color={theme.colors.primary} size="large" />
-            <Text style={styles.pendingTitle}>Paiement en cours…</Text>
+            {phase === "review"
+              ? <Ionicons name="alert-circle" size={46} color="#D97706" />
+              : <ActivityIndicator color={theme.colors.primary} size="large" />}
+            <Text style={styles.pendingTitle}>
+              {phase === "review" ? "Paiement reçu — activation à finaliser" : "Paiement en cours…"}
+            </Text>
             {cryptoAddr?.address ? (
               <>
                 <Text style={styles.pendingSub}>
-                  Envoyez {cryptoAddr.amount} {cryptoAddr.asset} sur le réseau {cryptoAddr.network} à l'adresse :
+                  Envoyez {cryptoAddr.amount} {cryptoAddr.asset} sur le réseau {cryptoAddr.network} à l’adresse :
                 </Text>
                 <View style={styles.addrBox}>
                   <Text selectable style={styles.addrTxt}>{cryptoAddr.address}</Text>
@@ -574,7 +585,7 @@ export default function Pay() {
                   testID="pay-copy-addr"
                 >
                   <Ionicons name="copy" size={14} color="#fff" />
-                  <Text style={styles.copyTxt}>Copier l'adresse</Text>
+                  <Text style={styles.copyTxt}>Copier l’adresse</Text>
                 </TouchableOpacity>
                 {cryptoAddr.qr ? (
                   <Image
@@ -647,6 +658,10 @@ export default function Pay() {
                 {pendingMsg || translate("payment.approve_phone")} {translate("payment.activation_auto")}
               </Text>
             )}
+            {phase === "review" && ref ? (
+              <Text style={styles.pendingSub}>Référence à communiquer au support : {ref}</Text>
+            ) : null}
+            {err ? <Text style={styles.err}>❌ {err}</Text> : null}
           </View>
         )}
 

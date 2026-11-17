@@ -60,7 +60,7 @@ export default function PurchasePaymentScreen() {
     params.reference ? { reference: String(params.reference), status: "pending" } : null,
   );
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<"form" | "waiting" | "done" | "failed" | "refund">(
+  const [status, setStatus] = useState<"form" | "waiting" | "review" | "done" | "failed" | "refund">(
     params.reference ? "waiting" : "form",
   );
 
@@ -149,12 +149,29 @@ export default function PurchasePaymentScreen() {
   }
 
   useEffect(() => {
-    if (status !== "waiting" || !session?.reference) return;
+    if ((status !== "waiting" && status !== "review") || !session?.reference) return;
     let stopped = false;
     const poll = async () => {
       try {
         const result = await api.get<any>(`/payments/${encodeURIComponent(session.reference)}/status`);
         if (stopped) return;
+        if (result.kind === "activation" && result.activation_done === true) {
+          setStatus("done");
+          try { await refresh(); } catch {}
+          setTimeout(() => router.replace("/(app)/dashboard" as any), 700);
+          return;
+        }
+        if (result.status === "review" ||
+            (result.kind === "activation" &&
+             ["paid", "success", "validated", "completed"].includes(String(result.status).toLowerCase()) &&
+             result.activation_done !== true)) {
+          setProviderMessage(
+            result.message ||
+            "Paiement reçu, mais l’activation n’est pas encore confirmée. Ne payez pas une seconde fois.",
+          );
+          setStatus("review");
+          return;
+        }
         if (result.status === "refund_required" || result.manual_refund_required) {
           setStatus("refund");
           return;
@@ -175,7 +192,7 @@ export default function PurchasePaymentScreen() {
     poll();
     const timer = setInterval(poll, 5000);
     return () => { stopped = true; clearInterval(timer); };
-  }, [status, session?.reference, refresh]);
+  }, [status, session?.reference, refresh, router]);
 
   function finish() {
     router.replace(returnTo as any);
@@ -281,6 +298,20 @@ export default function PurchasePaymentScreen() {
             <TouchableOpacity style={styles.secondary} onPress={finish}>
               <Text style={styles.secondaryText}>{t("purchase.later")}</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {status === "review" && (
+          <View style={styles.card}>
+            <Ionicons name="alert-circle" size={52} color="#D97706" />
+            <Text style={styles.waitTitle}>Paiement reçu — activation à finaliser</Text>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {providerMessage || "Le paiement est reçu, mais le compte n’est pas encore activé."}
+            </Text>
+            <Text style={styles.hint}>
+              Ne relancez pas le paiement. La vérification continue automatiquement.
+            </Text>
+            <Text style={styles.hint}>{t("purchase.reference", { reference: session?.reference || "" })}</Text>
           </View>
         )}
 

@@ -350,7 +350,7 @@ def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
     assert response.json()["amount"] == 2650
     payload = calls[0][2]["json"]
     assert payload["totalPrice"] == 2650
-    assert payload["return_url"] == f"https://example.invalid/purchase-payment?reference={ref}"
+    assert payload["return_url"] == f"https://example.invalid/pay?moneyfusion_reference={ref}"
     assert payload["webhook_url"].endswith("/moneyfusion/payin")
     assert "currency" not in payload
     assert initiate(env).json()["reference"] == ref
@@ -359,6 +359,17 @@ def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
                           headers=headers("other", "user")).status_code == 404
     assert run(env.db.users.find_one({"id": "member"}))["max_level"] == 0
     assert run(_provider_ready(env.db, "moneyfusion", "payin"))[0] is True
+
+
+def test_non_activation_moneyfusion_purchase_keeps_purchase_return_route(env):
+    configure(env)
+    calls = checkout_http(env)
+    response = initiate(env, kind="ads", amount_xof=5000, target_id="ad-test")
+    assert response.status_code == 200, response.text
+    ref = response.json()["reference"]
+    assert calls[0][2]["json"]["return_url"] == (
+        f"https://example.invalid/purchase-payment?reference={ref}"
+    )
 
 
 def test_spoofed_webhook_never_activates_without_provider_paid(env):
@@ -410,6 +421,46 @@ def test_duplicate_concurrent_paid_notifications_activate_once(env):
     assert activate.await_count == 1
     assert activate.call_args.kwargs["source"] == "moneyfusion"
     assert run(env.db.payments.find_one({"reference": ref}))["activation_done"] is True
+
+
+def test_paid_activation_error_is_visible_and_retried_by_status_poll(env):
+    configure(env)
+    checkout_http(env)
+    ref = initiate(env).json()["reference"]
+    payment = run(env.db.payments.find_one({"reference": ref}))
+    provider_http(env.monkeypatch, {
+        mf.PAYIN_STATUS_URL + "/payin-token": verified_payin(payment),
+    })
+    attempts = 0
+
+    async def activate_after_transient_failure(db, user_id, level, *, source):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary activation failure")
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"max_level": level, "status": "active"}},
+        )
+
+    env.monkeypatch.setattr(mf, "activate_level", activate_after_transient_failure)
+    path = f"/api/payments/moneyfusion/status/{ref}"
+    auth = headers("member", "user", "onboarding")
+
+    first = env.client.get(path, headers=auth)
+    assert first.status_code == 200
+    assert first.json()["status"] == "paid"
+    assert first.json()["activation_done"] is False
+    assert first.json()["kind"] == "activation"
+    assert "Ne payez pas une seconde fois" in first.json()["message"]
+
+    second = env.client.get(path, headers=auth)
+    assert second.status_code == 200
+    assert second.json()["activation_done"] is True
+    assert second.json()["kind"] == "activation"
+    assert attempts == 2
+    user = run(env.db.users.find_one({"id": "member"}))
+    assert user["max_level"] == 1
 
 
 def test_payout_reserves_once_and_only_verification_completes(env):

@@ -582,7 +582,10 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
         and str(info.get("userId") or "") == str(payment["user_id"])
         for info in infos
     ):
-        return {"status": "review"}
+        return {
+            "status": "review",
+            "message": "Paiement reçu, mais sa référence n’a pas pu être rapprochée automatiquement. Ne payez pas une seconde fois ; contactez le support.",
+        }
     try:
         provider_amount = float(data.get("Montant"))
         expected_amount = float(payment.get("amount"))
@@ -594,7 +597,10 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             {"$set": {"status": "review", "verification_error": "amount_mismatch",
                       "updated_at": _now()}},
         )
-        return {"status": "review"}
+        return {
+            "status": "review",
+            "message": "Le montant reçu ne correspond pas à la demande. Ne payez pas une seconde fois ; contactez le support avec la référence.",
+        }
 
     # Compare the submitted and verified phone numbers without requiring the
     # provider to preserve punctuation or a leading country prefix.
@@ -606,7 +612,10 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             {"$set": {"status": "review", "verification_error": "phone_mismatch",
                       "updated_at": _now()}},
         )
-        return {"status": "review"}
+        return {
+            "status": "review",
+            "message": "Le numéro de paiement ne correspond pas à la demande. Ne payez pas une seconde fois ; contactez le support avec la référence.",
+        }
 
     claim = await db.payments.update_one(
         {"reference": payment["reference"], "activation_done": {"$ne": True},
@@ -638,7 +647,10 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
                 {"$set": {"status": "paid", "activation_claimed": False,
                           "activation_error": str(exc)[:300], "updated_at": _now()}},
             )
-            return {"status": "paid", "activation_done": False}
+            return {
+                "status": "paid", "activation_done": False,
+                "message": "Paiement reçu, finalisation de l’achat en cours. Ne payez pas une seconde fois.",
+            }
     try:
         await activate_level(db, payment["user_id"], int(payment.get("level") or 1),
                              source="moneyfusion")
@@ -656,7 +668,10 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             {"$set": {"status": "paid", "activation_claimed": False,
                       "activation_error": str(exc)[:300], "updated_at": _now()}},
         )
-        return {"status": "paid", "activation_done": False}
+        return {
+            "status": "paid", "activation_done": False,
+            "message": "Paiement reçu, mais l’activation n’a pas encore abouti. Ne payez pas une seconde fois ; le statut sera revérifié.",
+        }
 
 
 class PayInRequest(BaseModel):
@@ -820,7 +835,11 @@ async def initiate_payin(data: PayInRequest, request: Request,
         "nomclient": str(user.get("full_name") or user.get("username") or "SPILOVEURE user")[:120],
         "personal_Info": [{"userId": user["id"], "orderId": reference,
                            "country": country_code, "currency": currency}],
-        "return_url": f"{public_url}/purchase-payment?reference={reference}",
+        "return_url": (
+            f"{public_url}/pay?moneyfusion_reference={reference}"
+            if kind == "activation"
+            else f"{public_url}/purchase-payment?reference={reference}"
+        ),
         "webhook_url": f"{public_url}/api/webhooks/moneyfusion/payin",
     }
     try:
@@ -866,14 +885,18 @@ async def payin_status(reference: str, request: Request,
     )
     if not payment:
         raise HTTPException(404, "Paiement introuvable.")
+    kind = payment.get("kind") or "activation"
     if payment.get("activation_done"):
-        return {"status": "paid", "activation_done": True}
+        return {"status": "paid", "activation_done": True, "kind": kind}
     if not payment.get("provider_token"):
-        return {"status": payment.get("status") or "pending"}
+        return {"status": payment.get("status") or "pending", "kind": kind}
     try:
         verified = await _verify_payin(db, payment)
     except Exception:
-        return {"status": "pending", "message": "Vérification MoneyFusion en attente."}
+        return {
+            "status": "pending", "kind": kind,
+            "message": "Vérification MoneyFusion en attente.",
+        }
     outcome = await _apply_paid_activation(db, payment, verified)
     data = (verified or {}).get("data") or {}
     provider_status = str(data.get("statut") or "").lower()
@@ -885,8 +908,8 @@ async def payin_status(reference: str, request: Request,
             {"$set": {"status": "failed", "updated_at": _now()},
              "$unset": {"moneyfusion_active_key": ""}},
         )
-        return {"status": "failed"}
-    return outcome
+        return {"status": "failed", "kind": kind}
+    return {**outcome, "kind": kind}
 
 
 async def _handle_payin_webhook(request: Request, body: dict) -> dict:
