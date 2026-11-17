@@ -23,6 +23,7 @@ case "${SPV_PREVIEW_MODE:-}" in
     done
     [[ "$ready" == "1" ]] || { echo "Refus : MongoDB local ne démarre pas." >&2; exit 1; }
     export SPV_ISOLATED_CHAT_PREVIEW=1
+    export UPLOADS_DIR="$PWD/backend/uploads"
     python scripts/seed_chat_preview_account.py
     python scripts/seed_chat_preview_scenarios.py
     python scripts/dev_backend.py &

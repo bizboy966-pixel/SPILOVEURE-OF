@@ -16,6 +16,9 @@ if os.environ.get("SPV_PREVIEW_MODE") != "isolated":
 # The legacy application requires an admin password at startup. Generate an
 # unguessable local-only value without printing, storing or exposing it.
 os.environ.setdefault("ADMIN_PASSWORD", secrets.token_urlsafe(48))
+os.environ.setdefault("ADMIN_USERNAME", "preview_admin_local")
+os.environ.setdefault("ADMIN_EMAIL", "preview_admin_local@example.test")
+os.environ.setdefault("ADMIN_PHONE", "00000001")
 os.environ.setdefault("JWT_SECRET", os.environ.get("SESSION_SECRET") or secrets.token_urlsafe(48))
 os.environ["SPV_ISOLATED_CHAT_PREVIEW"] = "1"
 # Never let preview registrations or password recovery send real email.
