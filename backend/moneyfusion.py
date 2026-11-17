@@ -587,11 +587,25 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             "message": "Paiement reçu, mais sa référence n’a pas pu être rapprochée automatiquement. Ne payez pas une seconde fois ; contactez le support.",
         }
     try:
-        provider_amount = float(data.get("Montant"))
-        expected_amount = float(payment.get("amount"))
-    except (TypeError, ValueError):
+        provider_amount = Decimal(str(data.get("Montant")))
+        expected_amount = Decimal(str(payment.get("amount")))
+        provider_fees = Decimal(str(data.get("frais", 0)))
+    except (ArithmeticError, TypeError, ValueError):
         return {"status": "pending"}
-    if not math.isfinite(provider_amount) or abs(provider_amount - expected_amount) > 0.01:
+    # MoneyFusion documents both a gross Montant and a net Montant with
+    # separate frais. Fees are included in the customer's checkout total:
+    # never compare only the merchant's net credit or accept arbitrary shortfalls.
+    valid_amounts = (
+        provider_amount.is_finite() and expected_amount.is_finite()
+        and provider_fees.is_finite()
+        and provider_amount > 0 and expected_amount > 0 and provider_fees >= 0
+        and provider_fees < expected_amount
+        and (
+            abs(provider_amount - expected_amount) <= Decimal("0.01")
+            or abs(provider_amount + provider_fees - expected_amount) <= Decimal("0.01")
+        )
+    )
+    if not valid_amounts:
         await db.payments.update_one(
             {"reference": payment["reference"]},
             {"$set": {"status": "review", "verification_error": "amount_mismatch",
@@ -621,6 +635,8 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
         {"reference": payment["reference"], "activation_done": {"$ne": True},
          "activation_claimed": {"$ne": True}},
         {"$set": {"status": "paid", "activation_claimed": True,
+                  "provider_reported_amount": float(provider_amount),
+                  "provider_reported_fees": float(provider_fees),
                   "claim_started_at": _now(), "updated_at": _now()}},
     )
     if claim.modified_count == 0:
@@ -635,7 +651,7 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
                 {"$set": {"status": result.get("status", "paid"),
                           "activation_done": True, "activation_claimed": False,
                           "paid_at": _now(), "updated_at": _now()},
-                 "$unset": {"activation_error": ""}},
+                 "$unset": {"activation_error": "", "verification_error": ""}},
             )
             return {"status": result.get("status", "paid"),
                     "activation_done": True, **result}
@@ -658,7 +674,7 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             {"reference": payment["reference"]},
             {"$set": {"status": "paid", "activation_done": True,
                       "activation_claimed": False, "paid_at": _now(), "updated_at": _now()},
-             "$unset": {"activation_error": ""}},
+             "$unset": {"activation_error": "", "verification_error": ""}},
         )
         return {"status": "paid", "activation_done": True}
     except Exception as exc:
@@ -902,7 +918,7 @@ async def payin_status(reference: str, request: Request,
     provider_status = str(data.get("statut") or "").lower()
     if (outcome.get("status") == "pending" and verified.get("statut") is True
             and str(data.get("tokenPay") or "") == payment["provider_token"]
-            and provider_status in ("failure", "no paid", "cancelled")):
+            and provider_status in ("failure", "cancelled")):
         await db.payments.update_one(
             {"reference": reference, "status": "pending"},
             {"$set": {"status": "failed", "updated_at": _now()},

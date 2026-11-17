@@ -38,6 +38,16 @@ tarif de 2 650 XOF dans la devise locale et a rejeté les taux manuels.
 référence automatique et ne pas lancer de paiement si le taux nécessaire
 n’est pas disponible.
 
+Les 2 650 XOF sont le total client, frais de transaction inclus. Le marchand
+reçoit le net après déduction ; cette déduction ne doit pas bloquer l’activation.
+
+**Why:** L’utilisateur a précisé que le prix d’activation plus les frais fait
+2 650 francs, et non 2 650 francs nets à recevoir par le marchand.
+
+**How to apply:** Rapprocher le brut, ou le net augmenté des frais confirmés
+par le prestataire, avec le total attendu ; ne jamais accepter un écart
+inexpliqué ni activer sur une simple redirection du navigateur.
+
 Conserver la clé de chiffrement des identifiants avec les sauvegardes
 sécurisées ; une rotation nécessite une migration.
 

@@ -404,6 +404,96 @@ def test_payin_binding_rejects_mismatch(env, changes):
     assert activate.await_count == 0
 
 
+@pytest.mark.parametrize("amount,fees", [(2650, 0), (2650, 80), (2570, 80), ("2570.50", "79.50")])
+def test_paid_total_includes_provider_fees_and_recovers_review(env, amount, fees):
+    configure(env)
+    checkout_http(env)
+    ref = initiate(env).json()["reference"]
+    run(env.db.payments.update_one(
+        {"reference": ref},
+        {"$set": {"status": "review", "verification_error": "amount_mismatch"}},
+    ))
+    payment = run(env.db.payments.find_one({"reference": ref}))
+    provider_http(env.monkeypatch, {
+        mf.PAYIN_STATUS_URL + "/payin-token": verified_payin(payment, Montant=amount, frais=fees),
+    })
+
+    async def activate(db, user_id, level, **kwargs):
+        await db.users.update_one({"id": user_id}, {"$set": {"max_level": level, "status": "active"}})
+
+    activation = AsyncMock(side_effect=activate)
+    env.monkeypatch.setattr(mf, "activate_level", activation)
+    for _ in range(2):
+        response = env.client.get(
+            f"/api/payments/moneyfusion/status/{ref}",
+            headers=headers("member", "user", "onboarding"),
+        )
+        assert response.json()["activation_done"] is True
+    assert activation.await_count == 1
+    assert run(env.db.users.find_one({"id": "member"}))["status"] == "active"
+    stored = run(env.db.payments.find_one({"reference": ref}))
+    assert "verification_error" not in stored
+    assert stored["amount"] == 2650
+    assert stored["provider_reported_fees"] == float(fees)
+
+
+@pytest.mark.parametrize("amount,fees", [
+    (2500, 80), (2700, 80), (1, 0), (2570, -80),
+    ("NaN", 80), (2570, "Infinity"), (0, 2650),
+])
+def test_fees_do_not_allow_unverified_or_insufficient_amounts(env, amount, fees):
+    configure(env)
+    checkout_http(env)
+    ref = initiate(env).json()["reference"]
+    payment = run(env.db.payments.find_one({"reference": ref}))
+    activation = AsyncMock()
+    env.monkeypatch.setattr(mf, "activate_level", activation)
+    result = run(mf._apply_paid_activation(
+        env.db, payment, verified_payin(payment, Montant=amount, frais=fees),
+    ))
+    assert result.get("activation_done") is not True
+    activation.assert_not_awaited()
+
+
+def test_net_paid_webhook_activates_only_after_server_verification(env):
+    configure(env)
+    checkout_http(env)
+    ref = initiate(env).json()["reference"]
+    payment = run(env.db.payments.find_one({"reference": ref}))
+    provider_http(env.monkeypatch, {
+        mf.PAYIN_STATUS_URL + "/payin-token": verified_payin(payment, Montant=2570, frais=80),
+    })
+    activation = AsyncMock()
+    env.monkeypatch.setattr(mf, "activate_level", activation)
+    for _ in range(2):
+        response = env.client.post(
+            "/api/webhooks/moneyfusion/payin",
+            json={"tokenPay": "payin-token", "Montant": 1, "frais": 0},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "paid"
+    activation.assert_awaited_once()
+    assert run(env.db.payments.find_one({"reference": ref}))["activation_done"] is True
+
+
+def test_unpaid_checkout_is_not_failed_or_released_for_duplicate_payment(env):
+    configure(env)
+    checkout_http(env)
+    ref = initiate(env).json()["reference"]
+    payment = run(env.db.payments.find_one({"reference": ref}))
+    provider_http(env.monkeypatch, {
+        mf.PAYIN_STATUS_URL + "/payin-token": verified_payin(payment, statut="no paid"),
+    })
+    response = env.client.get(
+        f"/api/payments/moneyfusion/status/{ref}",
+        headers=headers("member", "user", "onboarding"),
+    )
+    assert response.json()["status"] == "pending"
+    stored = run(env.db.payments.find_one({"reference": ref}))
+    assert stored["moneyfusion_active_key"]
+    assert stored["activation_done"] is False
+
+
 def test_duplicate_concurrent_paid_notifications_activate_once(env):
     configure(env)
     checkout_http(env)

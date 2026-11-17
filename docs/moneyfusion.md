@@ -82,6 +82,15 @@ Le navigateur ne peut pas activer un compte en annonçant un paiement réussi.
 Le serveur vérifie la transaction avec MoneyFusion et compare le token,
 le montant, la référence, le compte et le téléphone avant activation.
 
+Le total payé pour l’activation est **2 650 XOF, frais inclus**. Selon la
+réponse vérifiée de MoneyFusion, `Montant` représente le brut ou le net :
+le rapprochement exige `Montant = total` ou `Montant + frais = total`.
+Un montant net inférieur ne bloque donc pas l’activation si les frais expliquent
+exactement la différence. Aucun supplément n’est ajouté au prix client.
+Les anciens paiements en revue pour écart de montant sont revérifiés par le
+statut ou un nouveau webhook, sans nouvelle demande de débit.
+Le statut `no paid` signifie « non encore payé », pas un échec définitif.
+
 Les retraits sont soumis automatiquement lors de la demande utilisateur si
 MoneyFusion est sélectionné par le routeur et que tous les contrôles sont
 valides. L’activation du Pay-out autorise donc des envois réels sans
