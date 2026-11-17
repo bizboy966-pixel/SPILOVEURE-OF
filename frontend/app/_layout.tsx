@@ -94,7 +94,9 @@ export default function RootLayout() {
         <AuthProvider>
           <ChatProvider>
           <FeaturesProvider>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }}>
+              <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: "#022BA3" } }} />
+            </Stack>
             <AnimatedSplash />
             <WelcomeSplash />
             <ChatPushBootstrap />

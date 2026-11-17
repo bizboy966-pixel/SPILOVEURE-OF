@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Image,
   Pressable,
+  Platform,
   ScrollView,
   Text,
   useWindowDimensions,
@@ -66,6 +67,22 @@ export default function NewLandingPage({
     return () => {
       mounted = false;
       subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlBackground = html.style.backgroundColor;
+    const previousBodyBackground = body.style.backgroundColor;
+    html.style.backgroundColor = "#022BA3";
+    body.style.backgroundColor = "#022BA3";
+
+    return () => {
+      html.style.backgroundColor = previousHtmlBackground;
+      body.style.backgroundColor = previousBodyBackground;
     };
   }, []);
 
