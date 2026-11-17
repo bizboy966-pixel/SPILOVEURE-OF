@@ -16,42 +16,35 @@ La documentation Pay-in décrit une URL API marchande, `totalPrice`,
 `webhook_url`. Elle ne documente **ni paramètre de devise, ni filtre
 d’opérateur, ni filtre Mobile Money uniquement**.
 
-Avant d’activer un encaissement, obtenir auprès de MoneyFusion :
+La documentation publique ne donne pas la devise facturée par pays, la liste
+des pays Pay-in autorisés pour chaque compte marchand, ni un paramètre pour
+imposer un opérateur. Ces éléments doivent être confirmés dans le compte
+marchand MoneyFusion. N’activez que des pays réellement autorisés par ce compte.
 
-1. La confirmation de la devise attendue par `totalPrice` pour chaque pays.
-   L’implémentation actuelle exige une confirmation explicite de facturation
-   dans la devise locale. Si le compte facture dans une autre devise, adapter
-   le code au contrat confirmé avant activation.
-2. La confirmation des pays autorisés en Pay-in pour le compte marchand.
-3. Une page hébergée limitée au Mobile Money, sans carte ni autre moyen de
-   paiement. Si MoneyFusion ne permet pas cette restriction, ne pas cocher
-   la confirmation et ne pas activer le Pay-in.
-
-Le catalogue public des retraits n’est pas une preuve de couverture Pay-in.
-Les contrôles d’opérateurs s’appliquent directement au Pay-out. Pour le
-Pay-in, si un opérateur du catalogue d’un pays est désactivé, ce pays
-est bloqué dans l’application, car la requête hébergée ne permet pas
-d’imposer un opérateur précis. Les restrictions sur la page hébergée
-elle-même doivent être assurées par MoneyFusion ; l’application ne peut pas
-les inventer.
+Le catalogue fourni par `/api/v1/withdraw/methods` est un catalogue de retrait,
+pas une preuve indépendante de couverture Pay-in. Les interrupteurs du panneau
+administrateur servent à affecter les pays et opérateurs après vérification du
+compte marchand. Le formulaire Pay-in hébergé ne reçoit pas l’opérateur choisi :
+un pays n’est proposé dans l’application que si tous ses opérateurs du catalogue
+sont activés et attribués à MoneyFusion. Vérifiez également dans le tableau de
+bord marchand que le checkout ne propose que les moyens de paiement souhaités.
 
 ## Configuration administrateur
 
 Dans **Prestataires de paiement → MoneyFusion** :
 
-- Saisir l’URL API marchande Pay-in et/ou la clé privée Pay-out.
+- Saisir l’URL API marchande Pay-in et/ou la clé privée Pay-out. Le bouton
+  **Enregistrer** apparaît quand une valeur ou un interrupteur change.
 - Les champs vides conservent les identifiants déjà enregistrés.
-- Pour effacer un identifiant, utiliser le contrôle d’effacement et enregistrer.
-- Configurer les confirmations et pays Pay-in seulement après accord de
-  MoneyFusion.
-- Actualiser le catalogue officiel puis activer les pays et opérateurs utiles
-  dans la liste des prestataires. Les nouveaux opérateurs sont désactivés par
-  défaut et les désactivations sont conservées lors des synchronisations.
+- Activer ou désactiver les dépôts et les retraits séparément.
+- Actualiser le catalogue puis activer les pays et opérateurs utiles dans la
+  liste des prestataires. Les nouveaux opérateurs sont désactivés par défaut et
+  les désactivations sont conservées lors des synchronisations.
 - Pour que MoneyFusion soit choisi pour les retraits avant un autre
   prestataire actif, ajuster sa priorité dans cette même liste.
-- Avant d’activer le Pay-out, enregistrer l’**IP publique de sortie fixe du VPS**
-  dans le tableau de bord MoneyFusion. Ne pas supposer que l’adresse de sortie
-  correspond à une ancienne adresse communiquée.
+- L’**IP publique fixe de sortie du VPS** doit être autorisée dans le tableau de
+  bord MoneyFusion avant le premier retrait. Le prestataire refuse les requêtes
+  provenant d’une autre adresse.
 
 Les frais d’activation restent fixés à **2 650 XOF**. XOF et XAF sont convertis
 à parité ; les autres devises MoneyFusion sont converties automatiquement avec

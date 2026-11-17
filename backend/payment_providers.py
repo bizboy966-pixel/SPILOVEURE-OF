@@ -84,7 +84,6 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
                         and mf_cfg.get("mobile_money_only_confirmed")
                         and mf_creds.get("payin_api_url"))
         auto_wd = bool(mf_cfg.get("payout_enabled")
-                       and mf_cfg.get("payout_ip_confirmed")
                        and mf_creds.get("payout_private_key"))
         enabled = auto_dep or auto_wd
     elif provider_id == "izichange":

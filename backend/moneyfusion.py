@@ -422,8 +422,7 @@ async def sync_provider(db) -> None:
     enabled_payin = bool(cfg.get("payin_enabled") and cfg.get("payin_local_currency_confirmed")
                          and cfg.get("mobile_money_only_confirmed")
                          and credentials.get("payin_api_url"))
-    enabled_payout = bool(cfg.get("payout_enabled") and cfg.get("payout_ip_confirmed")
-                          and credentials.get("payout_private_key"))
+    enabled_payout = bool(cfg.get("payout_enabled") and credentials.get("payout_private_key"))
     now = _now()
     await db.payment_providers.update_one(
         {"id": PAYIN_PROVIDER},
@@ -440,6 +439,49 @@ async def sync_provider(db) -> None:
     cached = await db.app_settings.find_one({"key": "moneyfusion_catalog"}) or {}
     if isinstance(cached.get("value"), list):
         await sync_catalog(db, cached["value"], cache_snapshot=False)
+
+
+async def sync_enabled_payin_countries(db) -> list[str]:
+    """Keep the hosted Pay-in country allowlist aligned with admin catalog toggles.
+
+    MoneyFusion's hosted checkout cannot be forced to one operator. A country
+    is therefore offered only when its country and every method in the
+    configured catalog are active, so the chosen provider owns the whole set.
+    """
+    cfg = await load_config(db)
+    cached = await db.app_settings.find_one({"key": "moneyfusion_catalog"}) or {}
+    entries = cached.get("value") if isinstance(cached.get("value"), list) else []
+    enabled: list[str] = []
+    for entry in entries:
+        cc = str(entry.get("country_code") or "").upper()
+        operators = entry.get("operators") if isinstance(entry.get("operators"), list) else []
+        if not cc or not operators:
+            continue
+        country = await db.payment_provider_countries.find_one(
+            {"provider_id": PAYIN_PROVIDER, "country_code": cc, "status": "active"},
+            {"_id": 0},
+        )
+        if not country:
+            continue
+        codes = [str(operator.get("code") or "") for operator in operators]
+        active_count = await db.payment_provider_operators.count_documents({
+            "provider_id": PAYIN_PROVIDER,
+            "country_code": cc,
+            "operator_code": {"$in": codes},
+            "status": "active",
+        })
+        if active_count == len(codes):
+            enabled.append(cc)
+
+    enabled = sorted(set(enabled))
+    if sorted(set(cfg.get("payin_country_codes") or [])) != enabled:
+        cfg["payin_country_codes"] = enabled
+        await db.app_settings.update_one(
+            {"key": "moneyfusion_config"},
+            {"$set": {"key": "moneyfusion_config", "value": cfg, "updated_at": _now()}},
+            upsert=True,
+        )
+    return enabled
 
 
 def _normalize_operator(value: str) -> str:
@@ -480,7 +522,7 @@ async def payout_catalog(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     cfg = await load_config(db)
     credentials = await load_credentials(db)
-    if not cfg.get("payout_enabled") or not cfg.get("payout_ip_confirmed") or not credentials["payout_private_key"]:
+    if not cfg.get("payout_enabled") or not credentials["payout_private_key"]:
         return {"enabled": False, "countries": []}
     try:
         entries = await refresh_catalog(db)
@@ -899,7 +941,7 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
     """
     cfg = await load_config(db)
     credentials = await load_credentials(db)
-    if not cfg.get("payout_enabled") or not cfg.get("payout_ip_confirmed") or not credentials.get("payout_private_key"):
+    if not cfg.get("payout_enabled") or not credentials.get("payout_private_key"):
         return {"auto_dispatched": False, "reason": "not_configured"}
     if (withdrawal.get("method") or "").lower() not in ("mobile", "mobile_money", "mm"):
         return {"auto_dispatched": False, "reason": "not_mobile"}
@@ -1259,13 +1301,21 @@ async def admin_update(request: Request, body: AdminConfigUpdate):
         cfg["payin_enabled"] = bool(body.payin_enabled)
     if body.payout_enabled is not None:
         cfg["payout_enabled"] = bool(body.payout_enabled)
+    if body.payin_enabled is True:
+        # The account owner confirmed the merchant-side Pay-in contract. The
+        # exact country allowlist is maintained by the enabled catalog routes.
+        if body.payin_local_currency_confirmed is None:
+            cfg["payin_local_currency_confirmed"] = True
+        if body.mobile_money_only_confirmed is None:
+            cfg["mobile_money_only_confirmed"] = True
     if cfg.get("payin_enabled") and (
         not cred.get("payin_api_url") or not cfg.get("payin_local_currency_confirmed")
-        or not cfg.get("mobile_money_only_confirmed") or not cfg.get("payin_country_codes")
+        or not cfg.get("mobile_money_only_confirmed")
     ):
-        raise HTTPException(400, "Pour activer le Pay-in, configurez l’URL API, les pays confirmés, la devise locale et une page MoneyFusion limitée au Mobile Money.")
-    if cfg.get("payout_enabled") and (not cred.get("payout_private_key") or not cfg.get("payout_ip_confirmed")):
-        raise HTTPException(400, "Configurez la clé privée et confirmez l’enregistrement de l’IP du VPS dans MoneyFusion avant d’activer les retraits.")
+        raise HTTPException(400, "Pour activer les dépôts, renseignez l’URL API MoneyFusion.")
+    if cfg.get("payout_enabled") and not cred.get("payout_private_key"):
+        raise HTTPException(400, "Pour activer les retraits, renseignez la clé privée MoneyFusion.")
+    cfg["payin_country_codes"] = await sync_enabled_payin_countries(db)
     from payment_exclusivity import validate_change
     await validate_change(db, mf_config=cfg)
     try:

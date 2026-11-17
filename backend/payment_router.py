@@ -81,7 +81,6 @@ async def _provider_ready(db, provider_id: str, kind: str) -> tuple[bool, Option
                     and credentials.get("payin_api_url")):
                 return False, "payin_not_configured_or_currency_unconfirmed"
         elif not (mf_cfg.get("payout_enabled")
-                  and mf_cfg.get("payout_ip_confirmed")
                   and credentials.get("payout_private_key")):
             return False, "payout_not_configured"
     elif provider_id == "izichange":
@@ -286,6 +285,9 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
             await db.app_settings.update_one(
                 {"key": "payment_gateway"},
                 {"$set": {f"value.ashtec_operators.{cc}.{op['operator_code']}": enabled}})
+    elif provider_id == "moneyfusion":
+        from moneyfusion import sync_enabled_payin_countries
+        await sync_enabled_payin_countries(db)
     return True
 
 
@@ -338,6 +340,9 @@ async def toggle_operator(
             {"$set": {"status": "active",
                       "updated_at": datetime.now(timezone.utc)}},
         )
+    if provider_id == "moneyfusion":
+        from moneyfusion import sync_enabled_payin_countries
+        await sync_enabled_payin_countries(db)
     return True
 
 

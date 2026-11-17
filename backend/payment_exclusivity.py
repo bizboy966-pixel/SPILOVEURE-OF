@@ -117,8 +117,6 @@ async def mobile_routes(db, *, provider_enabled=None, country_change=None,
             operator_on = operator_change[3]
             if operator_on:
                 country_on = True
-        if mf_config is not None and pid == "moneyfusion" and not mf_config.get("payout_enabled"):
-            enabled = enabled and cc in mf_config.get("payin_country_codes", [])
         if enabled and country_on and operator_on:
             routes.append({**op, "identity": operator_identity(cc, code, op.get("operator_label", "")),
                            "provider": provider, "country_row": countries.get((pid, cc), {})})

@@ -189,12 +189,31 @@ def test_api_url_rejects_untrusted_destinations(env, url):
     assert response.status_code == 400
 
 
-def test_confirmations_required_and_manual_rates_are_ignored(env):
-    for missing in ("payin_local_currency_confirmed", "mobile_money_only_confirmed", "payout_ip_confirmed"):
-        response = env.client.put("/api/admin/payment-gateways/moneyfusion",
-                                  json={"payin_enabled": True, "payout_enabled": True,
-                                        missing: False}, headers=headers())
-        assert response.status_code == 400
+def test_catalog_controls_payin_countries_and_master_switch_sets_contract_confirmation(env):
+    response = env.client.put(
+        "/api/admin/payment-gateways/moneyfusion",
+        json={"payin_enabled": True,
+              "payin_api_url": "https://pay.moneyfusion.net/merchant/unit-test/pay"},
+        headers=headers(),
+    )
+    assert response.status_code == 200, response.text
+    config = run(mf.load_config(env.db))
+    assert config["payin_local_currency_confirmed"] is True
+    assert config["mobile_money_only_confirmed"] is True
+    assert config["payin_country_codes"] == ["CD", "TG"]
+
+
+def test_payout_activation_needs_only_key_and_switch(env):
+    response = env.client.put(
+        "/api/admin/payment-gateways/moneyfusion",
+        json={"payout_enabled": True, "payout_private_key": "unit-payout-key"},
+        headers=headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert run(_provider_ready(env.db, "moneyfusion", "payout")) == (True, None)
+
+
+def test_manual_rates_are_ignored(env):
     response = env.client.put("/api/admin/payment-gateways/moneyfusion",
                               json={"rates_per_xof": {"USD": -1, "XOF": 12}},
                               headers=headers())
@@ -303,6 +322,23 @@ def test_country_operator_and_fx_gates(env):
     assert response.status_code == 200, response.text
     assert calls[0][2]["json"]["totalPrice"] == 4.24
     assert mf._amount_from_xof({"rates_per_xof": {"USD": 0.0016}}, 2650, "USD") == 4.24
+
+
+def test_payin_allowlist_tracks_all_methods_in_each_country(env):
+    assert run(toggle_operator(env.db, "moneyfusion", "TG", "moov-tg", False))
+    assert run(mf.load_config(env.db))["payin_country_codes"] == ["CD"]
+    assert run(toggle_operator(env.db, "moneyfusion", "TG", "moov-tg", True))
+    assert run(mf.load_config(env.db))["payin_country_codes"] == ["CD", "TG"]
+
+
+def test_enabled_moneyfusion_catalog_is_returned_on_activation_page(env):
+    configure(env)
+    from server import activation_catalog
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=env.db)))
+    catalog = run(activation_catalog(request))
+    togo = next(country for country in catalog["countries"] if country["code"] == "TG")
+    assert {operator["gateway"] for operator in togo["operators"]} == {"moneyfusion"}
 
 
 def test_checkout_contract_duplicates_ownership_and_no_client_activation(env):
