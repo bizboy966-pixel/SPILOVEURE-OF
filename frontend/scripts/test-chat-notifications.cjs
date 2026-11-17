@@ -52,9 +52,9 @@ test("mute and sound-off never start audio; built-in tones are playable", async 
 
 test("notification settings offer tap-to-preview and persist the selected built-in tone", () => {
   const panel = fs.readFileSync(path.join(root, "src/messenger/NotificationSettingsPanel.tsx"), "utf8");
-  assert.match(panel, /onPress=\{\(\) => void chooseSound\(sound\)\}/);
+  assert.match(panel, /onPress=\{\(\) => void chooseSound\(sound, field\)\}/);
   assert.match(panel, /await playNotificationSound\(userId, scope, \{\s*\.\.\.effectiveSettings, sound, enabled: true, sound_enabled: true,/);
-  assert.match(panel, /api\.patch<Settings>\(endpoint, \{ sound \}\)/);
+  assert.match(panel, /api\.patch<Settings>\(endpoint, \{ \[field\]: sound \}\)/);
   assert.match(panel, /radio-button-on/);
 });
 

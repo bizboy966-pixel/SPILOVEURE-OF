@@ -59,16 +59,16 @@ export default function PublicChannelsModal({ visible, onClose, onJoined }: {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.34)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#fffefa", maxHeight: "90%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20 },
+  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.4)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#fffefa", maxHeight: "91%", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 21, paddingBottom: 22, borderWidth: 1, borderColor: "#e2e8f0" },
   head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 13 },
-  title: { color: ink, fontSize: 19, fontWeight: "900" }, subtitle: { color: muted, fontSize: 12, marginTop: 4 },
-  search: { height: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e7ebf0", borderRadius: 12, marginBottom: 10 },
+  title: { color: ink, fontSize: 19, fontWeight: "800", letterSpacing: -.3 }, subtitle: { color: muted, fontSize: 12, marginTop: 4 },
+  search: { height: 45, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14, backgroundColor: "#f5f8fb", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 14, outlineStyle: "none" as any, color: ink },
-  channelRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#edf0f4" },
+  channelRow: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderColor: "#e8edf3" },
   avatar: { width: 43, height: 43, borderRadius: 24, backgroundColor: "#e4edff", alignItems: "center", justifyContent: "center" },
   channelName: { color: ink, fontSize: 14, fontWeight: "800" }, channelMeta: { color: muted, fontSize: 11, marginTop: 3 },
-  join: { height: 36, minWidth: 82, paddingHorizontal: 13, borderRadius: 11, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
+  join: { height: 38, minWidth: 82, paddingHorizontal: 14, borderRadius: 11, backgroundColor: blue, alignItems: "center", justifyContent: "center" },
   joined: { backgroundColor: "#eaf1ff", borderWidth: 1, borderColor: "#d7e5ff" }, joinText: { color: "#fff", fontSize: 12, fontWeight: "800" }, joinedText: { color: blue },
   loading: { padding: 24, alignItems: "center", gap: 8 }, emptyState: { alignItems: "center", padding: 30 }, empty: { color: muted, textAlign: "center", fontSize: 13, padding: 8 }, error: { color: "#c34249", fontSize: 12, paddingVertical: 7 },
 });

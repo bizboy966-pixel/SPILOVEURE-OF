@@ -83,12 +83,12 @@ export default function ScheduledMessages({ conversationId, visible, onClose }: 
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.34)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#fffefa", maxHeight: "91%", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 },
-  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 13 }, title: { color: ink, fontSize: 19, fontWeight: "900" }, subtitle: { color: muted, fontSize: 12, marginTop: 3 },
-  messageInput: { minHeight: 82, maxHeight: 130, borderRadius: 12, backgroundColor: "#f4f6f9", borderWidth: 1, borderColor: "#e7ebf0", padding: 13, color: ink, fontSize: 14, textAlignVertical: "top", outlineStyle: "none" as any },
+  backdrop: { flex: 1, backgroundColor: "rgba(13,24,42,.4)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#fffefa", maxHeight: "92%", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 21, paddingBottom: 24, borderWidth: 1, borderColor: "#e2e8f0" },
+  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }, title: { color: ink, fontSize: 19, fontWeight: "800", letterSpacing: -.3 }, subtitle: { color: muted, fontSize: 12, marginTop: 3 },
+  messageInput: { minHeight: 86, maxHeight: 130, borderRadius: 12, backgroundColor: "#f5f8fb", borderWidth: 1, borderColor: "#e2e8f0", padding: 13, color: ink, fontSize: 14, textAlignVertical: "top", outlineStyle: "none" as any },
   dateWrap: { marginTop: 10 }, dateInput: { width: "100%", height: 43, borderRadius: 10, borderWidth: 1, borderColor: "#dce3ed", paddingHorizontal: 11, color: ink },
   silentRow: { minHeight: 43, flexDirection: "row", alignItems: "center", gap: 8 }, silentText: { color: ink, fontSize: 13 },
   error: { color: "#c34249", fontSize: 12, paddingVertical: 5 }, createButton: { height: 46, backgroundColor: blue, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 }, createText: { color: "#fff", fontSize: 14, fontWeight: "800" },
-  section: { color: muted, fontSize: 12, fontWeight: "900", marginTop: 18, marginBottom: 7, textTransform: "uppercase" }, list: { maxHeight: 250 }, item: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#edf0f4", paddingVertical: 9 }, itemDate: { color: ink, fontSize: 13, fontWeight: "800" }, itemText: { color: "#4c5870", fontSize: 12, marginTop: 3 }, status: { color: blue, fontSize: 10, fontWeight: "700", marginTop: 3 }, failed: { color: "#c34249" }, cancelButton: { padding: 10 }, empty: { textAlign: "center", color: muted, fontSize: 13, padding: 18 },
+  section: { color: muted, fontSize: 10, fontWeight: "900", marginTop: 19, marginBottom: 8, textTransform: "uppercase", letterSpacing: .8 }, list: { maxHeight: 250 }, item: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderColor: "#e8edf3", paddingVertical: 9 }, itemDate: { color: ink, fontSize: 13, fontWeight: "800" }, itemText: { color: "#4c5870", fontSize: 12, marginTop: 3 }, status: { color: blue, fontSize: 10, fontWeight: "700", marginTop: 3 }, failed: { color: "#c34249" }, cancelButton: { padding: 10 }, empty: { textAlign: "center", color: muted, fontSize: 13, padding: 18 },
 });

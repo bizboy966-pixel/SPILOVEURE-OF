@@ -83,11 +83,11 @@ export default function VideoStickerComposer({ file, onClose, onConfirm }: Props
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(10,18,32,.74)", justifyContent: "center", alignItems: "center", padding: 14 },
-  sheet: { width: "100%", maxWidth: 520, padding: 18, borderRadius: 20, backgroundColor: "#fffefa", gap: 11, borderWidth: 1, borderColor: "#e2e8ef" },
-  title: { color: chatVisual.ink, fontSize: 19, fontWeight: "800", letterSpacing: -0.25 },
+  sheet: { width: "100%", maxWidth: 520, padding: 19, borderRadius: 21, backgroundColor: "#fffefa", gap: 12, borderWidth: 1, borderColor: "#e1e7ef" },
+  title: { color: chatVisual.ink, fontSize: 19, fontWeight: "800", letterSpacing: -0.35 },
   hint: { color: chatVisual.muted, fontSize: 13 }, label: { color: chatVisual.ink, fontSize: 13, fontWeight: "600" },
   preview: { height: 240, maxHeight: "35vh" as any, width: "100%" },
   error: { color: "#b73540", fontSize: 13 },
   actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  send: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 11, backgroundColor: chatVisual.brand },
+  send: { paddingHorizontal: 15, paddingVertical: 12, borderRadius: 12, backgroundColor: chatVisual.brand },
 });

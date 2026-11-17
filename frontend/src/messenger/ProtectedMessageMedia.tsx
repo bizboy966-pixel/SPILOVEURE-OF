@@ -92,14 +92,14 @@ export default function ProtectedMessageMedia({
 }
 
 const styles = StyleSheet.create({
-  imageFrame: { backgroundColor: "transparent", borderRadius: 12, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1, borderWidth: 1, borderColor: "rgba(16,32,66,.08)" },
+  imageFrame: { backgroundColor: "transparent", borderRadius: 13, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1, borderWidth: 1, borderColor: "rgba(16,32,66,.09)" },
   stickerFrame: { backgroundColor: "transparent", borderRadius: 0, overflow: "visible", marginTop: 2 },
   image: { width: "100%", height: "100%", maxWidth: "100%" },
   videoFrame: { position: "relative" },
   video: { backgroundColor: "#080d15", borderRadius: 10, overflow: "hidden", marginTop: 0, minWidth: 0, flexShrink: 1 },
   videoExpand: { position: "absolute", right: 8, bottom: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,.68)", alignItems: "center", justifyContent: "center" },
-  loading: { backgroundColor: "#f1f5fa", borderWidth: 1, borderColor: "#e3eaf2", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
+  loading: { backgroundColor: "#f3f7fb", borderWidth: 1, borderColor: "#e1e8f0", borderRadius: 13, alignItems: "center", justifyContent: "center", marginTop: 5, minWidth: 0, flexShrink: 1 },
   loadText: { color: "#1769e8", fontSize: 12, fontWeight: "700", marginTop: 5 },
-  failed: { backgroundColor: "#edf2fa", borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 5 },
+  failed: { backgroundColor: "#edf2fa", borderWidth: 1, borderColor: "#e1e8f0", borderRadius: 13, alignItems: "center", justifyContent: "center", marginTop: 5 },
   failedLogo: { width: 45, height: 45, opacity: .65 },
 });

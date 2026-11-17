@@ -13,10 +13,13 @@ const { voiceWaveform } = exported;
 
 test("sent bubbles use the reference green and received bubbles stay white", () => {
   const source = read("messenger/ConversationThread.tsx");
-  assert.match(source, /const messageColors = \{ blue: "#dbeafe", green: "#efffde", gold: "#fff1cc" \}/);
+  const visual = read("messenger/chatVisualTokens.ts");
+  assert.match(visual, /sentBubble: "#efffde"/);
+  assert.match(visual, /receivedBubble: "#ffffff"/);
+  assert.match(source, /const messageColors = \{ blue: "#dbeafe", green: chatVisual\.sentBubble, gold: "#fff1cc" \}/);
   assert.match(source, /visualSettings\.message_color \|\| "green"/);
-  assert.match(source, /ownBubble: \{[^}]*backgroundColor: "#efffde"/);
-  assert.match(source, /otherBubble: \{[^}]*backgroundColor: "#fff"/);
+  assert.match(source, /ownBubble: \{[^}]*backgroundColor: chatVisual\.sentBubble/);
+  assert.match(source, /otherBubble: \{[^}]*backgroundColor: chatVisual\.receivedBubble/);
   assert.match(source, /own \? styles\.ownBubble : styles\.otherBubble/);
   assert.match(source, /own \? styles\.ownBubbleTail : styles\.otherBubbleTail/);
 });

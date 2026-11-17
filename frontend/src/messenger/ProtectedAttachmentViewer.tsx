@@ -64,6 +64,6 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(10,18,32,.94)", alignItems: "center", justifyContent: "center" },
   close: { position: "absolute", zIndex: 2, top: 22, right: 20 },
   image: { width: "92%", height: "78%", maxWidth: "100%" },
-  mediaCard: { width: "min(90%, 520px)" as any, backgroundColor: "#fffefa", borderRadius: 16, padding: 18, borderWidth: 1, borderColor: "#e5eaf1" },
+  mediaCard: { width: "min(90%, 520px)" as any, backgroundColor: "#fffefa", borderRadius: 17, padding: 19, borderWidth: 1, borderColor: "#e1e7ef" },
   name: { color: chatVisual.ink, fontWeight: "800", marginBottom: 12 }, media: { width: "100%", minHeight: 42 },
 });
