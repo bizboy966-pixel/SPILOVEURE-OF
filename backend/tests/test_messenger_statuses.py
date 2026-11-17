@@ -14,13 +14,14 @@ from messenger_social import api as social_api
 
 
 @pytest.fixture
-def messenger_app(tmp_path, monkeypatch):
+def messenger_app(tmp_path, monkeypatch, fake_r2_storage):
     monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     app = FastAPI()
     app.state.db = AsyncMongoMockClient(tz_aware=True).messenger_status_tests
     app.include_router(messenger_api)
     app.include_router(files_api, prefix="/api/messenger")
     app.include_router(social_api, prefix="/api/messenger")
+    fake_r2_storage(app)
 
     async def seed():
         db = app.state.db

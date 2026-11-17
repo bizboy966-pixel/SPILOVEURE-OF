@@ -44,3 +44,9 @@ Le Chat suit le standard visuel général SPILOVEURE décrit dans `visual-standa
 **Why:** Le cahier des charges de refonte autorise l’amélioration visuelle du Chat sans changer son identité, son organisation ni son comportement.
 
 **How to apply:** Appliquer le standard visuel général avec des styles adaptés au Chat ; une demande visuelle ne doit pas modifier ses flux, API, données ou règles métier.
+
+Les textes, conversations et métadonnées du Chat restent dans MongoDB sur le VPS. Les fichiers binaires du Chat (photos, vidéos, vocaux, documents, stickers et médias du fil/statuts) doivent être stockés dans un bucket Cloudflare R2 privé, avec envoi direct et liens de lecture temporaires après contrôle des droits.
+
+**Why:** L’utilisateur veut éviter de surcharger le VPS avec les fichiers envoyés dans les conversations.
+
+**How to apply:** Ne pas déplacer les textes ni les métadonnées de MongoDB vers R2. Garder les clés R2 hors du code et des messages; préserver l’écoute unique via un accès protégé; conserver les fichiers locaux tant qu’une migration vers R2 n’a pas été vérifiée. La conversion vidéo des stickers peut utiliser un fichier temporaire sur le VPS, mais le sticker final est stocké dans R2.

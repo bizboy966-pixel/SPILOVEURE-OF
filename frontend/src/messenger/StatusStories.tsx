@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
+import { messengerApi } from "./api";
 import type { Attachment, ChatStatus } from "./types";
 import { protectedFileUrl } from "./api";
 import { chatVisual } from "./chatVisualTokens";
@@ -368,7 +369,7 @@ export default function StatusStories({ userId, version = 0, requestedAuthorId, 
       setUploading(true);
       setError("");
       try {
-        const uploaded = await api.upload<Attachment>("/messenger/feed/files", file);
+        const uploaded = await messengerApi.feedFile(file);
         setAttachment(uploaded);
       } catch (e: any) { setError(e?.detail || "Ajout du média impossible."); }
       finally { setUploading(false); }

@@ -15,6 +15,7 @@ from messenger_core import (
     clean, conversation_view, event, get_message, identifier, member, notify,
     now, rate_limit,
 )
+import messenger_r2 as r2
 
 api = APIRouter()
 log = logging.getLogger("messenger.delivery")
@@ -29,6 +30,7 @@ async def capabilities(user=Depends(chat_user)):
         "calls": False,
         "calls_reason": "Les appels nécessitent une intégration WebRTC/TURN et des tests sur plusieurs réseaux.",
         "end_to_end_encryption": False,
+        "r2_direct_uploads": r2.is_configured(),
     }
 
 

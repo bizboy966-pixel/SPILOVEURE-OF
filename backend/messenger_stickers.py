@@ -1,7 +1,8 @@
 """Per-user saved chat stickers and safe reuse in conversations."""
 from __future__ import annotations
 
-import shutil
+import asyncio
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from pymongo.errors import DuplicateKeyError
 
 from messenger_core import administrator, chat_user, identifier, member, now
 from messenger_files import MAX_DAILY, MAX_BYTES, upload_root
+import messenger_r2 as r2
 from messenger_sticker_pack import PACK_NAMES, PACK_ROOT, pack_file
 
 api = APIRouter()
@@ -156,14 +158,33 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
     if len(previous) >= 100 or used + size > MAX_DAILY:
         raise HTTPException(429, "Le quota quotidien de fichiers est atteint.")
 
-    source_path = (PACK_ROOT / (fid.removeprefix("pack-") + ".png")) if builtin else upload_root() / source["id"]
-    if not source_path.is_file():
-        raise HTTPException(404, "Le fichier de ce sticker n’est plus disponible.")
     new_id = identifier()
-    target_path = upload_root() / new_id
+    source_path = (PACK_ROOT / (fid.removeprefix("pack-") + ".png")) if builtin else upload_root() / source["id"]
     try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_path, target_path)
+        if builtin or source.get("storage_backend") != "r2":
+            if not source_path.is_file():
+                raise HTTPException(404, "Le fichier de ce sticker n’est plus disponible.")
+            with source_path.open("rb") as source_file:
+                await asyncio.to_thread(r2.put_upload, new_id, source_file, source["mime"], size)
+        else:
+            def copy_r2_object():
+                obj = r2.get_upload(source["id"])
+                body = obj["Body"]
+                try:
+                    with tempfile.TemporaryFile(mode="w+b") as output:
+                        copied_size = 0
+                        while chunk := body.read(64 * 1024):
+                            copied_size += len(chunk)
+                            if copied_size > size:
+                                raise ValueError("Sticker source exceeded its saved size.")
+                            output.write(chunk)
+                        if copied_size != size:
+                            raise ValueError("Sticker source did not match its saved size.")
+                        output.seek(0)
+                        r2.put_upload(new_id, output, source["mime"], size)
+                finally:
+                    body.close()
+            await asyncio.to_thread(copy_r2_object)
         name = Path(source.get("name") or "sticker.png").name[:180]
         if not name.lower().startswith("sticker-"):
             name = "sticker-" + name
@@ -171,10 +192,16 @@ async def copy_sticker(fid: str, body: CopyStickerIn, request: Request, user=Dep
             "id": new_id, "owner_id": user["id"], "scope": body.conversation_id,
             "name": name, "size": size, "mime": source["mime"],
             "url": "/api/messenger/files/" + new_id, "created_at": now(),
+            "storage_backend": "r2", "storage_key": r2.object_key(new_id), "status": "ready",
             "sticker": True,
         }
         await db.spv_files.insert_one(copied)
+    except r2.R2NotConfigured:
+        raise HTTPException(503, "Le stockage R2 du Chat n’est pas configuré sur le serveur.")
     except Exception:
-        target_path.unlink(missing_ok=True)
+        try:
+            await asyncio.to_thread(r2.delete_upload, new_id)
+        except Exception:
+            pass
         raise
     return attachment(copied)
