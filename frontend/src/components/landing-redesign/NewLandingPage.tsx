@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AccessibilityInfo,
-  Animated,
   Image,
   Pressable,
   ScrollView,
@@ -53,6 +52,9 @@ export default function NewLandingPage({
   const { width } = useWindowDimensions();
   const wide = width >= 900;
   const medium = width >= 620;
+  const compactHeader = width < 460;
+  const tinyHeader = width < 360;
+  const footerActionsRow = width >= 760;
   const benefitsFourColumns = width >= 520;
   const [reduceMotion, setReduceMotion] = useState(false);
 
@@ -89,38 +91,48 @@ export default function NewLandingPage({
           <View pointerEvents="none" style={styles.goldArcBottom} />
 
           <View style={[styles.header, wide && styles.headerWide]}>
-            <View style={styles.brand}>
-              <View style={styles.logoFrame}>
+            <View style={[styles.brand, compactHeader && styles.brandCompact]}>
+              <View style={[styles.logoFrame, compactHeader && styles.logoFrameCompact]}>
                 <Image
                   source={require("@/assets/images/spiloveure-logo.png")}
-                  style={styles.logo}
+                  style={[styles.logo, compactHeader && styles.logoCompact]}
                   resizeMode="cover"
                   accessibilityLabel="SPILOVEURE"
                 />
               </View>
-              <Text style={styles.wordmark}>SPILOVEURE</Text>
+              <Text style={[styles.wordmark, compactHeader && styles.wordmarkCompact]}>SPILOVEURE</Text>
             </View>
-            <View style={styles.navActions}>
+            <View style={[styles.navActions, compactHeader && styles.navActionsCompact]}>
               <Pressable
                 onPress={toggleLanguage}
-                style={({ pressed }) => [styles.languageButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.languageButton,
+                  compactHeader && styles.languageButtonCompact,
+                  pressed && styles.pressed,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel={lang === "fr" ? "Switch language to English" : "Passer en français"}
                 testID="landing-redesign-language"
               >
-                <Ionicons name="globe-outline" size={17} color="#FFFFFF" />
+                {!tinyHeader ? <Ionicons name="globe-outline" size={compactHeader ? 14 : 17} color="#FFFFFF" /> : null}
                 <Text style={styles.languageText}>{lang.toUpperCase()}</Text>
-                <Ionicons name="chevron-down" size={13} color="#D5E8FF" />
+                {!tinyHeader ? <Ionicons name="chevron-down" size={compactHeader ? 12 : 13} color="#D5E8FF" /> : null}
               </Pressable>
               <Pressable
                 onPress={onLogin}
-                style={({ pressed }) => [styles.headerLogin, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.headerLogin,
+                  compactHeader && styles.headerLoginCompact,
+                  pressed && styles.pressed,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel={t("landingRedesign.header.login")}
                 testID="landing-redesign-header-login"
               >
-                <Text style={styles.headerLoginText}>{t("landingRedesign.header.login")}</Text>
-                <Ionicons name="arrow-forward" size={16} color="#062EAE" />
+                <Text style={[styles.headerLoginText, compactHeader && styles.headerLoginTextCompact]}>
+                  {t("landingRedesign.header.login")}
+                </Text>
+                <Ionicons name="arrow-forward" size={compactHeader ? 14 : 16} color="#062EAE" />
               </Pressable>
             </View>
           </View>
@@ -135,25 +147,6 @@ export default function NewLandingPage({
               <Text style={[styles.description, wide && styles.descriptionWide]}>
                 {t("landingRedesign.hero.subtitle")}
               </Text>
-
-              <View style={[styles.serviceGrid, medium && styles.serviceGridMedium]}>
-                {SERVICES.map((service) => (
-                  <View
-                    key={service.key}
-                    style={[styles.serviceTile, medium && styles.serviceTileMedium]}
-                    testID={`landing-redesign-service-${service.key}`}
-                  >
-                    <View style={[styles.serviceIcon, { borderColor: `${service.tint}55` }]}>
-                      <Ionicons name={service.icon} size={19} color={service.tint} />
-                    </View>
-                    <View style={styles.serviceCopy}>
-                      <Text style={styles.serviceTitle}>{t(`landingRedesign.service.${service.key}`)}</Text>
-                      <Text style={styles.serviceDetail}>{t(`landingRedesign.service.${service.key}Detail`)}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={15} color="#BFDFFF" />
-                  </View>
-                ))}
-              </View>
             </View>
 
             <View style={[styles.previewColumn, wide && styles.previewColumnWide]}>
@@ -162,22 +155,52 @@ export default function NewLandingPage({
                 <Text style={styles.previewLabel}>{t("landingRedesign.mockupLabel")}</Text>
               </View>
               <View style={[styles.phoneStage, wide && styles.phoneStageWide, medium && !wide && styles.phoneStageMedium]}>
-                <PhoneFloat delay={0} reduced={reduceMotion} style={styles.leftPhone}>
-                  <ChatMockup t={t} variation="inbox" small={!wide} />
-                </PhoneFloat>
                 <PhoneFloat
                   delay={1700}
                   reduced={reduceMotion}
-                  style={[styles.centerPhone, medium && !wide && styles.centerPhoneMedium, wide && styles.centerPhoneWide]}
+                  style={[
+                    styles.centerPhone,
+                    compactHeader && styles.centerPhoneCompact,
+                    medium && !wide && styles.centerPhoneMedium,
+                    wide && styles.centerPhoneWide,
+                  ]}
                 >
                   <DashboardMockup t={t} compact={!wide} />
                 </PhoneFloat>
-                <PhoneFloat delay={900} reduced={reduceMotion} style={styles.rightPhone}>
+                <PhoneFloat
+                  delay={900}
+                  reduced={reduceMotion}
+                  style={[
+                    styles.rightPhone,
+                    compactHeader && styles.rightPhoneCompact,
+                    medium && !wide && styles.rightPhoneMedium,
+                    wide && styles.rightPhoneWide,
+                  ]}
+                >
                   <ChatMockup t={t} variation="conversation" small={!wide} />
                 </PhoneFloat>
                 <View pointerEvents="none" style={styles.stageGlow} />
               </View>
             </View>
+          </View>
+
+          <View style={[styles.serviceGrid, medium && styles.serviceGridMedium]}>
+            {SERVICES.map((service) => (
+              <View
+                key={service.key}
+                style={[styles.serviceTile, medium && styles.serviceTileMedium]}
+                testID={`landing-redesign-service-${service.key}`}
+              >
+                <View style={[styles.serviceIcon, { borderColor: `${service.tint}55` }]}>
+                  <Ionicons name={service.icon} size={19} color={service.tint} />
+                </View>
+                <View style={styles.serviceCopy}>
+                  <Text style={styles.serviceTitle}>{t(`landingRedesign.service.${service.key}`)}</Text>
+                  <Text style={styles.serviceDetail}>{t(`landingRedesign.service.${service.key}Detail`)}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={15} color="#BFDFFF" />
+              </View>
+            ))}
           </View>
 
           <PromoVisuals t={t} />
@@ -197,11 +220,17 @@ export default function NewLandingPage({
             ))}
           </View>
 
-          <View style={styles.actionArea}>
-            <View style={styles.actionRule} />
+        </LinearGradient>
+        <View style={styles.actionFooter}>
+          <View style={[styles.footerActions, footerActionsRow && styles.footerActionsRow]}>
             <Pressable
               onPress={onPreview}
-              style={({ pressed }) => [styles.previewButton, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.previewButton,
+                styles.footerActionButton,
+                footerActionsRow && styles.footerActionButtonRow,
+                pressed && styles.pressed,
+              ]}
               accessibilityRole="button"
               accessibilityLabel={t("landingRedesign.actions.preview")}
               testID="landing-redesign-preview"
@@ -209,12 +238,14 @@ export default function NewLandingPage({
               <Ionicons name="eye-outline" size={21} color="#FFFFFF" />
               <Text style={styles.previewButtonText}>{t("landingRedesign.actions.preview")}</Text>
             </Pressable>
-            <View style={styles.actionRule} />
-          </View>
-          <View style={[styles.bottomActions, medium && styles.bottomActionsMedium]}>
             <Pressable
               onPress={onLogin}
-              style={({ pressed }) => [styles.loginAction, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.loginAction,
+                styles.footerActionButton,
+                footerActionsRow && styles.footerActionButtonRow,
+                pressed && styles.pressed,
+              ]}
               accessibilityRole="button"
               accessibilityLabel={t("landingRedesign.actions.login")}
               testID="landing-redesign-login"
@@ -224,7 +255,12 @@ export default function NewLandingPage({
             </Pressable>
             <Pressable
               onPress={onRegister}
-              style={({ pressed }) => [styles.registerAction, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.registerAction,
+                styles.footerActionButton,
+                footerActionsRow && styles.footerActionButtonRow,
+                pressed && styles.pressed,
+              ]}
               accessibilityRole="button"
               accessibilityLabel={t("landingRedesign.actions.register")}
               testID="landing-redesign-register"
@@ -234,7 +270,7 @@ export default function NewLandingPage({
               <Ionicons name="arrow-forward" size={17} color="#192346" />
             </Pressable>
           </View>
-        </LinearGradient>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

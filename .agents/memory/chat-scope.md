@@ -39,14 +39,8 @@ Les stickers doivent rester distincts des photos et vidéos dans le Chat : touch
 
 **How to apply:** Maintenir des chemins d’affichage et d’interaction séparés. L’appui long sur un message ouvre un menu-bulle compact ancré à la bulle, avec réactions proches ; pour un sticker, limiter ce menu à Supprimer. La feuille au toucher gère Favoris, Pack et Modifier.
 
-La refonte visuelle générale peut s’inspirer de la finition et de la hiérarchie d’OpenAI, mais doit conserver les couleurs et l’identité de SPILOVEURE, la navigation « Échanges, Contacts, Actus, Profil » et toutes les fonctions existantes.
+Le Chat suit le standard visuel général SPILOVEURE décrit dans `visual-standard.md`, tout en conservant ses couleurs, sa navigation « Échanges, Contacts, Actus, Profil » et ses fonctions.
 
-**Why:** Le cahier des charges de refonte fourni par l’utilisateur autorise une amélioration visuelle de tout le Chat, tout en interdisant le changement d’identité, d’organisation et de comportement.
+**Why:** Le cahier des charges de refonte autorise l’amélioration visuelle du Chat sans changer son identité, son organisation ni son comportement.
 
-**How to apply:** Utiliser des styles et tokens propres au Chat ; ne pas modifier les flux, API, données ou règles métier dans le cadre d’une demande visuelle.
-
-Par défaut, toute nouvelle construction, modification ou tout ajout dans le Chat doit reprendre le même style de refonte professionnel, cohérent avec l’identité SPILOVEURE et les références validées.
-
-**Why:** L’utilisateur demande explicitement que toutes les prochaines constructions, modifications et additions du Chat utilisent automatiquement le même style professionnel de refonte.
-
-**How to apply:** Appliquer ce style par défaut aux nouvelles pages, fonctionnalités et composants du Chat ; intégrer chaque ajout de façon homogène, vérifier les interactions et l’affichage responsive, et préserver les fonctionnalités existantes.
+**How to apply:** Appliquer le standard visuel général avec des styles adaptés au Chat ; une demande visuelle ne doit pas modifier ses flux, API, données ou règles métier.
