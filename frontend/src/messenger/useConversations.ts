@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { api, reportChatUnauthorized } from "@/src/api";
 import { messengerApi } from "./api";
 import type { Conversation, ReadReceipts } from "./types";
@@ -96,10 +96,10 @@ export function useConversations(currentUserId?: string) {
     connect();
     const sub = AppState.addEventListener("change", (state) => { if (state === "active") { setVersion(v => v + 1); refresh(); } });
     const focus = () => { setVersion(v => v + 1); refresh(); };
-    if (typeof window !== "undefined") window.addEventListener("focus", focus);
+    if (Platform.OS === "web" && typeof window !== "undefined") window.addEventListener("focus", focus);
     return () => {
       stopped = true; clearTimeout(timer); socket?.close(); sub.remove();
-      if (typeof window !== "undefined") window.removeEventListener("focus", focus);
+      if (Platform.OS === "web" && typeof window !== "undefined") window.removeEventListener("focus", focus);
       Object.values(typingTimers.current).forEach(clearTimeout);
       typingTimers.current = {};
     };

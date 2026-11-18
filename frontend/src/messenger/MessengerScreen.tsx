@@ -159,7 +159,8 @@ export default function MessengerScreen() {
     return () => setActiveNotificationConversation(null);
   }, [tab, selected?.id]);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // React Native also defines window (= global), without browser DOM events.
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onUnread = (event: Event) => {
       const cid = (event as CustomEvent).detail?.conversationId;
       setSelected(previous => previous?.id === cid ? null : previous);

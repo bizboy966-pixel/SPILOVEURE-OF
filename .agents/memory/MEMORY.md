@@ -11,3 +11,4 @@
 - [Modération du groupe Telegram](telegram-moderation-policy.md) — tous les membres du groupe lié peuvent voter ; le rejet d’une tâche payée signale un remboursement manuel.
 - [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.
 - [Récupération du mot de passe](password-recovery-policy.md) — révoquer les accès antérieurs sans bloquer une reconnexion immédiate ni contourner l’activation.
+- [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.
