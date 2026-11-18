@@ -9,12 +9,14 @@ const SITE_URL = "https://spiloveure.org/";
 export default function AndroidWebApp() {
   const webView = useRef<WebView>(null);
   const canGoBack = useRef(false);
+  const initialPageLoaded = useRef(false);
   const [webViewKey, setWebViewKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   const retry = useCallback(() => {
     canGoBack.current = false;
+    initialPageLoaded.current = false;
     setLoadError(false);
     setLoading(true);
     setWebViewKey(key => key + 1);
@@ -51,15 +53,24 @@ export default function AndroidWebApp() {
         setSupportMultipleWindows={false}
         startInLoadingState={false}
         onLoadStart={() => {
-          setLoadError(false);
-          setLoading(true);
+          // Keep the full-screen loader for the first page only. Android
+          // WebView may report later in-app route changes as document loads;
+          // covering the whole page then can leave the APK looking stuck.
+          if (!initialPageLoaded.current) {
+            setLoadError(false);
+            setLoading(true);
+          }
         }}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => {
+          initialPageLoaded.current = true;
+          setLoading(false);
+        }}
         onError={() => {
           setLoading(false);
-          setLoadError(true);
+          if (!initialPageLoaded.current) setLoadError(true);
         }}
         onRenderProcessGone={() => {
+          initialPageLoaded.current = false;
           setLoading(false);
           setLoadError(true);
         }}
