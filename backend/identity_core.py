@@ -43,8 +43,14 @@ def safe_user(user):
             "main_password_created": password_created(user)}
 
 
-def device_label(user_agent):
+def device_label(user_agent, app_platform=None):
     """Return a short, recognizable label for a stored browser User-Agent."""
+    native_platform = (app_platform or "").strip().lower()
+    if native_platform == "android":
+        return "Application SPILOVEURE · Android"
+    if native_platform == "ios":
+        return "Application SPILOVEURE · iPhone"
+
     value = (user_agent or "").strip()
     if not value:
         return "Appareil inconnu · Navigateur inconnu"
@@ -231,14 +237,18 @@ async def establish_chat(request, response: Response, user):
     if current:
         await db.identity_chat_sessions.update_one({"id": current[0]["id"]}, {"$set": {"revoked": True}})
     secret, timestamp = secrets.token_urlsafe(32), now()
-    await db.identity_chat_sessions.insert_one({
+    session = {
         "id": secrets.token_urlsafe(18), "digest": digest(secret),
         "user_id": user["id"], "email_digest": digest(user["email"].lower()),
         "device": request.headers.get("user-agent", "Appareil inconnu")[:240],
         "created_at": timestamp, "last_seen": timestamp,
         "expires_at": timestamp + 30 * DAY, "absolute_expires_at": timestamp + 90 * DAY,
         "revoked": False,
-    })
+    }
+    app_platform = request.headers.get("x-spv-app-platform", "").strip().lower()
+    if app_platform in ("android", "ios"):
+        session["app_platform"] = app_platform
+    await db.identity_chat_sessions.insert_one(session)
     response.set_cookie(COOKIE, secret, max_age=30 * 86400, httponly=True,
                         secure=cookie_secure(request), samesite="lax", path="/api/")
 

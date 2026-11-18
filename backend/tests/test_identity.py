@@ -138,16 +138,17 @@ def main_header(token):
     return {"Authorization": "Bearer " + token}
 
 
-def verify(pair, token=None, email="new@example.com", client=None):
+def verify(pair, token=None, email="new@example.com", client=None, extra_headers=None):
     app, default = pair
     client = client or default
     headers = main_header(token) if token else {}
+    headers.update(extra_headers or {})
     requested = client.post("/api/identity/email/request", json={"email": email}, headers=headers)
     assert requested.status_code == 202, requested.text
     code = app.state.email_sender.messages[-1][1]
     result = client.post("/api/identity/email/verify", json={
         "challenge_id": requested.json()["challenge_id"], "code": code,
-    })
+    }, headers=extra_headers or {})
     assert result.status_code == 200, result.text
     return requested.json(), code, result.json()
 
@@ -522,6 +523,48 @@ def test_chat_sessions_format_legacy_user_agents_without_changing_revocation_tar
     assert client.delete(f"/api/identity/chat/sessions/{other['id']}").status_code == 200
     assert run(db.identity_chat_sessions.find_one({"id": other["id"]}))["revoked"] is True
     assert run(db.identity_chat_sessions.find_one({"id": current["id"]}))["revoked"] is False
+
+
+def test_native_chat_sessions_show_platform_and_revoke_only_selected_device(identity_app):
+    app, android_client = identity_app
+    verify(identity_app, token=create_access_token("legacy", "user"),
+           email="legacy@example.com", extra_headers={"X-SPV-App-Platform": "android"})
+
+    with TestClient(app) as iphone_client:
+        run(app.state.db.identity_rate_limits.delete_many({}))
+        verify(identity_app, token=create_access_token("legacy", "user"),
+               email="legacy@example.com", client=iphone_client,
+               extra_headers={"X-SPV-App-Platform": "ios"})
+        sessions = android_client.get("/api/identity/chat/sessions").json()
+
+        android_session = next(s for s in sessions if s["device"].endswith("Android"))
+        iphone_session = next(s for s in sessions if s["device"].endswith("iPhone"))
+        assert android_session["device"] == "Application SPILOVEURE · Android"
+        assert iphone_session["device"] == "Application SPILOVEURE · iPhone"
+        assert android_session["current"] is True
+        assert iphone_session["current"] is False
+
+        assert android_client.delete(
+            f"/api/identity/chat/sessions/{iphone_session['id']}"
+        ).status_code == 200
+        assert run(app.state.db.identity_chat_sessions.find_one(
+            {"id": iphone_session["id"]}
+        ))["revoked"] is True
+        assert run(app.state.db.identity_chat_sessions.find_one(
+            {"id": android_session["id"]}
+        ))["revoked"] is False
+
+
+@pytest.mark.parametrize("app_platform", [None, "desktop", "ios-malformed"])
+def test_invalid_native_platform_keeps_safe_user_agent_fallback(identity_app, app_platform):
+    extra_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/131.0"}
+    if app_platform is not None:
+        extra_headers["X-SPV-App-Platform"] = app_platform
+    verify(identity_app, token=create_access_token("legacy", "user"),
+           email="legacy@example.com", extra_headers=extra_headers)
+
+    session = identity_app[1].get("/api/identity/chat/sessions").json()[0]
+    assert session["device"] == "Windows · Chrome"
 
 
 def test_chat_session_heartbeat_refreshes_only_valid_session(identity_app):

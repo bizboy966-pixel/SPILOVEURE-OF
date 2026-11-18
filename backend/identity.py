@@ -248,7 +248,7 @@ async def chat_sessions(request: Request, user=Depends(require_chat)):
         "absolute_expires_at": {"$gt": now()},
     }).sort("created_at", -1).limit(50).to_list(50)
     return [{k: row[k] for k in ("id", "created_at", "last_seen", "expires_at")} |
-            {"device": device_label(row.get("device"))} |
+            {"device": device_label(row.get("device"), row.get("app_platform"))} |
             {"current": row["id"] == request.state.chat_session_id} for row in rows]
 
 

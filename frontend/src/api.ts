@@ -1,5 +1,6 @@
 import { storage } from "@/src/utils/storage";
 import { assertIsolatedTestRequest } from "@/src/testBuildSafety";
+import { Platform } from "react-native";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
@@ -73,6 +74,9 @@ async function request<T = any>(
     "Content-Type": "application/json",
     ...(headers as any),
   };
+  if (Platform.OS === "android" || Platform.OS === "ios") {
+    h["X-SPV-App-Platform"] = Platform.OS;
+  }
   if (auth) {
     // Prefer in-memory cache (set synchronously after login). Fall back to
     // persistent storage on cold boot before AuthProvider has loaded.
