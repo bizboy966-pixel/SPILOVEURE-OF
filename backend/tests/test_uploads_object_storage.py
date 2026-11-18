@@ -1,7 +1,9 @@
 """Tests for the Object Storage fix on /api/uploads/* and admin uploads."""
 import os
 import time
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 import requests
 
@@ -10,6 +12,16 @@ UPLOADS_DIR = Path("/app/backend/uploads")
 
 ADMIN_EMAIL = "kossikotokou4@gmail.com"
 ADMIN_PASSWORD = "@Emma91972006"
+
+
+def _signed_apk_test_fixture():
+    """Create a synthetic APK-shaped ZIP for the live upload contract test."""
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("AndroidManifest.xml", b"\x03\x00\x08\x00" + b"\x00" * 8)
+        archive.writestr("classes.dex", b"dex\n035\x00" + b"\x00" * 16)
+        archive.writestr("META-INF/CERT.RSA", b"synthetic signature marker")
+    return output.getvalue()
 
 
 @pytest.fixture(scope="module")
@@ -117,10 +129,11 @@ class TestUploadsValidation:
         assert data["storage_ok"] is True
 
     def test_valid_apk_upload(self, admin_headers):
-        payload = b"PK\x03\x04" + os.urandom(2048)  # zip magic (APK is a zip)
+        payload = _signed_apk_test_fixture()
         files = {"file": ("TEST_ok.apk", payload, "application/vnd.android.package-archive")}
         r = requests.post(f"{BASE_URL}/api/admin/uploads", files=files, headers=admin_headers, timeout=60)
         assert r.status_code == 200, r.text
+        assert r.json()["content_type"] == "application/vnd.android.package-archive"
 
 
 # ---------- Persistence: upload -> delete local -> GET still 200 (object storage fallback) ----------

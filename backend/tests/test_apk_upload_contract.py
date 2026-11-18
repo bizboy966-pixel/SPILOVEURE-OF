@@ -6,12 +6,14 @@ from types import SimpleNamespace
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from starlette.datastructures import Headers, UploadFile
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import digital_content
+from upload_delivery import serve_uploaded_file
 from apk_validation import (
     APK_CONTENT_TYPE,
     InvalidApk,
@@ -118,3 +120,31 @@ def test_apk_download_headers_force_installable_filename_and_nosniff():
     assert apk_download_headers("../../unsafe.zip")["Content-Disposition"] == (
         'attachment; filename="SPILOVEURE.apk"'
     )
+
+
+@pytest.mark.parametrize("use_object_storage", [True, False])
+def test_download_route_serves_apk_bytes_with_android_headers(tmp_path, use_object_storage):
+    apk_bytes = make_signed_apk()
+
+    class FakeStorage:
+        def is_enabled(self):
+            return use_object_storage
+
+        def get_upload(self, filename):
+            assert filename == "release.apk"
+            return apk_bytes, "application/zip"
+
+    (tmp_path / "release.apk").write_bytes(apk_bytes)
+    app = FastAPI()
+
+    @app.get("/api/uploads/{filename}")
+    async def download(filename: str):
+        return serve_uploaded_file(filename, tmp_path, FakeStorage())
+
+    response = TestClient(app).get("/api/uploads/release.apk")
+
+    assert response.status_code == 200
+    assert response.content == apk_bytes
+    assert response.headers["content-type"].split(";")[0] == APK_CONTENT_TYPE
+    assert response.headers["content-disposition"] == 'attachment; filename="release.apk"'
+    assert response.headers["x-content-type-options"] == "nosniff"
