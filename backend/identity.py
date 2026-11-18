@@ -16,9 +16,9 @@ from pymongo.errors import DuplicateKeyError
 from auth import create_access_token, hash_password, verify_password
 from email_delivery import MailUnavailable, VerificationEmailSender
 from identity_core import (
-    COOKIE, bearer_identity, check_origin, cookie_identity, cookie_secure, digest,
-    establish_chat, identity, now, rate_limit, remote_key, renew_chat, require_chat,
-    safe_user, state,
+    CHAT_SESSION_ACTIVE_WINDOW, COOKIE, bearer_identity, check_origin, cookie_identity,
+    cookie_secure, digest, establish_chat, identity, now, rate_limit, remote_key,
+    renew_chat, require_chat, safe_user, state,
 )
 from identity_policy import (
     activated, chat_access_allowed, email_verified, isolated_chat_preview_enabled,
@@ -242,7 +242,9 @@ async def chat_session(request: Request, response: Response, user=Depends(requir
 @router.get("/chat/sessions")
 async def chat_sessions(request: Request, user=Depends(require_chat)):
     rows = await request.app.state.db.identity_chat_sessions.find({
-        "user_id": user["id"], "revoked": False, "expires_at": {"$gt": now()},
+        "user_id": user["id"], "email_digest": digest(user["email"].lower()),
+        "revoked": False, "last_seen": {"$gt": now() - CHAT_SESSION_ACTIVE_WINDOW},
+        "expires_at": {"$gt": now()},
         "absolute_expires_at": {"$gt": now()},
     }).sort("created_at", -1).limit(50).to_list(50)
     return [{k: row[k] for k in ("id", "device", "created_at", "last_seen", "expires_at")} |

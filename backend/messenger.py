@@ -762,7 +762,7 @@ async def socket(websocket: WebSocket, ticket: str = ""):
     if not row:
         await websocket.close(code=4401)
         return
-    from identity_core import session_row
+    from identity_core import CHAT_SESSION_HEARTBEAT_SECONDS, session_row, touch_chat_session
     if not await session_row(db, row.get("session_id")):
         await websocket.close(code=4401)
         return
@@ -777,6 +777,8 @@ async def socket(websocket: WebSocket, ticket: str = ""):
     async for conv in db.spv_conversations.find({"members": uid}).limit(300):
         peers.update(conv["members"])
     await event(db, peers, {"type": "presence"})
+    loop = asyncio.get_running_loop()
+    last_session_touch = loop.time()
     try:
         while True:
             # Recheck current account access: an open socket is not permanent authorization.
@@ -784,6 +786,10 @@ async def socket(websocket: WebSocket, ticket: str = ""):
             if not await session_row(db, session_id):
                 await websocket.close(code=4403)
                 return
+            current_time = loop.time()
+            if current_time - last_session_touch >= CHAT_SESSION_HEARTBEAT_SECONDS:
+                await touch_chat_session(db, session_id)
+                last_session_touch = current_time
             await db.spv_presence.update_one({"user_id": uid}, {"$set": {"last_seen": now()}}, upsert=True)
             rows = await db.spv_events.find({"recipients": uid, "_id": {"$gt": cursor}}).sort("_id", 1).limit(100).to_list(100)
             for row in rows:

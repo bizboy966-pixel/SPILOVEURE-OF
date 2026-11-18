@@ -15,10 +15,19 @@ from identity_policy import activated, chat_access_allowed, main_ready, password
 
 COOKIE = "spv_chat_session"
 DAY = timedelta(days=1)
+CHAT_SESSION_ACTIVE_WINDOW = timedelta(minutes=2)
+CHAT_SESSION_HEARTBEAT_SECONDS = 30
 
 
 def now():
     return datetime.now(timezone.utc)
+
+
+async def touch_chat_session(db, session_id):
+    return await db.identity_chat_sessions.update_one(
+        {"id": session_id, "revoked": False},
+        {"$set": {"last_seen": now()}},
+    )
 
 
 def digest(value):
@@ -146,9 +155,7 @@ async def require_chat(request: Request):
         raise HTTPException(401, "Session Chat expirée. Veuillez vous reconnecter au Chat.")
     row, user = cookie
     request.state.chat_session_id = row["id"]
-    await request.app.state.db.identity_chat_sessions.update_one(
-        {"id": row["id"]}, {"$set": {"last_seen": now()}},
-    )
+    await touch_chat_session(request.app.state.db, row["id"])
     return safe_user(user)
 
 

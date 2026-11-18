@@ -267,7 +267,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
     switch (section) {
       case "Appareils connectés":
         return <>
-          {info("Sessions de ce compte", "SPILOVEURE Chat liste ici les sessions Web de votre compte. Il ne s’agit pas d’une liaison native de nouveaux appareils.")}
+          {info("Appareils actuellement actifs", "Seuls les appareils ayant utilisé le Chat récemment apparaissent ici. Les sessions déconnectées ou inactives sont masquées.")}
           <TouchableOpacity onPress={() => void loadSessions()} style={styles.refresh}><Text style={styles.actionText}>Actualiser</Text><Ionicons name="refresh-outline" size={18} color={blue} /></TouchableOpacity>
           {sessionsLoading && !sessions.length ? <ActivityIndicator color={blue} /> : null}
           {sessions.map(session => <View key={session.id} style={styles.settingRow}>

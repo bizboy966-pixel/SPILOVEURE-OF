@@ -333,6 +333,23 @@ def test_invalid_or_replayed_socket_ticket(chat):
             pass
 
 
+def test_active_websocket_refreshes_chat_device_activity(chat, monkeypatch):
+    import time
+    import identity_core
+
+    monkeypatch.setattr(identity_core, "CHAT_SESSION_HEARTBEAT_SECONDS", 0)
+    ticket = call(chat, "post", "/socket-ticket").json()["ticket"]
+    stale = now() - timedelta(minutes=5)
+    asyncio.run(chat[1].identity_chat_sessions.update_one(
+        {"id": "session_alice"}, {"$set": {"last_seen": stale}},
+    ))
+
+    with chat[0].websocket_connect("/api/messenger/ws?ticket=" + ticket):
+        time.sleep(0.05)
+        session = asyncio.run(chat[1].identity_chat_sessions.find_one({"id": "session_alice"}))
+        assert session["last_seen"] > stale
+
+
 def test_realtime_message_event(chat):
     cid = conversation(chat)
     value = call(chat, "post", "/socket-ticket", "bob").json()["ticket"]

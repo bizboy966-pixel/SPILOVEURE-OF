@@ -10,7 +10,7 @@ from mongomock_motor import AsyncMongoMockClient
 
 from auth import JWT_SECRET, create_access_token, get_current_user, hash_password, verify_password
 from identity import register_account, router
-from identity_core import COOKIE, digest, initialize, now
+from identity_core import COOKIE, digest, initialize, now, touch_chat_session
 from messenger import api as messenger_router
 from messenger_core import initialize as initialize_chat
 from models import LoginIn, RegisterIn
@@ -436,6 +436,60 @@ def test_revocation_and_chat_logout_do_not_revoke_main(identity_app):
     assert client.get("/api/messenger/conversations").status_code == 401
     assert client.get("/api/test/protected", headers=headers).status_code == 200
     assert client.post("/api/identity/chat/logout").status_code == 200
+
+
+def test_chat_device_list_excludes_inactive_revoked_and_expired_sessions(identity_app):
+    verify(identity_app, token=create_access_token("legacy", "user"), email="legacy@example.com")
+    db, client = identity_app[0].state.db, identity_app[1]
+    current = run(db.identity_chat_sessions.find_one({"user_id": "legacy"}))
+    timestamp = now()
+    active = {
+        "id": "active-other-device", "digest": digest("active-other-device-secret"),
+        "user_id": "legacy", "email_digest": digest("legacy@example.com"),
+        "device": "Autre appareil actif", "created_at": timestamp - timedelta(hours=1),
+        "last_seen": timestamp - timedelta(seconds=45),
+        "expires_at": timestamp + timedelta(days=10),
+        "absolute_expires_at": timestamp + timedelta(days=60), "revoked": False,
+    }
+    inactive = {
+        **active, "id": "inactive-device", "digest": digest("inactive-device-secret"),
+        "device": "Ancien appareil inactif", "last_seen": timestamp - timedelta(minutes=5),
+    }
+    revoked = {
+        **active, "id": "revoked-device", "digest": digest("revoked-device-secret"),
+        "device": "Appareil déconnecté", "revoked": True,
+    }
+    expired = {
+        **active, "id": "expired-device", "digest": digest("expired-device-secret"),
+        "device": "Appareil expiré", "expires_at": timestamp - timedelta(seconds=1),
+    }
+    run(db.identity_chat_sessions.insert_many([active, inactive, revoked, expired]))
+
+    response = client.get("/api/identity/chat/sessions")
+
+    assert response.status_code == 200
+    sessions = response.json()
+    assert {session["id"] for session in sessions} == {current["id"], active["id"]}
+    assert next(session for session in sessions if session["id"] == current["id"])["current"] is True
+    assert next(session for session in sessions if session["id"] == active["id"])["current"] is False
+    assert all("digest" not in session for session in sessions)
+
+
+def test_chat_session_heartbeat_refreshes_only_valid_session(identity_app):
+    verify(identity_app, token=create_access_token("legacy", "user"), email="legacy@example.com")
+    db = identity_app[0].state.db
+    session = run(db.identity_chat_sessions.find_one({"user_id": "legacy"}))
+    stale = now() - timedelta(minutes=5)
+    run(db.identity_chat_sessions.update_one({"id": session["id"]}, {"$set": {"last_seen": stale}}))
+
+    refreshed = run(touch_chat_session(db, session["id"]))
+    row = run(db.identity_chat_sessions.find_one({"id": session["id"]}))
+    assert refreshed.modified_count == 1
+    assert row["last_seen"] > stale
+
+    run(db.identity_chat_sessions.update_one({"id": session["id"]}, {"$set": {"revoked": True}}))
+    revoked_touch = run(touch_chat_session(db, session["id"]))
+    assert revoked_touch.matched_count == 0
 
 
 def test_expired_and_banned_chat_sessions_are_refused(identity_app):
