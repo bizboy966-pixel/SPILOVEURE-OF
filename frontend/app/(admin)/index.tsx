@@ -31,6 +31,7 @@ import { Input } from "@/src/components/Input";
 import { MediaViewer } from "@/src/components/MediaViewer";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { useFeatures } from "@/src/features";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import AdminSupportTab from "@/src/components/AdminSupportTab";
@@ -44,6 +45,7 @@ type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "a
 export default function AdminHome() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { refresh: refreshFeatures } = useFeatures();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [refreshing, setRefreshing] = useState(false);
   const [providerCardVersion, setProviderCardVersion] = useState(0);
@@ -2265,7 +2267,7 @@ export default function AdminHome() {
                     >
                       <View style={{ flex: 1, paddingRight: 12 }}>
                         <Text style={{ fontWeight: "800", color: theme.colors.textPrimary, fontSize: 14 }}>
-                          {f.label}
+                          {f.key === "landing_page" ? "Ancienne landing page (bouton Aperçu)" : f.label}
                         </Text>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 }}>
                           {f.key}
@@ -2276,12 +2278,16 @@ export default function AdminHome() {
                         onPress={async () => {
                           setFlagBusy(f.key);
                           try {
-                            await api.put(`/admin/feature-flags/${f.key}`, { enabled: !f.enabled });
+                            const updated = await api.put<{ key: string; enabled: boolean }>(
+                              `/admin/feature-flags/${f.key}`,
+                              { enabled: !f.enabled }
+                            );
                             setFlags((prev) =>
                               prev.map((x: any) =>
-                                x.key === f.key ? { ...x, enabled: !x.enabled } : x
+                                x.key === f.key ? { ...x, enabled: updated.enabled } : x
                               )
                             );
+                            await refreshFeatures();
                           } catch (e: any) {
                             if (typeof window !== "undefined")
                               window.alert(`❌ ${e?.detail || "Impossible de mettre à jour."}`);

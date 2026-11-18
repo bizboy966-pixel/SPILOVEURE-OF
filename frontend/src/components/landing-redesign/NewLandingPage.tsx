@@ -22,6 +22,7 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 type NewLandingPageProps = {
   refCode?: string;
+  showPreview: boolean;
   onPreview: () => void;
   onLogin: () => void;
   onRegister: () => void;
@@ -44,6 +45,7 @@ const BENEFITS: { icon: IconName; key: string }[] = [
 ];
 
 export default function NewLandingPage({
+  showPreview,
   onPreview,
   onLogin,
   onRegister,
@@ -238,7 +240,7 @@ export default function NewLandingPage({
 
           <View style={styles.actionFooter} testID="landing-redesign-action-footer">
           <View style={[styles.footerActions, footerActionsRow && styles.footerActionsRow]}>
-            <Pressable
+            {showPreview ? <Pressable
               onPress={onPreview}
               style={({ pressed }) => [
                 styles.previewButton,
@@ -252,7 +254,7 @@ export default function NewLandingPage({
             >
               <Ionicons name="eye-outline" size={21} color="#FFFFFF" />
               <Text style={styles.previewButtonText}>{t("landingRedesign.actions.preview")}</Text>
-            </Pressable>
+            </Pressable> : null}
             <Pressable
               onPress={onLogin}
               style={({ pressed }) => [

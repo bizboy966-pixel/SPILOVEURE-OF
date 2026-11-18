@@ -6,6 +6,7 @@ import AndroidWebApp from "@/src/components/AndroidWebApp";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
+import { useFeatures } from "@/src/features";
 import { theme } from "@/src/theme";
 
 export default function Index() {
@@ -20,6 +21,7 @@ function ExpoIndex() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { user: chatUser, loading: chatLoading } = useChat();
+  const { features, loading: featuresLoading } = useFeatures();
   const [showLanding, setShowLanding] = useState(false);
   const routed = useRef(false);
 
@@ -63,6 +65,7 @@ function ExpoIndex() {
   return (
     <NewLandingPage
       refCode={refCode}
+      showPreview={!featuresLoading && features.landing_page}
       onPreview={() => router.push(`/legacy-landing${refQS}` as any)}
       onLogin={() => router.push(`/(auth)/login${refQS}` as any)}
       onRegister={() => router.push(`/welcome${refQS}` as any)}
