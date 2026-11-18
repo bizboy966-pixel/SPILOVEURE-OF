@@ -56,7 +56,9 @@ export default function RootLayout() {
   // Puis on enregistre le service worker (passthrough réseau) qui est le
   // dernier critère PWA requis par les navigateurs Chromium.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // React Native also exposes `window` and `navigator`, but has no browser
+    // document or service worker. Keep this PWA-only boot work off Android/iOS.
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
 
     const ensureLink = (rel: string, href: string, extra: Record<string, string> = {}) => {
       try {
