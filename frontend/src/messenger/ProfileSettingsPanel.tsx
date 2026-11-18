@@ -271,7 +271,7 @@ export default function ProfileSettingsPanel({ user, onOpenContacts, onOpenChats
           <TouchableOpacity onPress={() => void loadSessions()} style={styles.refresh}><Text style={styles.actionText}>Actualiser</Text><Ionicons name="refresh-outline" size={18} color={blue} /></TouchableOpacity>
           {sessionsLoading && !sessions.length ? <ActivityIndicator color={blue} /> : null}
           {sessions.map(session => <View key={session.id} style={styles.settingRow}>
-            <View style={styles.infoCopy}><Text style={styles.rowTitle}>{session.device || "Navigateur"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.secondary}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>
+            <View style={styles.infoCopy}><Text style={styles.rowTitle}>{session.device || "Appareil inconnu · Navigateur inconnu"}{session.current ? " · Cet appareil" : ""}</Text><Text style={styles.secondary}>Dernière activité : {new Date(session.last_seen).toLocaleString()}</Text></View>
             {!session.current && <TouchableOpacity onPress={() => void revokeSession(session.id)} accessibilityRole="button" accessibilityLabel="Terminer cette session"><Text style={styles.dangerText}>Déconnecter</Text></TouchableOpacity>}
           </View>)}
           {!sessionsLoading && sessions.length === 0 ? <Text style={styles.secondary}>Aucune session disponible.</Text> : null}

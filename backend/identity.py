@@ -17,7 +17,7 @@ from auth import create_access_token, hash_password, verify_password
 from email_delivery import MailUnavailable, VerificationEmailSender
 from identity_core import (
     CHAT_SESSION_ACTIVE_WINDOW, COOKIE, bearer_identity, check_origin, cookie_identity,
-    cookie_secure, digest, establish_chat, identity, now, rate_limit, remote_key,
+    cookie_secure, device_label, digest, establish_chat, identity, now, rate_limit, remote_key,
     renew_chat, require_chat, safe_user, state,
 )
 from identity_policy import (
@@ -247,7 +247,8 @@ async def chat_sessions(request: Request, user=Depends(require_chat)):
         "expires_at": {"$gt": now()},
         "absolute_expires_at": {"$gt": now()},
     }).sort("created_at", -1).limit(50).to_list(50)
-    return [{k: row[k] for k in ("id", "device", "created_at", "last_seen", "expires_at")} |
+    return [{k: row[k] for k in ("id", "created_at", "last_seen", "expires_at")} |
+            {"device": device_label(row.get("device"))} |
             {"current": row["id"] == request.state.chat_session_id} for row in rows]
 
 

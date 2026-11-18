@@ -10,7 +10,7 @@ from mongomock_motor import AsyncMongoMockClient
 
 from auth import JWT_SECRET, create_access_token, get_current_user, hash_password, verify_password
 from identity import register_account, router
-from identity_core import COOKIE, digest, initialize, now, touch_chat_session
+from identity_core import COOKIE, device_label, digest, initialize, now, touch_chat_session
 from messenger import api as messenger_router
 from messenger_core import initialize as initialize_chat
 from models import LoginIn, RegisterIn
@@ -473,6 +473,55 @@ def test_chat_device_list_excludes_inactive_revoked_and_expired_sessions(identit
     assert next(session for session in sessions if session["id"] == current["id"])["current"] is True
     assert next(session for session in sessions if session["id"] == active["id"])["current"] is False
     assert all("digest" not in session for session in sessions)
+
+
+@pytest.mark.parametrize(("user_agent", "expected"), [
+    ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+     "Android · Chrome"),
+    ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+     "iPhone · Safari"),
+    ("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
+     "iPad · Chrome"),
+    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/131.0.0.0",
+     "Windows · Edge"),
+    ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+     "Mac · Safari"),
+    ("Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
+     "Linux · Firefox"),
+    ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/122.0.0.0 Safari/537.36",
+     "Linux · Samsung Internet"),
+    ("Mozilla/5.0 (UnknownOS; UnknownDevice) UnknownBrowser/1.0",
+     "Appareil inconnu · Navigateur inconnu"),
+    ("UnknownBrowser/1.0", "Appareil inconnu · Navigateur inconnu"),
+    ("MysteryDevice", "Appareil inconnu · Navigateur inconnu"),
+    ("", "Appareil inconnu · Navigateur inconnu"),
+])
+def test_device_label_recognizes_common_platforms_and_falls_back(user_agent, expected):
+    assert device_label(user_agent) == expected
+
+
+def test_chat_sessions_format_legacy_user_agents_without_changing_revocation_target(identity_app):
+    verify(identity_app, token=create_access_token("legacy", "user"), email="legacy@example.com")
+    db, client = identity_app[0].state.db, identity_app[1]
+    current = run(db.identity_chat_sessions.find_one({"user_id": "legacy"}))
+    timestamp = now()
+    other = {
+        "id": "legacy-android-session", "digest": digest("legacy-android-secret"),
+        "user_id": "legacy", "email_digest": digest("legacy@example.com"),
+        "device": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36",
+        "created_at": timestamp - timedelta(minutes=1), "last_seen": timestamp,
+        "expires_at": timestamp + timedelta(days=10),
+        "absolute_expires_at": timestamp + timedelta(days=60), "revoked": False,
+    }
+    run(db.identity_chat_sessions.insert_one(other))
+
+    sessions = client.get("/api/identity/chat/sessions").json()
+
+    labeled = next(session for session in sessions if session["id"] == other["id"])
+    assert labeled["device"] == "Android · Chrome"
+    assert client.delete(f"/api/identity/chat/sessions/{other['id']}").status_code == 200
+    assert run(db.identity_chat_sessions.find_one({"id": other["id"]}))["revoked"] is True
+    assert run(db.identity_chat_sessions.find_one({"id": current["id"]}))["revoked"] is False
 
 
 def test_chat_session_heartbeat_refreshes_only_valid_session(identity_app):

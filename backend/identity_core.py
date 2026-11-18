@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -40,6 +41,54 @@ def safe_user(user):
     return {**{k: user[k] for k in fields if k in user},
             "email_verified": email_verified(user),
             "main_password_created": password_created(user)}
+
+
+def device_label(user_agent):
+    """Return a short, recognizable label for a stored browser User-Agent."""
+    value = (user_agent or "").strip()
+    if not value:
+        return "Appareil inconnu · Navigateur inconnu"
+
+    # Keep older records that already contain a human-readable device name.
+    user_agent_markers = (
+        "mozilla/", "applewebkit/", "gecko/", "windows nt", "android",
+        "linux", "mac os", "iphone", "ipad", "ipod", "cros", "x11",
+    )
+    lowered = value.lower()
+    if not any(marker in lowered for marker in user_agent_markers):
+        if "/" in value or not re.search(r"\s", value):
+            return "Appareil inconnu · Navigateur inconnu"
+        return value[:120]
+
+    if re.search(r"\b(iPhone|iPad|iPod)\b", value, re.IGNORECASE):
+        platform = "iPhone" if re.search(r"\biPhone\b", value, re.IGNORECASE) else "iPad"
+    elif "android" in lowered:
+        platform = "Android"
+    elif "windows nt" in lowered:
+        platform = "Windows"
+    elif "mac os" in lowered or "macintosh" in lowered:
+        platform = "Mac"
+    elif "linux" in lowered or "x11" in lowered:
+        platform = "Linux"
+    else:
+        platform = "Appareil inconnu"
+
+    if re.search(r"\bSamsungBrowser/", value, re.IGNORECASE):
+        browser = "Samsung Internet"
+    elif re.search(r"\bEdg(?:e|A|iOS)?/", value, re.IGNORECASE):
+        browser = "Edge"
+    elif re.search(r"\bOPR/|\bOPiOS/", value, re.IGNORECASE):
+        browser = "Opera"
+    elif re.search(r"\b(?:CriOS|Chrome)/", value, re.IGNORECASE):
+        browser = "Chrome"
+    elif re.search(r"\bFxiOS/|\bFirefox/", value, re.IGNORECASE):
+        browser = "Firefox"
+    elif re.search(r"\bSafari/", value, re.IGNORECASE):
+        browser = "Safari"
+    else:
+        browser = "Navigateur inconnu"
+
+    return f"{platform} · {browser}"
 
 
 def available(user):
