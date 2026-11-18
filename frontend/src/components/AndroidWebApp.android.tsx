@@ -53,11 +53,11 @@ export default function AndroidWebApp() {
         setSupportMultipleWindows={false}
         startInLoadingState={false}
         onLoadStart={() => {
+          setLoadError(false);
           // Keep the full-screen loader for the first page only. Android
           // WebView may report later in-app route changes as document loads;
           // covering the whole page then can leave the APK looking stuck.
           if (!initialPageLoaded.current) {
-            setLoadError(false);
             setLoading(true);
           }
         }}
@@ -67,7 +67,7 @@ export default function AndroidWebApp() {
         }}
         onError={() => {
           setLoading(false);
-          if (!initialPageLoaded.current) setLoadError(true);
+          setLoadError(true);
         }}
         onRenderProcessGone={() => {
           initialPageLoaded.current = false;

@@ -98,3 +98,25 @@ test("WebView keeps its first-load indicator off subsequent page navigation", ()
   tree = harness.render();
   assert.equal(findNode(tree, node => node.props?.testID === "webview-loading"), null);
 });
+
+test("network errors and renderer failures remain recoverable", () => {
+  const harness = createHarness();
+  let tree = harness.render();
+  let webView = findNode(tree, node => node.type === "WebView");
+  webView.props.onLoadEnd();
+  webView.props.onError();
+  tree = harness.render();
+  assert.ok(findNode(tree, node => node.props?.testID === "webview-error"));
+  assert.equal(findNode(tree, node => node.props?.testID === "webview-loading"), null);
+
+  findNode(tree, node => node.type === "TouchableOpacity").props.onPress();
+  tree = harness.render();
+  assert.equal(findNode(tree, node => node.props?.testID === "webview-error"), null);
+  assert.ok(findNode(tree, node => node.props?.testID === "webview-loading"));
+  webView = findNode(tree, node => node.type === "WebView");
+  assert.equal(webView.props.key, 1);
+  webView.props.onLoadEnd();
+  webView.props.onRenderProcessGone();
+  tree = harness.render();
+  assert.ok(findNode(tree, node => node.props?.testID === "webview-error"));
+});
