@@ -10,6 +10,7 @@ import { Input } from "@/src/components/Input";
 import { Button } from "@/src/components/Button";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { messengerProfileRouteFromUrl } from "@/src/messenger/userLinks";
 import { theme } from "@/src/theme";
 import { LANG_LABELS, useI18n, type Lang } from "@/src/i18n";
 
@@ -219,8 +220,17 @@ export default function Settings() {
 }
 
 function SupportRow({ icon, label, url, color }: { icon: any; label: string; url: string; color: string }) {
+  const router = useRouter();
+  const open = () => {
+    const chatRoute = messengerProfileRouteFromUrl(url);
+    if (chatRoute) {
+      router.push(chatRoute as any);
+      return;
+    }
+    void Linking.openURL(url).catch(() => {});
+  };
   return (
-    <TouchableOpacity style={styles.supportRow} onPress={() => Linking.openURL(url)}>
+    <TouchableOpacity style={styles.supportRow} onPress={open}>
       <View style={[styles.supportIcon, { backgroundColor: `${color}20` }]}>
         <Ionicons name={icon} size={20} color={color} />
       </View>

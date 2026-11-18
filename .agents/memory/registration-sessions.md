@@ -32,3 +32,9 @@ Dans le mode de preview local isolé uniquement, le compte de démonstration `pr
 **Why:** L’utilisateur a confirmé le compte précis et choisi des données de test isolées pour tester l’accès direct dans le preview, sans changer l’authentification VPS.
 
 **How to apply:** N’activer l’exception que si le mode de preview isolé, la base locale dédiée et MongoDB local sont tous confirmés. Conserver la vérification réelle ailleurs et ne pas changer l’accès principal, les paiements ou la récupération du mot de passe.
+
+Les liens personnels SPILOVEURE Chat et le lien de support configuré doivent ouvrir directement la conversation du membre visé. Si le Chat doit être vérifié sur cet appareil, conserver la destination pendant la vérification e-mail sans déconnecter la session principale. Les véritables liens Telegram restent externes.
+
+**Why:** L’utilisateur a demandé que les liens personnels et le bouton Support ouvrent directement la discussion, y compris après vérification e-mail.
+
+**How to apply:** Reconnaître seulement les liens de profil Chat SPILOVEURE comme routes internes. Préserver le nom d’utilisateur dans le retour de vérification et ne pas transformer les URL externes en destinations internes.

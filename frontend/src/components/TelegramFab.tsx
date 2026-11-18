@@ -1,17 +1,10 @@
-/**
- * TelegramFab — floating action button that opens the customer support
- * Telegram channel directly (no in-app chat modal).
- *
- * The chat modal (ChatBubble) still exists in the codebase for admins,
- * but on the user side the FAB now provides a friction-free jump to
- * Telegram support — a direct link discovery is fetched from the same
- * `/settings/support` endpoint that already powers the admin panel.
- */
+/** Floating support action. SPILOVEURE Chat profile links open in-app; other support URLs stay external. */
 import React, { useEffect, useState } from "react";
 import { Linking, Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { api } from "@/src/api";
-import { theme } from "@/src/theme";
+import { messengerProfileRouteFromUrl } from "@/src/messenger/userLinks";
 
 type Support = {
   telegram_url?: string;
@@ -19,6 +12,7 @@ type Support = {
 };
 
 const TelegramFab: React.FC = () => {
+  const router = useRouter();
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,8 +38,13 @@ const TelegramFab: React.FC = () => {
       return;
     }
     try {
+      const chatRoute = messengerProfileRouteFromUrl(url);
+      if (chatRoute) {
+        router.push(chatRoute as any);
+        return;
+      }
       if (Platform.OS === "web" && typeof window !== "undefined") {
-        window.open(url, "_blank");
+        window.open(url, "_blank", "noopener,noreferrer");
       } else {
         await Linking.openURL(url);
       }
@@ -58,7 +57,7 @@ const TelegramFab: React.FC = () => {
       onPress={open}
       activeOpacity={0.85}
       testID="telegram-fab"
-      accessibilityLabel="Contacter le service client sur Telegram"
+      accessibilityLabel="Ouvrir le support"
     >
       <Ionicons name="paper-plane" size={17} color="#fff" />
       <Text style={styles.label}>Support</Text>

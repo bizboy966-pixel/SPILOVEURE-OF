@@ -98,10 +98,17 @@ export default function MessengerScreen() {
       if (!active) return;
       setExplicitlyLoggedOut(loggedOut);
       setLogoutMarkerChecked(true);
-      if (loggedOut) router.replace("/(auth)/login" as any);
+      if (loggedOut) {
+        if (directUsernameParam) {
+          const returnTo = `/messenger?username=${encodeURIComponent(directUsernameParam)}`;
+          router.replace(`/verify-email?source=chat&expired=1&returnTo=${encodeURIComponent(returnTo)}` as any);
+        } else {
+          router.replace("/(auth)/login" as any);
+        }
+      }
     });
     return () => { active = false; };
-  }, [router]);
+  }, [directUsernameParam, router]);
   useEffect(() => { if (!chatLoading) void refreshChat(); }, [chatLoading, refreshChat]);
   useEffect(() => {
     if (!user?.id) return;
