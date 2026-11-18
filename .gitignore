@@ -55,6 +55,13 @@ Thumbs.db
 .local/
 /.migration-backup/
 /generated-artifacts/
+/tools/capacitor-android/www/
+/tools/capacitor-android/android/.gradle/
+/tools/capacitor-android/android/**/build/
+/tools/capacitor-android/android/local.properties
+/tools/capacitor-android/android/app/src/main/assets/public/
+/tools/capacitor-android/android/app/src/main/assets/capacitor.config.json
+/tools/capacitor-android/android/app/src/main/assets/capacitor.plugins.json
 frontend/build/
 frontend/.metro-cache/
 __pycache__/
