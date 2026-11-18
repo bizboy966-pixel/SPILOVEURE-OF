@@ -14,6 +14,8 @@
     "@replit/connectors-sdk": "^0.7.0",
     "@shopify/flash-list": "2.0.2",
     "@softwhere-uz/react-native-emoji-keyboard": "0.10.0",
+    "expo-file-system": "~19.0.24",
+    "expo-intent-launcher": "~13.0.8",
     "http-proxy": "^1.18.1",
     "typescript": "~5.9.3"
   }

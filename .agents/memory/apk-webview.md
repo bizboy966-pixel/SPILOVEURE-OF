@@ -9,6 +9,12 @@ Pour l’APK Android, charger le site SPILOVEURE de production dans une WebView 
 
 **How to apply:** Réserver le wrapper WebView à Android et préserver la version web/iOS existante. Les versions APK doivent garder le même identifiant de paquet et la même signature pour les mises à jour. Tester le Chat, le micro, les fichiers, les paiements et les notifications dans WebView avant de considérer l’APK comme validé.
 
+Les versions Android doivent utiliser leurs propres métadonnées de publication (`apk_version`, lien APK et minimum requis), séparées de la version du site. Une mise à jour obligatoire ne doit être activée qu'après la compilation et la mise en ligne du nouvel APK.
+
+**Why:** Déployer le site ne génère pas un binaire Android. Utiliser la version web pour bloquer l’APK avant que son fichier signé soit publié peut orienter les utilisateurs vers une ancienne version ou les empêcher de continuer.
+
+**How to apply:** Après chaque compilation, importer le nouvel APK vers le stockage public configuré, enregistrer sa version et son caractère obligatoire, puis tester le téléchargement et l’installation depuis l’ancienne APK.
+
 Limiter le masque de chargement natif au chargement initial du document, sans le réactiver lors des navigations internes du site.
 
 **Why:** Sur Android, react-native-webview émet un début de chargement depuis les changements d’historique d’une SPA, sans fin de chargement correspondante. Un masque réactivé à chaque début peut donc cacher indéfiniment une page déjà affichée.

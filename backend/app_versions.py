@@ -1,4 +1,4 @@
-"""Version management — 2026-03-04 (v27aj).
+"""Website and Android APK version metadata.
 
 Minimalist release workflow (per user spec) :
   • Admin enters a version string (e.g. "1.2.0") in the admin panel
@@ -8,9 +8,8 @@ Minimalist release workflow (per user spec) :
   • Clients whose `CLIENT_VERSION < minimum_supported_version` are prompted to
     reload (blocking overlay).
 
-NO file upload, NO APK handling, NO release notes required. The version
-string IS the publishing event — the code is already deployed, the version
-number is the cache-bust / gate signal.
+Website versions can still be auto-synced from app.json. Android APK releases
+are tracked separately because they require a built, signed APK file.
 """
 from __future__ import annotations
 import logging
@@ -75,8 +74,11 @@ _DEFAULT_SETTINGS = {
     "current_version": "1.0.0",
     "minimum_supported_version": "1.0.0",
     "mandatory": False,
-    "apk_url": "",       # v27ak — public download URL for the Android APK
-    "apk_size_mb": None, # optional size hint shown in the profile
+    "apk_url": "",
+    "apk_size_mb": None,
+    "apk_version": "",
+    "apk_minimum_supported_version": "",
+    "apk_mandatory": True,
     "updated_at": None,
 }
 
@@ -119,6 +121,9 @@ async def get_app_version(request: Request):
         "mandatory": bool(s.get("mandatory")),
         "apk_url": s.get("apk_url") or "",
         "apk_size_mb": s.get("apk_size_mb"),
+        "apk_version": s.get("apk_version") or "",
+        "apk_minimum_supported_version": s.get("apk_minimum_supported_version") or "",
+        "apk_mandatory": bool(s.get("apk_mandatory", False)),
         "updated_at": s.get("updated_at"),
     }
 
@@ -278,14 +283,32 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
         patch["minimum_supported_version"] = v
     if "mandatory" in body:
         patch["mandatory"] = bool(body["mandatory"])
-    # v27ak (2026-03-04) — optional APK download URL + size hint.
-    # Not required to publish a version; configured once by admin and shown
-    # on the user profile card as "Télécharger l'APK".
+    # APK release data is separate from the website version: rebuilding the
+    # web app must not force native APK users to install an older binary.
     if "apk_url" in body:
         url = (body.get("apk_url") or "").strip()
-        if url and not (url.startswith("https://") or url.startswith("http://")):
-            raise HTTPException(400, "apk_url doit être une URL HTTP/HTTPS valide.")
+        uploaded_path = (
+            url.startswith("/api/uploads/")
+            and url.lower().endswith(".apk")
+            and ".." not in url
+            and "\\" not in url
+        )
+        external_https = url.startswith("https://")
+        if url and not (uploaded_path or external_https):
+            raise HTTPException(400, "Le lien APK doit être HTTPS ou un fichier /api/uploads/ importé.")
         patch["apk_url"] = url
+    if "apk_version" in body:
+        version = (body.get("apk_version") or "").strip()
+        if version and not _is_valid_semver(version):
+            raise HTTPException(400, "apk_version invalide. Format attendu : X.Y.Z.")
+        patch["apk_version"] = version
+    if "apk_minimum_supported_version" in body:
+        minimum = (body.get("apk_minimum_supported_version") or "").strip()
+        if minimum and not _is_valid_semver(minimum):
+            raise HTTPException(400, "apk_minimum_supported_version invalide.")
+        patch["apk_minimum_supported_version"] = minimum
+    if "apk_mandatory" in body:
+        patch["apk_mandatory"] = bool(body["apk_mandatory"])
     if "apk_size_mb" in body:
         val = body.get("apk_size_mb")
         if val is None or val == "":
@@ -297,6 +320,15 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
                 raise HTTPException(400, "apk_size_mb doit être un nombre.")
     if not patch:
         raise HTTPException(400, "Aucun champ à mettre à jour.")
+    cur = await _get_settings(db)
+    effective = {**cur, **patch}
+    if effective.get("apk_mandatory"):
+        if not effective.get("apk_url") or not effective.get("apk_version"):
+            raise HTTPException(400, "Pour imposer la mise à jour, enregistrez d'abord le fichier APK et sa version.")
+        minimum = effective.get("apk_minimum_supported_version") or effective["apk_version"]
+        if _cmp(minimum, effective["apk_version"]) > 0:
+            raise HTTPException(400, "La version minimale APK ne peut pas dépasser la version publiée.")
+        patch["apk_minimum_supported_version"] = minimum
     s = await _save_settings(db, patch)
     await db.admin_logs.insert_one({
         "id": str(uuid.uuid4()),
@@ -309,13 +341,13 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
 
 
 async def auto_sync_from_frontend_version(db) -> dict:
-    """v27an — zero-admin auto-publish.
+    """v27an — auto-publish the website version.
 
     Reads `/app/frontend/app.json` on backend startup and, if `expo.version`
     is strictly greater than the stored `current_version`, publishes it
     automatically (sets `current_version`, `minimum_supported_version`,
-    `mandatory=True`). This is the trigger the user asked for: the version
-    IS the deployment, no admin button, no APK upload.
+    `mandatory=True`). APK metadata is intentionally not changed here: a
+    website deployment does not create or sign a new Android package.
 
     Idempotent — re-running with the same version does nothing.
     """

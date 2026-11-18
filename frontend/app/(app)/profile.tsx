@@ -14,6 +14,7 @@ import { setupWebPush, canUseWebPush, currentPermission } from "@/src/lib/fireba
 import { api } from "@/src/api";
 import { BottomNav } from "@/src/components/BottomNav";
 import { ProfileHeaderCard } from "@/src/components/profile/ProfileHeaderCard";
+import { ApkDownloadCard } from "@/src/components/ApkDownloadCard";
 import { SupportGroupCard } from "@/src/components/profile/SupportGroupCard";
 import { useI18n } from "@/src/i18n";
 import { localizedCountryName } from "@/src/identity/countrySearch";
@@ -95,6 +96,7 @@ export default function Profile() {
 
       <ScrollView style={{ marginTop: -36 }} contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 140 }}>
         <ProfileHeaderCard user={user} />
+        <ApkDownloadCard />
 
         <Card testID="profile-invite-card" style={{ marginTop: 12 }}>
           <View style={styles.cardHead}>

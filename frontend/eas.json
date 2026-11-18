@@ -24,7 +24,7 @@
       "env": {
         "SPV_ANDROID_RELEASE": "1",
         "EXPO_PUBLIC_BACKEND_URL": "https://spiloveure.org",
-        "ANDROID_VERSION_CODE": "4"
+        "ANDROID_VERSION_CODE": "5"
       }
     }
   }

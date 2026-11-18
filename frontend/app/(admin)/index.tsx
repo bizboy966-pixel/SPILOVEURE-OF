@@ -29,6 +29,7 @@ import { Card } from "@/src/components/Card";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { MediaViewer } from "@/src/components/MediaViewer";
+import { MediaUploader } from "@/src/components/MediaUploader";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useFeatures } from "@/src/features";
@@ -69,9 +70,10 @@ export default function AdminHome() {
   const [newVersionMandatory, setNewVersionMandatory] = useState(true);
   const [newVersionMakeMin, setNewVersionMakeMin] = useState(true);
   const [newVersionNotes, setNewVersionNotes] = useState("");
-  // v27am — URL de l'APK Android (config unique, pas liée aux releases)
-  const [apkUrl] = useState("");
-  const [apkSizeMb] = useState("");
+  const [apkUrl, setApkUrl] = useState("");
+  const [apkVersion, setApkVersion] = useState("");
+  const [apkMandatory, setApkMandatory] = useState(true);
+  const [apkSaveBusy, setApkSaveBusy] = useState(false);
   const [challenges, setChallenges] = useState<any[]>([]);
   // Challenge form state (create only — edits go through inline actions).
   const [chgName, setChgName] = useState("");
@@ -98,6 +100,14 @@ export default function AdminHome() {
   const [chgEditEndTime, setChgEditEndTime] = useState("");
   const [chgEditActive, setChgEditActive] = useState(true);
   const [chgEditBusy, setChgEditBusy] = useState(false);
+
+  useEffect(() => {
+    const settings = versionsData?.settings;
+    if (!settings) return;
+    setApkUrl(settings.apk_url || "");
+    setApkVersion(settings.apk_version || "");
+    setApkMandatory(Boolean(settings.apk_mandatory));
+  }, [versionsData]);
   // Ads state
   const [adsPricing, setAdsPricing] = useState<any>(null);
   const [adsList, setAdsList] = useState<any[]>([]);
@@ -2367,9 +2377,73 @@ export default function AdminHome() {
             </Card>
 
             <Card style={{ marginBottom: 12 }} testID="admin-apk-info-card">
-              <Text style={[styles.section, { marginBottom: 6 }]}>📱 Application SPILOVEURE — Distribution automatique</Text>
-              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16 }}>
-                Depuis la v27an, la distribution de SPILOVEURE est totalement automatisée. L'application s'installe directement depuis le Profil utilisateur en tant que PWA native (Android/iPhone/PC) et chaque nouvelle version publiée dans le code source déclenche automatiquement l'écran de mise à jour obligatoire sur tous les clients. Aucun lien APK à saisir, aucun fichier à importer, aucune action admin requise.
+              <Text style={[styles.section, { marginBottom: 6 }]}>📱 Publication de l’APK Android</Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16, marginBottom: 10 }}>
+                Après chaque compilation, importez le nouvel APK et enregistrez sa version. Les versions APK intégrant ce mécanisme détecteront la mise à jour au démarrage. Les anciennes installations devront installer cette première version une fois depuis Chrome. Android demandera ensuite de confirmer l’installation.
+              </Text>
+              <Text style={styles.lbl}>Version incluse dans l’APK</Text>
+              <TextInput
+                value={apkVersion}
+                onChangeText={setApkVersion}
+                placeholder="Ex. 1.1.4"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={styles.input}
+                autoCapitalize="none"
+                testID="admin-apk-version"
+              />
+              <Text style={[styles.lbl, { marginTop: 10 }]}>Fichier APK</Text>
+              <MediaUploader
+                kind="apk"
+                url={apkUrl}
+                onChange={setApkUrl}
+                testID="admin-apk-file"
+              />
+              <TouchableOpacity
+                onPress={() => setApkMandatory(!apkMandatory)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}
+                testID="admin-apk-mandatory"
+              >
+                <Ionicons name={apkMandatory ? "checkbox" : "square-outline"} size={20} color={apkMandatory ? theme.colors.primary : theme.colors.textSecondary} />
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 13, flex: 1 }}>
+                  Mise à jour obligatoire pour les anciennes versions Android
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={apkSaveBusy || !apkUrl.trim() || !apkVersion.trim()}
+                style={{
+                  marginTop: 14,
+                  backgroundColor: theme.colors.primary,
+                  paddingVertical: 13,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  opacity: apkSaveBusy || !apkUrl.trim() || !apkVersion.trim() ? 0.55 : 1,
+                }}
+                onPress={async () => {
+                  setApkSaveBusy(true);
+                  try {
+                    const response = await api.post<any>("/admin/versions/settings", {
+                      apk_url: apkUrl.trim(),
+                      apk_version: apkVersion.trim(),
+                      apk_mandatory: apkMandatory,
+                      apk_minimum_supported_version: apkMandatory ? apkVersion.trim() : (versionsData?.settings?.apk_minimum_supported_version || ""),
+                    });
+                    setVersionsData((current) => current ? { ...current, settings: response.settings } : current);
+                    notify("APK enregistré", `La version Android ${apkVersion.trim()} est maintenant publiée.`);
+                  } catch (error: any) {
+                    notify("Enregistrement impossible", error?.detail || "Vérifie le fichier et le numéro de version.");
+                  } finally {
+                    setApkSaveBusy(false);
+                  }
+                }}
+                testID="admin-save-apk-release"
+              >
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
+                  {apkSaveBusy ? "Enregistrement…" : "Enregistrer la version APK"}
+                </Text>
+              </TouchableOpacity>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 9 }}>
+                APK publiée : {versionsData?.settings?.apk_version || "aucune"}
+                {versionsData?.settings?.apk_mandatory ? " • mise à jour obligatoire" : ""}
               </Text>
             </Card>
 
