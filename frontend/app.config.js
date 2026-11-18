@@ -43,8 +43,8 @@ module.exports = () => {
       ...base.android,
       package: androidTest ? `${base.android.package}.preview` : base.android.package,
       versionCode: Number(process.env.ANDROID_VERSION_CODE || 1),
-      // Internet is inherent to the platform. Request mic only when voice is used.
-      permissions: ["android.permission.RECORD_AUDIO", "android.permission.POST_NOTIFICATIONS"],
+      // Web media capture asks for mic/camera only when the site uses them.
+      permissions: ["android.permission.RECORD_AUDIO", "android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"],
       blockedPermissions: ["android.permission.SYSTEM_ALERT_WINDOW", "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"],

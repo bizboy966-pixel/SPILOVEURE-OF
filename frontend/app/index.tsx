@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import NewLandingPage from "@/src/components/landing-redesign/NewLandingPage";
+import AndroidWebApp from "@/src/components/AndroidWebApp";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
 import { theme } from "@/src/theme";
 
 export default function Index() {
+  if (Platform.OS === "android") return <AndroidWebApp />;
+  return <ExpoIndex />;
+}
+
+function ExpoIndex() {
   const params = useLocalSearchParams<{ ref?: string; showLanding?: string }>();
   const refCode = typeof params.ref === "string" ? params.ref : "";
   const forceLanding = params.showLanding === "1";
