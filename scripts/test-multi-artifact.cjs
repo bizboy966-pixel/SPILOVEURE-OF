@@ -55,8 +55,18 @@ assert.match(command, /SPV_PREVIEW_API_UPSTREAM=https:\/\/spiloveure\.org/);
 assert.match(command, /bash scripts\/start-dev.sh/);
 assert.match(read("scripts/start-dev.sh"), /pnpm exec expo start --web/);
 assert.doesNotMatch(read("scripts/post-merge.sh"), /(?:db push|drizzle|seed|ssh|rsync)/);
-assert.equal(fs.existsSync("backend/secrets/firebase-service-account.json"), false,
-  "Firebase service-account credentials must not be restored into source");
+const firebaseCredentialPath = "backend/secrets/firebase-service-account.json";
+let firebaseCredentialIsTracked = true;
+try {
+  execFileSync("git", ["ls-files", "--error-unmatch", firebaseCredentialPath], { stdio: "ignore" });
+} catch {
+  firebaseCredentialIsTracked = false;
+}
+assert.equal(firebaseCredentialIsTracked, false,
+  "Firebase service-account credentials must not be committed to source");
+assert.doesNotThrow(() => {
+  execFileSync("git", ["check-ignore", "--quiet", firebaseCredentialPath], { stdio: "ignore" });
+}, "Local Firebase service-account credentials must remain ignored");
 assert.match(read(".gitignore"), /\*\*\/\*service-account\*\.json/);
 assert.match(read(".replitignore"), /\*\*\/\*service-account\*\.json/);
 
