@@ -20,3 +20,9 @@ Limiter le masque de chargement natif au chargement initial du document, sans le
 **Why:** Sur Android, react-native-webview émet un début de chargement depuis les changements d’historique d’une SPA, sans fin de chargement correspondante. Un masque réactivé à chaque début peut donc cacher indéfiniment une page déjà affichée.
 
 **How to apply:** Tester une navigation après le premier chargement avec un événement de début sans événement de fin; conserver les erreurs réseau, la reprise après arrêt du moteur et la relance explicite.
+
+Route fixes through the delivery channel they affect: site/backend changes that require a VPS update go through GitHub and the VPS restart flow; APK-specific native changes must be included in a rebuilt APK. A WebView-only layout change in the remote site does not require a new APK binary.
+
+**Why:** The user asked that fixes needing a VPS update go through GitHub and that APK fixes be included in the APK.
+
+**How to apply:** For each change, distinguish remote site content from native wrapper code. Confirm each production push/restart before executing it; rebuild the APK when native code or package metadata changes.
