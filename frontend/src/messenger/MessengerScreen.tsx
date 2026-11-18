@@ -378,11 +378,17 @@ export default function MessengerScreen() {
     }
   }, [refresh, user?.id]);
   useEffect(() => {
-    if (!user?.id || !directUsernameParam || inviteParam || handledUserLink.current === directUsernameParam) return;
+    if (!directUsernameParam) {
+      handledUserLink.current = null;
+      return;
+    }
+    if (!user?.id || inviteParam || handledUserLink.current === directUsernameParam) return;
     handledUserLink.current = directUsernameParam;
     let active = true;
     void openSpvUser(directUsernameParam).finally(() => {
-      if (active) router.replace("/messenger" as any);
+      // Clear only the consumed query parameter. Replacing the route can
+      // remount the messenger and drop the conversation selected above.
+      if (active) router.setParams({ username: "" } as any);
     });
     return () => { active = false; };
   }, [directUsernameParam, inviteParam, openSpvUser, router, user?.id]);

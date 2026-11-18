@@ -59,3 +59,15 @@ test("direct chat destinations survive expired or explicitly logged-out sessions
   assert.match(identity, /safeMessengerReturnTo\(p\.returnTo\)/);
   assert.match(identity, /clearChatLogoutMarker\(\)/);
 });
+
+test("opening a personal support link keeps the selected conversation mounted", () => {
+  const messenger = read("src/messenger/MessengerScreen.tsx");
+  const directLinkFlow = messenger.slice(
+    messenger.indexOf("const openSpvUser"),
+    messenger.indexOf("const saveContactAndConversation"),
+  );
+  assert.match(directLinkFlow, /setSelected\(conversation\)/);
+  assert.match(directLinkFlow, /router\.setParams\(\{ username: "" \}/);
+  assert.doesNotMatch(directLinkFlow, /router\.replace\("\/messenger"/);
+  assert.match(directLinkFlow, /if \(!directUsernameParam\) \{\s*handledUserLink\.current = null;/);
+});
