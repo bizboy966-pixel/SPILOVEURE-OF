@@ -1,8 +1,12 @@
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const WebSocket = require("ws");
 const WebSocketServer = WebSocket.Server;
 const {
+  CAPACITOR_APK_PATH,
   createGateway,
   isBackendPath,
   parsePreviewApiUpstream,
@@ -48,6 +52,37 @@ async function main() {
   assert.throws(() => resolvePreviewApiUpstream("unknown", ""));
   assert.equal(isBackendPath("/api/messenger/ws?ticket=one"), true);
   assert.equal(isBackendPath("/"), false);
+
+  const apkFile = path.join(os.tmpdir(), `capacitor-test-${process.pid}.apk`);
+  const apkBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x41, 0x50, 0x4b]);
+  fs.writeFileSync(apkFile, apkBytes);
+  const apkGateway = createGateway({ allowedHosts: new Set(), capacitorApkFile: apkFile });
+  const apkGatewayPort = await listen(apkGateway);
+  try {
+    const download = await new Promise((resolve, reject) => {
+      http.get({
+        hostname: "127.0.0.1", port: apkGatewayPort, path: CAPACITOR_APK_PATH,
+      }, response => {
+        const chunks = [];
+        response.on("data", chunk => chunks.push(chunk));
+        response.on("end", () => resolve({
+          status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks),
+        }));
+      }).once("error", reject);
+    });
+    assert.equal(download.status, 200);
+    assert.equal(download.headers["content-type"], "application/vnd.android.package-archive");
+    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-Capacitor-TEST\.apk"/);
+    assert.equal(download.headers["x-content-type-options"], "nosniff");
+    assert.deepEqual(download.body, apkBytes);
+    const partial = await get(apkGatewayPort, CAPACITOR_APK_PATH, { range: "bytes=2-5" });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers["content-range"], `bytes 2-5/${apkBytes.length}`);
+    assert.equal(partial.headers["content-type"], "application/vnd.android.package-archive");
+  } finally {
+    await close(apkGateway);
+    fs.rmSync(apkFile, { force: true });
+  }
 
   const localApi = http.createServer((_request, response) => response.end("isolated local API"));
   const localApiPort = await listen(localApi);

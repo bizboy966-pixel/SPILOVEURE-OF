@@ -3,6 +3,8 @@
 // API without exposing MongoDB or relying on third-party browser cookies.
 const http = require("http");
 const httpProxy = require("http-proxy");
+const fs = require("fs");
+const path = require("path");
 
 const LOCAL_API = "http://127.0.0.1:8000";
 const LOCAL_WEB = `http://127.0.0.1:${process.env.SPV_METRO_PORT || 8080}`;
@@ -13,6 +15,70 @@ const BACKEND_PATHS = new Set([
   "/sitemap-android.xml",
   "/robots.txt",
 ]);
+const CAPACITOR_APK_PATH = "/downloads/capacitor-test.apk";
+const DEFAULT_CAPACITOR_APK = path.join(
+  __dirname, "../generated-artifacts/capacitor-test/SPILOVEURE-Capacitor-TEST-0.1.0.apk",
+);
+
+function serveCapacitorApk(request, response, apkFile) {
+  if (!["GET", "HEAD"].includes(request.method)) {
+    response.writeHead(405, { Allow: "GET, HEAD", "Content-Length": "0" });
+    response.end();
+    return true;
+  }
+  let stat;
+  try {
+    stat = fs.statSync(apkFile);
+  } catch {
+    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+    response.end("Prototype APK indisponible.");
+    return true;
+  }
+  const headers = {
+    "Content-Type": "application/vnd.android.package-archive",
+    "Content-Disposition": 'attachment; filename="SPILOVEURE-Capacitor-TEST.apk"',
+    "Content-Length": String(stat.size),
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+  let start = 0;
+  let end = stat.size - 1;
+  const range = request.headers.range;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || (!match[1] && !match[2])) {
+      response.writeHead(416, { "Content-Range": `bytes */${stat.size}`, "Cache-Control": "no-store" });
+      response.end();
+      return true;
+    }
+    if (!match[1]) {
+      const suffix = Number(match[2]);
+      start = Math.max(0, stat.size - suffix);
+    } else {
+      start = Number(match[1]);
+      end = match[2] ? Math.min(Number(match[2]), end) : end;
+    }
+    if (start >= stat.size || start > end) {
+      response.writeHead(416, { "Content-Range": `bytes */${stat.size}`, "Cache-Control": "no-store" });
+      response.end();
+      return true;
+    }
+    headers["Content-Length"] = String(end - start + 1);
+    headers["Content-Range"] = `bytes ${start}-${end}/${stat.size}`;
+    response.writeHead(206, headers);
+  } else {
+    response.writeHead(200, headers);
+  }
+  if (request.method === "HEAD") {
+    response.end();
+  } else {
+    const stream = fs.createReadStream(apkFile, { start, end });
+    stream.on("error", () => response.destroy());
+    stream.pipe(response);
+  }
+  return true;
+}
 
 function parsePreviewApiUpstream(raw) {
   if (!raw || !raw.trim()) return null;
@@ -81,6 +147,7 @@ function createGateway({
   allowedHosts = configuredGatewayHosts(),
   localApi = LOCAL_API,
   localWeb = LOCAL_WEB,
+  capacitorApkFile = DEFAULT_CAPACITOR_APK,
 } = {}) {
   const proxy = httpProxy.createProxyServer({ ws: true, changeOrigin: false });
   const isRemoteApiRequest = request => Boolean(apiUpstream && isBackendPath(request.url));
@@ -123,6 +190,10 @@ function createGateway({
   };
 
   const server = http.createServer((request, response) => {
+    if (new URL(request.url, "http://gateway.invalid").pathname === CAPACITOR_APK_PATH) {
+      serveCapacitorApk(request, response, capacitorApkFile);
+      return;
+    }
     if (rejectHttpHost(request, response)) return;
     const remote = isRemoteApiRequest(request);
     proxy.web(request, response, {
@@ -160,4 +231,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createGateway, isBackendPath, parsePreviewApiUpstream, resolvePreviewApiUpstream };
+module.exports = {
+  CAPACITOR_APK_PATH, createGateway, isBackendPath, parsePreviewApiUpstream,
+  resolvePreviewApiUpstream, serveCapacitorApk,
+};

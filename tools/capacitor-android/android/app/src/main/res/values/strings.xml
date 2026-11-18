@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SPILOVEURE Test Capacitor</string>
+    <string name="title_activity_main">SPILOVEURE Test Capacitor</string>
+    <string name="package_name">com.spiloveure.capacitor.test</string>
+    <string name="custom_url_scheme">com.spiloveure.capacitor.test</string>
+</resources>

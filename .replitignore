@@ -5,6 +5,7 @@
 .local
 /.migration-backup/
 /generated-artifacts/
+/tools/capacitor-android/
 /frontend/build/
 /frontend/.metro-cache/
 /.pythonlibs/

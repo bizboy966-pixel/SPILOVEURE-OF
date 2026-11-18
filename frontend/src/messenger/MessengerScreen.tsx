@@ -163,6 +163,20 @@ export default function MessengerScreen() {
   const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
   useEffect(() => {
+    if (Platform.OS !== "web" || process.env.EXPO_PUBLIC_CAPACITOR_TEST !== "1") return;
+    const onBack = (event: Event) => {
+      if (!selected) return;
+      event.preventDefault();
+      setSelected(null);
+      setSelectedMessageId(null);
+      setSelectedMessageConversationId(null);
+      setNotificationReplyTarget(null);
+    };
+    // Capture runs before the root's route-navigation handler.
+    window.addEventListener("spv-capacitor-back", onBack, true);
+    return () => window.removeEventListener("spv-capacitor-back", onBack, true);
+  }, [selected]);
+  useEffect(() => {
     if (Platform.OS !== "android") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       const action = resolveAndroidBackAction({

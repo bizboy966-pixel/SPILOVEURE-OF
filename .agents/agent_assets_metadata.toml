@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "8tIk3tNFtHrz1uXPE_rfU"
+uri = "file://generated-artifacts/capacitor-test/SPILOVEURE-Capacitor-TEST-0.1.0.apk"
+type = "unspecified"
+title = "APK INSTALLABLE — SPILOVEURE Test Capacitor"
+description = "Fichier APK Android direct, vérifié et signé ; ce n’est pas une archive ZIP à extraire. Garder Expo installée. Parcours sur Infinix Android 15 encore à valider."
+logical_id = "a3d31328-e8b6-4b4c-8f2c-249f99321208"
+content_hash = "sha256:7dbba4a2273bfa545282b3ad168332546a78add7f45c4f7099831545d1970f57"
+size = 10902725
+mtime_ms = 1795010026128
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/a3d31328-e8b6-4b4c-8f2c-249f99321208/77b0665e-979d-4baf-9c39-2894f8769623"
+storage_version_token = "1795010364421376"
+content_type = "application/octet-stream"

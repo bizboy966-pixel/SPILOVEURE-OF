@@ -1,0 +1,20 @@
+{
+  "appId": "com.spiloveure.capacitor.test",
+  "appName": "SPILOVEURE Test Capacitor",
+  "webDir": "www",
+  "server": {
+    "hostname": "spiloveure.org",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false,
+    "resolveServiceWorkerRequests": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true },
+    "CapacitorCookies": { "enabled": true }
+  }
+}
