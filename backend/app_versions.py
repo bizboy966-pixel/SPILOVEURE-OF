@@ -296,6 +296,16 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
         external_https = url.startswith("https://")
         if url and not (uploaded_path or external_https):
             raise HTTPException(400, "Le lien APK doit être HTTPS ou un fichier /api/uploads/ importé.")
+        if uploaded_path:
+            media = await request.app.state.db.media_uploads.find_one(
+                {"url": url}, {"_id": 0},
+            )
+            if not media or media.get("apk_validated") is not True:
+                raise HTTPException(
+                    400,
+                    "Ce fichier n’a pas été reconnu comme APK Android signé. "
+                    "Réimportez un APK de production valide avant de le publier.",
+                )
         patch["apk_url"] = url
     if "apk_version" in body:
         version = (body.get("apk_version") or "").strip()

@@ -278,39 +278,16 @@ app = FastAPI(lifespan=lifespan, title="SPILIVERE API")
 # error message (410 Gone) instead of the default StaticFiles 404 helps admins
 # understand that a file needs to be re-uploaded.
 from fastapi import APIRouter as _UploadsRouter  # noqa: E402
-from fastapi.responses import FileResponse, Response  # noqa: E402
+from fastapi.responses import Response  # noqa: E402
 import object_storage as _obj_storage  # noqa: E402
+from upload_delivery import serve_uploaded_file  # noqa: E402
 
 _uploads_api = _UploadsRouter()
 
 
 @_uploads_api.get("/api/uploads/{filename}")
 async def _serve_upload(filename: str):
-    # 1) Object storage (primary, persistent).
-    if _obj_storage.is_enabled():
-        try:
-            data, ctype = _obj_storage.get_upload(filename)
-            return Response(content=data, media_type=ctype)
-        except FileNotFoundError:
-            pass  # fall through to local disk
-        except Exception as e:  # noqa: BLE001
-            import logging
-            logging.getLogger("uploads").warning(f"object storage GET failed for {filename}: {e}")
-
-    # 2) Local disk (legacy fallback — dev / preview only).
-    local = UPLOADS_DIR / filename
-    if local.is_file():
-        return FileResponse(str(local))
-
-    # 3) File truly missing. Emit an explicit French error so admins & users
-    # understand that this file was lost and needs to be re-uploaded.
-    raise HTTPException(
-        status_code=410,
-        detail=(
-            "Ce fichier n'est plus disponible sur le serveur. "
-            "Veuillez contacter l'administration pour qu'il soit ré-uploadé."
-        ),
-    )
+    return serve_uploaded_file(filename, UPLOADS_DIR, _obj_storage)
 
 
 app.include_router(_uploads_api)

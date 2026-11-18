@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+from apk_validation import InvalidApk, validate_apk, upload_content_type
 
 log = logging.getLogger("digital_content")
 
@@ -89,6 +90,14 @@ async def admin_upload_file(
     except Exception as e:
         raise HTTPException(500, f"Échec d'upload: {e}")
 
+    is_apk = ext == ".apk"
+    if is_apk:
+        try:
+            validate_apk(bytes(buf))
+        except InvalidApk as e:
+            raise HTTPException(status_code=415, detail=str(e)) from None
+    content_type = upload_content_type(raw_name, file.content_type)
+
     # Write to local disk (best-effort — useful in dev / preview).
     try:
         with out_path.open("wb") as f:
@@ -103,7 +112,7 @@ async def admin_upload_file(
     try:
         import object_storage as _os_mod
         if _os_mod.is_enabled():
-            _os_mod.put_upload(out_name, bytes(buf), file.content_type or "application/octet-stream")
+            _os_mod.put_upload(out_name, bytes(buf), content_type)
             storage_ok = True
     except Exception as e:
         log.warning(f"object storage upload failed for {out_name}: {e}")
@@ -116,7 +125,8 @@ async def admin_upload_file(
         "stored_as": out_name,
         "url": f"/api/uploads/{out_name}",
         "size": total,
-        "content_type": file.content_type or "",
+        "content_type": content_type,
+        "apk_validated": is_apk,
         "uploaded_by": admin.get("username"),
         "uploaded_at": datetime.now(timezone.utc),
     }
@@ -130,6 +140,7 @@ async def admin_upload_file(
         "filename": raw_name,
         "size": total,
         "content_type": record["content_type"],
+        "apk_validated": is_apk,
         "storage_ok": storage_ok,
     }
 
