@@ -6,7 +6,7 @@ base de données ne sont compilés dans l'APK. Toutes les requêtes utilisent le
 VPS `https://spiloveure.org`. Elle garde le même identifiant Android que l'application Expo :
 `com.spilivere.app`.
 
-La version de transition préparée est **1.1.8 (code 9)**. Elle est signée avec
+La version de transition préparée est **1.1.9 (code 10)**. Elle est signée avec
 une nouvelle clé de production, distincte de la clé EAS inaccessible. Pour la
 première installation, les utilisateurs devront désinstaller l'ancienne APK
 Expo puis installer celle-ci. Les données conservées sur le VPS ne sont pas
@@ -72,7 +72,7 @@ pnpm --filter @workspace/capacitor-android run apk:release
 `apk:debug` est réservé aux essais et ne doit pas être distribué comme version
 officielle. `apk:release` refuse de produire une version officielle si les
 secrets de signature sont absents ou invalides. Il copie l'APK signée ici :
-`generated-artifacts/spiloveure/SPILOVEURE-1.1.8.apk`.
+`generated-artifacts/spiloveure/SPILOVEURE-1.1.9.apk`.
 
 L'export fixe explicitement le VPS et désactive la lecture des fichiers `.env`.
 Ne pas utiliser `cap init`/`cap add` de nouveau : le projet Android est conservé.

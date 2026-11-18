@@ -18,6 +18,7 @@ execFileSync("pnpm", ["--filter", "frontend", "exec", "expo", "export",
     CI: "1", EXPO_NO_TELEMETRY: "1", EXPO_NO_DOTENV: "1",
     EXPO_PUBLIC_BACKEND_URL: "https://spiloveure.org",
     EXPO_PUBLIC_CAPACITOR_NATIVE: "1",
+    EXPO_PUBLIC_CAPACITOR_VERSION: "1.1.9",
     EXPO_PUBLIC_TEST_BUILD: "0",
   },
 });
@@ -37,7 +38,7 @@ for (const name of ["sw.js", "firebase-messaging-sw.js", "manifest.webmanifest"]
   fs.rmSync(path.join(output, name), { force: true });
 }
 fs.writeFileSync(path.join(output, "capacitor-build.json"), JSON.stringify({
-  name: config.appName, applicationId: config.appId, version: "1.1.8", versionCode: 9,
+  name: config.appName, applicationId: config.appId, version: "1.1.9", versionCode: 10,
   backend: "https://spiloveure.org", bundledFrontend: true,
   builtAt: new Date().toISOString(), physicalDeviceValidated: false,
 }, null, 2));

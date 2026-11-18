@@ -34,3 +34,15 @@ scénarios de stabilité, de connexion et de médias ont été vérifiés.
 
 **How to apply:** Présenter l’essai initial comme réussi,
 mais ne pas annoncer la validation complète de toute la grille sans détails.
+
+Les polices et autres ressources embarquées ne doivent pas dépendre d'un
+chemin pnpm caché : le paquet Android peut écarter ces fichiers. Pour un
+téléchargement binaire avec progression, utiliser le gestionnaire Android,
+pas le transport CapacitorHttp configuré en texte.
+
+**Why:** Le format texte ne fournit pas un flux binaire fidèle ni une progression
+réseau exploitable, et Android a ignoré les polices sous `.pnpm`.
+
+**How to apply:** Copier uniquement les polices utilisées vers un chemin
+d'assets visible avant l'export, puis charger explicitement la famille. Garder
+un pont Android dédié pour les téléchargements APK et suivre les octets réels.

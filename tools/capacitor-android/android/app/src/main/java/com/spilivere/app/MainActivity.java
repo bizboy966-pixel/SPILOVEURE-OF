@@ -11,6 +11,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle state) {
+        registerPlugin(ApkInstallerPlugin.class);
         super.onCreate(state);
         bridge.setWebViewClient(new VpsMediaClient(bridge));
         bridge.getWebView().setWebChromeClient(new ChatChromeClient(bridge));

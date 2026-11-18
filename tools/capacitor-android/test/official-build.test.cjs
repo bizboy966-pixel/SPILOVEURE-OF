@@ -40,12 +40,30 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 9'));
-  assert.ok(gradle.includes('versionName "1.1.8"'));
+  assert.ok(gradle.includes('versionCode 10'));
+  assert.ok(gradle.includes('versionName "1.1.9"'));
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
   assert.ok(gradle.includes("validateOfficialReleaseSigning"));
+});
+
+test("Capacitor bundles Ionicons and uses Android's real APK download progress", () => {
+  const iconFonts = read("frontend/src/hooks/use-icon-fonts.ts");
+  const card = read("frontend/src/components/ApkDownloadCard.tsx");
+  const runtime = local("runtime.js");
+  const nativePlugin = local("android/app/src/main/java/com/spilivere/app/ApkInstallerPlugin.java");
+  const activity = local("android/app/src/main/java/com/spilivere/app/MainActivity.java");
+  assert.match(iconFonts, /EXPO_PUBLIC_CAPACITOR_NATIVE[\s\S]*BUNDLED_IONICONS_FONT/);
+  assert.ok(fs.existsSync(path.join(root, "frontend/assets/fonts/Ionicons.ttf")));
+  assert.match(card, /downloadApkInBrowser/);
+  assert.match(card, /getDownloadStatus/);
+  assert.match(card, /staleNativeRelease/);
+  assert.match(runtime, /registerPlugin\("ApkInstaller"\)/);
+  assert.match(activity, /registerPlugin\(ApkInstallerPlugin\.class\)/);
+  assert.match(nativePlugin, /DownloadManager/);
+  assert.match(nativePlugin, /VISIBILITY_VISIBLE_NOTIFY_COMPLETED/);
+  assert.match(nativePlugin, /spiloveure\.org/);
 });
 
 test("login and Chat calls explicitly use native HTTP, preserving errors", async () => {
@@ -116,6 +134,7 @@ test("back closes the conversation before navigating and asks before exiting", a
   const code = transformSync(local("runtime.js").replace(/^import .*;\n/gm, ""), { format: "cjs" }).code;
   vm.runInNewContext(code, {
     Capacitor: { isNativePlatform: () => true }, CapacitorHttp: {},
+    registerPlugin: name => ({ name }),
     installApiTransport() {},
     App: {
       addListener: async (name, callback) => { assert.equal(name, "backButton"); listener = callback; },

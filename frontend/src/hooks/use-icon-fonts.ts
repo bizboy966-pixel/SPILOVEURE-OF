@@ -1,8 +1,6 @@
-// Icon font loader for Expo apps. Fonts are loaded from a CDN only under
-// Expo Go (StoreClient) — that's where @expo/vector-icons' .ttf files come
-// back as 0 bytes from Metro's asset resolver on Android. Native dev/prod
-// builds and web pass an empty map, so useFonts resolves to [true, null]
-// immediately via react-native-vector-icons autolinking / web stubs.
+// Expo Go uses CDN fonts because Metro can return empty icon-font assets there.
+// The Capacitor web bundle must explicitly register Ionicons locally: it has
+// neither native autolinking nor the Expo Go CDN loader.
 // ICON_VECTOR_VERSION must match @expo/vector-icons in package.json.
 // Usage: const [loaded, error] = useIconFonts();
 
@@ -10,6 +8,9 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useFonts } from "expo-font";
 
 const ICON_VECTOR_VERSION = "15.0.3";
+// Keep a local copy outside pnpm's hidden .pnpm path: Android's asset packager
+// omits hidden directories, which otherwise leaves Ionicons without its font.
+const BUNDLED_IONICONS_FONT = require("../../assets/fonts/Ionicons.ttf");
 
 const ICON_FAMILIES = [
   "AntDesign",
@@ -45,7 +46,9 @@ const iconFontMap = (): Record<IconFamily, string> =>
 
 export const useIconFonts = (): readonly [boolean, Error | null] =>
   useFonts(
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
-      ? iconFontMap()
-      : {},
+    process.env.EXPO_PUBLIC_CAPACITOR_NATIVE === "1"
+      ? { Ionicons: BUNDLED_IONICONS_FONT }
+      : Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+        ? iconFontMap()
+        : {},
   );

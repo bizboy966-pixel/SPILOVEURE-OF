@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated,
   ActivityIndicator,
   Modal,
   Platform,
@@ -22,11 +23,77 @@ type ApkRelease = {
 };
 
 type DownloadPhase = "idle" | "downloading" | "complete" | "error";
+type NativeDownloadStatus = {
+  status: "pending" | "running" | "success" | "failed";
+  bytesDownloaded: number;
+  totalBytes: number;
+  error?: string;
+};
+type NativeApkBridge = {
+  startDownload: (options: { url: string; fileName: string; version: string }) =>
+    Promise<{ downloadId: number }>;
+  getDownloadStatus: (options: { downloadId: number }) => Promise<NativeDownloadStatus>;
+};
 
 function isAndroidBrowser(): boolean {
   return Platform.OS === "web"
     && typeof navigator !== "undefined"
     && /android/i.test(navigator.userAgent);
+}
+
+function isCapacitorAndroid(): boolean {
+  if (typeof window === "undefined") return false;
+  const capacitor = (window as any).Capacitor;
+  return capacitor?.isNativePlatform?.() === true
+    && capacitor?.getPlatform?.() === "android";
+}
+
+function getNativeApkBridge(): NativeApkBridge | null {
+  if (typeof window === "undefined") return null;
+  return (window as any).__SPV_APK_INSTALLER__ ?? null;
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = left.split(".").map(part => Number.parseInt(part, 10) || 0);
+  const rightParts = right.split(".").map(part => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function downloadApkInBrowser(
+  url: string,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<{ blob: Blob; totalBytes: number }> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    let totalBytes = 0;
+    request.open("GET", url, true);
+    request.responseType = "blob";
+    request.timeout = 120_000;
+    request.onprogress = event => {
+      totalBytes = event.lengthComputable ? event.total : 0;
+      onProgress(event.loaded, totalBytes);
+    };
+    request.onerror = () => reject(new Error("Connexion interrompue pendant le téléchargement."));
+    request.ontimeout = () => reject(new Error("Le téléchargement a dépassé le délai prévu."));
+    request.onabort = () => reject(new Error("Le téléchargement a été interrompu."));
+    request.onload = () => {
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(`Le serveur a refusé le téléchargement (${request.status}).`));
+        return;
+      }
+      if (!(request.response instanceof Blob)) {
+        reject(new Error("Le fichier APK reçu est illisible."));
+        return;
+      }
+      resolve({ blob: request.response, totalBytes });
+    };
+    request.send();
+  });
 }
 
 export function ApkDownloadCard() {
@@ -38,6 +105,7 @@ export function ApkDownloadCard() {
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [expectedBytes, setExpectedBytes] = useState(0);
   const downloadUrlRef = useRef<string | null>(null);
+  const indeterminateOpacity = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
     let active = true;
@@ -58,10 +126,26 @@ export function ApkDownloadCard() {
     if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
   }, []);
 
+  useEffect(() => {
+    if (downloadPhase !== "downloading" || expectedBytes > 0) return;
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(indeterminateOpacity, { toValue: 1, duration: 500, useNativeDriver: false }),
+        Animated.timing(indeterminateOpacity, { toValue: 0.45, duration: 500, useNativeDriver: false }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [downloadPhase, expectedBytes, indeterminateOpacity]);
+
   if (!isAndroidBrowser()) return null;
 
   const apkUrl = release?.apk_url ? resolveMediaUrl(release.apk_url) : "";
-  const ready = Boolean(apkUrl && release?.apk_version);
+  const nativeBuildVersion = process.env.EXPO_PUBLIC_CAPACITOR_VERSION || "";
+  const staleNativeRelease = isCapacitorAndroid()
+    && Boolean(nativeBuildVersion && release?.apk_version
+      && compareVersions(release.apk_version, nativeBuildVersion) <= 0);
+  const ready = Boolean(apkUrl && release?.apk_version && !staleNativeRelease);
 
   const download = async () => {
     if (!apkUrl || !release?.apk_version || typeof window === "undefined") return;
@@ -76,6 +160,8 @@ export function ApkDownloadCard() {
       return;
     }
 
+    const capacitorAndroid = isCapacitorAndroid();
+    const nativeBridge = capacitorAndroid ? getNativeApkBridge() : null;
     setDownloadPhase("downloading");
     setDownloadProgress(0);
     setDownloadedBytes(0);
@@ -83,42 +169,61 @@ export function ApkDownloadCard() {
     setExpectedBytes(configuredSize);
 
     try {
-      const response = await fetch(apkUrl, { credentials: "omit", cache: "no-store" });
-      if (!response.ok) throw new Error(`Le serveur a refusé le téléchargement (${response.status}).`);
+      if (capacitorAndroid) {
+        if (!nativeBridge) {
+          throw new Error("Le gestionnaire de téléchargement Android n’est pas disponible dans cette version.");
+        }
 
-      const contentLength = Number(response.headers.get("content-length") || 0);
-      const total = contentLength || configuredSize;
-      if (total > 0) setExpectedBytes(total);
-      if (!response.body?.getReader) {
-        throw new Error("Ce navigateur ne permet pas de suivre le téléchargement. Mets Chrome à jour et réessaie.");
-      }
+        const fileName = `SPILOVEURE-${release.apk_version}.apk`;
+        const { downloadId } = await nativeBridge.startDownload({
+          url: apkUrl,
+          fileName,
+          version: release.apk_version,
+        });
+        if (!Number.isFinite(downloadId)) throw new Error("Android n’a pas démarré le téléchargement.");
 
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-      let lastProgressUpdate = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        chunks.push(value);
-        received += value.byteLength;
-        const now = Date.now();
-        if (now - lastProgressUpdate >= 100) {
+        while (true) {
+          await new Promise(resolve => window.setTimeout(resolve, 350));
+          const status = await nativeBridge.getDownloadStatus({ downloadId });
+          const received = Math.max(0, status.bytesDownloaded || 0);
+          const total = status.totalBytes || configuredSize;
           setDownloadedBytes(received);
-          if (total > 0) setDownloadProgress(Math.min(1, received / total));
-          lastProgressUpdate = now;
+          if (total > 0) {
+            setExpectedBytes(total);
+            setDownloadProgress(Math.min(1, received / total));
+          }
+          if (status.status === "success") {
+            const finalSize = status.totalBytes || received;
+            setDownloadedBytes(received);
+            setExpectedBytes(finalSize);
+            setDownloadProgress(1);
+            setDownloadPhase("complete");
+            return;
+          }
+          if (status.status === "failed") {
+            throw new Error(status.error || "Le téléchargement a été interrompu par Android.");
+          }
         }
       }
 
-      if (received === 0) throw new Error("Le fichier APK reçu est vide.");
-      if (contentLength > 0 && received !== contentLength) {
-        throw new Error("Le téléchargement est incomplet. Vérifie ta connexion puis réessaie.");
+      const { blob, totalBytes: responseTotal } = await downloadApkInBrowser(apkUrl, (received, total) => {
+        setDownloadedBytes(received);
+        const expected = total || configuredSize;
+        if (expected > 0) {
+          setExpectedBytes(expected);
+          setDownloadProgress(Math.min(1, received / expected));
+        }
+      });
+      if (blob.size === 0) throw new Error("Le fichier APK reçu est vide.");
+      const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+      if (signature[0] !== 0x50 || signature[1] !== 0x4b) {
+        throw new Error("Le serveur n’a pas envoyé un fichier APK valide. La bonne APK doit être publiée.");
       }
 
-      const blob = new Blob(chunks as BlobPart[], { type: "application/vnd.android.package-archive" });
+      const received = blob.size;
+      const total = responseTotal || received;
       if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
-      const objectUrl = URL.createObjectURL(blob);
+      const objectUrl = URL.createObjectURL(new Blob([blob], { type: "application/vnd.android.package-archive" }));
       downloadUrlRef.current = objectUrl;
       const link = document.createElement("a");
       link.href = objectUrl;
@@ -168,7 +273,8 @@ export function ApkDownloadCard() {
       ) : ready ? (
         <TouchableOpacity
           onPress={download}
-          style={styles.button}
+          style={[styles.button, downloadPhase === "downloading" && styles.buttonDisabled]}
+          disabled={downloadPhase === "downloading"}
           activeOpacity={0.85}
           accessibilityRole="button"
           testID="profile-apk-download-button"
@@ -178,7 +284,9 @@ export function ApkDownloadCard() {
         </TouchableOpacity>
       ) : (
         <Text style={styles.status} testID="profile-apk-unavailable">
-          {error || "La nouvelle version Android n’est pas encore publiée."}
+          {error || (staleNativeRelease
+            ? `Le serveur propose encore la version ${release?.apk_version}. Publie l’APK officielle ${nativeBuildVersion} pour activer le téléchargement.`
+            : "La nouvelle version Android n’est pas encore publiée.")}
         </Text>
       )}
       <Modal
@@ -210,18 +318,25 @@ export function ApkDownloadCard() {
             {downloadPhase === "downloading" ? (
               <>
                 <View style={styles.progressTrack} accessibilityRole="progressbar">
-                  <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+                  {expectedBytes > 0 ? (
+                    <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+                  ) : (
+                    <Animated.View style={[styles.progressFill, styles.indeterminateFill, { opacity: indeterminateOpacity }]} />
+                  )}
                 </View>
                 <Text style={styles.progressLabel}>
                   {expectedBytes > 0
                     ? `${Math.round(downloadProgress * 100)} % · ${formatBytes(downloadedBytes)} / ${formatBytes(expectedBytes)}`
-                    : `${formatBytes(downloadedBytes)} téléchargés`}
+                    : downloadedBytes > 0
+                      ? `${formatBytes(downloadedBytes)} reçus · taille totale inconnue`
+                      : "Connexion au serveur…"}
                 </Text>
-                {expectedBytes <= 0 ? <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 10 }} /> : null}
               </>
             ) : downloadPhase === "complete" ? (
               <Text style={styles.modalDescription}>
-                Dans Chrome, ouvre « Téléchargements » et touche le fichier SPILOVEURE pour lancer l’installation. Android te demandera de confirmer.
+                {isCapacitorAndroid()
+                  ? "Le fichier APK est téléchargé. Touche la notification Android SPILOVEURE pour lancer l’installation."
+                  : "Dans Chrome, ouvre « Téléchargements » et touche le fichier SPILOVEURE pour lancer l’installation. Android te demandera de confirmer."}
               </Text>
             ) : (
               <Text style={styles.modalError}>{error}</Text>
@@ -247,7 +362,8 @@ export function ApkDownloadCard() {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} Ko`;
+  if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} octet${bytes === 1 ? "" : "s"}`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} Ko`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
@@ -278,6 +394,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   buttonText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  buttonDisabled: { opacity: 0.65 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(8, 20, 40, 0.68)",
@@ -317,6 +434,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   progressFill: { height: "100%", borderRadius: 99, backgroundColor: theme.colors.primary },
+  indeterminateFill: { width: "36%" },
   progressLabel: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "700", marginTop: 10, textAlign: "center" },
   modalDescription: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
   modalError: { color: "#B42318", fontSize: 13, lineHeight: 19, textAlign: "center" },
