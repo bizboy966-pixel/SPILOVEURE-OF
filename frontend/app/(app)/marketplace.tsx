@@ -6,6 +6,7 @@ import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 import { useI18n } from "@/src/i18n";
+import { isAndroidApkWebView } from "@/src/utils/isAndroidApkWebView";
 
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
 type Listing = {
@@ -19,6 +20,8 @@ type Listing = {
 function MarketplaceScreenInner() {
   const { t } = useI18n();
   const router = useRouter();
+  const isApkWebView = isAndroidApkWebView();
+  const ScreenContainer = isApkWebView ? View : SafeAreaView;
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [imgIdx, setImgIdx] = useState<Record<string, number>>({});
@@ -243,7 +246,7 @@ function MarketplaceScreenInner() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    <ScreenContainer style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="mk-back"><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
         <Text style={styles.title}>{t("marketplace.title")}</Text>
@@ -279,7 +282,7 @@ function MarketplaceScreenInner() {
         description={lightbox.description}
         testID="mk-lightbox"
       />
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 

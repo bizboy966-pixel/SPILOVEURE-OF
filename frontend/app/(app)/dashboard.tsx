@@ -23,6 +23,7 @@ import { formatFCFA } from "@/src/utils/format";
 import { useServiceBadges } from "@/src/hooks/useServiceBadges";
 import { useActivationGuard } from "@/src/components/ActivationGuard";
 import { useI18n } from "@/src/i18n";
+import { isAndroidApkWebView } from "@/src/utils/isAndroidApkWebView";
 
 /* -------------------------------------------------------------
  * Quick action pills — Depot / Retrait / Envoyer / Echanger.
@@ -59,6 +60,7 @@ const SERVICE_CARDS: Array<{
 export default function Dashboard() {
   const { t } = useI18n();
   const { user, refresh } = useAuth();
+  const isApkWebView = isAndroidApkWebView();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -147,13 +149,13 @@ export default function Dashboard() {
   return (
     <View style={styles.container}>
       {/* Header — gradient + brand + action buttons */}
-      <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
-        <SafeAreaView edges={["top"]}>
-          <View style={styles.headerRow}>
+      <LinearGradient colors={theme.colors.primaryGradient} style={[styles.header, isApkWebView && styles.apkHeader]}>
+        <SafeAreaView edges={isApkWebView ? [] : ["top"]}>
+          <View style={[styles.headerRow, isApkWebView && styles.apkHeaderRow]}>
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/spiloveure-logo.png")}
-                style={styles.brandLogo} resizeMode="contain"
+                style={[styles.brandLogo, isApkWebView && styles.apkBrandLogo]} resizeMode="contain"
               />
               <View>
                 <Text style={styles.brand}>SPILOVEURE</Text>
@@ -162,7 +164,7 @@ export default function Dashboard() {
             </View>
             <View style={{ flexDirection: "row" }}>
               <TouchableOpacity
-                style={styles.headerIconBtn}
+                style={[styles.headerIconBtn, isApkWebView && styles.apkHeaderIconBtn]}
                 onPress={() => guardedNavigate("/(app)/notifications")}
                 testID="dashboard-notifications-btn"
               >
@@ -173,7 +175,7 @@ export default function Dashboard() {
                   </View>
                 ) : null}
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconBtn} onPress={() => { if (isPending) return showModal(); setMenuOpen(true); }} testID="dashboard-menu-btn">
+              <TouchableOpacity style={[styles.headerIconBtn, isApkWebView && styles.apkHeaderIconBtn]} onPress={() => { if (isPending) return showModal(); setMenuOpen(true); }} testID="dashboard-menu-btn">
                 <Ionicons name="ellipsis-vertical" size={18} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -383,16 +385,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingBottom: 12, paddingHorizontal: 16 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
+  apkHeader: { paddingBottom: 8, paddingHorizontal: 14 },
+  apkHeaderRow: { marginTop: 0 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   brand: { color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: 1.5 },
   brandSub: { color: "#A5C2FF", fontSize: 9, letterSpacing: 1.5 },
   brandLogo: { width: 40, height: 40, borderRadius: 20 },
+  apkBrandLogo: { width: 34, height: 34, borderRadius: 17 },
   headerIconBtn: {
     width: 38, height: 38, borderRadius: 19, marginLeft: 8,
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center", justifyContent: "center",
     position: "relative",
   },
+  apkHeaderIconBtn: { width: 34, height: 34, borderRadius: 17 },
   notifBadge: {
     position: "absolute", top: -2, right: -2, minWidth: 18, height: 18,
     borderRadius: 9, backgroundColor: "#EF4444", paddingHorizontal: 4,
