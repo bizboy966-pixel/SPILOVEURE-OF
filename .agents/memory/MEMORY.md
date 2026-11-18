@@ -12,4 +12,4 @@
 - [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.
 - [Récupération du mot de passe](password-recovery-policy.md) — révoquer les accès antérieurs sans bloquer une reconnexion immédiate ni contourner l’activation.
 - [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.
-- [APK Android en WebView](apk-webview.md) — l’APK Android doit charger le site SPILOVEURE en WebView, garder les barres système et laisser le backend sur le VPS.
+- [APK Android avec Expo natif](apk-expo-native.md) — l’APK doit afficher les écrans Expo natifs, garder les barres système et utiliser le backend du VPS.
