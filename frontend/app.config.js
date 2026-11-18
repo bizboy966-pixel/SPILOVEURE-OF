@@ -43,7 +43,7 @@ module.exports = () => {
       ...base.android,
       package: androidTest ? `${base.android.package}.preview` : base.android.package,
       versionCode: Number(process.env.ANDROID_VERSION_CODE || 1),
-      // Web media capture asks for mic/camera only when the site uses them.
+      // Chat media capture needs camera and microphone access.
       permissions: [
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",

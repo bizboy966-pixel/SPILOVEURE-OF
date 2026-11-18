@@ -53,6 +53,15 @@ process.env.SPV_ANDROID_RELEASE = "1";
 assert.throws(config, /release refused/);
 process.env.EXPO_PUBLIC_BACKEND_URL = "https://official.example";
 assert.equal(config().android.package, live.android.package);
+process.env.SPV_ANDROID_RELEASE = "1";
+process.env.ANDROID_VERSION_CODE = profiles["production-apk"].env.ANDROID_VERSION_CODE;
+const production = config();
+assert.equal(production.version, "1.1.5");
+assert.equal(production.android.versionCode, 6);
+assert.equal(production.android.package, "com.spilivere.app");
+assert.equal(profiles["production-apk"].credentialsSource, "remote");
+assert.equal(profiles["production-apk"].android.buildType, "apk");
+assert.equal(profiles["production-apk"].env.EXPO_PUBLIC_BACKEND_URL, "https://spiloveure.org");
 
 const exported = {};
 const compiled = ts.transpileModule(fs.readFileSync("frontend/src/testBuildSafety.ts", "utf8"), {

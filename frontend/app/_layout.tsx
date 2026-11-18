@@ -12,6 +12,7 @@ import { WelcomeSplash } from "@/src/components/WelcomeSplash";
 import { GlobalFonts } from "@/src/components/GlobalFonts";
 import { ChatProvider } from "@/src/chat/ChatContext";
 import ChatPushBootstrap from "@/src/components/ChatPushBootstrap";
+import AndroidApkUpdateManager from "@/src/components/AndroidApkUpdateManager";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -100,6 +101,7 @@ export default function RootLayout() {
             <AnimatedSplash />
             <WelcomeSplash />
             <ChatPushBootstrap />
+            <AndroidApkUpdateManager />
           </FeaturesProvider>
           </ChatProvider>
         </AuthProvider>
