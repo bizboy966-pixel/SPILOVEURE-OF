@@ -40,12 +40,12 @@ serveur officiel.
 séparées, sans opérations financières réelles. Ne jamais présenter cette
 version d’essai comme l’APK officiel validé ni l’installer à la place de celui-ci.
 
-EAS Build depuis GitHub doit aussi convertir dans son espace temporaire les
-URL du lockfile qui pointent vers le registre interne Replit ; les workers
-Expo ne peuvent pas résoudre ce nom d’hôte.
+Les dépendances d'une compilation distante doivent être accessibles depuis
+le réseau du fournisseur de compilation, pas seulement depuis Replit.
 
 **Why:** La première compilation de test s’est arrêtée pendant l’installation
 des paquets, avant toute étape de compilation Android.
 
-**How to apply:** Garder cette conversion limitée au hook EAS de `test-apk`,
-sans réécrire les lockfiles du dépôt ni changer le flux de dépendances de Replit.
+**How to apply:** Vérifier les contraintes réseau du service de build et le
+gestionnaire de paquets réellement utilisé avant de modifier un verrouillage.
+Ne pas reporter une adaptation temporaire de registre sur le contexte VPS.

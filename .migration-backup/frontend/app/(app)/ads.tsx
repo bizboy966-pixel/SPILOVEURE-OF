@@ -1,0 +1,589 @@
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { theme } from "../../src/theme";
+import { api } from "../../src/api";
+import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
+import { LinkifiedText } from "@/src/components/LinkifiedText";
+import { useAuth } from "@/src/auth";
+import { useI18n } from "@/src/i18n";
+
+type Comment = {
+  id: string;
+  user_id: string;
+  username: string;
+  text: string;
+  at: string;
+  is_reply?: boolean;
+  reply_to_comment_id?: string;
+  reply_to_username?: string;
+  reply_to_text?: string;
+};
+type Ad = {
+  id: string;
+  user_id: string;
+  username: string;
+  cover_image_url: string;
+  video_url: string;
+  description: string;
+  media_type?: "video" | "poster";
+  views_count: number;
+  shares_count: number;
+  likes: string[];
+  comments: Comment[];
+  published_at?: string;
+};
+
+import { FeatureGuard } from "@/src/components/FeatureGuard";
+
+function AdsScreenInner() {
+  const { t } = useI18n();
+  const router = useRouter();
+  const { user } = useAuth();
+  const [ads, setAds] = useState<Ad[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [descExpanded, setDescExpanded] = useState<Record<string, boolean>>({});
+  const [newComment, setNewComment] = useState<Record<string, string>>({});
+  // Which comment is currently being replied to, keyed by adId → commentId.
+  const [replyTo, setReplyTo] = useState<Record<string, Comment | null>>({});
+  const lightbox = useMediaLightbox();
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ items: Ad[] }>("/ads");
+      setAds(r.items || []);
+      // Consuming the ads feed clears the "new ads" badge on the bottom-nav
+      // so the user isn't nagged twice for the same publication.
+      api.post("/ads/mark-seen").catch(() => {});
+    } catch {}
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onLike = async (adId: string) => {
+    try {
+      const r = await api.post<{ liked: boolean; likes_count: number }>(`/ads/${adId}/like`);
+      setAds((prev) => prev.map((a) => a.id === adId ? { ...a, likes: r.liked ? [...a.likes, "me"] : a.likes.slice(0, -1) } : a));
+    } catch {}
+  };
+
+  const onShare = async (adId: string) => {
+    try {
+      await api.post(`/ads/${adId}/share`);
+      setAds((prev) => prev.map((a) => a.id === adId ? { ...a, shares_count: a.shares_count + 1 } : a));
+      if (typeof window !== "undefined" && navigator?.share) {
+        try { await navigator.share({ url: window.location.href }); } catch {}
+      }
+    } catch {}
+  };
+
+  const onView = async (adId: string) => {
+    try { await api.post(`/ads/${adId}/view`); } catch {}
+  };
+
+  const [commentPosting, setCommentPosting] = useState<Record<string, boolean>>({});
+  const [commentError, setCommentError] = useState<Record<string, string>>({});
+
+  const onComment = async (adId: string) => {
+    const text = (newComment[adId] || "").trim();
+    if (!text) {
+      setCommentError((e) => ({ ...e, [adId]: "Veuillez écrire un commentaire." }));
+      return;
+    }
+    setCommentPosting((s) => ({ ...s, [adId]: true }));
+    setCommentError((e) => ({ ...e, [adId]: "" }));
+
+    const currentReply = replyTo[adId];
+    const ad = ads.find((a) => a.id === adId);
+    const isCreator = !!ad && ad.user_id === user?.id;
+    // If the user is the ad creator AND replying to a specific comment, hit
+    // the reply endpoint (free, no reward). Otherwise the classic comment
+    // endpoint (with anti-spam + reactor reward).
+    const useReply = isCreator && !!currentReply;
+
+    try {
+      if (useReply && currentReply) {
+        const r = await api.post<{ reply: Comment }>(
+          `/ads/${adId}/comment/reply`,
+          { text, reply_to_comment_id: currentReply.id },
+        );
+        setAds((prev) =>
+          prev.map((a) =>
+            a.id === adId
+              ? { ...a, comments: [...a.comments, r.reply] }
+              : a,
+          ),
+        );
+        setReplyTo((r) => ({ ...r, [adId]: null }));
+        setNewComment((n) => ({ ...n, [adId]: "" }));
+      } else {
+        const r = await api.post<{ comment: Comment; reward?: { amount: number } | null }>(
+          `/ads/${adId}/comment`, { text },
+        );
+        setAds((prev) =>
+          prev.map((a) =>
+            a.id === adId
+              ? { ...a, comments: [...a.comments, r.comment] }
+              : a,
+          ),
+        );
+        setNewComment((n) => ({ ...n, [adId]: "" }));
+        if (r.reward && r.reward.amount) {
+          if (typeof window !== "undefined") {
+            window.alert(t("ads.comment_reward", { amount: r.reward.amount }));
+          }
+        }
+      }
+    } catch (err: any) {
+      const msg =
+        (err?.detail && String(err.detail)) ||
+        (err?.message && String(err.message)) ||
+        t("ads.comment_send_error");
+      setCommentError((e) => ({ ...e, [adId]: msg }));
+    } finally {
+      setCommentPosting((s) => ({ ...s, [adId]: false }));
+    }
+  };
+
+  const onDeleteComment = async (adId: string, commentId: string) => {
+    if (user?.role !== "admin") return;
+    if (typeof window !== "undefined") {
+      if (!window.confirm(t("ads.delete_confirm"))) return;
+    }
+    try {
+      await api.delete(`/admin/ads/${adId}/comments/${commentId}`);
+      setAds((prev) =>
+        prev.map((a) =>
+          a.id === adId
+            ? { ...a, comments: a.comments.filter((c) => c.id !== commentId) }
+            : a,
+        ),
+      );
+    } catch (err: any) {
+      if (typeof window !== "undefined") {
+        window.alert(`❌ ${err?.detail || err?.message || t("ads.delete_failed")}`);
+      }
+    }
+  };
+
+  const renderAd = ({ item }: { item: Ad }) => {
+    const isExpanded = expandedId === item.id;
+    const isPoster = item.media_type === "poster";
+    const videoSrc = item.video_url && !item.video_url.startsWith("http") ? `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${item.video_url}` : item.video_url;
+    const coverSrc = item.cover_image_url.startsWith("http") ? item.cover_image_url : `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}${item.cover_image_url}`;
+    return (
+      <View style={styles.card} testID={`ad-card-${item.id}`}>
+        <View style={styles.cardHead}>
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+          <Text style={styles.username}>@{item.username}</Text>
+        </View>
+        {isPoster ? (
+          <TouchableOpacity
+            activeOpacity={0.95}
+            onPress={() => {
+              onView(item.id);
+              lightbox.openAt(
+                [{ kind: "image", url: item.cover_image_url }],
+                0,
+                { title: `@${item.username}`, description: item.description },
+              );
+            }}
+            testID={`ad-open-cover-${item.id}`}
+          >
+            <Image source={{ uri: coverSrc }} style={styles.cover} resizeMode="contain" />
+            <View style={styles.zoomHint} pointerEvents="none">
+              <Ionicons name="expand" size={12} color="#fff" />
+              <Text style={styles.zoomHintTxt}>{t("ads.view_large")}</Text>
+            </View>
+          </TouchableOpacity>
+        ) : typeof window !== "undefined" ? (
+          // @ts-ignore RN Web renders HTML tags
+          <video
+            src={videoSrc}
+            poster={coverSrc}
+            controls
+            playsInline
+            preload="metadata"
+            onPlay={() => onView(item.id)}
+            style={{ width: "100%", maxHeight: 420, backgroundColor: "#000" }}
+          />
+        ) : (
+          <Image source={{ uri: coverSrc }} style={styles.cover} />
+        )}
+        <LinkifiedText
+          style={styles.desc}
+          numberOfLines={descExpanded[item.id] ? undefined : 4}
+          selectable
+          testID={`ad-desc-${item.id}`}
+        >
+          {item.description}
+        </LinkifiedText>
+        {(item.description || "").length > 180 && (
+          <TouchableOpacity
+            onPress={() => setDescExpanded((s) => ({ ...s, [item.id]: !s[item.id] }))}
+            testID={`ad-desc-toggle-${item.id}`}
+          >
+            <Text style={styles.descToggle}>
+              {descExpanded[item.id] ? "▲ Voir moins" : "▼ Lire la suite"}
+            </Text>
+          </TouchableOpacity>
+        )}
+        <View style={styles.actionsRow}>
+          <TouchableOpacity onPress={() => onLike(item.id)} style={styles.action} testID={`ad-like-${item.id}`}>
+            <Ionicons name="heart" size={20} color={theme.colors.danger} />
+            <Text style={styles.actionN}>{item.likes.length}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setExpandedId(isExpanded ? null : item.id)} style={styles.action} testID={`ad-comment-${item.id}`}>
+            <Ionicons name="chatbubble-outline" size={20} color={theme.colors.textPrimary} />
+            <Text style={styles.actionN}>{item.comments.length}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onShare(item.id)} style={styles.action} testID={`ad-share-${item.id}`}>
+            <Ionicons name="share-social" size={20} color={theme.colors.textPrimary} />
+            <Text style={styles.actionN}>{item.shares_count}</Text>
+          </TouchableOpacity>
+          <View style={styles.action}>
+            <Ionicons name="eye-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={styles.actionN}>{item.views_count}</Text>
+          </View>
+        </View>
+        {isExpanded && (
+          <View style={styles.commentsBox}>
+            {item.comments.length === 0 ? (
+              <Text style={styles.commentsEmpty}>{t("ads.comments_empty")}</Text>
+            ) : (
+              item.comments.map((c) => {
+                const isCreator = c.user_id === item.user_id;
+                const canReply = user?.id === item.user_id && !c.is_reply;
+                const canDelete = user?.role === "admin";
+                return (
+                  <View
+                    key={c.id}
+                    style={[
+                      styles.commentItem,
+                      c.is_reply && styles.commentReplyItem,
+                    ]}
+                    testID={`ad-comment-item-${c.id}`}
+                    nativeID={`ad-comment-item-${c.id}`}
+                  >
+                    {/* WhatsApp-style quote block when this comment is a
+                        creator's reply targeting a parent comment. */}
+                    {c.is_reply && c.reply_to_username && (
+                      <View style={styles.quoteBlock} testID={`ad-comment-quote-${c.id}`} nativeID={`ad-comment-quote-${c.id}`}>
+                        <View style={styles.quoteBar} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.quoteUser}>Réponse à @{c.reply_to_username}</Text>
+                          <Text style={styles.quoteText} numberOfLines={2}>
+                            {c.reply_to_text || ""}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentUser}>
+                        @{c.username}
+                        {isCreator && !c.is_reply && (
+                          <Text style={styles.badgeCreator}> · {t("ads.creator")}</Text>
+                        )}
+                        {c.is_reply && (
+                          <Text style={styles.badgeCreator}> · {t("ads.creator")}</Text>
+                        )}
+                      </Text>
+                      <View style={styles.commentActions}>
+                        {canReply && (
+                          <TouchableOpacity
+                            onPress={() => setReplyTo((r) => ({ ...r, [item.id]: c }))}
+                            testID={`ad-comment-reply-${c.id}`}
+                          >
+                            <Ionicons name="return-up-back" size={16} color={theme.colors.primary} />
+                          </TouchableOpacity>
+                        )}
+                        {canDelete && (
+                          <TouchableOpacity
+                            onPress={() => onDeleteComment(item.id, c.id)}
+                            testID={`ad-comment-delete-${c.id}`}
+                            style={{ marginLeft: 10 }}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={styles.commentText}>{c.text}</Text>
+                  </View>
+                );
+              })
+            )}
+
+            {/* Reply preview banner (WhatsApp-style) */}
+            {replyTo[item.id] && user?.id === item.user_id && (
+              <View style={styles.replyPreview} testID={`ad-reply-preview-${item.id}`}>
+                <View style={styles.quoteBar} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.quoteUser}>Réponse à @{replyTo[item.id]?.username}</Text>
+                  <Text style={styles.quoteText} numberOfLines={2}>
+                    {replyTo[item.id]?.text || ""}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setReplyTo((r) => ({ ...r, [item.id]: null }))}
+                  testID={`ad-reply-cancel-${item.id}`}
+                  hitSlop={10}
+                >
+                  <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={styles.commentInput}
+                placeholder={
+                  replyTo[item.id] && user?.id === item.user_id
+                    ? t("ads.reply_to", { username: replyTo[item.id]?.username || "" })
+                    : t("ads.add_comment")
+                }
+                value={newComment[item.id] || ""}
+                onChangeText={(v) => {
+                  setNewComment((n) => ({ ...n, [item.id]: v }));
+                  // Clear any lingering error the instant the user edits the
+                  // field again — otherwise the banner from a previous failed
+                  // attempt stays visible while they type a corrected version.
+                  if (commentError[item.id]) {
+                    setCommentError((e) => ({ ...e, [item.id]: "" }));
+                  }
+                }}
+                editable={!commentPosting[item.id]}
+                onSubmitEditing={() => onComment(item.id)}
+                returnKeyType="send"
+                testID={`ad-comment-input-${item.id}`}
+              />
+              <TouchableOpacity
+                onPress={() => onComment(item.id)}
+                disabled={!!commentPosting[item.id]}
+                style={[styles.commentSend, commentPosting[item.id] && { opacity: 0.6 }]}
+                testID={`ad-comment-send-${item.id}`}
+              >
+                {commentPosting[item.id] ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="send" size={16} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+            {commentError[item.id] ? (
+              <Text style={styles.commentErr} testID={`ad-comment-error-${item.id}`}>
+                ⚠️ {commentError[item.id]}
+              </Text>
+            ) : null}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="ads-back">
+          <Ionicons name="arrow-back" size={22} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.title}>{t("ads.title")}</Text>
+        <TouchableOpacity onPress={() => router.push("/(app)/ad-create" as any)} style={styles.createBtn} testID="ads-create">
+          <Ionicons name="add" size={22} color="#fff" />
+        </TouchableOpacity>
+      </View>
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={ads}
+          keyExtractor={(a) => a.id}
+          renderItem={renderAd}
+          contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="megaphone-outline" size={48} color={theme.colors.textSecondary} />
+              <Text style={styles.emptyTitle}>{t("ads.empty_title")}</Text>
+              <Text style={styles.emptyHint}>{t("ads.empty_hint")}</Text>
+            </View>
+          }
+          testID="ads-feed"
+        />
+      )}
+      <MediaLightbox
+        open={lightbox.open}
+        slides={lightbox.slides}
+        index={lightbox.index}
+        onClose={lightbox.close}
+        onIndexChange={lightbox.setIndex}
+        title={lightbox.title}
+        description={lightbox.description}
+        testID="ad-lightbox"
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.colors.background },
+  header: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14,
+    backgroundColor: theme.colors.primary,
+  },
+  backBtn: {
+    width: 36, height: 36, borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  createBtn: {
+    marginLeft: "auto",
+    width: 36, height: 36, borderRadius: 22,
+    backgroundColor: theme.colors.success,
+    alignItems: "center", justifyContent: "center",
+  },
+  title: { color: "#fff", fontWeight: "900", fontSize: 18 },
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg, marginBottom: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: theme.colors.border,
+    ...theme.shadow.card,
+  },
+  cardHead: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },
+  avatar: {
+    width: 32, height: 32, borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  username: { fontWeight: "800", color: theme.colors.textPrimary, fontSize: 13 },
+  cover: { width: "100%", height: 320, backgroundColor: "#000" },
+  desc: { padding: 10, color: theme.colors.textPrimary, fontSize: 13, lineHeight: 18 },
+  descToggle: { paddingHorizontal: 10, marginTop: -4, marginBottom: 4, fontSize: 12, fontWeight: "800", color: theme.colors.primary },
+  zoomHint: {
+    position: "absolute", top: 8, left: 8,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 14,
+  },
+  zoomHintTxt: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  actionsRow: {
+    flexDirection: "row", gap: 16, paddingHorizontal: 10, paddingBottom: 10,
+  },
+  action: { flexDirection: "row", alignItems: "center", gap: 4 },
+  actionN: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "700" },
+  commentsBox: {
+    padding: 10, borderTopWidth: 1, borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
+  },
+  commentsEmpty: { color: theme.colors.textSecondary, fontStyle: "italic", fontSize: 12 },
+  commentItem: { paddingVertical: 4 },
+  commentUser: { fontWeight: "800", fontSize: 12, color: theme.colors.primary },
+  commentText: { fontSize: 12, color: theme.colors.textPrimary },
+  commentInputRow: { flexDirection: "row", gap: 6, marginTop: 8 },
+  commentInput: {
+    flex: 1, borderWidth: 1, borderColor: theme.colors.border,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12,
+    backgroundColor: theme.colors.surface,
+  },
+  commentSend: {
+    width: 32, height: 32, borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  commentErr: {
+    color: theme.colors.danger,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  commentReplyItem: {
+    marginLeft: 20,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: theme.colors.primary,
+    backgroundColor: "rgba(59,130,246,0.04)",
+    borderRadius: 8,
+  },
+  commentHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2,
+  },
+  commentActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  badgeCreator: {
+    color: theme.colors.primary,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  quoteBlock: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    backgroundColor: "rgba(15,23,42,0.05)",
+    borderRadius: 10,
+    padding: 6,
+    marginBottom: 4,
+  },
+  quoteBar: {
+    width: 3,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 2,
+    alignSelf: "stretch",
+  },
+  quoteUser: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: theme.colors.primary,
+    marginBottom: 1,
+  },
+  quoteText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    fontStyle: "italic",
+  },
+  replyPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(59,130,246,0.08)",
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  empty: { alignItems: "center", padding: 40, gap: 6 },
+  emptyTitle: { fontWeight: "900", fontSize: 15, color: theme.colors.textPrimary },
+  emptyHint: { fontSize: 12, color: theme.colors.textSecondary },
+});
+
+
+export default function AdsScreen() {
+  return (
+    <FeatureGuard featureKey="ads" title="Publicité désactivée">
+      <AdsScreenInner />
+    </FeatureGuard>
+  );
+}

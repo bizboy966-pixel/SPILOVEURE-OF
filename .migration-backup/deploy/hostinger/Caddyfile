@@ -1,0 +1,18 @@
+{$DOMAIN} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8001
+	}
+
+@android_public path /telecharger /telecharger/ /sitemap-android.xml /robots.txt
+handle @android_public {
+reverse_proxy backend:8001
+}
+
+	handle {
+		root * /srv
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+}

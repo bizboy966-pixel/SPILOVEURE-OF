@@ -1,0 +1,7 @@
+kind = "api"
+previewPath = "/__scaffold-api"
+title = "API Server"
+version = "1.0.0"
+id = "3B4_FFSkEVBkAeYMFRJ2e"
+# Reserved scaffold only. SPILOVEURE uses its existing VPS API.
+services = []

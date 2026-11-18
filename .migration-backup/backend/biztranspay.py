@@ -1,0 +1,1631 @@
+"""Biz-transPay (SoftPay) integration — Integration API v1 (2026-02-24).
+
+Documentation: https://biz-transpay.com/integration/docs
+Scope: TG / BJ / BF (XOF), Mobile Money.
+
+Endpoints (Integration v1):
+  • POST /api/integration/v1/deposits            — pay-in (Mobile Money)
+  • POST /api/integration/v1/payouts             — pay-out (Mobile Money)
+  • GET  /api/integration/v1/deposits/{id}       — status polling (payin)
+  • GET  /api/integration/v1/payouts/{id}        — status polling (payout)
+  • Webhook: HMAC-SHA256 on `timestamp + "." + raw_body`
+
+Authentication (per new doc): TWO keys required on every request
+  • Authorization: Bearer <secret_key>
+  • X-Public-Key: <public_key>
+
+Config lives in `app_settings.payment_gateway.value` under keys:
+  • biztranspay_enabled       (bool)  master switch
+  • biztranspay_payin_enabled (bool)  activations
+  • biztranspay_payout_enabled(bool)  auto-withdrawal
+  • biztranspay_public_key    (str)   Public key (pk_test_* / pk_live_*)
+  • biztranspay_secret_key    (str)   Secret key (sk_test_* / sk_live_*)
+  • biztranspay_webhook_secret(str)   HMAC secret
+  • biztranspay_countries     (dict)  per-country per-operator toggles
+"""
+from __future__ import annotations
+import hashlib
+import hmac
+import logging
+from pymongo.errors import DuplicateKeyError
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from auth import get_current_user, require_admin  # type: ignore
+
+log = logging.getLogger("biztranspay")
+
+
+# R3 (2026-03-04) — defense-in-depth: redact anything that looks like a
+# Biz-transPay secret or a Bearer token before it hits the log/error store.
+# Applied on gateway response bodies, HTTP text, and exception messages so
+# a misbehaving provider echoing our own header cannot leak the key.
+_REDACT_PATTERNS = [
+    re.compile(r"sk_(?:test|live)_[A-Za-z0-9_\-]{4,}"),
+    re.compile(r"whsec_[A-Za-z0-9_\-]{4,}"),
+    re.compile(r"(?i)Bearer\s+[A-Za-z0-9._\-]{6,}"),
+    re.compile(r"(?i)\"?(?:authorization|x-public-key|api[_-]?key|secret[_-]?key|webhook[_-]?secret)\"?\s*[:=]\s*\"?[^\"\s,}]+"),
+]
+
+
+def _redact(s) -> str:
+    """Return `s` as a str with sensitive tokens replaced by ***REDACTED***.
+    Public keys (pk_*) are intentionally NOT redacted — they are, by design,
+    safe to expose (like Stripe pk_*)."""
+    try:
+        out = str(s) if not isinstance(s, str) else s
+    except Exception:
+        return "<unloggable>"
+    for pat in _REDACT_PATTERNS:
+        out = pat.sub("***REDACTED***", out)
+    return out
+
+api = APIRouter(prefix="/api", tags=["biztranspay"])
+webhook = APIRouter(prefix="/api/webhooks", tags=["biztranspay-webhook"])
+
+BASE_URL = os.environ.get("BIZTRANSPAY_BASE_URL", "https://biz-transpay.com/api/integration/v1")
+HTTP_TIMEOUT = 30.0
+
+# Operator catalog for the admin toggles + user-facing /pay.
+# v27p (2026-02-20) — Codes confirmés par la doc BTP v1.0 officielle.
+# Tous les opérateurs sont maintenant activés par défaut car leurs codes
+# proviennent de la documentation Biz-transPay (section 4 — Opérateurs
+# Mobile Money supportés).
+OPERATORS: dict[str, dict] = {
+    "TG": {
+        "name": "Togo",
+        "currency": "XOF",
+        "dial": "228",
+        "operators": [
+            # v27z (2026-03-04) — rebrand awareness.
+            # T-Money (TogoCom) est désormais commercialisé sous "Mixx By Yas"
+            # au Togo (Togocom fait partie du groupe Yas). Moov Money est en
+            # cours de rebrand global mais reste "Moov Money" au Togo.
+            # v27aw (2026-03-05) — provider_codes fallback pour que le
+            # dispatcher BTP retry sur mismatch opérateur (TG rebrands).
+            {"code": "tmoney_tg", "label": "Mixx By Yas (T-Money)",
+             "default_active": True,
+             "provider_codes": ["tmoney_tg", "mixx_by_yas_tg", "yas_tg",
+                                "mixx_tg", "togocom_tg"],
+             "aliases": ["t-money", "tmoney", "togocom",
+                         "mixx", "mixx by yas", "mixx yas", "yas",
+                         "yas t-money", "yas tmoney"]},
+            {"code": "moov_tg",   "label": "Moov Money (Flooz)",
+             "default_active": True,
+             # v27ay/v27az (2026-03-05) — code OFFICIEL de retrait confirmé
+             # par doc BTP : `moov-togo`. Pour le dépôt, les codes historiques
+             # (`moov_tg`, `flooz_tg`, `moov_money_tg`) restent utilisés car
+             # la doc n'identifie pas d'alias déposit officiel.
+             "provider_codes":        [
+                 "moov_tg", "flooz_tg", "moov_money_tg",
+                 "flooz", "moov", "moov_money",
+                 "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
+             ],
+             "provider_codes_payout": [
+                 "moov-togo",
+                 "moov_tg", "flooz_tg", "moov_money_tg",
+                 "flooz", "moov", "moov_money",
+                 "moovmoney_tg", "moov-money-tg", "moov-tg", "flooz-tg",
+             ],
+             "aliases": ["moov", "moov money", "flooz", "moov africa"]},
+        ],
+    },
+    "BJ": {
+        "name": "Bénin",
+        "currency": "XOF",
+        "dial": "229",
+        "operators": [
+            {"code": "tmoney_bj",  "label": "MTN Mobile Money",
+             "default_active": True,
+             "provider_codes": ["tmoney_bj", "mtn_bj", "mtn_momo_bj",
+                                "mtn_mobile_money_bj", "momo_bj"],
+             "aliases": ["mtn", "mtn momo", "momo", "tmoney bj"]},
+            {"code": "moov_bj",    "label": "Moov Money (Flooz)",
+             "default_active": True,
+             "provider_codes": ["moov_bj", "flooz_bj", "moov_money_bj"],
+             "aliases": ["moov", "moov money", "flooz", "moov africa"]},
+            {"code": "celtiis_bj", "label": "Celtiis Cash",
+             "default_active": True,
+             "provider_codes": ["celtiis_bj", "celtiis_cash_bj"],
+             "aliases": ["celtiis", "celtiis cash"]},
+        ],
+    },
+    "BF": {
+        "name": "Burkina Faso",
+        "currency": "XOF",
+        "dial": "226",
+        "operators": [
+            # v27az (2026-03-05) — codes BF confirmés par la doc BTP officielle.
+            # Dépôt vs retrait utilisent des codes DIFFÉRENTS :
+            #   • dépôt    : `orange_bf` / `moov_bf`         (snake_case)
+            #   • retrait  : `orange-money-burkina` /
+            #                `moov-burkina-faso`             (kebab-case)
+            # `provider_codes_payout` prend le pas sur `provider_codes` quand
+            # le dispatcher est appelé en direction payout.
+            # Orange BF exige en plus un OTP avant toute soumission de dépôt.
+            {"code": "orange_bf", "label": "Orange Money",
+             "default_active": True,
+             "requires_otp": True,
+             "otp_ussd_template": "*144*4*6*{amount}#",
+             "provider_codes":        ["orange_bf", "orange_money_bf", "om_bf"],
+             "provider_codes_payout": ["orange-money-burkina",
+                                       "orange_bf", "orange_money_bf", "om_bf"],
+             "aliases": ["orange", "orange money", "om"]},
+            {"code": "moov_bf",   "label": "Moov Money",
+             "default_active": True,
+             "provider_codes":        ["moov_bf", "moov_money_bf", "flooz_bf"],
+             "provider_codes_payout": ["moov-burkina-faso",
+                                       "moov_bf", "moov_money_bf", "flooz_bf"],
+             "aliases": ["moov", "moov money", "moov africa"]},
+            {"code": "coris_bf",  "label": "Coris Money",
+             "default_active": True,
+             "provider_codes": ["coris_bf", "coris_money_bf"],
+             "aliases": ["coris", "coris money", "coris bank"]},
+        ],
+    },
+    "CI": {
+        "name": "Côte d'Ivoire",
+        "currency": "XOF",
+        "dial": "225",
+        "operators": [
+            # v27ah (2026-03-04) — added at user request.
+            # v27av (2026-03-05) — MTN CI live payments were being rejected
+            # with "Opérateur non disponible pour ce pays" because the exact
+            # code configured in the user's BTP merchant console differs
+            # from our internal `mtn_ci`. BTP's integration docs do NOT list
+            # per-country operator codes — the merchant must configure them.
+            # We ship a `provider_codes` fallback list so the dispatcher
+            # tries each code until one is accepted by BTP. First match
+            # wins and is logged for future visibility.
+            {"code": "mtn_ci",    "label": "MTN Mobile Money",
+             "default_active": True,
+             "provider_codes": ["mtn_ci", "mtn_momo_ci", "mtn_mobile_money_ci",
+                                "mtn_mm_ci", "mtn_money_ci", "momo_ci"],
+             "aliases": ["mtn", "mtn ci", "mtn momo", "mtn mobile money",
+                         "momo", "mtn côte d'ivoire", "mtn cote d'ivoire",
+                         "mtn cote divoire"]},
+            {"code": "orange_ci", "label": "Orange Money",
+             "default_active": True,
+             "provider_codes": ["orange_ci", "orange_money_ci", "om_ci"],
+             "aliases": ["orange", "orange money", "om", "orange ci"]},
+            {"code": "moov_ci",   "label": "Moov Money",
+             "default_active": True,
+             "provider_codes": ["moov_ci", "moov_money_ci", "flooz_ci"],
+             "aliases": ["moov", "moov money", "moov africa", "moov ci"]},
+            {"code": "wave_ci",   "label": "Wave",
+             "default_active": True,
+             "provider_codes": ["wave_ci", "wave_money_ci"],
+             "aliases": ["wave", "wave ci"]},
+        ],
+    },
+}
+
+
+def _resolve_operator_code(country: str, raw_label: str) -> Optional[str]:
+    """v27z — robust operator resolution.
+
+    Accepts (in order):
+      1. exact `operator_code` match (e.g. "moov_tg")
+      2. `label` case-insensitive contains match
+      3. any registered `alias` — the alias matches if the normalized label
+         either equals or contains the alias (so "Mixx By Yas" and "yas"
+         both resolve to `moov_tg` on TG).
+
+    Returns the canonical `operator_code` or None if nothing matches.
+    """
+    cc = (country or "").upper()
+    if cc not in OPERATORS:
+        return None
+    catalog = OPERATORS[cc]["operators"]
+    if not raw_label:
+        return None
+    norm = " ".join(str(raw_label).strip().lower().split())
+    # 1) code exact
+    for o in catalog:
+        if norm == o["code"].lower():
+            return o["code"]
+    # 2) label contains
+    for o in catalog:
+        lbl = o["label"].lower()
+        if norm == lbl or norm in lbl or lbl in norm:
+            return o["code"]
+    # 3) alias match
+    for o in catalog:
+        for alias in o.get("aliases", []):
+            a = alias.lower().strip()
+            if not a:
+                continue
+            if norm == a or a in norm or norm in a:
+                return o["code"]
+    return None
+
+
+def _new_ref() -> str:
+    return f"SPV-BTP-{uuid.uuid4().hex[:12].upper()}"
+
+
+def _normalize_phone(phone: str, country_code: str) -> str:
+    """Return a bare digits phone (Biz-transPay expects `22890000000` — no +)."""
+    p = (phone or "").strip().replace(" ", "").replace("-", "").replace(".", "").replace("+", "")
+    if not p:
+        return p
+    dial = OPERATORS.get((country_code or "").upper(), {}).get("dial", "")
+    if dial and not p.startswith(dial):
+        # Strip a leading zero (local convention "0-91-xx-xx-xx")
+        if p.startswith("0"):
+            p = p.lstrip("0")
+        p = dial + p
+    return p
+
+
+# ─── Config helpers ──────────────────────────────────────────────────
+async def _load_cfg(db) -> dict:
+    doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
+    val = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
+    return val
+
+
+async def _get_public_key(db) -> str:
+    cfg = await _load_cfg(db)
+    return (cfg.get("biztranspay_public_key") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_PUBLIC_KEY") or "").strip()
+
+
+async def _get_secret_key(db) -> str:
+    cfg = await _load_cfg(db)
+    # v27s (2026-02-24) — new field name is `biztranspay_secret_key`.
+    # Legacy `biztranspay_api_key` is still accepted for backward-compat.
+    return (cfg.get("biztranspay_secret_key") or "").strip() \
+        or (cfg.get("biztranspay_api_key") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_SECRET_KEY") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip()
+
+
+# Legacy alias kept for internal callers.
+async def _get_api_key(db) -> str:
+    return await _get_secret_key(db)
+
+
+async def _get_webhook_secret(db) -> str:
+    cfg = await _load_cfg(db)
+    return (cfg.get("biztranspay_webhook_secret") or "").strip() \
+        or (os.environ.get("BIZTRANSPAY_WEBHOOK_SECRET") or "").strip()
+
+
+async def is_enabled(db) -> bool:
+    cfg = await _load_cfg(db)
+    return (
+        bool(cfg.get("biztranspay_enabled"))
+        and bool(await _get_secret_key(db))
+        and bool(await _get_public_key(db))
+    )
+
+
+async def is_payin_enabled(db) -> bool:
+    if not await is_enabled(db):
+        return False
+    cfg = await _load_cfg(db)
+    # Default True when the master switch is on (backward-compat)
+    v = cfg.get("biztranspay_payin_enabled")
+    return True if v is None else bool(v)
+
+
+async def is_payout_enabled(db) -> bool:
+    if not await is_enabled(db):
+        return False
+    cfg = await _load_cfg(db)
+    return bool(cfg.get("biztranspay_payout_enabled"))
+
+
+async def enabled_operators(db, country_code: str) -> list[dict]:
+    """Return the list of operators enabled by the admin for a country."""
+    cc = (country_code or "").upper()
+    info = OPERATORS.get(cc)
+    if not info:
+        return []
+    cfg = await _load_cfg(db)
+    country_toggles = ((cfg.get("biztranspay_countries") or {}).get(cc)) or {}
+    out = []
+    for op in info["operators"]:
+        # Default True — admin has to explicitly disable an operator
+        if country_toggles.get(op["code"], True):
+            out.append(op)
+    return out
+
+
+# ─── HTTP client ─────────────────────────────────────────────────────
+async def _post(path: str, body: dict, secret_key: str, public_key: str, *, idempotency_key: str) -> httpx.Response:
+    """v27s — Integration API v1 requires BOTH Bearer secret AND X-Public-Key."""
+    headers = {
+        "Authorization": f"Bearer {secret_key}",
+        "X-Public-Key": public_key,
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotency_key,
+    }
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        return await client.post(f"{BASE_URL}{path}", json=body, headers=headers)
+
+
+async def _get(path: str, secret_key: str, public_key: str) -> httpx.Response:
+    headers = {
+        "Authorization": f"Bearer {secret_key}",
+        "X-Public-Key": public_key,
+    }
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        return await client.get(f"{BASE_URL}{path}", headers=headers)
+
+
+# ─── Webhook signature ───────────────────────────────────────────────
+def _verify_signature(secret: str, timestamp: str, raw_body: bytes, received: str) -> bool:
+    """HMAC-SHA256 over `timestamp + "." + raw_body` per the official BTP
+    v2 spec. Header format: `X-BizTransPay-Signature: sha256=<hex>`.
+
+    v27n (2026-02-20) — fixed to include the dot separator per the PDF.
+    Constant-time comparison via hmac.compare_digest.
+    """
+    if not secret or not received:
+        return False
+    try:
+        signed_payload = str(timestamp).encode("utf-8") + b"." + raw_body
+        expected = hmac.new(
+            secret.encode("utf-8"), signed_payload, hashlib.sha256,
+        ).hexdigest()
+    except Exception:
+        return False
+    got = received.split("=", 1)[1] if "=" in received else received
+    return hmac.compare_digest(expected, got.strip())
+
+
+def _timestamp_fresh(ts_header: str, max_age_seconds: int = 600) -> bool:
+    """Replay protection; accepts unix seconds, milliseconds or ISO-8601."""
+    raw = str(ts_header or "").strip()
+    try:
+        ts = float(raw)
+        if ts > 1e12:
+            ts /= 1000.0
+    except ValueError:
+        try:
+            ts = datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return False
+    now = datetime.now(timezone.utc).timestamp()
+    return abs(now - ts) <= max_age_seconds
+
+
+# ─── Public endpoints ────────────────────────────────────────────────
+def _build_candidate_codes(
+    operator_entry: Optional[dict],
+    fallback_code: str,
+    *,
+    direction: str,
+) -> list[str]:
+    """Return the ordered list of BTP operator codes to try for a given
+    direction (`deposit` or `payout`).
+
+    Deposit and payout codes DIFFER in BTP's merchant console. Example :
+      • Moov BF dépôt   → `moov_bf`
+      • Moov BF retrait → `moov-burkina-faso`
+
+    When `operator_entry` has a dedicated `provider_codes_payout` list and
+    we are called for payouts, we use it; otherwise we fall back to
+    `provider_codes`.
+    """
+    if not operator_entry:
+        return [fallback_code]
+    if direction == "payout" and operator_entry.get("provider_codes_payout"):
+        codes = list(operator_entry["provider_codes_payout"])
+    else:
+        codes = list(operator_entry.get("provider_codes") or [operator_entry["code"]])
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in codes:
+        if c not in seen:
+            seen.add(c); out.append(c)
+    return out
+
+
+def _learned_code_key(direction: str, cc: str, op_code: str) -> str:
+    """Direction-scoped cache key — deposit and payout can learn different
+    codes for the same (country, operator)."""
+    return f"btp_learned_operator_code:{direction}:{cc}:{op_code}"
+
+
+class BtpActivationIn(BaseModel):
+    country_code: str = Field(..., min_length=2, max_length=2)
+    operator: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=6)
+    otp: Optional[str] = None
+    ussd_authorized: bool = False
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
+
+
+def _btp_error_detail(resp) -> tuple[str, dict]:
+    try:
+        jd = resp.json()
+    except Exception:
+        return _redact((resp.text or "")[:300]), {}
+    d = jd.get("detail") if isinstance(jd, dict) else None
+    if isinstance(d, str):
+        return _redact(d[:300]), jd
+    if isinstance(d, dict):
+        return _redact(str(d.get("message") or d.get("code") or d)[:300]), jd
+    if isinstance(d, list) and d:
+        first = d[0] if isinstance(d[0], dict) else {}
+        return _redact(str(first.get("msg") or d)[:300]), jd
+    return _redact(str(jd)[:300]), jd
+
+
+def _toggle_on(cfg: dict, cc: str, entry: dict) -> bool:
+    toggles = ((cfg.get("biztranspay_countries") or {}).get(cc)) or {}
+    if entry["code"] in toggles:
+        return bool(toggles[entry["code"]])
+    internal = _resolve_operator_code(cc, entry["code"]) or _resolve_operator_code(cc, entry["label"])
+    if internal:
+        op = next((o for o in OPERATORS.get(cc, {}).get("operators", []) if o["code"] == internal), {})
+        return bool(toggles.get(internal, op.get("default_active", True)))
+    return bool(toggles.get(entry["code"], True))
+
+
+@api.post("/payments/biztranspay/activation")
+async def biztranspay_activation(
+    data: BtpActivationIn, request: Request, user=Depends(get_current_user),
+):
+    """Level-1 activation via Biz-transPay (new doc): catalog → quote → (OTP) → deposit.
+    fee_bearer=receiver : the user pays exactly the activation price."""
+    from ashtec_activation import ACTIVATION_LEVEL
+    from btp_catalog import (amount_for_xof, currency_label, e164, find_entry, flow_steps,
+                             idem, render_ussd)
+    db = request.app.state.db
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement Biz-transPay non pris en charge.")
+    if kind == "activation" and int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+        raise HTTPException(400, "Votre compte est déjà activé.")
+    cc = data.country_code.upper()
+    if not await is_payin_enabled(db):
+        raise HTTPException(503, "Biz-transPay n'est pas disponible.")
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    if not secret_key or not public_key:
+        raise HTTPException(503, "Biz-transPay non configuré (clés publique/secrète manquantes).")
+    pending = await db.payments.find_one({
+        "provider": "biztranspay", "kind": kind, "user_id": user["id"],
+        "target_id": data.target_id,
+        "status": {"$in": ["pending", "processing", "unknown"]},
+    }, {"_id": 0})
+    if pending:
+        return {"reference": pending["reference"], "status": "pending",
+                "redirect_url": pending.get("redirect_url"),
+                "message": "Un paiement est déjà en cours de vérification. Ne le renvoyez pas."}
+    active_key = user["id"] if kind == "activation" else f"{user['id']}:{kind}:{data.target_id or ''}"
+    await db.payments.update_many(
+        {"provider": "biztranspay", "user_id": user["id"], "status": "failed",
+         "kind": kind, "target_id": data.target_id, "activation_done": {"$ne": True}},
+        {"$unset": {"btp_active_key": ""}},
+    )
+
+    entry = await find_entry(db, "deposit", cc, data.operator)
+    if entry and (
+        await db.payment_provider_countries.find_one(
+            {"provider_id": "biztranspay", "country_code": cc, "status": {"$ne": "active"}})
+        or await db.payment_provider_operators.find_one(
+            {"provider_id": "biztranspay", "country_code": cc, "operator_code": entry["code"], "status": {"$ne": "active"}})
+    ):
+        entry = None
+    if not entry or not _toggle_on(await _load_cfg(db), cc, entry):
+        raise HTTPException(400, "Cet opérateur n'est pas disponible pour ce pays.")
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, "biztranspay", cc, entry["code"], entry["label"])
+    currency = entry["currency"]
+    amount_xof = 2650.0 if kind == "activation" else float(data.amount_xof or 0)
+    amount = await amount_for_xof(db, currency, amount_xof)
+    if not amount:
+        raise HTTPException(400, f"Montant indisponible en {currency} pour le moment.")
+    phone = e164(data.phone, cc)
+    base_body = {"amount": amount, "country": cc, "operator": entry["code"],
+                 "currency": currency, "fee_bearer": "receiver"}
+
+    # 1) Quote — exact code_to_enter + up-to-date payment_flow (no transaction created).
+    flow = dict(entry["flow"])
+    code_to_enter = ""
+    charged = amount
+    try:
+        q = await _post("/deposits/quote", base_body, secret_key, public_key, idempotency_key=idem())
+        if q.status_code < 400:
+            qj = q.json()
+            flow.update({k: v for k, v in (qj.get("payment_flow") or {}).items() if v is not None})
+            code_to_enter = qj.get("code_to_enter") or (qj.get("payment_flow") or {}).get("ussd_code") or ""
+            charged = int(qj.get("charged_amount") or amount)
+        else:
+            raise HTTPException(503, "Le devis Biz-transPay est indisponible. Aucun paiement n’a été lancé.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning("btp quote error: %s", _redact(e))
+        raise HTTPException(503, "Impossible de vérifier le montant auprès de Biz-transPay. Aucun paiement n’a été lancé.")
+    ussd = code_to_enter or render_ussd(flow, charged)
+    amount_label = f"{charged:,}".replace(",", " ") + " " + currency_label(currency)
+    if charged != amount:
+        raise HTTPException(503, "Le devis ne correspond pas au montant attendu. Aucun paiement n’a été lancé.")
+    if flow.get("kind") == "ussd" and flow.get("before_submit") and not data.ussd_authorized:
+        raise HTTPException(400, {
+            "code": "USSD_AUTHORIZATION_REQUIRED", "ussd": ussd,
+            "message": f"Composez {ussd or 'le code indiqué par votre opérateur'} et autorisez le paiement avant de continuer.",
+        })
+    otp = (data.otp or "").strip()
+    payer = {"phone_number": phone,
+             "full_name": (user.get("full_name") or user.get("username") or "Client SPILOVEURE")[:160].ljust(2, "."),
+             "email": user.get("email") or ""}
+    if flow.get("address_required"):
+        payer["address"] = user.get("city") or user.get("country_name") or cc
+
+    # 2) OTP sent by SMS before submit.
+    if flow.get("otp_request_before_submit") and not otp:
+        r = await _post("/deposits", {**base_body, **payer, "request_otp": True},
+                        secret_key, public_key, idempotency_key=f"otp-{user['id']}-{idem()[:12]}")
+        if r.status_code >= 400:
+            raise HTTPException(400, f"Biz-transPay : {_btp_error_detail(r)[0]}")
+        raise HTTPException(400, {
+            "code": "OTP_SENT",
+            "message": (r.json() or {}).get("message") or "Un code vous a été envoyé par SMS. Saisissez-le pour continuer.",
+            "ussd": "", "steps": flow_steps(flow, amount_label, ussd)})
+    # 3) OTP generated by the user via USSD.
+    if flow.get("otp_required") and not flow.get("otp_request_before_submit") and not otp:
+        raise HTTPException(400, {
+            "code": "OTP_REQUIRED",
+            "message": f"Composez {ussd or 'le code USSD de votre opérateur'} puis saisissez le code obtenu.",
+            "ussd": ussd, "payment_flow": flow, "steps": flow_steps(flow, amount_label, ussd)})
+
+    # A unique active intent prevents concurrent clicks or network retries
+    # from creating multiple financial operations for the same account.
+    await db.payments.create_index("btp_active_key", unique=True, sparse=True)
+    ref = _new_ref()
+    now = datetime.now(timezone.utc)
+    try:
+        await db.payments.insert_one({
+        "reference": ref, "provider": "biztranspay", "kind": kind,
+        "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
+        "btp_active_key": active_key,
+        "user_id": user["id"], "username": user.get("username"),
+        "amount": amount, "base_amount_xof": amount_xof,
+        "charged_amount": charged, "currency": currency,
+        "phone": phone, "phone_original": data.phone.strip(), "country_code": cc,
+        "operator": entry["code"], "level": ACTIVATION_LEVEL if kind == "activation" else None,
+        "payment_flow": flow,
+        "status": "pending", "activation_done": False, "created_at": now, "updated_at": now,
+        })
+    except DuplicateKeyError:
+        raise HTTPException(409, "Un paiement est déjà en cours de vérification pour cet élément.")
+    body = {**base_body, **payer, "reference": ref}
+    if flow.get("kind") == "ussd" and flow.get("before_submit"):
+        body["ussd_authorized"] = True
+    if otp:
+        body["otp"] = otp
+    try:
+        resp = await _post("/deposits", body, secret_key, public_key, idempotency_key=ref)
+    except Exception as e:
+        log.exception("biztranspay /deposits call failed ref=%s: %s", ref, _redact(e))
+        await db.payments.update_one({"reference": ref}, {"$set": {
+            "status": "unknown", "activation_error": "network_error", "updated_at": datetime.now(timezone.utc)}})
+        raise HTTPException(502, "Impossible de contacter Biz-transPay. Vérifiez votre téléphone avant de réessayer.")
+
+    if resp.status_code >= 400:
+        detail, jd = _btp_error_detail(resp)
+        uncertain = resp.status_code >= 500 or resp.status_code in (408, 409, 429)
+        await db.payments.update_one({"reference": ref}, {"$set": {
+            "status": "unknown" if uncertain else "failed", "biztranspay_status_code": resp.status_code,
+            "activation_error": detail, "updated_at": datetime.now(timezone.utc)},
+            **({} if uncertain else {"$unset": {"btp_active_key": ""}})})
+        d = jd.get("detail") if isinstance(jd, dict) else None
+        if isinstance(d, dict) and d.get("code") == "OTP_REQUIRED":
+            pf = d.get("payment_flow") or flow
+            u = render_ussd(pf, charged) or ussd
+            raise HTTPException(400, {"code": "OTP_REQUIRED", "ussd": u, "payment_flow": pf,
+                                      "message": f"Composez {u or 'le code USSD'} puis saisissez le code obtenu.",
+                                      "steps": flow_steps(pf, amount_label, u)})
+        if resp.status_code == 502:
+            raise HTTPException(502, "Biz-transPay n'a pas confirmé le démarrage. Vérifiez votre téléphone avant de réessayer.")
+        raise HTTPException(400, f"Biz-transPay a refusé le paiement : {detail}" if detail
+                            else "Biz-transPay a refusé le paiement.")
+
+    jd = {}
+    try:
+        jd = resp.json()
+    except Exception:
+        pass
+    dep = jd.get("deposit") or {}
+    provider_id = jd.get("id") or dep.get("id")
+    provider_status = str(jd.get("status") or dep.get("status") or "pending").lower()
+    pf = dep.get("payment_flow") or {}
+    redirect_url = dep.get("redirect_url") or pf.get("redirect_url") or jd.get("redirect_url")
+    from urllib.parse import urlparse
+    if redirect_url and urlparse(str(redirect_url)).scheme != "https":
+        redirect_url = None
+    if pf:
+        flow.update({k: v for k, v in pf.items() if v is not None})
+        ussd = render_ussd(flow, dep.get("charged_amount") or charged) or ussd
+    await db.payments.update_one({"reference": ref}, {"$set": {
+        "provider_intent_id": provider_id, "biztranspay_status": provider_status,
+        "redirect_url": redirect_url,
+        "charged_amount": dep.get("charged_amount") or charged, "payment_flow": flow,
+        "updated_at": datetime.now(timezone.utc)}})
+    if provider_status in ("completed", "paid", "success", "approved"):
+        from ashtec_activation import _apply_payment_success
+        p = await db.payments.find_one({"reference": ref}, {"_id": 0})
+        await _apply_payment_success(db, p, "paid", source="biztranspay")
+    show_ussd = ussd if (flow.get("kind") == "ussd" and not flow.get("otp_required")) else ""
+    return {
+        "reference": ref, "status": provider_status, "amount": charged, "currency": currency,
+        "operator": entry["code"], "country_code": cc, "provider": "biztranspay",
+        "redirect_url": redirect_url,
+        "ussd": show_ussd,
+        "message": (f"Composez {show_ussd} pour confirmer le paiement." if show_ussd
+                    else "Validez la demande de paiement sur votre téléphone."),
+    }
+
+
+@api.get("/admin/biztranspay/catalog")
+async def admin_btp_catalog(request: Request, direction: str = "deposit", _=Depends(require_admin)):
+    """Live Biz-transPay catalog (forced refresh) + raw sample, for admin diagnostics."""
+    from btp_catalog import fetch_catalog
+    if direction not in ("deposit", "payout"):
+        raise HTTPException(400, "direction = deposit | payout")
+    db = request.app.state.db
+    items = await fetch_catalog(db, direction, force=True, strict=True)
+    from levels import COUNTRIES
+    country_names = {country["code"]: country["name"] for country in COUNTRIES}
+    for entry in items:
+        entry["country_name"] = country_names.get(entry["country"], entry["country"])
+        country = await db.payment_provider_countries.find_one(
+            {"provider_id": "biztranspay", "country_code": entry["country"]}) or {}
+        operator = await db.payment_provider_operators.find_one(
+            {"provider_id": "biztranspay", "country_code": entry["country"],
+             "operator_code": entry["code"]}) or {}
+        entry["country_enabled"] = country.get("status") == "active"
+        entry["enabled"] = operator.get("status") == "active"
+    doc = await db.app_settings.find_one({"key": f"btp_catalog:{direction}"}, {"_id": 0}) or {}
+    return {"direction": direction, "count": len(items), "items": items,
+            "raw_sample": doc.get("raw_sample"), "updated_at": doc.get("updated_at")}
+
+
+@api.get("/payments/biztranspay/status/{reference}")
+async def biztranspay_status(reference: str, request: Request, user=Depends(get_current_user)):
+    """Poll a payin status via GET /deposits/{id}."""
+    db = request.app.state.db
+    p = await db.payments.find_one({"reference": reference, "provider": "biztranspay"}, {"_id": 0})
+    if not p or p.get("user_id") != user.get("id"):
+        raise HTTPException(404, "Paiement introuvable.")
+    if p.get("status") in ("paid", "failed"):
+        return {"status": p["status"], "reference": reference,
+                "activation_done": bool(p.get("activation_done")),
+                "activation_error": p.get("activation_error")}
+
+    intent_id = p.get("provider_intent_id")
+    if intent_id:
+        secret_key = await _get_secret_key(db)
+        public_key = await _get_public_key(db)
+        try:
+            r = await _get(f"/deposits/{intent_id}", secret_key, public_key)
+            if r.status_code < 400:
+                jd = r.json()
+                remote = str(jd.get("status") or (jd.get("deposit") or {}).get("status") or "").lower()
+                # v1 completed states: completed / approved / paid / success
+                if remote in ("paid", "completed", "approved", "success") and not p.get("activation_done"):
+                    from ashtec_activation import _apply_payment_success  # reuse dispatch
+                    await _apply_payment_success(db, p, "paid", source="biztranspay")
+                    p = await db.payments.find_one({"reference": reference}, {"_id": 0}) or p
+                elif remote in ("failed", "declined", "canceled", "expired"):
+                    await db.payments.update_one(
+                        {"reference": reference},
+                        {"$set": {"status": "failed", "biztranspay_status": remote,
+                                  "updated_at": datetime.now(timezone.utc)}},
+                    )
+                    p["status"] = "failed"
+        except Exception as e:
+            log.warning("biztranspay status poll error ref=%s: %s", reference, e)
+
+    return {"status": p.get("status") or "pending",
+            "reference": reference,
+            "activation_done": bool(p.get("activation_done")),
+            "activation_error": p.get("activation_error")}
+
+
+# ─── Payout (Integration v1 /payouts) ────────────────────────────────
+async def _persist_dispatch_failure(db, wd_id: str, reason: str, detail: str = "") -> None:
+    """v27z — every early-abort in the dispatcher now leaves a trace on the
+    withdrawals doc so admins can see WHY the retrait didn't auto-dispatch
+    instead of it silently staying `pending`."""
+    try:
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {
+                "gateway": "biztranspay",
+                "auto_dispatched": False,
+                "gateway_error_code": reason,
+                "gateway_error": detail or reason,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+    except Exception:
+        pass
+
+
+def _match_payout_entry(entries: list, cc: str, internal_code: str) -> Optional[dict]:
+    """Catalog payout entry for our internal operator (code list first, then aliases)."""
+    ces = [e for e in entries if e["country"] == cc]
+    op = next((o for o in OPERATORS.get(cc, {}).get("operators", []) if o["code"] == internal_code), None)
+    if not op:
+        return None
+    codes = list(op.get("provider_codes_payout") or []) + list(op.get("provider_codes") or []) + [op["code"]]
+    for c in codes:
+        hit = next((e for e in ces if e["code"].lower() == c.lower()), None)
+        if hit:
+            return hit
+    for e in ces:
+        if _resolve_operator_code(cc, e["label"]) == internal_code or _resolve_operator_code(cc, e["code"]) == internal_code:
+            return e
+    return None
+
+
+async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
+    """Auto-payout via POST /payouts using the live direction-specific catalog.
+    Operator code comes from the live payout catalog; one attempt, Idempotency-Key = wd id."""
+    from btp_catalog import e164, fetch_catalog
+    wd_id = wd_doc.get("id") or ""
+    if not await is_payout_enabled(db):
+        await _persist_dispatch_failure(db, wd_id, "disabled",
+                                        "Auto-payout Biz-transPay désactivé (clés manquantes ou switch OFF).")
+        return {"auto_dispatched": False, "reason": "disabled"}
+    country = (wd_doc.get("country") or "").upper()
+    entries = await fetch_catalog(db, "payout")
+    if not any(entry["country"] == country for entry in entries):
+        await _persist_dispatch_failure(db, wd_id, "country_not_supported",
+                                        f"Retrait Biz-transPay absent du catalogue pour {country}.")
+        return {"auto_dispatched": False, "reason": "country_not_supported"}
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    if not secret_key or not public_key:
+        await _persist_dispatch_failure(db, wd_id, "no_api_key", "Clés Biz-transPay manquantes.")
+        return {"auto_dispatched": False, "reason": "no_api_key"}
+
+    raw_op = (wd_doc.get("operator") or "").strip()
+    exact = next((entry for entry in entries if entry["country"] == country and entry["code"] == raw_op), None)
+    op_code = exact["code"] if exact else _resolve_operator_code(country, raw_op)
+    if not op_code:
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_not_supported",
+            f"Opérateur '{raw_op}' non reconnu pour {country}. "
+            "Sélectionnez un code du catalogue de retrait.")
+        return {"auto_dispatched": False, "reason": "operator_not_supported", "operator_raw": raw_op}
+    op_row = await db.payment_provider_operators.find_one(
+        {"provider_id": "biztranspay", "country_code": country, "operator_code": op_code, "status": "active"})
+    country_off = (await db.payment_provider_countries.find_one(
+        {"provider_id": "biztranspay", "country_code": country, "status": "inactive"})) if op_row else None
+    if not op_row or country_off:
+        await _persist_dispatch_failure(db, wd_id, "operator_disabled_by_admin",
+                                        f"L'opérateur {op_code} ({country}) est désactivé côté admin BTP.")
+        return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
+
+    entry = exact or _match_payout_entry(entries, country, op_code)
+    if not entry:
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_not_in_btp_catalog",
+            f"L'opérateur {op_code} ({country}) n'est pas dans le catalogue de retrait Biz-transPay actif.")
+        return {"auto_dispatched": False, "reason": "operator_not_in_btp_catalog"}
+    if not _toggle_on(await _load_cfg(db), country, entry):
+        return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
+    from payment_exclusivity import assert_assignment
+    await assert_assignment(db, "biztranspay", country, entry["code"], entry["label"])
+
+    net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
+    if net <= 0:
+        return {"auto_dispatched": False, "reason": "invalid_amount"}
+    if entry["currency"] not in ("XOF", "XAF"):
+        # Wallet balances are XOF: never send the CFA number as a foreign amount.
+        from btp_catalog import _first_number
+        try:
+            rate = await _get(f"/exchanges/quote?from_currency=XOF&to_currency={entry['currency']}&amount={net}",
+                              secret_key, public_key)
+            converted = _first_number(rate.json(), ("to_amount", "amount_to", "converted_amount", "receive_amount",
+                                                   "target_amount", "output_amount", "amount_out"))
+            if rate.status_code >= 400 or not converted:
+                return {"auto_dispatched": False, "reason": "currency_quote_unavailable"}
+            net = int(converted)
+        except Exception:
+            return {"auto_dispatched": False, "reason": "currency_quote_unavailable"}
+        if net <= 0:
+            return {"auto_dispatched": False, "reason": "invalid_amount"}
+    body = {"amount": net, "currency": entry["currency"], "country": country,
+            "operator": entry["code"], "recipient": e164(wd_doc.get("phone") or "", country),
+            "fee_bearer": "sender", "reference": wd_doc["id"]}
+    claim = await db.withdrawals.update_one(
+        {"id": wd_id, "btp_submission_claimed": {"$ne": True},
+         "status": {"$in": ["pending", "processing", "dispatched"]},
+         "auto_dispatched": {"$ne": True}},
+        {"$set": {"btp_submission_claimed": True, "gateway": "biztranspay",
+                  "btp_submission_body": body, "gateway_status": "submitting",
+                  "auto_dispatched": True}},
+    )
+    if not claim.modified_count:
+        return {"auto_dispatched": False, "reason": "already_submitted"}
+    try:
+        r = await _post("/payouts", body, secret_key, public_key, idempotency_key=f"wd-{wd_doc['id']}")
+    except Exception as e:
+        log.exception("biztranspay /payouts failed wd=%s: %s", wd_doc["id"], _redact(e))
+        await db.withdrawals.update_one({"id": wd_id}, {"$set": {"gateway_status": "unknown",
+            "gateway_error": "Résultat réseau incertain : rapprocher l’opération avec Biz-transPay avant toute action."}})
+        return {"auto_dispatched": False, "reason": "network_error"}
+
+    if r.status_code >= 400:
+        detail, jd = _btp_error_detail(r)
+        code = str((jd.get("code") if isinstance(jd, dict) else "") or "gateway_error")
+        log.warning("biztranspay /payouts %s wd=%s op=%s body=%s", r.status_code, wd_doc["id"], entry["code"], detail)
+        await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": {
+            "gateway_error": detail[:400], "gateway_error_code": code,
+            "gateway_status_code": r.status_code, "tried_operator_codes": [entry["code"]],
+            "updated_at": datetime.now(timezone.utc)}})
+        if r.status_code >= 500 or r.status_code in (408, 409, 429):
+            await db.withdrawals.update_one({"id": wd_id}, {"$set": {"gateway_status": "unknown"}})
+        else:
+            await db.withdrawals.update_one({"id": wd_id}, {"$set": {"gateway_status": "not_submitted",
+                "auto_dispatched": False}, "$unset": {"btp_submission_claimed": ""}})
+        return {"auto_dispatched": False, "reason": "gateway_error", "detail": detail, "code": code}
+
+    resp_json = {}
+    try:
+        resp_json = r.json()
+    except Exception:
+        pass
+    payout_env = resp_json.get("payout") or {}
+    payout_id = resp_json.get("id") or payout_env.get("id")
+    payout_status = str(resp_json.get("status") or payout_env.get("status") or "").lower()
+    _TERMINAL_OK = {"completed", "succeeded", "paid", "success", "sent", "delivered"}
+    _TERMINAL_KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
+    internal_status = ("completed" if payout_status in _TERMINAL_OK
+                       else "rejected" if payout_status in _TERMINAL_KO else "pending")
+    now = datetime.now(timezone.utc)
+    set_fields = {"status": internal_status, "auto_dispatched": True, "gateway": "biztranspay",
+                  "payout_id": payout_id, "gateway_status": payout_status,
+                  "gateway_operator_code": entry["code"],
+                  "gateway_fee": payout_env.get("fee") or payout_env.get("total_fee"),
+                  "dispatched_at": now, "updated_at": now}
+    if internal_status == "completed":
+        set_fields["completed_at"] = now
+    elif internal_status == "rejected":
+        set_fields["rejected_at"] = now
+        set_fields["gateway_error"] = f"Gateway returned terminal-fail status: {payout_status}"
+    settled = await db.withdrawals.update_one(
+        {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+        {"$set": set_fields, "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
+         if internal_status != "rejected" else {"gateway_error_code": ""}})
+    if internal_status == "rejected" and settled.modified_count:
+        try:
+            await db.users.update_one({"id": wd_doc["user_id"]},
+                                      {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}})
+        except Exception:
+            pass
+    return {"auto_dispatched": True, "id": payout_id, "status": payout_status, "internal": internal_status}
+
+
+# ─── Webhook ─────────────────────────────────────────────────────────
+@webhook.post("/biztranspay")
+async def biztranspay_webhook(request: Request):
+    """Receive payment/payout events from Biz-transPay (Developer v2 spec).
+
+    Security (per official doc):
+      • `X-BizTransPay-Signature: sha256=<hex>` — HMAC of `ts + "." + body`.
+      • `X-BizTransPay-Timestamp: <unix_seconds>` — reject if older than 5 min.
+      • `X-BizTransPay-Event-Id: evt_...` — dedup: reject on 2nd delivery.
+      • `X-BizTransPay-Event-Type: payment.completed | mobile_money.payment.approved | push.succeeded | ...`
+
+    Supported event types (real names from the doc):
+      • payment.completed, mobile_money.payment.approved   → treat as PAID
+      • payment.failed,    mobile_money.payment.declined,
+        mobile_money.payment.canceled                       → treat as FAILED
+      • push.succeeded                                      → payout completed
+      • push.failed                                         → payout failed
+    """
+    db = request.app.state.db
+    raw = await request.body()
+    sig = request.headers.get("X-BizTransPay-Signature") or request.headers.get("x-biztranspay-signature") or ""
+    ts = request.headers.get("X-BizTransPay-Timestamp") or request.headers.get("x-biztranspay-timestamp") or ""
+    event_id = request.headers.get("X-BizTransPay-Event-Id") or request.headers.get("x-biztranspay-event-id") or ""
+    event_type_hdr = request.headers.get("X-BizTransPay-Event-Type") or request.headers.get("x-biztranspay-event-type") or ""
+
+    secret = await _get_webhook_secret(db)
+    if not secret:
+        raise HTTPException(503, "Secret de signature Biz-transPay non configuré.")
+    if secret:
+        if not _timestamp_fresh(ts):
+            log.warning("biztranspay webhook: stale timestamp ts=%s", ts)
+            raise HTTPException(400, "Stale webhook timestamp")
+        if not _verify_signature(secret, ts, raw, sig):
+            log.warning("biztranspay webhook: bad signature ts=%s len=%s", ts, len(raw))
+            raise HTTPException(401, "Invalid webhook signature")
+
+    # v27n — Event-Id deduplication. A same event delivered twice must NOT
+    # trigger a second activation. Best-effort unique index.
+    if event_id:
+        try:
+            await db.biztranspay_webhook_events.create_index("event_id", unique=True)
+            await db.biztranspay_webhook_events.insert_one({
+                "event_id": event_id,
+                "event_type": event_type_hdr,
+                "received_at": datetime.now(timezone.utc),
+            })
+        except DuplicateKeyError:
+            # Duplicate delivery — acknowledge without re-processing.
+            log.info("biztranspay webhook: duplicate event_id=%s ignored", event_id)
+            return {"ok": True, "duplicate": True}
+
+    try:
+        import json
+        body = json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        body = {}
+    if not event_id:
+        event_id = str(body.get("id") or body.get("event_id") or "")
+        if event_id:
+            try:
+                await db.biztranspay_webhook_events.create_index("event_id", unique=True)
+                await db.biztranspay_webhook_events.insert_one({
+                    "event_id": event_id, "event_type": event_type_hdr or body.get("type"),
+                    "received_at": datetime.now(timezone.utc)})
+            except DuplicateKeyError:
+                return {"ok": True, "duplicate": True}
+
+    await db.webhook_logs.insert_one({
+        "gateway": "biztranspay",
+        "event_id": event_id,
+        "event_type": event_type_hdr or body.get("type") or body.get("event") or "unknown",
+        "signed_ok": bool(secret),
+        "payload": body,
+        "received_at": datetime.now(timezone.utc),
+    })
+
+    # New doc: {id: evt, type: deposit.status_changed|payout.status_changed, data: {id, object,
+    # previous_status, status, amount, currency, reference}}
+    data_obj = body.get("data") if isinstance(body.get("data"), dict) else {}
+    ref = data_obj.get("reference") or body.get("reference")
+    provider_id = data_obj.get("id") or (None if data_obj else body.get("id"))
+    status_raw = str(data_obj.get("status") or data_obj.get("final_status") or data_obj.get("new_status")
+                     or data_obj.get("current_status") or data_obj.get("to_status")
+                     or body.get("status") or "").lower()
+    event = (event_type_hdr or str(body.get("type") or body.get("event") or "")).lower()
+    obj_type = str(data_obj.get("object") or data_obj.get("type") or data_obj.get("object_type") or "").lower()
+    is_payout_event = "payout" in event or "payout" in obj_type
+
+    PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded",
+                   "crypto_deposit.success", "crypto_deposit.confirmed", "crypto_payout.success"}
+    FAIL_EVENTS = {"payment.failed", "payment.expired",
+                   "mobile_money.payment.declined", "mobile_money.payment.canceled",
+                   "push.failed", "crypto_deposit.failed", "crypto_payout.failed"}
+    if event in PAID_EVENTS or status_raw in ("paid", "completed", "approved", "succeeded", "success", "confirmed"):
+        internal_status = "paid"
+    elif event in FAIL_EVENTS or status_raw in ("failed", "declined", "canceled", "cancelled", "expired", "rejected"):
+        internal_status = "failed"
+    else:
+        internal_status = "pending"
+
+    if not ref and not provider_id:
+        return {"ok": True, "ignored": "no_reference"}
+
+    p = None
+    if not is_payout_event:
+        if ref:
+            p = await db.payments.find_one({"provider": "biztranspay", "reference": ref}, {"_id": 0})
+        if not p and provider_id:
+            p = await db.payments.find_one({"provider": "biztranspay", "provider_intent_id": provider_id}, {"_id": 0})
+    if not p:
+        wd = None
+        if provider_id:
+            wd = await db.withdrawals.find_one({"payout_id": provider_id})
+        if not wd and ref:
+            wd = await db.withdrawals.find_one({"id": ref})
+        if wd:
+            if wd.get("status") in ("completed", "rejected", "validated"):
+                return {"ok": True, "reconciled": "withdrawal", "status": wd.get("status"), "noop": True}
+            update = {"gateway_status": status_raw or event,
+                      "updated_at": datetime.now(timezone.utc)}
+            if internal_status == "paid":
+                update["status"] = "completed"
+                update["completed_at"] = datetime.now(timezone.utc)
+            elif internal_status == "failed":
+                update["status"] = "rejected"
+            settled = await db.withdrawals.update_one(
+                {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+                {"$set": update})
+            if internal_status == "failed" and settled.modified_count:
+                await db.users.update_one(
+                    {"id": wd["user_id"]},
+                    {"$inc": {"balance_profit": float(wd.get("amount") or 0)}},
+                )
+            return {"ok": True, "reconciled": "withdrawal", "status": internal_status}
+        return {"ok": True, "ignored": "unknown_payment"}
+
+    if internal_status == "paid" and not p.get("activation_done"):
+        try:
+            from ashtec_activation import _apply_payment_success
+            await _apply_payment_success(db, p, "paid", source="biztranspay")
+        except Exception as e:
+            log.exception("biztranspay webhook activation failed ref=%s: %s", ref, _redact(e))
+            await db.payments.update_one(
+                {"reference": p["reference"]},
+                {"$set": {"activation_error": _redact(str(e)[:400]),
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+    elif internal_status == "failed" and not p.get("activation_done"):
+        await db.payments.update_one(
+            {"reference": p["reference"]},
+            {"$set": {"status": "failed", "biztranspay_status": status_raw or event,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    return {"ok": True, "status": internal_status}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# v27w (2026-02-24) — USDT.BEP20 crypto pay-in (parallel to izichange)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Endpoints (all under /api/activations/biztranspay-crypto/*) :
+#   POST /create   → creates a crypto deposit intent on BTP, returns the
+#                    payment address + QR + amount (fixed 5 USDT.BEP20).
+#   POST /verify   → user pastes the on-chain tx_hash; we GET the intent
+#                    status; if "confirmed" → activate L1 immediately.
+#
+# The webhook `crypto_deposit.success` also triggers activation (see the
+# webhook handler below). Both paths converge on _apply_payment_success.
+#
+# Nothing in this block modifies the existing Mobile Money code paths.
+
+BTP_CRYPTO_ASSET = os.environ.get("BIZTRANSPAY_CRYPTO_ASSET", "USDT.BEP20")
+BTP_CRYPTO_AMOUNT = float(os.environ.get("BIZTRANSPAY_CRYPTO_AMOUNT", "5"))
+
+
+async def is_crypto_enabled(db) -> bool:
+    """Master + crypto sub-toggle."""
+    if not await is_enabled(db):
+        return False
+    cfg = await _load_cfg(db)
+    return bool(cfg.get("biztranspay_crypto_enabled", True)) \
+        and bool((cfg.get("biztranspay_crypto_refund_address") or "").strip())
+
+
+async def _resolve_crypto_asset(db) -> str:
+    """USDT on BEP20/BSC from the live crypto catalog (GET /crypto/assets?direction=deposit)."""
+    from btp_catalog import _CATALOG
+    import time as _t
+    hit = _CATALOG.get("crypto_deposit")
+    if hit and _t.time() - hit[0] < 300 and hit[1]:
+        return hit[1]
+    code = ""
+    try:
+        r = await _get("/crypto/assets?direction=deposit", await _get_secret_key(db), await _get_public_key(db))
+        if r.status_code < 400:
+            jd = r.json()
+            items = jd if isinstance(jd, list) else next(
+                (jd[k] for k in ("assets", "data", "items", "results") if isinstance(jd.get(k), list)), [])
+            for a in items:
+                if not isinstance(a, dict):
+                    continue
+                blob = " ".join(str(a.get(k) or "") for k in
+                                ("code", "asset_code", "symbol", "name", "network", "network_code", "chain")).upper()
+                if "USDT" in blob and ("BEP20" in blob or "BSC" in blob or "BNB" in blob):
+                    code = str(a.get("code") or a.get("asset_code") or "")
+                    break
+            await db.app_settings.update_one({"key": "btp_catalog:crypto_deposit"},
+                                             {"$set": {"raw_sample": r.text[:4000], "resolved": code,
+                                                       "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+        else:
+            log.warning("btp crypto assets HTTP %s: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        log.warning("btp crypto assets error: %s", _redact(e))
+    code = code or BTP_CRYPTO_ASSET
+    _CATALOG["crypto_deposit"] = (_t.time(), code)
+    return code
+
+
+class BtpCryptoCreate(BaseModel):
+    level: int = 1  # activation is always L1
+    kind: str = "activation"
+    amount_xof: Optional[float] = None
+    target_id: Optional[str] = None
+
+
+@api.post("/activations/biztranspay-crypto/create")
+async def biztranspay_crypto_create(
+    data: BtpCryptoCreate, request: Request, user=Depends(get_current_user),
+):
+    """Create a fresh USDT.BEP20 deposit intent on BTP for account activation.
+
+    Mirrors izichange.create_crypto_charge, returning the same normalized
+    shape so the frontend pay.tsx can reuse its existing crypto UI.
+    """
+    db = request.app.state.db
+    from ashtec_activation import ACTIVATION_LEVEL
+
+    kind = (data.kind or "activation").strip().lower()
+    if kind not in ("activation", "ads", "special_task", "lottery_entry"):
+        raise HTTPException(400, "Type de paiement crypto Biz-transPay non pris en charge.")
+    if kind == "activation" and int(user.get("max_level") or 0) >= ACTIVATION_LEVEL:
+        raise HTTPException(400, "Votre compte est déjà activé.")
+    if not await is_crypto_enabled(db):
+        raise HTTPException(503, "Biz-transPay Crypto n'est pas disponible actuellement.")
+
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        raise HTTPException(503, "Biz-transPay non configuré (clés API manquantes).")
+
+    # Dedupe : reuse a fresh pending crypto deposit (< 10 min) to avoid
+    # multiplying addresses on repeated taps.
+    from datetime import timedelta
+    fresh_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    existing = await db.payments.find_one({
+        "user_id": user["id"], "provider": "biztranspay",
+        "kind": "activation_crypto" if kind == "activation" else kind,
+        "target_id": data.target_id,
+        "status": {"$in": ["pending", "processing"]},
+        "activation_done": {"$ne": True},
+        "created_at": {"$gte": fresh_cutoff},
+    }, {"_id": 0})
+    if existing:
+        return {
+            "reference": existing["reference"],
+            "deposit_address": existing.get("deposit_address"),
+            "qr_data": existing.get("deposit_address"),
+            "amount": existing.get("amount_to_send") or BTP_CRYPTO_AMOUNT,
+            "amount_to_send": existing.get("amount_to_send") or BTP_CRYPTO_AMOUNT,
+            "asset_code": BTP_CRYPTO_ASSET, "coin": "USDT", "network": "BEP20",
+            "memo": existing.get("memo"),
+            "expires_at": existing.get("expires_at"),
+        }
+
+    ref = _new_ref()
+    refund_address = ((await _load_cfg(db)).get("biztranspay_crypto_refund_address") or "").strip()
+    if not refund_address:
+        raise HTTPException(503, "Paiement crypto indisponible : adresse de remboursement non configurée par l'administrateur.")
+    asset_code = await _resolve_crypto_asset(db)
+    amount_xof = 2650.0 if kind == "activation" else float(data.amount_xof or 0)
+    if amount_xof <= 0:
+        raise HTTPException(400, "Montant de paiement invalide.")
+    amount_usdt = round(BTP_CRYPTO_AMOUNT * amount_xof / 2650.0, 6)
+    payload = {
+        "amount": amount_usdt,
+        "asset_code": asset_code,
+        "full_name": (user.get("full_name") or user.get("username") or "SPILOVEURE User")[:160].ljust(2, "."),
+        "email": user.get("email") or f"{user['id']}@spiloveure.internal",
+        "refund_address": refund_address,
+        "reference": ref,
+    }
+    try:
+        r = await _post("/crypto/deposits", payload, secret_key, public_key, idempotency_key=ref)
+    except Exception as e:
+        log.exception("btp crypto /crypto/deposits failed ref=%s: %s", ref, _redact(e))
+        raise HTTPException(502, "Impossible de contacter Biz-transPay. Réessayez.")
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            detail = str(r.json())[:400]
+        except Exception:
+            detail = r.text[:400]
+        detail = _redact(detail)
+        log.warning("btp crypto create %s ref=%s body=%s", r.status_code, ref, detail)
+        raise HTTPException(400, f"Biz-transPay a refusé la création du dépôt crypto : {_btp_error_detail(r)[0]}")
+    jd = {}
+    try:
+        jd = r.json()
+    except Exception:
+        pass
+    dep = jd.get("deposit") or jd
+    instr = dep.get("instructions") if isinstance(dep.get("instructions"), dict) else {}
+    pf = dep.get("payment_flow") if isinstance(dep.get("payment_flow"), dict) else {}
+    address = (
+        dep.get("payment_address") or dep.get("deposit_address") or dep.get("address")
+        or dep.get("wallet_address") or dep.get("pay_address")
+        or instr.get("address") or instr.get("deposit_address") or instr.get("wallet_address")
+        or pf.get("address") or pf.get("deposit_address")
+    )
+    amount_to_send = float(
+        dep.get("amount_to_send") or instr.get("amount") or dep.get("amount") or amount_usdt
+    )
+    memo = dep.get("memo") or instr.get("memo") or pf.get("memo")
+    expires_at = dep.get("pending_expires_at") or dep.get("expires_at")
+    provider_id = jd.get("id") or dep.get("id")
+
+    if not address:
+        log.error("btp crypto: no address in response ref=%s body=%s", ref, _redact(str(jd)[:400]))
+        raise HTTPException(502, "Biz-transPay n'a pas fourni d'adresse de paiement. Réessayez.")
+
+    now = datetime.now(timezone.utc)
+    await db.payments.insert_one({
+        "reference": ref,
+        "provider": "biztranspay",
+        "kind": "activation_crypto" if kind == "activation" else kind,
+        "target_id": data.target_id,
+        "ad_id": data.target_id if kind == "ads" else None,
+        "special_task_id": data.target_id if kind == "special_task" else None,
+        "draw_id": data.target_id if kind == "lottery_entry" else None,
+        "user_id": user["id"],
+        "username": user.get("username"),
+        "amount": amount_usdt,
+        "base_amount_xof": amount_xof,
+        "amount_to_send": amount_to_send,
+        "currency": "USDT",
+        "asset_code": asset_code,
+        "network": "BEP20",
+        "deposit_address": address,
+        "memo": memo,
+        "expires_at": expires_at,
+        "provider_intent_id": provider_id,
+        "level": 1 if kind == "activation" else None,
+        "status": "pending",
+        "activation_done": False,
+        "created_at": now,
+        "updated_at": now,
+    })
+    # Also mirror to activations table for the admin dashboard.
+    if kind == "activation":
+        await db.activations.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "reference": ref,
+            "level": 1,
+            "amount": amount_usdt,
+            "currency": "USDT",
+            "payment_method": "crypto_auto",
+            "gateway": "biztranspay",
+            "status": "pending",
+            "created_at": now,
+        })
+    return {
+        "reference": ref,
+        "deposit_address": address,
+        "qr_data": address,
+        "amount": amount_to_send,
+        "amount_to_send": amount_to_send,
+        "asset_code": asset_code, "coin": "USDT", "network": "BEP20",
+        "memo": memo,
+        "expires_at": expires_at,
+    }
+
+
+class BtpCryptoVerifyIn(BaseModel):
+    reference: str
+    tx_hash: str
+
+
+@api.post("/activations/biztranspay-crypto/verify")
+async def biztranspay_crypto_verify(
+    inp: BtpCryptoVerifyIn, request: Request, user=Depends(get_current_user),
+):
+    """User pasted the on-chain tx_hash — poll BTP for confirmation.
+
+    v27w — mirrors izichange.crypto_auto_verify:
+      • ownership check
+      • tx_hash uniqueness across payments
+      • GET /crypto/deposits/{id} — accept only "confirmed"/"completed"/"success"
+      • on success → _apply_payment_success (which calls activate_level)
+    """
+    db = request.app.state.db
+    ref = (inp.reference or "").strip()
+    tx = (inp.tx_hash or "").strip()
+    if not ref or not tx:
+        raise HTTPException(400, "Référence et hash requis.")
+    if len(tx) < 10:
+        raise HTTPException(400, "Hash de transaction invalide.")
+
+    p = await db.payments.find_one({"reference": ref, "provider": "biztranspay",
+                                    "kind": "activation_crypto"})
+    if not p:
+        raise HTTPException(404, "Demande de paiement introuvable.")
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Vous ne pouvez pas vérifier cette activation.")
+    if p.get("activation_done"):
+        return {"ok": True, "already_activated": True, "message": "Compte déjà activé."}
+
+    dupe = await db.payments.find_one({"tx_hash": tx, "reference": {"$ne": ref}})
+    if dupe:
+        await db.payments.update_one(
+            {"reference": ref},
+            {"$set": {"status": "rejected", "tx_hash": tx,
+                      "activation_error": "tx_hash_reused",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise HTTPException(409, "Ce hash de transaction est déjà utilisé pour une autre activation.")
+
+    intent_id = p.get("provider_intent_id")
+    if not intent_id:
+        raise HTTPException(500, "Identifiant passerelle manquant. Contactez le support.")
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    try:
+        r = await _get(f"/crypto/deposits/{intent_id}", secret_key, public_key)
+    except Exception as e:
+        log.exception("btp crypto verify GET failed ref=%s: %s", ref, _redact(e))
+        raise HTTPException(400, "Impossible de contacter la passerelle. Réessayez.")
+    if r.status_code == 404:
+        raise HTTPException(404, "Paiement introuvable côté passerelle.")
+    if r.status_code >= 400:
+        log.error("btp crypto verify %s ref=%s: %s", r.status_code, ref, _redact(r.text[:400]))
+        raise HTTPException(400, "La passerelle a refusé la vérification. Réessayez plus tard.")
+
+    remote = {}
+    try:
+        remote = r.json()
+    except Exception:
+        pass
+    remote_status = str(remote.get("status") or "").lower()
+
+    if remote_status not in ("confirmed", "completed", "success", "paid"):
+        # Still on-chain / not yet confirmed.
+        friendly = {
+            "pending": "Paiement pas encore reçu. Réessayez dans 1 à 5 minutes.",
+            "pending_manual": "Confirmation manuelle en cours. Réessayez dans quelques minutes.",
+            "confirming": "Paiement détecté, en attente de confirmation on-chain.",
+        }.get(remote_status, "Paiement pas encore confirmé. Réessayez dans 1 à 5 minutes.")
+        return {"ok": False, "status": remote_status or "pending", "message": friendly}
+
+    # Confirmed → activate.
+    upd = await db.payments.update_one(
+        {"reference": ref, "activation_done": {"$ne": True}},
+        {"$set": {"status": "paid", "activation_done": True,
+                  "paid_at": datetime.now(timezone.utc),
+                  "tx_hash": tx, "biztranspay_status": remote_status,
+                  "updated_at": datetime.now(timezone.utc)},
+         "$unset": {"activation_error": ""}},
+    )
+    if upd.modified_count == 0:
+        return {"ok": True, "already_activated": True, "message": "Compte déjà activé."}
+    await db.activations.update_one(
+        {"reference": ref, "status": "pending"},
+        {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc),
+                  "validated_by": "user_tx_hash_verify_btp", "tx_hash": tx}},
+    )
+    try:
+        from ashtec_activation import _apply_payment_success
+        p = await db.payments.find_one({"reference": ref}, {"_id": 0}) or p
+        await _apply_payment_success(db, p, "paid", source="biztranspay")
+    except Exception as e:
+        log.exception("btp crypto activation failed ref=%s: %s", ref, _redact(e))
+        raise HTTPException(500, "Activation impossible. Contactez le support.")
+
+    log.info("btp crypto verify OK ref=%s tx=%s user=%s", ref, tx[:16], user["id"])
+    return {"ok": True, "activated": True,
+            "message": "Paiement confirmé. Votre compte est activé au Niveau 1 !"}
+
+
+def register(app):
+    """Mount routers on the FastAPI app."""
+    app.include_router(api)
+    app.include_router(webhook)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# v27m (Phase 5) — Server-side polling worker
+# ═══════════════════════════════════════════════════════════════════════
+async def _poll_once(db) -> dict:
+    """One sweep: look up pending Biz-transPay activations (< 10 min old),
+    ask BTP for their current status, activate on `paid/completed`, mark
+    `failed` on failure, expire past 10 min.
+
+    v27s (2026-02-24) — migrated to Integration API v1: GET /deposits/{id}.
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    ten_min_ago = now - timedelta(minutes=30)
+
+    checked = activated = failed = expired = 0
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        return {"checked": 0, "skipped": "no_api_key"}
+
+    cursor = db.payments.find({
+        "provider": "biztranspay",
+        "status": {"$in": ["pending", "processing"]},
+        "activation_done": {"$ne": True},
+        "created_at": {"$gte": ten_min_ago},
+    })
+    async for p in cursor:
+        checked += 1
+        intent_id = p.get("provider_intent_id")
+        if not intent_id:
+            continue
+        # v27w — crypto deposits use a different status endpoint.
+        is_crypto = (
+            p.get("kind") == "activation_crypto"
+            or str(p.get("currency") or "").upper() == "USDT"
+        )
+        status_path = f"/crypto/deposits/{intent_id}" if is_crypto else f"/deposits/{intent_id}"
+        try:
+            r = await _get(status_path, secret_key, public_key)
+            if r.status_code >= 400:
+                continue
+            jd = r.json()
+        except Exception as e:
+            log.debug("btp poll error ref=%s: %s", p.get("reference"), _redact(e))
+            continue
+        remote = str(jd.get("status") or (jd.get("deposit") or {}).get("status") or "").lower()
+        # v1: only completed/approved/paid/success/confirmed are terminal success.
+        if remote in ("paid", "completed", "approved", "success", "confirmed"):
+            try:
+                from ashtec_activation import _apply_payment_success
+                await _apply_payment_success(db, p, "paid", source="biztranspay")
+                activated += 1
+            except Exception as e:
+                log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), _redact(e))
+        elif remote in ("failed", "declined", "canceled", "expired"):
+            await db.payments.update_one(
+                {"reference": p["reference"]},
+                {"$set": {"status": "failed", "biztranspay_status": remote,
+                          "updated_at": now}},
+            )
+            failed += 1
+
+    exp = await db.payments.update_many(
+        {"provider": "biztranspay",
+         "status": {"$in": ["pending", "processing"]},
+         "activation_done": {"$ne": True},
+         "provider_intent_id": {"$in": [None, ""]},
+         "created_at": {"$lt": ten_min_ago}},
+        {"$set": {"status": "unknown", "updated_at": now,
+                  "activation_error": "Résultat non confirmé : rapprocher auprès de Biz-transPay."}},
+    )
+    expired = exp.modified_count
+    return {"checked": checked, "activated": activated,
+            "failed": failed, "expired": expired}
+
+
+async def polling_loop(db):
+    """Background task: sweeps every 4 seconds. Started from server.lifespan.
+
+    v27aw (2026-03-05) — now ALSO reconciles stuck withdrawals via
+    `reconcile_all_dispatched` so BTP payouts that already completed on
+    the gateway side flip from `pending` to `completed` within 4 s
+    instead of waiting for an admin to open the retraits panel.
+
+    v27be (2026-03-05) — ALSO sweeps `payments` that are `status: paid`
+    but `activation_done != True` to retry activation. Fixes the stuck-
+    state bug where the user paid but max_level never advanced because
+    `activate_level` crashed/timed out after the gateway acknowledgment.
+    """
+    import asyncio as _a
+    tick = 0
+    while True:
+        try:
+            r = await _poll_once(db)
+            if r.get("activated") or r.get("failed") or r.get("expired"):
+                log.info("btp polling activations: %s", r)
+        except Exception as e:
+            log.exception("btp polling loop error (activations): %s", _redact(e))
+        try:
+            wd_r = await reconcile_all_dispatched(db, max_docs=50)
+            if wd_r.get("updated"):
+                log.info("btp polling withdrawals: %s", wd_r)
+        except Exception as e:
+            log.exception("btp polling loop error (withdrawals): %s", _redact(e))
+        # v27be — recover stuck activations (any provider).
+        try:
+            from ashtec_activation import _reconcile_stuck_activations
+            act_r = await _reconcile_stuck_activations(db)
+            if act_r.get("recovered") or act_r.get("failed"):
+                log.info("btp polling stuck activations: %s", act_r)
+        except Exception as e:
+            log.exception("btp polling loop error (stuck activations): %s",
+                          _redact(e))
+        tick += 1
+        await _a.sleep(10)
+
+
+
+async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
+    """v27af (2026-03-04) — poll Biz-transPay for the current status of a
+    stuck auto-dispatched withdrawal and update our doc accordingly.
+
+    Called by :
+      • the admin endpoint POST /api/admin/withdrawals/{id}/reconcile
+      • a scheduled reconcile loop (future)
+
+    Returns `{ok, changed, from_status, to_status, gateway_status}`.
+    """
+    payout_id = wd_doc.get("payout_id")
+    if not payout_id:
+        return {"ok": False, "reason": "no_payout_id"}
+    secret_key = await _get_secret_key(db)
+    public_key = await _get_public_key(db)
+    if not secret_key or not public_key:
+        return {"ok": False, "reason": "no_api_key"}
+    try:
+        r = await _get(f"/payouts/{payout_id}", secret_key, public_key)
+    except Exception as e:
+        log.exception("btp reconcile GET failed wd=%s: %s", wd_doc.get("id"), _redact(e))
+        return {"ok": False, "reason": "network_error"}
+    if r.status_code == 404:
+        return {"ok": False, "reason": "not_found_at_gateway"}
+    if r.status_code >= 400:
+        return {"ok": False, "reason": "gateway_error",
+                "detail": _redact(r.text[:200])}
+    try:
+        jd = r.json()
+    except Exception:
+        jd = {}
+    remote_status = str(jd.get("status") or (jd.get("payout") or {}).get("status") or "").lower()
+
+    _OK = {"completed", "succeeded", "paid", "success", "sent", "delivered", "approved"}
+    _KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
+    from_status = wd_doc.get("status") or "pending"
+    if remote_status in _OK:
+        to_status = "completed"
+    elif remote_status in _KO:
+        to_status = "rejected"
+    else:
+        to_status = from_status
+
+    set_fields = {
+        "gateway_status": remote_status,
+        "updated_at": datetime.now(timezone.utc),
+        "reconciled_at": datetime.now(timezone.utc),
+    }
+    changed = (to_status != from_status)
+    if changed:
+        set_fields["status"] = to_status
+        if to_status == "completed":
+            set_fields["completed_at"] = datetime.now(timezone.utc)
+        elif to_status == "rejected":
+            set_fields["rejected_at"] = datetime.now(timezone.utc)
+            set_fields["gateway_error"] = f"Gateway terminal-fail on reconcile: {remote_status}"
+            try:
+                await db.users.update_one(
+                    {"id": wd_doc["user_id"]},
+                    {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}},
+                )
+            except Exception:
+                pass
+    await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": set_fields})
+    return {"ok": True, "changed": changed, "from_status": from_status,
+            "to_status": to_status, "gateway_status": remote_status}
+
+
+async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
+    """v27af — one-shot backfill : sweep every withdrawal that is still in
+    a non-terminal state (`pending` / `dispatched` / `processing`) AND
+    already dispatched to Biz-transPay (has a `payout_id`), and refresh its
+    status from the gateway. Safe to call multiple times (idempotent — a
+    reconcile does nothing when the remote status is unchanged).
+    """
+    q = {
+        "auto_dispatched": True,
+        "gateway": "biztranspay",
+        "payout_id": {"$exists": True, "$nin": [None, ""]},
+        "status": {"$in": ["pending", "dispatched", "processing"]},
+    }
+    results = {"scanned": 0, "updated": 0, "errors": 0, "changes": []}
+    async for wd in db.withdrawals.find(q).limit(max_docs):
+        results["scanned"] += 1
+        try:
+            r = await reconcile_withdrawal(db, wd)
+            if r.get("ok") and r.get("changed"):
+                results["updated"] += 1
+                results["changes"].append({
+                    "id": wd.get("id"),
+                    "from": r["from_status"],
+                    "to": r["to_status"],
+                    "gateway": r["gateway_status"],
+                })
+            elif not r.get("ok"):
+                results["errors"] += 1
+        except Exception:
+            results["errors"] += 1
+    return results

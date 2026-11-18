@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SPILOVEURE — site existant"
+description = "Site SPILOVEURE existant, servi par Expo Web et sa passerelle vers le backend VPS. La configuration APK Expo reste indépendante et conservée."
+version = "1.0.0"
+id = "artifacts/spiloveure-web"
+router = "path"
+
+[[services]]
+name = "web"
+paths = ["/", "/api", "/api/messenger/ws"]
+localPort = 20285
+
+[services.development]
+run = "pnpm --filter @workspace/spiloveure-web run dev"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/spiloveure-web", "run", "build"]
+serve = "static"
+publicDir = "frontend/build"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20285"
+BASE_PATH = "/"

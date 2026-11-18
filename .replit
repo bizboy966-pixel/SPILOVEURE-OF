@@ -1,40 +1,20 @@
-modules = ["python-3.12", "bash", "nodejs-22"]
+modules = ["nodejs-24", "python-base-3.13"]
 
-[nix]
-channel = "stable-25_05"
-packages = ["mongodb-ce"]
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
 
-[agent]
-expertMode = true
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
 
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "SPV_PREVIEW_MODE=vps SPV_PREVIEW_API_UPSTREAM=https://spiloveure.org bash scripts/start-dev.sh"
-waitForPort = 5000
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

@@ -1,0 +1,380 @@
+# MISSION : INTÉGRATION D'UN SYSTÈME DE MESSAGERIE COMPLET DANS SPILOVEURE – RÉFÉRENCE TELEGRAM
+
+## 1\. OBJECTIF PRINCIPAL
+
+Je souhaite intégrer dans ma plateforme SPILOVEURE un espace de messagerie instantanée complet, professionnel, moderne et entièrement fonctionnel.
+
+Je vais te fournir une image de référence qui représente précisément le design souhaité.
+
+**EXIGENCE ABSOLUE : REPRODUIRE EXACTEMENT L'IMAGE DE RÉFÉRENCE.**
+
+Tu dois reproduire le plus fidèlement possible tous les éléments visibles :
+
+- La disposition générale de l'interface.
+- Les couleurs et les arrière-plans.
+- Les dimensions et les proportions.
+- Les icônes et les boutons.
+- Les espacements et les alignements.
+- Les formes, les bordures et les arrondis.
+- Les typographies et les tailles de texte.
+- Les barres de navigation.
+- La position de chaque composant.
+
+Ne propose pas un autre design et ne prends pas de liberté créative sur la composition de l'image.
+
+L'objectif est d'obtenir une reproduction visuelle extrêmement fidèle, tout en rendant chaque élément réellement fonctionnel.
+
+L'interface doit être mobile-first et parfaitement responsive.
+
+## 2\. ANALYSE PRÉALABLE DE LA PLATEFORME
+
+Avant toute intervention, analyse intégralement l'architecture actuelle de SPILOVEURE.
+
+Examine :
+
+- Le système de navigation.
+- Les routes et les pages existantes.
+- Les composants déjà développés.
+- Le système d'authentification.
+- La gestion des comptes utilisateurs.
+- La base de données.
+- Les fonctionnalités existantes.
+- Les intégrations et les services actuellement opérationnels.
+
+Identifie la meilleure manière d'ajouter le nouveau module Chat sans perturber le fonctionnement actuel.
+
+Ne commence pas directement à modifier le code. Présente d'abord l'architecture proposée, les composants nécessaires, les interactions, les flux de données et les éventuelles adaptations techniques.
+
+## 3\. IDENTITÉ VISUELLE DE SPILOVEURE CHAT
+
+Dans l'angle supérieur gauche de l'interface, intègre :
+
+- Le logo officiel de SPILOVEURE.
+- Le texte **SPILOVEURE CHAT**, placé à côté du logo.
+
+Utilise exclusivement le logo officiel déjà présent dans la plateforme.
+
+Ne crée pas un nouveau logo et ne modifie pas son apparence.
+
+L'ensemble doit être parfaitement aligné et intégré au design de référence.
+
+Cet élément doit également être cliquable et permettre à l'utilisateur de revenir à l'interface principale de SPILOVEURE.
+
+**Important : Le boutons centrale SPILOVEURE aussi doit avoir les même fonctionnement (cliquable et permet a l'utilisateur de revenir a l'interface principal de SPILOVEURE**&#32;
+
+## 4\. ANIMATION ET TRANSITION ENTRE LES DEUX INTERFACES
+
+Je souhaite conserver exactement le principe d'animation que j'ai précédemment décrit.
+
+Emplacement du bouton Chat :
+
+Sur la barre de navigation principale de SPILOVEURE il y a dans les options un bouton nommé '' Trading '' tu remplaces ça par Chat
+
+### A. Lorsque l'utilisateur clique Sur Chat
+
+1. La barre de navigation principale de SPILOVEURE glisse progressivement vers le bas jusqu'à disparaître.
+2. Simultanément, la barre de navigation spécifique au Chat apparaît en glissant depuis le haut.
+3. La transition doit être fluide, naturelle et parfaitement synchronisée.
+4. Le contenu du Chat apparaît sans déformation ni déplacement brutal.
+
+### B. Lorsque l'utilisateur clique sur le logo SPILOVEURE CHAT
+
+L'ensemble composé du logo officiel et du texte SPILOVEURE CHAT, situé en haut à gauche, doit permettre de revenir à l'interface principale.
+
+Lorsqu'il est cliqué :
+
+1. La barre de navigation du Chat glisse progressivement vers le haut et disparaît.
+2. La barre de navigation principale de SPILOVEURE réapparaît en glissant depuis le bas.
+3. L'utilisateur retrouve l'interface principale de la plateforme.
+
+### C. Exigences relatives aux animations
+
+- Les deux animations doivent être parfaitement synchronisées.
+- Éviter les clignotements et les coupures visuelles.
+- Éviter les superpositions incorrectes.
+- Préserver la position des éléments.
+- Garantir une fluidité optimale sur les téléphones mobiles.
+- Prévoir une transition réversible et cohérente.
+
+Ces animations ne doivent pas être supprimées ou remplacées par une simple navigation instantanée.
+
+## 5\. BARRE DE NAVIGATION DU CHAT
+
+Conserve les rubriques suivantes conformément à l'image de référence :
+
+**Échanges :** affichage des conversations privées et des groupes.
+
+**Contacts :** liste des contacts, recherche et gestion des relations.
+
+**Actus :** espace de publications, de statuts et de contenus partagés.
+
+**Profil :** informations personnelles, paramètres et confidentialité du Chat.
+
+Chaque rubrique doit être réellement fonctionnelle.
+
+## 6\. FONCTIONNEMENT DU CHAT : PRENDRE TELEGRAM COMME RÉFÉRENCE
+
+La référence fonctionnelle principale doit désormais être **Telegram**.
+
+Avant de développer le système, étudie précisément le fonctionnement de Telegram dans sa version actuelle.
+
+Examine son organisation, ses conversations, ses groupes, ses canaux, ses contacts, ses appels, ses notifications, ses paramètres, sa recherche et ses outils de communication.
+
+Ne te limite pas à une connaissance générale de Telegram. Vérifie les fonctionnalités réellement disponibles et leur fonctionnement à partir de sa documentation officielle et de son application.
+
+L'objectif est de développer dans SPILOVEURE un système de messagerie offrant une expérience utilisateur comparable à Telegram.
+
+### A. Conversations privées
+
+Intégrer :
+
+- Envoi et réception instantanés de messages.
+- Historique complet des conversations.
+- Confirmation d'envoi et de lecture.
+- Réponse à un message précis.
+- Modification des messages.
+- Suppression des messages.
+- Transfert de messages.
+- Réactions avec des emojis.
+- Épinglage de messages.
+- Recherche dans les conversations.
+- Messages non lus.
+- Archivage des conversations.
+- Mise en sourdine.
+- Brouillons de messages.
+- Indicateur de saisie « écrit... ».
+- Affichage de la dernière présence.
+
+### B. Messages multimédias
+
+Permettre l'envoi et la réception de :
+
+- Photos et images.
+- Vidéos.
+- Messages vocaux.
+- Fichiers audio.
+- Documents PDF.
+- Documents bureautiques.
+- Fichiers compressés.
+- Contacts partagés.
+- Liens et contenus externes.
+
+Prévoir les aperçus des fichiers, leur téléchargement et leur consultation directement dans l'interface lorsque cela est possible.
+
+### C. Messages vocaux et vidéo
+
+Développer un système permettant :
+
+- L'enregistrement de messages vocaux.
+- La lecture et la mise en pause.
+- L'affichage de la durée.
+- L'annulation avant envoi.
+- L'envoi de messages vidéo lorsque cette fonctionnalité est prévue.
+- La lecture des contenus reçus.
+
+### D. Groupes de discussion
+
+Les utilisateurs doivent pouvoir :
+
+- Créer des groupes.
+- Ajouter et retirer des membres.
+- Définir un nom et une photo.
+- Nommer des administrateurs.
+- Attribuer des rôles et des autorisations.
+- Envoyer des messages et des fichiers.
+- Épingler des messages.
+- Répondre et réagir.
+- Rechercher dans l'historique.
+- Gérer les notifications.
+- Quitter ou supprimer un groupe selon les autorisations.
+
+### E. Canaux de diffusion
+
+Intégrer un système de canaux inspiré de Telegram.
+
+Les fonctionnalités attendues :
+
+- Création de canaux.
+- Publication de messages.
+- Abonnement et désabonnement.
+- Gestion des administrateurs.
+- Diffusion d'annonces à plusieurs abonnés.
+- Publication de photos, vidéos et documents.
+- Gestion des commentaires si cette option est activée.
+- Statistiques de consultation lorsque disponibles.
+
+### F. Contacts et recherche
+
+Permettre aux utilisateurs de :
+
+- Rechercher les membres de SPILOVEURE.
+- Retrouver un utilisateur par son identifiant ou les critères autorisés.
+- Consulter son profil.
+- Démarrer une conversation.
+- Ajouter des contacts.
+- Bloquer ou débloquer des utilisateurs.
+- Signaler un compte.
+- Gérer les demandes de contact.
+
+Les identités doivent être directement reliées au système de comptes existant de SPILOVEURE.
+
+### G. Actus et publications
+
+Créer un espace permettant :
+
+- La publication de photos.
+- La publication de vidéos.
+- Le partage de textes.
+- La consultation des publications des contacts.
+- Les réactions.
+- Les réponses.
+- La gestion de la visibilité des publications.
+
+### H. Appels audio et vidéo
+
+Prévoir un système d'appels permettant :
+
+- Les appels audio privés.
+- Les appels vidéo.
+- Les appels entrants.
+- L'acceptation et le refus des appels.
+- Les notifications d'appels manqués.
+- La gestion du microphone et de la caméra.
+- La fin d'appel.
+- Les appels de groupe si l'infrastructure le permet.
+
+Étudier l'intégration de WebRTC et d'un système de signalisation adapté.
+
+### I. Fonctionnalités avancées inspirées de Telegram
+
+Étudier et intégrer les fonctionnalités pertinentes telles que :
+
+- Les messages enregistrés.
+- Les messages épinglés.
+- Les messages programmés.
+- Les messages silencieux.
+- La recherche globale.
+- Les réponses et citations.
+- Les hashtags et mentions.
+- Le partage de localisation si autorisé.
+- Les paramètres avancés de confidentialité.
+- La gestion des sessions et appareils connectés.
+- Les outils de modération des groupes.
+- Les bots et automatisations, si leur intégration est pertinente.
+
+Ne transforme pas cette liste en simples boutons décoratifs : chaque fonctionnalité retenue doit disposer d'un véritable fonctionnement technique.
+
+## 7\. NOTIFICATIONS ET COMMUNICATION EN TEMPS RÉEL
+
+Le système doit fonctionner en temps réel.
+
+Prévoir :
+
+- Les notifications de nouveaux messages.
+- Les notifications de réponses.
+- Les notifications de mentions.
+- Les notifications de réactions.
+- Les notifications de groupes et de canaux.
+- Les notifications d'appels.
+- Les notifications push lorsque l'utilisateur n'utilise pas activement le Chat.
+
+Les messages doivent être synchronisés sans actualisation manuelle de la page.
+
+Gérer correctement les connexions interrompues, les reconnexions et les messages en attente.
+
+## 8\. SÉCURITÉ ET PROTECTION DES DONNÉES
+
+Prévoir une architecture sécurisée comprenant :
+
+- Une authentification reliée aux comptes SPILOVEURE.
+- Des autorisations adaptées aux conversations privées et aux groupes.
+- Une protection des fichiers transmis.
+- Des contrôles d'accès côté serveur.
+- Une protection contre le spam et les abus.
+- Une gestion sécurisée des sessions.
+- Une journalisation technique appropriée.
+- Une protection contre les accès non autorisés.
+
+Étudier le chiffrement des communications, notamment le chiffrement de bout en bout lorsque cela est techniquement approprié.
+
+Ne prétends pas fournir un chiffrement de bout en bout si celui-ci n'est pas réellement implémenté et vérifié.
+
+## 9\. INTÉGRATION SANS MODIFICATION DES FONCTIONNALITÉS EXISTANTES
+
+Cette instruction est fondamentale.
+
+**Tu ne dois absolument rien changer à la finalité actuelle de SPILOVEURE.**
+
+Ta mission consiste uniquement à ajouter un nouveau module de messagerie.
+
+Il est formellement interdit de :
+
+- Modifier les fonctionnalités existantes.
+- Supprimer des pages.
+- Remplacer les systèmes actuels.
+- Modifier les règles de fonctionnement de la plateforme.
+- Modifier le système de paiement.
+- Modifier les comptes ou les données des utilisateurs.
+- Modifier les abonnements existants.
+- Perturber les modules publicitaires.
+- Modifier la marketplace.
+- Modifier les tâches et les formations.
+- Changer les intégrations déjà opérationnelles.
+- Effectuer une refonte générale non demandée.
+
+Le nouveau Chat doit fonctionner comme un module indépendant, avec des connexions contrôlées aux données et services existants.
+
+Toute adaptation nécessaire doit être strictement limitée au périmètre du Chat.
+
+## 10\. TESTS ET VALIDATION
+
+Avant la mise en production, effectuer des tests complets :
+
+1. Comparer le design final à l'image de référence.
+2. Vérifier les animations d'entrée et de sortie.
+3. Vérifier le retour à l'accueil par le logo SPILOVEURE CHAT.
+4. Tester les conversations entre plusieurs comptes.
+5. Tester les messages multimédias.
+6. Tester les groupes et les canaux.
+7. Tester les appels si intégrés.
+8. Tester les notifications.
+9. Tester la recherche et les paramètres.
+10. Tester la sécurité et les autorisations.
+11. Vérifier les performances sur mobile.
+12. Effectuer des tests de non-régression sur toute la plateforme.
+
+Aucune fonctionnalité ne doit être déclarée opérationnelle sans avoir été testée.
+
+## 11\. LIVRABLES ATTENDUS
+
+À la fin du développement, fournir :
+
+- Le nouveau module SPILOVEURE CHAT.
+- La reproduction fidèle de l'image de référence.
+- Les animations de navigation fonctionnelles.
+- Le système complet de messagerie.
+- Les conversations privées et de groupe.
+- Les canaux et fonctionnalités de communication retenus.
+- Les notifications.
+- Les fonctionnalités audio et vidéo effectivement intégrées.
+- La documentation technique.
+- Le rapport de tests.
+- La confirmation de préservation des fonctionnalités existantes.
+
+# INSTRUCTION FINALE : PRIORITÉ ABSOLUE
+
+Je ne demande pas une nouvelle plateforme et je ne demande pas une refonte de SPILOVEURE.
+
+Je demande exclusivement l'ajout d'un espace de messagerie complet appelé **SPILOVEURE CHAT**.
+
+Le design doit reproduire exactement l'image de référence fournie.
+
+Les animations doivent respecter précisément le fonctionnement décrit : disparition de la navigation principale vers le bas, apparition de la navigation du Chat depuis le haut, puis animation inverse lorsque l'utilisateur clique sur le logo et le nom SPILOVEURE CHAT situés en haut à gauche.
+
+Enfin, le fonctionnement des conversations et de l'ensemble du système de communication doit être extrêmement proche de Telegram, après vérification de ses fonctionnalités actuelles.
+
+**Je veux un véritable système de messagerie opérationnel, et non une simple interface visuelle.**
+
+La plateforme SPILOVEURE doit conserver intégralement sa finalité, ses fonctionnalités, ses données et ses intégrations actuelles.
+
+**AJOUTER UNIQUEMENT. NE RIEN SUPPRIMER. NE RIEN DÉNATURER. NE RIEN MODIFIER EN DEHORS DU MODULE DEMANDÉ.**

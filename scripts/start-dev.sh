@@ -39,7 +39,7 @@ case "${SPV_PREVIEW_MODE:-}" in
     ;;
 esac
 
-(cd frontend && CI=1 EXPO_NO_TELEMETRY=1 ../node_modules/.bin/expo start --web --port 8080) &
+(cd frontend && CI=1 EXPO_NO_TELEMETRY=1 pnpm exec expo start --web --port "${SPV_METRO_PORT:-8080}") &
 pids+=("$!")
 node scripts/dev_gateway.cjs &
 pids+=("$!")

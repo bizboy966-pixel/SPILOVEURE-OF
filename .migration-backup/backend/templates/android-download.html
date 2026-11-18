@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b2d6f">
+  <meta name="description" content="Téléchargez l’application Android officielle SPILOVEURE. Retrouvez votre communauté, le Chat et votre espace membre.">
+  <meta name="robots" content="@@ROBOTS@@">
+  <link rel="canonical" href="@@CANONICAL@@">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:site_name" content="SPILOVEURE">
+  <meta property="og:title" content="SPILOVEURE pour Android">
+  <meta property="og:description" content="Votre communauté SPILOVEURE, dans votre poche. Téléchargez l’application Android officielle.">
+  <meta property="og:url" content="@@CANONICAL@@">
+  <title>Télécharger SPILOVEURE pour Android</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --blue: #1b5bff;
+      --blue-deep: #0b2d6f;
+      --blue-wash: #ebf1ff;
+      --gold: #c58a20;
+      --gold-soft: #fff5dc;
+      --ink: #123363;
+      --muted: #657893;
+      --paper: #f6f8fb;
+      --surface: #fff;
+      --line: #e7edf5;
+      --green: #118563;
+      --shadow: 0 18px 54px rgba(11, 45, 111, .10);
+      --radius: 24px;
+      font-family: Nunito, "Nunito Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse at 77% 8%, rgba(197, 138, 32, .09), transparent 25rem),
+        radial-gradient(ellipse at 5% 28%, rgba(27, 91, 255, .06), transparent 27rem),
+        var(--paper);
+    }
+    body::before {
+      position: fixed;
+      z-index: -1;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      opacity: .20;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.11'/%3E%3C/svg%3E");
+    }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    .wrap { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 90px;
+      gap: 20px;
+    }
+    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand img {
+      width: 48px;
+      height: 48px;
+      border: 1px solid rgba(197, 138, 32, .36);
+      border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 4px 14px rgba(11, 45, 111, .12);
+    }
+    .brand-word { font-size: 17px; font-weight: 900; letter-spacing: -.55px; color: var(--blue-deep); }
+    .brand-word span { color: var(--gold); }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-links a {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: color .18s ease;
+    }
+    .nav-links a:hover, .nav-links a:focus-visible { color: var(--blue); }
+    .nav-links .nav-join {
+      padding: 11px 17px;
+      border: 1px solid #dce6f8;
+      border-radius: 999px;
+      background: rgba(255,255,255,.68);
+      color: var(--blue-deep);
+    }
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(310px, .9fr);
+      align-items: center;
+      gap: clamp(34px, 7vw, 92px);
+      min-height: 548px;
+      padding-block: 52px 74px;
+    }
+    .hero-copy { position: relative; z-index: 1; animation: rise .7s both; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 20px;
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      width: 23px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--gold);
+      content: "";
+    }
+    h1 {
+      max-width: 650px;
+      margin: 0;
+      color: var(--blue-deep);
+      font-size: clamp(42px, 6vw, 70px);
+      font-weight: 900;
+      letter-spacing: -.065em;
+      line-height: .99;
+    }
+    h1 em { color: var(--blue); font-style: normal; }
+    .intro {
+      max-width: 510px;
+      margin: 23px 0 28px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.72;
+    }
+    .download-panel {
+      width: min(100%, 490px);
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,.9);
+      border-radius: 21px;
+      background: rgba(255,255,255,.82);
+      box-shadow: 0 16px 44px rgba(11, 45, 111, .10);
+      backdrop-filter: blur(12px);
+    }
+    .download-action {
+      display: flex;
+      min-height: 58px;
+      align-items: center;
+      justify-content: center;
+      gap: 11px;
+      padding: 14px 20px;
+      border: 0;
+      border-radius: 15px;
+      background: linear-gradient(110deg, var(--blue-deep), var(--blue));
+      box-shadow: 0 9px 20px rgba(27, 91, 255, .20);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 900;
+      text-align: center;
+      text-decoration: none;
+      transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+    .download-action[href]:hover { transform: translateY(-2px); box-shadow: 0 13px 25px rgba(27, 91, 255, .27); }
+    .download-action[aria-disabled="true"] {
+      background: #e8edf5;
+      box-shadow: none;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    .download-action:focus-visible, button:focus-visible, a:focus-visible {
+      outline: 3px solid #d2a143;
+      outline-offset: 3px;
+    }
+    .download-action svg { flex: 0 0 auto; }
+    .availability {
+      min-height: 22px;
+      margin: 12px 2px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .availability strong { color: var(--ink); }
+    .retry {
+      display: none;
+      margin-top: 8px;
+      padding: 5px 0;
+      border: 0;
+      background: none;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 900;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    .retry.visible { display: inline-flex; }
+    .visual {
+      position: relative;
+      display: grid;
+      min-height: 405px;
+      place-items: center;
+      animation: rise .8s .08s both;
+    }
+    .visual-orbit {
+      position: absolute;
+      width: min(390px, 100%);
+      aspect-ratio: 1;
+      border: 1px solid rgba(27,91,255,.13);
+      border-radius: 50%;
+    }
+    .visual-orbit::before, .visual-orbit::after {
+      position: absolute;
+      border: 1px solid rgba(197,138,32,.18);
+      border-radius: 50%;
+      content: "";
+      inset: 24px;
+    }
+    .visual-orbit::after { inset: 55px; border-color: rgba(27,91,255,.1); }
+    .phone {
+      position: relative;
+      width: 220px;
+      height: 386px;
+      padding: 10px;
+      border: 1px solid rgba(11,45,111,.18);
+      border-radius: 34px;
+      background: linear-gradient(145deg, #fff, #eaf0fc);
+      box-shadow: 0 26px 65px rgba(11,45,111,.18), 0 7px 18px rgba(11,45,111,.08);
+      transform: rotate(3deg);
+    }
+    .phone-screen {
+      position: relative;
+      display: flex;
+      height: 100%;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 21px 15px 14px;
+      border-radius: 25px;
+      background: linear-gradient(160deg, #0b2d6f 0%, #1244a4 53%, #1b5bff 100%);
+      color: white;
+    }
+    .phone-screen::after {
+      position: absolute;
+      right: -45px;
+      bottom: 30px;
+      width: 190px;
+      height: 190px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 50%;
+      content: "";
+      box-shadow: 0 0 0 20px rgba(255,255,255,.035), 0 0 0 42px rgba(255,255,255,.03);
+    }
+    .phone-top { display: flex; align-items: center; justify-content: space-between; font-size: 9px; opacity: .85; }
+    .phone-logo {
+      width: 73px;
+      height: 73px;
+      margin: 30px auto 13px;
+      border: 2px solid rgba(231,181,74,.85);
+      border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 0 0 6px rgba(255,255,255,.08);
+    }
+    .phone-title { margin: 0; color: white; font-size: 18px; font-weight: 900; letter-spacing: -.5px; text-align: center; }
+    .phone-sub { margin: 5px 0 23px; color: rgba(255,255,255,.72); font-size: 9px; text-align: center; }
+    .phone-card {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 8px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 12px;
+      background: rgba(255,255,255,.10);
+      font-size: 10px;
+    }
+    .phone-icon {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 9px;
+      background: rgba(240,190,84,.20);
+      color: #ffdc85;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .phone-card strong { display: block; font-size: 10px; }
+    .phone-card span { display: block; margin-top: 2px; color: rgba(255,255,255,.65); font-size: 8px; }
+    .phone-nav {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-around;
+      margin-top: auto;
+      padding-top: 13px;
+      border-top: 1px solid rgba(255,255,255,.15);
+      color: rgba(255,255,255,.73);
+      font-size: 8px;
+    }
+    .phone-nav b { color: #ffdc85; font-weight: 800; }
+    .orbit-tag {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 14px;
+      border: 1px solid rgba(255,255,255,.84);
+      border-radius: 14px;
+      background: rgba(255,255,255,.91);
+      box-shadow: 0 12px 32px rgba(11,45,111,.11);
+      color: var(--blue-deep);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .orbit-tag span { color: var(--gold); font-size: 15px; }
+    .tag-chat { top: 73px; left: 0; }
+    .tag-community { right: -7px; bottom: 77px; }
+    .section { padding-block: 54px 62px; }
+    .section-heading { max-width: 620px; margin-bottom: 27px; }
+    .section-heading .eyebrow { margin-bottom: 12px; }
+    h2 { margin: 0; color: var(--blue-deep); font-size: clamp(27px, 3.5vw, 38px); font-weight: 900; letter-spacing: -.045em; line-height: 1.12; }
+    .section-heading p { margin: 12px 0 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+    .features {
+      display: grid;
+      grid-template-columns: 1.1fr .95fr .95fr;
+      gap: 14px;
+    }
+    .feature {
+      min-height: 166px;
+      padding: 21px;
+      border: 1px solid var(--line);
+      border-radius: 19px;
+      background: rgba(255,255,255,.74);
+      box-shadow: 0 8px 26px rgba(11,45,111,.035);
+    }
+    .feature:first-child { background: linear-gradient(140deg, #fff, #eef3ff); }
+    .feature-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      margin-bottom: 17px;
+      border-radius: 12px;
+      background: var(--blue-wash);
+      color: var(--blue);
+    }
+    .feature:nth-child(2) .feature-mark { background: var(--gold-soft); color: #9a6711; }
+    .feature h3 { margin: 0 0 7px; color: var(--blue-deep); font-size: 15px; font-weight: 900; }
+    .feature p { max-width: 320px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .release-block {
+      display: grid;
+      grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr);
+      gap: 38px;
+      align-items: start;
+      padding-block: 64px;
+      border-top: 1px solid var(--line);
+    }
+    .release-block .section-heading { position: sticky; top: 24px; margin: 0; }
+    .release-card {
+      min-height: 180px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .release-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px rgba(17,133,99,.10); }
+    .release-title { margin: 0 0 18px; color: var(--blue-deep); font-size: 22px; font-weight: 900; letter-spacing: -.035em; }
+    .release-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px 24px; }
+    .release-item dt { margin: 0 0 4px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+    .release-item dd { overflow-wrap: anywhere; margin: 0; color: var(--ink); font-size: 13px; font-weight: 800; line-height: 1.55; }
+    .hash-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px !important; font-weight: 600 !important; }
+    .release-error { margin: 0; color: #9a3e36; font-size: 14px; line-height: 1.65; }
+    .previous { margin-top: 18px; }
+    .previous h3 { margin: 0 0 10px; color: var(--ink); font-size: 13px; font-weight: 900; }
+    .previous-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .previous-list a {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f9fbff;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: border-color .18s ease, background .18s ease;
+    }
+    .previous-list a:hover { border-color: #b8cafa; background: var(--blue-wash); }
+    .steps {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      padding-block: 55px 64px;
+      border-top: 1px solid var(--line);
+    }
+    .step-panel { padding: 24px; border-radius: 20px; background: #eef3fc; }
+    .step-panel.warning { border: 1px solid #f0dfb7; background: #fff9eb; }
+    .step-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 13px; }
+    .step-number { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 10px; background: var(--blue); color: white; font-size: 13px; font-weight: 900; }
+    .warning .step-number { background: var(--gold); }
+    .step-panel h3 { margin: 0; color: var(--blue-deep); font-size: 16px; font-weight: 900; }
+    .step-panel p { margin: 0; color: #566b89; font-size: 13px; line-height: 1.72; }
+    .step-panel p + p { margin-top: 10px; }
+    .warning strong { color: #79510d; }
+    .closing {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 28px;
+      margin-bottom: 56px;
+      padding: 26px 30px;
+      border: 1px solid rgba(197,138,32,.24);
+      border-radius: 22px;
+      background: linear-gradient(105deg, #fff, #fff9e9);
+    }
+    .closing p { max-width: 500px; margin: 0; color: var(--blue-deep); font-size: 17px; font-weight: 900; line-height: 1.5; }
+    .closing a { flex: 0 0 auto; padding: 12px 18px; border-radius: 999px; background: var(--blue-deep); color: white; font-size: 13px; font-weight: 900; text-decoration: none; transition: transform .18s ease; }
+    .closing a:hover { transform: translateY(-2px); }
+    footer { padding-block: 22px 30px; border-top: 1px solid var(--line); }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .footer-copy { color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 18px; }
+    .footer-links a { color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .footer-links a:hover { color: var(--blue); }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 800px) {
+      .wrap { width: min(100% - 36px, 600px); }
+      .topbar { min-height: 76px; }
+      .nav-links { gap: 17px; }
+      .nav-links a { font-size: 12px; }
+      .hero { grid-template-columns: 1fr; gap: 18px; padding-block: 47px 32px; }
+      .hero-copy { max-width: 630px; }
+      .visual { min-height: 390px; }
+      .visual-orbit { width: 350px; }
+      .tag-chat { left: calc(50% - 176px); }
+      .tag-community { right: calc(50% - 178px); }
+      .features { grid-template-columns: 1fr 1fr; }
+      .feature:first-child { grid-column: 1 / -1; }
+      .release-block { grid-template-columns: 1fr; gap: 22px; padding-block: 48px; }
+      .release-block .section-heading { position: static; }
+    }
+    @media (max-width: 520px) {
+      .wrap { width: calc(100% - 32px); }
+      .topbar { min-height: 70px; }
+      .brand img { width: 40px; height: 40px; }
+      .brand-word { font-size: 15px; }
+      .nav-links { gap: 13px; }
+      .nav-links a { font-size: 11px; }
+      .nav-links .nav-join { padding: 9px 11px; }
+      .hero { padding-top: 41px; }
+      h1 { font-size: clamp(40px, 12vw, 55px); }
+      .intro { margin-block: 17px 22px; font-size: 15px; }
+      .download-panel { padding: 12px; }
+      .download-action { min-height: 56px; font-size: 14px; }
+      .visual { min-height: 346px; margin-inline: -8px; }
+      .visual-orbit { width: 310px; }
+      .phone { width: 195px; height: 343px; }
+      .phone-logo { width: 64px; height: 64px; margin-top: 25px; }
+      .tag-chat { top: 48px; left: calc(50% - 145px); }
+      .tag-community { right: calc(50% - 148px); bottom: 45px; }
+      .orbit-tag { padding: 9px 11px; font-size: 10px; }
+      .section { padding-block: 40px 45px; }
+      .features { grid-template-columns: 1fr; }
+      .feature:first-child { grid-column: auto; }
+      .feature { min-height: unset; padding: 19px; }
+      .feature-mark { margin-bottom: 12px; }
+      .release-card { padding: 19px; }
+      .release-grid { gap: 15px 12px; }
+      .release-item dd { font-size: 12px; }
+      .hash-value { font-size: 10px !important; }
+      .steps { grid-template-columns: 1fr; gap: 12px; padding-block: 42px; }
+      .step-panel { padding: 20px; }
+      .closing { flex-direction: column; align-items: flex-start; gap: 17px; margin-bottom: 36px; padding: 22px; }
+      .closing p { font-size: 15px; }
+      .footer-inner { align-items: flex-start; flex-direction: column; }
+      .footer-links { gap: 12px 17px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap topbar">
+    <a class="brand" href="/" aria-label="SPILOVEURE, accueil">
+      <img alt="" width="48" height="48" src="data:image/jpeg;base64,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" />
+      <span class="brand-word">SPILO<span>VEURE</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Navigation principale">
+      <a href="/login">Se connecter</a>
+      <a class="nav-join" href="/welcome">Commencer une inscription</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="wrap hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">L’application Android officielle</p>
+        <h1 id="page-title">Votre communauté,<br><em>partout avec vous.</em></h1>
+        <p class="intro">Retrouvez le Chat SPILOVEURE, votre espace membre et les outils de parrainage dans une seule application, pensée pour rester proche de votre communauté.</p>
+        <div class="download-panel">
+          <a id="download-action" class="download-action" aria-disabled="true" tabindex="-1">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="download-label">Vérification de la disponibilité…</span>
+          </a>
+          <p class="availability" id="availability" role="status" aria-live="polite">Recherche de la version Android officielle.</p>
+          <button class="retry" id="retry-button" type="button">Réessayer la vérification</button>
+        </div>
+      </div>
+      <div class="visual" aria-label="Aperçu illustratif de l’application SPILOVEURE">
+        <div class="visual-orbit" aria-hidden="true"></div>
+        <div class="orbit-tag tag-chat"><span aria-hidden="true">C</span> Chat de communauté</div>
+        <div class="orbit-tag tag-community"><span aria-hidden="true">+</span> Espace membre</div>
+        <div class="phone" aria-hidden="true">
+          <div class="phone-screen">
+            <div class="phone-top"><span>SPILOVEURE</span><span>● ● ●</span></div>
+            <img class="phone-logo" alt="" width="73" height="73" src="data:image/jpeg;base64,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" />
+            <h2 class="phone-title">Bienvenue chez vous</h2>
+            <p class="phone-sub">Connecter · Collaborer · Prospérer</p>
+            <div class="phone-card"><div class="phone-icon">C</div><div><strong>Chat</strong><span>La communauté vous attend</span></div></div>
+            <div class="phone-card"><div class="phone-icon">↗</div><div><strong>Mon réseau</strong><span>Suivez vos recommandations</span></div></div>
+            <div class="phone-nav"><b>Accueil</b><span>Chat</span><span>Profil</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap section" aria-labelledby="community-title">
+      <div class="section-heading">
+        <p class="eyebrow">SPILOVEURE en mouvement</p>
+        <h2 id="community-title">Tout votre réseau.<br>Au même endroit.</h2>
+        <p>Une expérience mobile pour participer à la vie de la plateforme et garder le lien avec les membres.</p>
+      </div>
+      <div class="features">
+        <article class="feature">
+          <div class="feature-mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.8L7 20v-4H6.8A2.8 2.8 0 0 1 4 13.2V5.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
+          <h3>Le Chat, sans distance</h3><p>Échangez avec les membres et retrouvez les conversations de votre communauté.</p>
+        </article>
+        <article class="feature">
+          <div class="feature-mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M16 20v-1.7a3.3 3.3 0 0 0-3.3-3.3H6.3A3.3 3.3 0 0 0 3 18.3V20m16 0v-1.7a3.3 3.3 0 0 0-2.5-3.2M14 4.2a3.3 3.3 0 0 1 0 6.4M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3>Un espace membre à portée de main</h3><p>Rejoignez la plateforme et restez connecté à votre parcours de membre.</p>
+        </article>
+        <article class="feature">
+          <div class="feature-mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 18.5 9 13l3.5 3.5L20 8m-5 0h5v5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Le parrainage, simplement</h3><p>Retrouvez vos repères de recommandation au sein de votre espace membre.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap release-block" aria-labelledby="release-heading">
+      <div class="section-heading">
+        <p class="eyebrow">Transparence avant tout</p>
+        <h2 id="release-heading">La version officielle.</h2>
+        <p>Les informations ci-contre sont chargées depuis le service officiel de diffusion Android. Vérifiez l’empreinte avant toute installation.</p>
+      </div>
+      <div>
+        <div class="release-card" id="release-card" aria-live="polite">
+          <p class="release-error" id="release-loading">Chargement des informations de version…</p>
+        </div>
+        <div class="previous" id="previous-wrap" hidden>
+          <h3>Versions précédentes</h3>
+          <div class="previous-list" id="previous-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap steps" aria-label="Installation et sécurité">
+      <article class="step-panel">
+        <div class="step-heading"><span class="step-number">01</span><h3>Installer l’application</h3></div>
+        <p>Téléchargez l’APK depuis le bouton officiel de cette page. Ouvrez le fichier téléchargé et, si Android le demande, autorisez temporairement votre navigateur à installer cette application. Confirmez l’installation, puis révoquez cette autorisation si vous le souhaitez.</p>
+        <p>Le nom des menus varie selon la marque et la version d’Android. N’accordez cette autorisation qu’au navigateur utilisé pour ce téléchargement officiel.</p>
+      </article>
+      <article class="step-panel warning">
+        <div class="step-heading"><span class="step-number">02</span><h3>À propos de Play Protect</h3></div>
+        <p><strong>Ne désactivez pas Play Protect.</strong> Android peut afficher un avertissement pour une application installée en dehors du Play Store. Un avertissement peut persister même après vérification : ne le contournez pas et n’installez pas un fichier si vous avez un doute.</p>
+        <p>En cas d’alerte ou de blocage, annulez et attendez la prochaine version officielle testée. SPILOVEURE ne vous demandera jamais de couper les protections de votre appareil.</p>
+      </article>
+    </section>
+
+    <section class="wrap closing">
+      <p>Pas encore membre ? Découvrez SPILOVEURE et rejoignez la communauté.</p>
+      <a href="/welcome">Commencer une inscription</a>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <div class="footer-copy">© <span id="year"></span> SPILOVEURE · L’application Android officielle</div>
+      <nav class="footer-links" aria-label="Liens utiles">
+        <a href="/">Accéder à la plateforme</a>
+        <a href="/login">Se connecter</a>
+        <a href="/welcome">Commencer une inscription</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      "use strict";
+      const action = document.getElementById("download-action");
+      const actionLabel = document.getElementById("download-label");
+      const availability = document.getElementById("availability");
+      const retryButton = document.getElementById("retry-button");
+      const releaseCard = document.getElementById("release-card");
+      const previousWrap = document.getElementById("previous-wrap");
+      const previousList = document.getElementById("previous-list");
+      document.getElementById("year").textContent = String(new Date().getFullYear());
+
+      const setUnavailable = (message, retry) => {
+        action.removeAttribute("href");
+        action.setAttribute("aria-disabled", "true");
+        action.tabIndex = -1;
+        actionLabel.textContent = "Téléchargement indisponible";
+        availability.textContent = message;
+        retryButton.classList.toggle("visible", retry);
+      };
+
+      const safeDownloadUrl = (value) => {
+        if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return null;
+        try {
+          const url = new URL(value, window.location.origin);
+          if (url.origin !== window.location.origin || url.search || url.hash) return null;
+          if (!/^\/api\/android\/releases\/[A-Za-z0-9._~-]+\/download$/.test(url.pathname)) return null;
+          return url.pathname;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const formatSize = (bytes) => {
+        if (!Number.isFinite(bytes) || bytes <= 0) return "Non communiqué";
+        const units = ["octets", "Ko", "Mo", "Go"];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+        return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`;
+      };
+
+      const formatDate = (value) => {
+        if (typeof value !== "string") return "Non communiquée";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeZone: "UTC" }).format(date);
+      };
+
+      const field = (label, value, className) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "release-item";
+        const term = document.createElement("dt");
+        term.textContent = label;
+        const description = document.createElement("dd");
+        description.textContent = value;
+        if (className) description.className = className;
+        wrapper.append(term, description);
+        return wrapper;
+      };
+
+      const renderRelease = (record, response) => {
+        releaseCard.replaceChildren();
+        const state = document.createElement("div");
+        state.className = "release-status";
+        const dot = document.createElement("span");
+        dot.className = "status-dot";
+        dot.setAttribute("aria-hidden", "true");
+        const stateText = document.createElement("span");
+        stateText.textContent = "Version officielle disponible";
+        state.append(dot, stateText);
+        const title = document.createElement("h3");
+        title.className = "release-title";
+        title.textContent = `SPILOVEURE pour Android · ${record.version}`;
+        const grid = document.createElement("dl");
+        grid.className = "release-grid";
+        grid.append(
+          field("Version", record.version),
+          field("Taille du fichier", formatSize(record.size_bytes)),
+          field("Publication", formatDate(record.published_at)),
+          field("Android minimum", typeof record.min_android === "string" ? record.min_android : "Non communiqué"),
+          field("SHA-256 de l’APK", typeof record.sha256 === "string" ? record.sha256 : "Non communiqué", "hash-value"),
+          field("SHA-256 du signataire", typeof record.signer_sha256 === "string" ? record.signer_sha256 : "Non communiqué", "hash-value")
+        );
+        releaseCard.append(state, title, grid);
+
+        const downloadUrl = safeDownloadUrl(record.download_url);
+        if (response.available === true && downloadUrl) {
+          action.href = downloadUrl;
+          action.setAttribute("aria-disabled", "false");
+          action.removeAttribute("tabindex");
+          actionLabel.textContent = "Télécharger l’APK officiel";
+          availability.textContent = `${record.version} · ${formatSize(record.size_bytes)}. Vérifiez l’empreinte SHA-256 après téléchargement.`;
+          retryButton.classList.remove("visible");
+        } else {
+          setUnavailable("Cette version est publiée, mais son lien officiel ne peut pas être vérifié. Aucun téléchargement n’est proposé.", false);
+        }
+
+        const records = Array.isArray(response.releases) ? response.releases : [];
+        const older = records.filter((item) => item && Number.isFinite(item.version_code) && item.version_code < record.version_code);
+        previousList.replaceChildren();
+        older.forEach((item) => {
+          const url = safeDownloadUrl(item.download_url);
+          if (!url || typeof item.version !== "string") return;
+          const link = document.createElement("a");
+          link.href = url;
+          link.textContent = `Version ${item.version}`;
+          link.setAttribute("download", "");
+          previousList.append(link);
+        });
+        previousWrap.hidden = previousList.childElementCount === 0;
+      };
+
+      const loadReleases = async () => {
+        retryButton.classList.remove("visible");
+        availability.textContent = "Recherche de la version Android officielle.";
+        actionLabel.textContent = "Vérification de la disponibilité…";
+        action.removeAttribute("href");
+        action.setAttribute("aria-disabled", "true");
+        action.tabIndex = -1;
+        releaseCard.replaceChildren();
+        const loading = document.createElement("p");
+        loading.className = "release-error";
+        loading.textContent = "Chargement des informations de version…";
+        releaseCard.append(loading);
+        previousWrap.hidden = true;
+        try {
+          const response = await fetch("/api/android/releases", {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store"
+          });
+          if (!response.ok) throw new Error("Réponse du service indisponible.");
+          const data = await response.json();
+          if (!data || typeof data !== "object") throw new Error("Réponse illisible.");
+          if (data.available !== true || !data.latest) {
+            releaseCard.replaceChildren();
+            const message = document.createElement("p");
+            message.className = "release-error";
+            message.textContent = "L’application Android officielle est en préparation. Aucun fichier APK n’est actuellement proposé. Revenez bientôt ou utilisez la plateforme web.";
+            releaseCard.append(message);
+            setUnavailable("La version Android est en préparation. Aucun lien de téléchargement n’est disponible pour le moment.", false);
+            return;
+          }
+          if (typeof data.latest.version !== "string" || !Number.isFinite(data.latest.version_code)) {
+            throw new Error("Les informations de version sont incomplètes.");
+          }
+          renderRelease(data.latest, data);
+        } catch (_) {
+          releaseCard.replaceChildren();
+          const error = document.createElement("p");
+          error.className = "release-error";
+          error.textContent = "Impossible de vérifier la version Android officielle pour le moment. Aucun téléchargement n’est proposé. Réessayez dans quelques instants.";
+          releaseCard.append(error);
+          setUnavailable("La vérification a échoué. Le lien de téléchargement reste désactivé tant que la version officielle n’est pas confirmée.", true);
+        }
+      };
+
+      retryButton.addEventListener("click", loadReleases);
+      loadReleases();
+    })();
+  </script>
+</body>
+</html>

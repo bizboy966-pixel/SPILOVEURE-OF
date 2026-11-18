@@ -1,0 +1,10 @@
+{
+  "name": "@workspace/spiloveure-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd ../.. && SPV_PREVIEW_MODE=vps SPV_PREVIEW_API_UPSTREAM=https://spiloveure.org SPV_METRO_PORT=19080 bash scripts/start-dev.sh",
+    "build": "cd ../.. && pnpm --filter frontend run build",
+    "typecheck": "cd ../.. && node scripts/test-multi-artifact.cjs"
+  }
+}

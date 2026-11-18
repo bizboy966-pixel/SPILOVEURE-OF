@@ -1,0 +1,15 @@
+- [Périmètre SPILOVEURE Chat](chat-scope.md) — ajout isolé, référence visuelle imposée et architecture à présenter avant développement.
+- [Style professionnel SPILOVEURE](visual-standard.md) — conserver l’identité de marque et le rendu professionnel de la refonte pour toutes les constructions et modifications.
+- [Contextes de dépendances](dependency-contexts.md) — distinguer les dépendances locales de l’application construite sur Hostinger.
+- [Inscription et sessions distinctes](registration-sessions.md) — le Chat vérifié par e-mail doit rester accessible sans activation ni session principale valide.
+- [Validation Resend](resend-validation.md) — distinguer compte connecté, DNS validés et droits d’envoi ; ne pas remplacer les DNS d’un autre compte.
+- [Parrain par défaut et Android](referral-android-policy.md) — invitation prioritaire, administrateur officiel en l’absence de code ; aucune diffusion APK sans validation réelle.
+- [Contrat MoneyFusion](moneyfusion-contract.md) — Mobile Money uniquement ; devise et couverture Pay-in à confirmer, sans les déduire du catalogue Pay-out.
+- [Prestataire retiré](retired-provider-policy.md) — SoleasPay doit rester absent des paiements ; conserver les données financières historiques.
+- [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.
+- [Routage exclusif Mobile Money](payment-routing-policy.md) — un prestataire par pays + opérateur physique ; suivi conservé chez le prestataire d’origine.
+- [Modération du groupe Telegram](telegram-moderation-policy.md) — tous les membres du groupe lié peuvent voter ; le rejet d’une tâche payée signale un remboursement manuel.
+- [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.
+- [Récupération du mot de passe](password-recovery-policy.md) — révoquer les accès antérieurs sans bloquer une reconnexion immédiate ni contourner l’activation.
+- [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.
+- [APK Android avec Expo natif](apk-expo-native.md) — l’APK doit afficher les écrans Expo natifs, garder les barres système et utiliser le backend du VPS.

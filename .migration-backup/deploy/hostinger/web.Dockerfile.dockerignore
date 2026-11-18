@@ -1,0 +1,10 @@
+**/node_modules
+**/.expo
+**/.metro-cache
+**/__pycache__
+frontend/build
+frontend/dist
+backend
+test_reports
+.git
+deploy/hostinger/dump

@@ -13,4 +13,4 @@ Une clé limitée à l’envoi peut refuser la lecture des domaines, y compris a
 
 **Why:** Le contrôle de domaine a été refusé alors que la même clé a immédiatement permis un envoi technique depuis l’expéditeur validé.
 
-**How to apply:** Ne pas exiger plus de droits pour ce seul contrôle. Tester l’envoi à l’adresse technique prévue par Resend. Un HTTP 403 HTML Cloudflare n’est pas non plus une réponse d’authentification Resend : dans cet environnement, le User-Agent `Replit` a permis d’atteindre l’API native, contrairement au User-Agent personnalisé initial.
+**How to apply:** Ne pas exiger plus de droits pour ce seul contrôle. Distinguer une erreur JSON de l'API d'une page HTML de protection réseau avant de conclure que la clé ou le domaine est invalide.

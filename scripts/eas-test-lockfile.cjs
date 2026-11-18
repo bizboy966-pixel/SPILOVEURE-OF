@@ -15,6 +15,17 @@ function prepareAndroidBuildLockfile() {
     return;
   }
 
+  const root = path.resolve(__dirname, "..");
+  if (fs.existsSync(path.join(root, "pnpm-lock.yaml"))) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    if (!pkg.packageManager?.startsWith("pnpm@") ||
+        !fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8").includes("\n  frontend:")) {
+      throw new Error("EAS requires the committed pnpm workspace and frontend lock entry.");
+    }
+    console.log("EAS Android uses the committed pnpm lockfile; legacy Yarn lockfiles remain unchanged.");
+    return;
+  }
+
   const lockPath = path.resolve(__dirname, "..", "yarn.lock");
   const original = fs.readFileSync(lockPath, "utf8");
   const updated = externalizeReplitUrls(original);

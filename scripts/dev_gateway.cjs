@@ -5,7 +5,7 @@ const http = require("http");
 const httpProxy = require("http-proxy");
 
 const LOCAL_API = "http://127.0.0.1:8000";
-const LOCAL_WEB = "http://127.0.0.1:8080";
+const LOCAL_WEB = `http://127.0.0.1:${process.env.SPV_METRO_PORT || 8080}`;
 const APPROVED_API_HOSTS = new Set(["spiloveure.org", "test.spiloveure.org"]);
 const BACKEND_PATHS = new Set([
   "/telecharger",
@@ -64,10 +64,13 @@ function isBackendPath(requestUrl) {
 }
 
 function configuredGatewayHosts() {
+  const port = process.env.PORT || 5000;
   return new Set([
-    "localhost:5000",
-    "127.0.0.1:5000",
-    "[::1]:5000",
+    `localhost:${port}`,
+    `127.0.0.1:${port}`,
+    `[::1]:${port}`,
+    "localhost",
+    "127.0.0.1",
     ...(process.env.REPLIT_DEV_DOMAIN || "").split(","),
     ...(process.env.REPLIT_DOMAINS || "").split(","),
   ].map(value => value.trim().toLowerCase()).filter(Boolean));
@@ -151,8 +154,9 @@ if (require.main === module) {
   } else {
     console.log(`Preview API proxy enabled for ${apiUpstream}`);
   }
-  createGateway({ apiUpstream }).listen(5000, "0.0.0.0", () => {
-    console.log("SPILOVEURE development gateway listening on port 5000");
+  const port = Number(process.env.PORT || 5000);
+  createGateway({ apiUpstream }).listen(port, "0.0.0.0", () => {
+    console.log(`SPILOVEURE development gateway listening on port ${port}`);
   });
 }
 

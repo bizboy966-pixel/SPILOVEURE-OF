@@ -20,6 +20,7 @@ function harness(platform) {
     useEffect: effect => effects.push(effect),
   };
   const native = {
+    BackHandler: { addEventListener: () => ({ remove: () => {} }) },
     Platform: { OS: platform },
     StyleSheet: { create: value => value, absoluteFillObject: {} },
     useWindowDimensions: () => ({ width: 400, height: 800 }),
