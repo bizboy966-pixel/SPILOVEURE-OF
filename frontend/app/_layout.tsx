@@ -1,6 +1,7 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { BackHandler, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
@@ -13,11 +14,31 @@ import { GlobalFonts } from "@/src/components/GlobalFonts";
 import { ChatProvider } from "@/src/chat/ChatContext";
 import ChatPushBootstrap from "@/src/components/ChatPushBootstrap";
 import AndroidApkUpdateManager from "@/src/components/AndroidApkUpdateManager";
+import { confirmAndroidAppExit, resolveAndroidBackAction } from "@/src/navigation/androidBack";
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
+  const router = useRouter();
+  const segments = useSegments() as string[];
+  const isMessengerRoute = segments[segments.length - 1] === "messenger";
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      const action = resolveAndroidBackAction({
+        scope: "root",
+        isMessengerRoute,
+        hasOpenConversation: false,
+        canGoBack: router.canGoBack(),
+      });
+      if (action === "defer-to-messenger" || action === "navigate-back") return false;
+      confirmAndroidAppExit();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isMessengerRoute, router]);
 
   // v27at (2026-03-05) — PWA installable (logo officiel SPILOVEURE).
   // Expo Router en mode `output: "single"` ne rend PAS `+html.tsx` à la

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, BackHandler, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -20,6 +20,7 @@ import { normalizeSpvUsername } from "./userLinks";
 import { setActiveNotificationConversation } from "./notificationRuntime";
 import { wasChatExplicitlyLoggedOut } from "@/src/chat/chatLaunchState";
 import { chatVisual } from "./chatVisualTokens";
+import { confirmAndroidAppExit, resolveAndroidBackAction } from "@/src/navigation/androidBack";
 
 const logo = require("../../assets/images/spiloveure-logo.png");
 const blue = chatVisual.brand, ink = chatVisual.ink, muted = "#8993a4";
@@ -161,6 +162,28 @@ export default function MessengerScreen() {
   const [selectedMessageConversationId, setSelectedMessageConversationId] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      const action = resolveAndroidBackAction({
+        scope: "messenger",
+        isMessengerRoute: true,
+        hasOpenConversation: !!selected,
+        canGoBack: router.canGoBack(),
+      });
+      if (action === "close-conversation") {
+        setSelected(null);
+        setSelectedMessageId(null);
+        setSelectedMessageConversationId(null);
+        setNotificationReplyTarget(null);
+        return true;
+      }
+      if (action === "navigate-back") return false;
+      confirmAndroidAppExit();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [router, selected]);
   useEffect(() => {
     setActiveNotificationConversation(tab === "Échanges" ? selected?.id || null : null);
     return () => setActiveNotificationConversation(null);
