@@ -26,3 +26,13 @@ serveur sortirait du périmètre du prototype.
 **How to apply:** Préserver une origine locale compatible et un transport
 explicite des API vers le VPS ; Capacitor ne relaie pas automatiquement les
 fetch visant son propre nom d'hôte local. Tester aussi multipart et médias.
+
+L'utilisateur a indiqué que son test du prototype Capacitor était satisfaisant.
+Cela confirme son essai, sans valider automatiquement toutes les lignes du
+protocole matériel.
+
+**Why:** Un résultat général rapporté par l'utilisateur ne précise pas quels
+scénarios de stabilité, de connexion et de médias ont été vérifiés.
+
+**How to apply:** Présenter le prototype comme testé avec succès par l'utilisateur,
+mais ne pas annoncer la validation complète de toute la grille sans détails.
