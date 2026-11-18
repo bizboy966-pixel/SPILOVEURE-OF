@@ -1,4 +1,4 @@
-package com.spiloveure.capacitor.test;
+package com.spilivere.app;
 
 import static org.junit.Assert.*;
 import android.content.Context;
@@ -12,14 +12,14 @@ import org.junit.runner.RunWith;
 
 /** Run with connectedDebugAndroidTest on a connected Android phone. */
 @RunWith(AndroidJUnit4.class)
-public class PrototypePackageTest {
+public class OfficialPackageTest {
     private final Context context =
         InstrumentationRegistry.getInstrumentation().getTargetContext();
 
     @Test
-    public void separateTestIdentityIsInstalled() {
-        assertEquals("com.spiloveure.capacitor.test", context.getPackageName());
-        assertEquals("SPILOVEURE Test Capacitor",
+    public void officialIdentityIsInstalled() {
+        assertEquals("com.spilivere.app", context.getPackageName());
+        assertEquals("SPILOVEURE",
             context.getApplicationInfo().loadLabel(context.getPackageManager()).toString());
     }
 
@@ -32,7 +32,7 @@ public class PrototypePackageTest {
         }
         try (InputStream stream = context.getAssets().open("public/index.html")) {
             String html = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-            assertTrue(html.contains("capacitor-test.js"));
+            assertTrue(html.contains("capacitor-runtime.js"));
             assertTrue(html.contains("_expo/static"));
         }
     }

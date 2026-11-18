@@ -1,4 +1,4 @@
-// Capacitor skips HTTP patching for its own local hostname. The prototype uses
+// Capacitor skips HTTP patching for its own local hostname. The app uses
 // the VPS hostname locally so SameSite Chat cookies and WebSocket Origin remain
 // valid, but must explicitly send API fetches to the real VPS.
 export function installApiTransport(target, nativeHttp) {

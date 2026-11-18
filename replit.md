@@ -24,15 +24,27 @@ son port interne `SPV_METRO_PORT`. Les chemins API et WebSocket gardent leur URL
   lancer des tâches métier, ni modifier sa base sans demande explicite.
 - Le preview passe par la passerelle vers le VPS ; les tests automatiques
   utilisent des services simulés ou des GET publics uniquement.
-- L'APK existant reste natif Expo, avec son identité et sa signature EAS.
-  Garder les profils `test-apk` et `production-apk` dans `frontend/eas.json`.
+- La cible officielle Android est maintenant Capacitor, avec le front-end
+  embarqué uniquement. Aucun back-end ni base de données ne doit être ajouté
+  dans l'APK ; toutes les requêtes utilisent l'API déjà hébergée sur le VPS.
+  Identifiant officiel à conserver :
+  `com.spilivere.app`.
+- L'ancienne APK Expo n'est remplacée qu'après génération et livraison d'une APK
+  Capacitor signée. La nouvelle clé de signature est permanente : la garder dans
+  Replit Secrets, jamais dans GitHub, et la réutiliser pour chaque mise à jour.
+- La première installation signée avec la nouvelle clé exige de désinstaller
+  l'APK Expo. Les données du compte restent sur le VPS ; la session locale doit
+  être recréée. Ne pas lancer de nouvelle version Android Expo comme version
+  officielle après le basculement.
 - Les dépendances locales pnpm et le lockfile Yarn du frontend construit sur
   Hostinger sont deux contextes distincts. Ne pas régénérer ce dernier à partir
   d'une installation locale. Les deux lockfiles Yarn historiques sont conservés.
 - EAS se lance depuis `frontend/`, dans le workspace pnpm (Node de production
   déjà fixé dans `eas.json`). Aucun build distant n'est lancé par la migration.
-- Un futur prototype Capacitor doit être un autre artefact, avec un autre
-  identifiant Android et un chemin de preview distinct. Ne pas remplacer Expo.
+- L'APK Capacitor doit embarquer le front-end, utiliser l'origine compatible
+  avec les cookies/Chat et garder le backend sur le VPS. Le build de test
+  `com.spiloveure.capacitor.test` ne doit jamais être diffusé comme version
+  officielle.
 - Le script après fusion installe et teste uniquement ; aucune migration de
   base de données du scaffold n'est autorisée.
 

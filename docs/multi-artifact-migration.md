@@ -53,7 +53,9 @@ Le script après fusion n'exécute aucun `db push`, seed ou déploiement.
   envoyer de message, effectuer de paiement ou lancer le backend Python.
 - Le build et l'installation d'un APK signé sur téléphone ne sont pas réalisés
   ici. Une validation statique EAS ne remplace pas ce contrôle avant diffusion.
-- Le prototype Capacitor et son propre artefact restent une étape séparée.
+- Depuis ce rapport, l’utilisateur a choisi Capacitor pour l’APK Android
+  officielle. Son front-end est embarqué ; l’API reste sur le VPS. Voir
+  `tools/capacitor-android/README.md` pour l’état du build et de la clé.
 
 Aucune commande de déploiement VPS ni aucune modification de base n'est prévue.
 

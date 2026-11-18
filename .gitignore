@@ -74,5 +74,7 @@ __pycache__/
 *token.json*
 *.pem
 *.key
+*.jks
+*.keystore
 **/secrets/
 **/*service-account*.json

@@ -1,6 +1,6 @@
 {
-  "appId": "com.spiloveure.capacitor.test",
-  "appName": "SPILOVEURE Test Capacitor",
+  "appId": "com.spilivere.app",
+  "appName": "SPILOVEURE",
   "webDir": "www",
   "server": {
     "hostname": "spiloveure.org",

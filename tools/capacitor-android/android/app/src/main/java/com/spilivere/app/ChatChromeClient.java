@@ -1,4 +1,4 @@
-package com.spiloveure.capacitor.test;
+package com.spilivere.app;
 
 import android.webkit.PermissionRequest;
 import com.getcapacitor.Bridge;

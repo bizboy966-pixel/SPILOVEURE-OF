@@ -9,8 +9,7 @@ des builds Expo/EAS et des procédures VPS existantes. Le backend Python reste
 dans `backend/` et n'est pas lancé par le preview en mode VPS.
 
 Le port public vient de `PORT` (géré par Replit). Le port Metro interne est
-19080 pour ne pas concurrencer les services Replit ou un futur prototype mobile.
+19080 et ne concurrence pas le projet Android Capacitor.
 
-Le futur prototype Capacitor devra avoir son propre dossier d'artefact, son
-propre chemin de preview et son propre identifiant Android. Il n'est pas créé
-pendant cette migration.
+L'APK Android officielle est préparée dans `tools/capacitor-android`. Elle
+embarque le front-end ; l'API et les données restent sur le VPS.

@@ -25,7 +25,7 @@ export default function RootLayout() {
   const isMessengerRoute = segments[segments.length - 1] === "messenger";
 
   useEffect(() => {
-    if (Platform.OS !== "web" || process.env.EXPO_PUBLIC_CAPACITOR_TEST !== "1") return;
+    if (Platform.OS !== "web" || process.env.EXPO_PUBLIC_CAPACITOR_NATIVE !== "1") return;
     const onBack = (event: Event) => {
       if (event.defaultPrevented || !router.canGoBack()) return;
       event.preventDefault();
@@ -69,7 +69,7 @@ export default function RootLayout() {
   useEffect(() => {
     // React Native also exposes `window` and `navigator`, but has no browser
     // document or service worker. Keep this PWA-only boot work off Android/iOS.
-    if (Platform.OS !== "web" || typeof document === "undefined" || process.env.EXPO_PUBLIC_CAPACITOR_TEST === "1") return;
+    if (Platform.OS !== "web" || typeof document === "undefined" || process.env.EXPO_PUBLIC_CAPACITOR_NATIVE === "1") return;
 
     const ensureLink = (rel: string, href: string, extra: Record<string, string> = {}) => {
       try {
@@ -134,7 +134,7 @@ export default function RootLayout() {
             </Stack>
             <AnimatedSplash />
             <WelcomeSplash />
-            {process.env.EXPO_PUBLIC_CAPACITOR_TEST !== "1" && <ChatPushBootstrap />}
+            {process.env.EXPO_PUBLIC_CAPACITOR_NATIVE !== "1" && <ChatPushBootstrap />}
             <AndroidApkUpdateManager />
           </FeaturesProvider>
           </ChatProvider>

@@ -13,7 +13,7 @@ if (Capacitor.isNativePlatform()) {
     }
     const event = new Event("spv-capacitor-back", { cancelable: true });
     window.dispatchEvent(event);
-    if (!event.defaultPrevented && window.confirm("Fermer SPILOVEURE Test Capacitor ?")) {
+    if (!event.defaultPrevented && window.confirm("Fermer SPILOVEURE ?")) {
       void App.exitApp();
     }
   }).catch(error => console.error("Gestion du bouton Retour indisponible", error));

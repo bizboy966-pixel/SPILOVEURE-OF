@@ -15,9 +15,9 @@ const BACKEND_PATHS = new Set([
   "/sitemap-android.xml",
   "/robots.txt",
 ]);
-const CAPACITOR_APK_PATH = "/downloads/capacitor-test.apk";
+const CAPACITOR_APK_PATH = "/downloads/spiloveure.apk";
 const DEFAULT_CAPACITOR_APK = path.join(
-  __dirname, "../generated-artifacts/capacitor-test/SPILOVEURE-Capacitor-TEST-0.1.0.apk",
+  __dirname, "../generated-artifacts/spiloveure/SPILOVEURE-1.1.8.apk",
 );
 
 function serveCapacitorApk(request, response, apkFile) {
@@ -31,12 +31,12 @@ function serveCapacitorApk(request, response, apkFile) {
     stat = fs.statSync(apkFile);
   } catch {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
-    response.end("Prototype APK indisponible.");
+    response.end("APK officielle SPILOVEURE indisponible.");
     return true;
   }
   const headers = {
     "Content-Type": "application/vnd.android.package-archive",
-    "Content-Disposition": 'attachment; filename="SPILOVEURE-Capacitor-TEST.apk"',
+    "Content-Disposition": 'attachment; filename="SPILOVEURE-1.1.8.apk"',
     "Content-Length": String(stat.size),
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",

@@ -1,14 +1,34 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningEnv = [
+    keystoreBase64: System.getenv('ANDROID_KEYSTORE_BASE64'),
+    keystorePassword: System.getenv('ANDROID_KEYSTORE_PASSWORD'),
+    keyAlias: System.getenv('ANDROID_KEY_ALIAS') ?: 'spiloveure',
+]
+def releaseSigningConfigured = releaseSigningEnv.keystoreBase64?.trim() &&
+    releaseSigningEnv.keystorePassword?.trim()
+def releaseKeystoreFile = file("$buildDir/signing/spiloveure-release.jks")
+
+if (releaseSigningConfigured) {
+    try {
+        releaseKeystoreFile.parentFile.mkdirs()
+        releaseKeystoreFile.bytes = java.util.Base64.getDecoder().decode(
+            releaseSigningEnv.keystoreBase64.replaceAll('-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\\s', '')
+        )
+    } catch (Exception ignored) {
+        throw new GradleException("ANDROID_KEYSTORE_BASE64 is invalid; provide the base64-encoded release keystore.")
+    }
+}
+
 android {
-    namespace "com.spiloveure.capacitor.test"
+    namespace "com.spilivere.app"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.spiloveure.capacitor.test"
+        applicationId "com.spilivere.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0-capacitor-test"
+        versionCode 9
+        versionName "1.1.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,12 +36,42 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile releaseKeystoreFile
+                storePassword releaseSigningEnv.keystorePassword
+                keyAlias releaseSigningEnv.keyAlias
+                keyPassword releaseSigningEnv.keystorePassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
         }
     }
+}
+
+tasks.register("validateOfficialReleaseSigning") {
+    doLast {
+        def missing = []
+        if (!releaseSigningEnv.keystoreBase64?.trim()) missing.add("ANDROID_KEYSTORE_BASE64")
+        if (!releaseSigningEnv.keystorePassword?.trim()) missing.add("ANDROID_KEYSTORE_PASSWORD")
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                "Release signing is not configured. Add the required values to Replit Secrets: ${missing.join(', ')}."
+            )
+        }
+    }
+}
+
+tasks.matching { it.name in ["assembleRelease", "bundleRelease"] }.configureEach {
+    dependsOn("validateOfficialReleaseSigning")
 }
 
 repositories {

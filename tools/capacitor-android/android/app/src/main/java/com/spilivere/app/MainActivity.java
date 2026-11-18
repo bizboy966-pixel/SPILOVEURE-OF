@@ -1,4 +1,4 @@
-package com.spiloveure.capacitor.test;
+package com.spilivere.app;
 
 import android.os.Bundle;
 import android.view.View;

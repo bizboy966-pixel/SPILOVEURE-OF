@@ -163,7 +163,7 @@ export default function MessengerScreen() {
   const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [notificationReplyTarget, setNotificationReplyTarget] = useState<string | null>(null);
   useEffect(() => {
-    if (Platform.OS !== "web" || process.env.EXPO_PUBLIC_CAPACITOR_TEST !== "1") return;
+    if (Platform.OS !== "web" || process.env.EXPO_PUBLIC_CAPACITOR_NATIVE !== "1") return;
     const onBack = (event: Event) => {
       if (!selected) return;
       event.preventDefault();

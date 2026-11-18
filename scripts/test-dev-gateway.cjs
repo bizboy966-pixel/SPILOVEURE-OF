@@ -53,7 +53,7 @@ async function main() {
   assert.equal(isBackendPath("/api/messenger/ws?ticket=one"), true);
   assert.equal(isBackendPath("/"), false);
 
-  const apkFile = path.join(os.tmpdir(), `capacitor-test-${process.pid}.apk`);
+  const apkFile = path.join(os.tmpdir(), `spiloveure-release-${process.pid}.apk`);
   const apkBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x41, 0x50, 0x4b]);
   fs.writeFileSync(apkFile, apkBytes);
   const apkGateway = createGateway({ allowedHosts: new Set(), capacitorApkFile: apkFile });
@@ -72,7 +72,7 @@ async function main() {
     });
     assert.equal(download.status, 200);
     assert.equal(download.headers["content-type"], "application/vnd.android.package-archive");
-    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-Capacitor-TEST\.apk"/);
+    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-1\.1\.8\.apk"/);
     assert.equal(download.headers["x-content-type-options"], "nosniff");
     assert.deepEqual(download.body, apkBytes);
     const partial = await get(apkGatewayPort, CAPACITOR_APK_PATH, { range: "bytes=2-5" });

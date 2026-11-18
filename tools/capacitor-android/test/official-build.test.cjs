@@ -25,11 +25,13 @@ function transport(nativeHttp, fallback = async () => new Response("local")) {
   return target.fetch;
 }
 
-test("test identity coexists with Expo and routes are bundled, not server.url", () => {
+test("official Capacitor identity matches Expo package and embeds the frontend", () => {
   const config = JSON.parse(local("capacitor.config.json"));
   const expo = JSON.parse(read("frontend/app.json"));
-  assert.notEqual(config.appId, expo.expo.android.package);
-  assert.equal(config.appName, "SPILOVEURE Test Capacitor");
+  const gradle = local("android/app/build.gradle");
+  assert.equal(config.appId, expo.expo.android.package);
+  assert.equal(config.appId, "com.spilivere.app");
+  assert.equal(config.appName, "SPILOVEURE");
   assert.equal(config.webDir, "www");
   assert.equal(config.server.url, undefined);
   assert.equal(config.server.hostname, "spiloveure.org");
@@ -37,8 +39,13 @@ test("test identity coexists with Expo and routes are bundled, not server.url", 
   assert.equal(config.server.cleartext, false);
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
-  const gradle = local("android/app/build.gradle");
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
+  assert.ok(gradle.includes('versionCode 9'));
+  assert.ok(gradle.includes('versionName "1.1.8"'));
+  for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
+    assert.ok(gradle.includes(key), `${key} release signing configuration`);
+  }
+  assert.ok(gradle.includes("validateOfficialReleaseSigning"));
 });
 
 test("login and Chat calls explicitly use native HTTP, preserving errors", async () => {
@@ -143,11 +150,11 @@ test("native capabilities are minimal and media uses VPS cookies and Range", () 
     assert.ok(!manifest.includes(forbidden), forbidden);
   }
   assert.match(manifest, /android:allowBackup="false"/);
-  const media = local("android/app/src/main/java/com/spiloveure/capacitor/test/VpsMediaClient.java");
+  const media = local("android/app/src/main/java/com/spilivere/app/VpsMediaClient.java");
   assert.match(media, /getCookie\(uri\.toString\(\)\)/);
   assert.match(media, /"range"\.equalsIgnoreCase/);
   assert.match(media, /setInstanceFollowRedirects\(false\)/);
-  const activity = local("android/app/src/main/java/com/spiloveure/capacitor/test/MainActivity.java");
+  const activity = local("android/app/src/main/java/com/spilivere/app/MainActivity.java");
   assert.match(activity, /controller\.show\(WindowInsetsCompat\.Type\.systemBars\(\)\)/);
   assert.match(activity, /WindowInsetsCompat\.Type\.ime\(\)/);
 });
