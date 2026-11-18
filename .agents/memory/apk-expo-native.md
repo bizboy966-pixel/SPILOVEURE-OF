@@ -1,16 +1,16 @@
 ---
-name: APK Android avec Expo natif
-description: Architecture demandée pour le binaire Android SPILOVEURE.
+name: Remplacement APK Android
+description: Décision de migrer l’APK officiel Expo vers Capacitor en conservant l’identité et la signature Android.
 ---
 
-L’APK Android doit utiliser les écrans Expo natifs, pas une WebView. Le backend reste sur le VPS et les barres système Android restent visibles.
+L’utilisateur veut remplacer l’APK officiel Expo par le prototype Capacitor, avec le front-end embarqué et le backend sur le VPS. Le prototype Capacitor a été testé avec succès par l’utilisateur.
 
-**Why:** L’utilisateur a remplacé explicitement son choix précédent de WebView par l’interface Expo native.
+**Why:** L’utilisateur a explicitement demandé le remplacement de l’APK officiel par Capacitor après avoir testé le prototype.
 
-**How to apply:** Conserver le même identifiant de paquet et la même signature pour les mises à jour installées. Les changements de code natif doivent être inclus dans un nouvel APK. Déployer le frontend/backend web séparément ne modifie pas les écrans déjà intégrés au binaire.
+**How to apply:** L’APK officiel actuel reste Expo tant que la clé de signature EAS n’est pas récupérée. Pour installer Capacitor comme une mise à jour sans désinstaller Expo, conserver `com.spilivere.app` et signer avec la même clé de production. Ne jamais inclure une clé dans GitHub.
 
-Le parcours natif doit conserver la vérification des mises à jour APK, la progression du téléchargement, l’autorisation Android d’installation et l’installation par-dessus la version existante. Ne rendre une nouvelle version obligatoire qu’après compilation et publication de son fichier signé.
+Le prototype Capacitor de test utilise un identifiant et une signature distincts. Il peut coexister avec Expo, mais ne remplace pas l’application installée.
 
-**Why:** Le site ne peut pas remplacer le code Expo embarqué dans les APK installés.
+**Why:** Android exige la même signature pour accepter une mise à jour de la même application ; l’APK de test actuel est signé en debug et porte un autre identifiant.
 
-**How to apply:** Vérifier sur un téléphone Android l’installation propre, la mise à jour d’une version précédente et l’ouverture des écrans principaux avant toute diffusion.
+**How to apply:** Tant que la clé officielle n’est pas accessible, garder l’APK Expo officiel inchangé. Si la clé ne peut pas être récupérée, ne proposer qu’un APK Capacitor séparé qui ne met pas à jour les installations Expo.

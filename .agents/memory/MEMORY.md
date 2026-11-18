@@ -12,5 +12,5 @@
 - [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.
 - [Récupération du mot de passe](password-recovery-policy.md) — révoquer les accès antérieurs sans bloquer une reconnexion immédiate ni contourner l’activation.
 - [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.
-- [APK Android avec Expo natif](apk-expo-native.md) — l’APK doit afficher les écrans Expo natifs, garder les barres système et utiliser le backend du VPS.
+- [Remplacement APK Android](apk-expo-native.md) — cible Capacitor embarqué ; préserver l’APK Expo tant que la clé de signature officielle n’est pas récupérée.
 - [Prototype Capacitor isolé](capacitor-prototype-policy.md) — essai distinct sans remplacement d’Expo ; validation Infinix obligatoire et origine locale compatible avec le Chat.
