@@ -59,7 +59,7 @@ public class ApkInstallerPlugin extends Plugin {
 
     @PluginMethod
     public void getDownloadStatus(PluginCall call) {
-        long downloadId = call.getLong("downloadId", -1L);
+        long downloadId = readDownloadId(call);
         if (downloadId < 0) {
             call.reject("Identifiant de téléchargement invalide.");
             return;
@@ -100,7 +100,7 @@ public class ApkInstallerPlugin extends Plugin {
 
     @PluginMethod
     public void installDownloadedApk(PluginCall call) {
-        long downloadId = call.getLong("downloadId", -1L);
+        long downloadId = readDownloadId(call);
         if (downloadId < 0) {
             call.reject("Identifiant de téléchargement invalide.");
             return;
@@ -185,6 +185,11 @@ public class ApkInstallerPlugin extends Plugin {
 
     private DownloadManager downloadManager() {
         return (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+    }
+
+    private long readDownloadId(PluginCall call) {
+        JSObject data = call.getData();
+        return DownloadIdParser.parse(data == null ? null : data.opt("downloadId"));
     }
 
     private boolean isTrustedApkUrl(Uri uri) {

@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/hostinger/android-builder.Dockerfile
-    image: spiloveure-android-builder:1.1.18
+    image: spiloveure-android-builder:1.1.19
     working_dir: /workspace
     environment:
       ANDROID_KEYSTORE_BASE64: ${ANDROID_KEYSTORE_BASE64:?Set this in deploy/hostinger/android-builder.env}

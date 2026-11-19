@@ -116,6 +116,10 @@ test("Android installer handles confirmation and relaunches after successful rep
   const manifest = read("tools/capacitor-android/android/app/src/main/AndroidManifest.xml");
 
   assert.match(plugin, /getDownloadStatus/);
+  assert.match(plugin, /DownloadIdParser\.parse\(data == null \? null : data\.opt\("downloadId"\)\)/);
+  const idParser = read("tools/capacitor-android/android/app/src/main/java/com/spilivere/app/DownloadIdParser.java");
+  assert.match(idParser, /value instanceof Integer/);
+  assert.match(idParser, /value instanceof Number/);
   assert.match(plugin, /PackageInstaller\.Session/);
   assert.match(plugin, /USER_ACTION_REQUIRED/);
   assert.match(plugin, /permission_required/);
