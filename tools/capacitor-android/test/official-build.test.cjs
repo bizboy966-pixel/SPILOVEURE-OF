@@ -40,8 +40,8 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 13'));
-  assert.ok(gradle.includes('versionName "1.1.12"'));
+  assert.ok(gradle.includes('versionCode 14'));
+  assert.ok(gradle.includes('versionName "1.1.13"'));
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
@@ -66,21 +66,43 @@ test("Capacitor bundles Ionicons and uses Android's real APK download progress",
   assert.match(nativePlugin, /spiloveure\.org/);
 });
 
-test("official APK launcher resources use the full supplied icon", () => {
+test("official APK launcher resources keep the full logo inside the icon mask", () => {
   const iconSource = path.join(root, "tools/capacitor-android/branding/app-icon-source.png");
   const launcherXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml");
   const roundXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml");
-  const background = local("android/app/src/main/res/values/ic_launcher_background.xml");
+  const backgroundResource = "tools/capacitor-android/android/app/src/main/res/drawable-nodpi/launcher_background_art.png";
+  const background = path.join(root, backgroundResource);
   assert.ok(fs.existsSync(iconSource));
+  assert.match(launcherXml, /@drawable\/launcher_background_art/);
+  assert.match(roundXml, /@drawable\/launcher_background_art/);
   assert.match(launcherXml, /@mipmap\/ic_launcher_foreground/);
   assert.match(roundXml, /@mipmap\/ic_launcher_foreground/);
-  assert.match(background, /#001758/i);
-  for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
+  assert.ok(fs.existsSync(background), "illustrated launcher background");
+  const backgroundPng = fs.readFileSync(background);
+  assert.equal(backgroundPng.readUInt32BE(16), 1024);
+  assert.equal(backgroundPng.readUInt32BE(20), 1024);
+  const densities = [
+    ["mdpi", 108, 48],
+    ["hdpi", 162, 72],
+    ["xhdpi", 216, 96],
+    ["xxhdpi", 324, 144],
+    ["xxxhdpi", 432, 192],
+  ];
+  for (const [density, adaptiveSize, iconSize] of densities) {
+    const foreground = fs.readFileSync(path.join(root, `tools/capacitor-android/android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`));
+    assert.equal(foreground.readUInt32BE(16), adaptiveSize);
+    assert.equal(foreground.readUInt32BE(20), adaptiveSize);
+    assert.equal(foreground[25], 6, `${density} foreground retains transparency`);
     for (const name of ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png"]) {
       assert.ok(
         fs.existsSync(path.join(root, `tools/capacitor-android/android/app/src/main/res/mipmap-${density}/${name}`)),
         `${density}/${name} launcher icon`,
       );
+    }
+    for (const name of ["ic_launcher.png", "ic_launcher_round.png"]) {
+      const icon = fs.readFileSync(path.join(root, `tools/capacitor-android/android/app/src/main/res/mipmap-${density}/${name}`));
+      assert.equal(icon.readUInt32BE(16), iconSize);
+      assert.equal(icon.readUInt32BE(20), iconSize);
     }
   }
 });

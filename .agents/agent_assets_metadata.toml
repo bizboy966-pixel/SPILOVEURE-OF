@@ -84,3 +84,31 @@ mtime_ms = 1795047477687
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/16e7db17-0289-487c-b5e6-ed0486d27306/b6005749-2ac5-49c0-af01-e143844c2267"
 storage_version_token = "1795047692400453"
 content_type = "image/png"
+
+[[outputs]]
+id = "g658vdyxu0PTgWcvlRxbm"
+uri = "file://tools/capacitor-android/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
+type = "image"
+title = "Aperçu de la nouvelle icône SPILOVEURE"
+description = "Cadrage corrigé : nom complet et cinq symboles visibles sur le fond illustré."
+logical_id = "97817c47-7680-4b98-802e-18b44e0e428f"
+content_hash = "sha256:289175450790b1e7480b6976b16da17f1d007804a4248987779dd69dab2ca981"
+size = 53128
+mtime_ms = 1795061582358
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/97817c47-7680-4b98-802e-18b44e0e428f/3c48fe93-7cd4-427e-98c0-d1aa8f6973c9"
+storage_version_token = "1795062264820113"
+content_type = "image/png"
+
+[[outputs]]
+id = "RtpA7FxIm1ug-BnUucS8H"
+uri = "file://generated-artifacts/spiloveure/SPILOVEURE-1.1.13.apk"
+type = "unspecified"
+title = "SPILOVEURE Android 1.1.13"
+description = "APK officielle signée, avec l’icône corrigée."
+logical_id = "7533461b-5925-45fb-8edd-ff3480de0277"
+content_hash = "sha256:7bb1bcba779e08a6557d5c8ed33a7f3335cab8ca884854224a76f52eaf5c3ec6"
+size = 8553366
+mtime_ms = 1795062162227
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/7533461b-5925-45fb-8edd-ff3480de0277/e6775952-0be2-4c33-90b9-f16a81aa1eda"
+storage_version_token = "1795062265390577"
+content_type = "application/octet-stream"

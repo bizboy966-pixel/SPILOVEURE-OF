@@ -53,15 +53,30 @@ test("each payment provider's credentials are grouped with its own country catal
   const routerStart = admin.indexOf("function PaymentProvidersRouterCard(");
   const routerEnd = admin.indexOf("function PaymentRouterLogsCard()", routerStart);
   const router = admin.slice(routerStart, routerEnd);
+  assert.match(router, /testID=\{`provider-\$\{p\.id\}-config-catalog`\}/);
+  assert.match(router, /testID=\{`provider-\$\{p\.id\}-config-catalog-heading`\}/);
+  assert.match(router, /hasCredentialConfiguration && \{[\s\S]*borderColor: theme\.colors\.borderStrong/);
+  assert.match(router, /hasCredentialConfiguration && \([\s\S]*p\.name[\s\S]*Configuration et catalogue des pays et opérateurs/);
   assert.match(router, /p\.id === "moneyfusion"[\s\S]*<MoneyFusionSettings/);
   assert.match(router, /p\.id === "biztranspay"[\s\S]*<BizTransPayCard/);
   assert.match(router, /p\.countries[\s\S]*p\.id/);
+  assert.match(router, /p\.countries \|\| \[\]\)\.map/);
+  assert.match(router, /expanded\[p\.id\] !== false/);
 
   const providersTabStart = admin.indexOf('{tab === "providers" &&');
   const providersTabEnd = admin.indexOf('{tab === "payment" &&', providersTabStart);
   const providersTab = admin.slice(providersTabStart, providersTabEnd);
   assert.match(providersTab, /<PaymentProvidersRouterCard/);
   assert.doesNotMatch(providersTab, /<MoneyFusionSettings|<BizTransPayCard/);
+});
+
+test("provider key-saving and country/operator toggle requests remain unchanged", () => {
+  const moneyFusion = read("src/components/MoneyFusionSettings.tsx");
+  const bizTransPayCatalog = read("src/components/BizTransPayCatalog.tsx");
+  assert.match(moneyFusion, /api\.put<MoneyFusionConfig>\("\/admin\/payment-gateways\/moneyfusion"/);
+  assert.match(moneyFusion, /api\.post\("\/admin\/payment-gateways\/moneyfusion\/catalog\/refresh"\)/);
+  assert.match(bizTransPayCatalog, /api\.get<Catalog>\(`\/admin\/biztranspay\/catalog\?direction=\$\{next\}`\)/);
+  assert.match(bizTransPayCatalog, /api\.put\(code \? `\$\{path\}\/operators\/\$\{encodeURIComponent\(code\)\}` : path, \{ enabled \}\)/);
 });
 
 test("brand colors remain unchanged by the visual refresh", () => {

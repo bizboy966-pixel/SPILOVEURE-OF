@@ -3908,6 +3908,7 @@ function PaymentProvidersRouterCard({
         const isActive = p.status === "active";
         const providerListLoading = providers === null;
         const isExpanded = expanded[p.id] !== false; // default true
+        const hasCredentialConfiguration = p.id === "moneyfusion" || p.id === "biztranspay";
         const providerColor = providerListLoading
           ? theme.colors.textSecondary
           : isActive ? "#1E3A8A" : "#991B1B";
@@ -3953,7 +3954,33 @@ function PaymentProvidersRouterCard({
             </TouchableOpacity>
 
             {isExpanded && (
-              <View style={{ padding: 10 }}>
+              <View
+                testID={`provider-${p.id}-config-catalog`}
+                style={[
+                  { padding: 10 },
+                  hasCredentialConfiguration && {
+                    margin: 10,
+                    padding: 12,
+                    borderRadius: 14,
+                    borderWidth: 1.5,
+                    borderColor: theme.colors.borderStrong,
+                    backgroundColor: theme.colors.surfaceMuted,
+                  },
+                ]}
+              >
+                {hasCredentialConfiguration && (
+                  <Text
+                    testID={`provider-${p.id}-config-catalog-heading`}
+                    style={{
+                      color: theme.colors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: "800",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {p.name} · Configuration et catalogue des pays et opérateurs
+                  </Text>
+                )}
                 {p.id === "moneyfusion" && (
                   <View testID="provider-moneyfusion-config" style={{ marginBottom: 10 }}>
                     <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>

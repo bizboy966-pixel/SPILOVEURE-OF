@@ -5,6 +5,7 @@ import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
 import { CommunityPopup } from "@/src/components/CommunityPopup";
 import { SupportGroupPopup } from "@/src/components/SupportGroupPopup";
+import { LoginAnnouncementPopup } from "@/src/components/LoginAnnouncementPopup";
 import { NotificationToaster } from "@/src/components/NotificationToaster";
 import { PushBootstrap } from "@/src/components/PushBootstrap";
 import TelegramFab from "@/src/components/TelegramFab";
@@ -40,6 +41,7 @@ export default function AppLayout() {
   const router = useRouter();
   const segments = useSegments() as string[];
   const [communityDone, setCommunityDone] = useState(false);
+  const [announcementsDone, setAnnouncementsDone] = useState(false);
   const [payChatStatus, setPayChatStatus] = useState<"idle" | "checking" | "done">("idle");
 
   const isPending = useMemo(() => {
@@ -69,6 +71,14 @@ export default function AppLayout() {
   const currentSeg = inAppGroup ? (segments[1] || "") : "";
   const isMessenger = currentSeg === "messenger";
   const isDashboard = inAppGroup && currentSeg === "dashboard";
+
+  // Reset only when the authenticated identity changes. Refreshing user data
+  // or moving between screens must not reopen the announcement queue.
+  useEffect(() => {
+    setAnnouncementsDone(false);
+    setCommunityDone(false);
+  }, [user?.id]);
+
   useEffect(() => {
     if (loading || user || currentSeg !== "pay") {
       if (user || currentSeg !== "pay") setPayChatStatus("idle");
@@ -126,10 +136,15 @@ export default function AppLayout() {
             <Stack screenOptions={{ headerShown: false }} />
             {user && inAppGroup && (
               <>
-                {!isMessenger && isActivated && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
-                {!isMessenger && isActivated && <SupportGroupPopup enabled={communityDone} />}
-                {!isMessenger && <NotificationToaster />}
-                {!isMessenger && <PushBootstrap />}
+                <LoginAnnouncementPopup
+                  key={user.id}
+                  userId={user.id}
+                  onDone={() => setAnnouncementsDone(true)}
+                />
+                {!isMessenger && isActivated && announcementsDone && <CommunityPopup userId={user.id} onDone={() => setCommunityDone(true)} />}
+                {!isMessenger && isActivated && announcementsDone && <SupportGroupPopup enabled={communityDone} />}
+                {!isMessenger && announcementsDone && <NotificationToaster />}
+                {!isMessenger && announcementsDone && <PushBootstrap />}
                 {isDashboard && isActivated && <TelegramFab />}
               </>
             )}
