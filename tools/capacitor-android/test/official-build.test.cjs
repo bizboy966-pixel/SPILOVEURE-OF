@@ -40,8 +40,8 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 16'));
-  assert.ok(gradle.includes('versionName "1.1.15"'));
+  assert.ok(gradle.includes('versionCode 17'));
+  assert.ok(gradle.includes('versionName "1.1.16"'));
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
@@ -68,19 +68,20 @@ test("Capacitor bundles Ionicons and uses Android's real APK download progress",
 
 test("official APK launcher resources keep the full logo inside the icon mask", () => {
   const iconSource = path.join(root, "tools/capacitor-android/branding/app-icon-source.png");
-  const backgroundSource = path.join(root, "tools/capacitor-android/branding/app-icon-background.png");
   const launcherXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml");
   const roundXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml");
   const backgroundResource = "tools/capacitor-android/android/app/src/main/res/drawable-nodpi/launcher_background_art.png";
   const background = path.join(root, backgroundResource);
   const generator = local("generate-icon-assets.sh");
   assert.ok(fs.existsSync(iconSource));
-  assert.ok(fs.existsSync(backgroundSource));
   assert.match(launcherXml, /@drawable\/launcher_background_art/);
   assert.match(roundXml, /@drawable\/launcher_background_art/);
   assert.match(launcherXml, /@mipmap\/ic_launcher_foreground/);
   assert.match(roundXml, /@mipmap\/ic_launcher_foreground/);
-  assert.match(generator, /-fuzz 24%/);
+  assert.match(generator, /magick "\$SOURCE" -resize 1024x1024/);
+  assert.match(generator, /xc:none/);
+  assert.match(generator, /magick "\$SOURCE" -resize "\$\{legacy_size\}x\$\{legacy_size\}/);
+  assert.doesNotMatch(generator, /floodfill|make_foreground_content/);
   assert.doesNotMatch(generator, /gaussian-blur|blur/);
   assert.ok(fs.existsSync(background), "illustrated launcher background");
   const backgroundPng = fs.readFileSync(background);

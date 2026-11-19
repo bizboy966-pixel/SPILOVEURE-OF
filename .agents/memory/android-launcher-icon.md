@@ -3,15 +3,17 @@ name: Icône Android SPILOVEURE
 description: Contraintes de cadrage de l’icône officielle Android.
 ---
 
-L’icône de l’APK officielle doit conserver une illustration bleue et dorée nette
-jusqu’aux bords, sans marges noires, fond uni ni arrière-plan flou. Le logo
-central doit être assez petit pour que « SPILOVEURE » et les cinq pictogrammes
-du bas restent visibles après le masque adaptatif arrondi d’Android.
+L’icône de l’APK officielle doit reprendre l’image carrée fournie par
+l’utilisateur comme fond adaptatif plein cadre, sans marges noires, fond uni,
+flou ni logo extrait dans une grande couche de premier plan. Le nom
+« SPILOVEURE » et les cinq pictogrammes doivent rester visibles après le masque
+arrondi du lanceur Android.
 
-**Why:** L’utilisateur a demandé que toute l’image remplisse l’icône, a signalé
-que le cadrage coupait le nom et les pictogrammes, puis a refusé un fond flou.
+**Why:** L’utilisateur a montré l’image carrée complète comme référence et a
+signalé que le masque adaptatif faisait disparaître une partie du logo après
+l’installation, malgré un aperçu carré correct.
 
-**How to apply:** Garder un fond illustré plein format et net, puis placer le
-visuel original dans la zone sûre du premier plan. Vérifier le rendu après
-masque, pas seulement l’image carrée source, et reconstruire les ressources
-Capacitor pour la prochaine APK.
+**How to apply:** Utiliser l’image fournie en plein format comme fond et garder
+le premier plan adaptatif transparent afin d’éviter un second recadrage du logo.
+Vérifier le rendu après masque circulaire, pas seulement l’image carrée source,
+puis reconstruire les ressources Capacitor.
