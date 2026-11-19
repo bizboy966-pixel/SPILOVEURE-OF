@@ -21,7 +21,6 @@ function notify(title: string, message: string): void {
   Alert.alert(title, message);
 }
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
@@ -35,13 +34,12 @@ import { useAuth } from "@/src/auth";
 import { useFeatures } from "@/src/features";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
-import AdminSupportTab from "@/src/components/AdminSupportTab";
-import SupportAgentsCard from "@/src/components/SupportAgentsCard";
 import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
 import BizTransPayCatalog from "@/src/components/BizTransPayCatalog";
 import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
+import { AdminHeader, AdminMenuModal } from "@/src/components/admin/AdminChrome";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions" | "activation_videos";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -544,9 +542,7 @@ export default function AdminHome() {
     { key: "marketplace", label: "Marketplace", icon: "cart" },
     { key: "features", label: "Fonctionnalités", icon: "toggle" },
     { key: "announcements", label: "Annonces", icon: "megaphone" },
-    { key: "channels", label: "Canaux", icon: "link" },
     { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
-    { key: "support", label: "Support 💬", icon: "chatbubbles" },
     { key: "providers", label: "Prestataires paiement", icon: "card" },
     { key: "versions", label: "Versions", icon: "git-branch" },
     { key: "payment", label: "Réglages", icon: "settings" },
@@ -554,83 +550,25 @@ export default function AdminHome() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient colors={theme.colors.primaryGradient} style={styles.header}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-            <TouchableOpacity
-              onPress={() => {
-                if (tab !== "dashboard") { setTab("dashboard"); return; }
-                router.replace("/(app)/dashboard" as any);
-              }}
-              style={styles.backBtn}
-              testID="admin-back-btn"
-            >
-              <Ionicons name="chevron-back" size={22} color="#fff" />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="shield-checkmark" size={22} color="#fff" />
-                <Text style={styles.title}>Panel Admin Spiloveure</Text>
-              </View>
-              <Text style={styles.sub}>Connecté en tant que {user?.username}</Text>
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <TouchableOpacity
-              onPress={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
-              style={styles.logoutBtn}
-              testID="admin-refresh"
-              disabled={refreshing}
-            >
-              <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color="#fff" />
-            </TouchableOpacity>
-            {/* v27r — 3-dots menu (seul moyen de naviguer entre onglets).
-                Affiche le nom de l'onglet actif à côté pour repérage. */}
-            <TouchableOpacity
-              onPress={() => setMenuOpen((v) => !v)}
-              style={{ height: 40, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.2)", flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, gap: 6 }}
-              testID="admin-tabs-menu"
-            >
-              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12, maxWidth: 120 }} numberOfLines={1}>
-                {(TABS.find((t) => t.key === tab)?.label) || ""}
-              </Text>
-              <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={async () => { await signOut(); router.replace("/(auth)/login"); }} style={styles.logoutBtn} testID="admin-logout">
-              <Ionicons name="log-out-outline" size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </LinearGradient>
-
-      {/* v27r — dropdown vertical listant tous les onglets. Se ferme au clic
-          sur un item OU sur l'overlay. La barre horizontale a été supprimée
-          car ce menu est désormais l'unique moyen de navigation. */}
-      {menuOpen && (
-        <>
-          <TouchableOpacity
-            onPress={() => setMenuOpen(false)}
-            activeOpacity={1}
-            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: "rgba(0,0,0,0.35)" }}
-            testID="admin-tabs-menu-overlay"
-          />
-          <View style={{ position: "absolute", top: 90, right: 12, zIndex: 41, minWidth: 240, maxHeight: 520, backgroundColor: theme.colors.background, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 12, overflow: "hidden" }}>
-            <ScrollView style={{ maxHeight: 520 }}>
-              {TABS.map((t) => (
-                <TouchableOpacity
-                  key={`menu-${t.key}`}
-                  onPress={() => { setTab(t.key); setMenuOpen(false); }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 14, backgroundColor: tab === t.key ? theme.colors.primary : "transparent", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
-                  testID={`admin-menu-tab-${t.key}`}
-                >
-                  <Ionicons name={t.icon} size={18} color={tab === t.key ? "#fff" : theme.colors.primary} />
-                  <Text style={{ fontSize: 13, fontWeight: "700", color: tab === t.key ? "#fff" : theme.colors.textPrimary }}>{t.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </>
-      )}
+      <AdminHeader
+        username={user?.username}
+        activeLabel={(TABS.find((t) => t.key === tab)?.label) || ""}
+        refreshing={refreshing}
+        onBack={() => {
+          if (tab !== "dashboard") { setTab("dashboard"); return; }
+          router.replace("/(app)/dashboard" as any);
+        }}
+        onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+        onOpenMenu={() => setMenuOpen(true)}
+        onLogout={async () => { await signOut(); router.replace("/(auth)/login"); }}
+      />
+      <AdminMenuModal
+        visible={menuOpen}
+        tabs={TABS}
+        active={tab}
+        onSelect={(k) => { setTab(k as Tab); setMenuOpen(false); }}
+        onClose={() => setMenuOpen(false)}
+      />
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
@@ -1352,43 +1290,6 @@ export default function AdminHome() {
                     <Text style={styles.actT}>{a.active ? "Désactiver" : "Activer"}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.delete(`/admin/announcements/${a.id}`))}>
-                    <Text style={styles.actT}>Supprimer</Text>
-                  </TouchableOpacity>
-                </View>
-              </Card>
-            ))}
-          </>
-        )}
-
-        {tab === "channels" && (
-          <>
-            <AdminTelegramBotSettings />
-            <Card>
-              <Text style={styles.section}>Nouveau canal / groupe</Text>
-              <Input label="Nom" value={chName} onChangeText={setChName} testID="ch-name" />
-              <Input label="URL" value={chUrl} onChangeText={setChUrl} autoCapitalize="none" keyboardType="url" testID="ch-url" />
-              <Input label="Description (optionnel)" value={chDesc} onChangeText={setChDesc} />
-              <Text style={styles.lbl}>Plateforme</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                {["telegram","whatsapp","facebook","tiktok","instagram","youtube","x"].map((p) => (
-                  <TouchableOpacity key={p} style={[styles.priChip, chPlatform === p && styles.priChipOn]} onPress={() => setChPlatform(p)}>
-                    <Text style={[styles.priChipT, chPlatform === p && { color: "#fff" }]}>{p}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Button title="Ajouter" onPress={() => action(async () => {
-                await api.post("/admin/channels", { name: chName, url: chUrl, description: chDesc, platform: chPlatform, active: true });
-                setChName(""); setChUrl(""); setChDesc("");
-              })} testID="ch-create" />
-            </Card>
-            <View style={{ height: 12 }} />
-            {channels.map((c) => (
-              <Card key={c.id} style={{ marginBottom: 8 }}>
-                <Text style={styles.userName}>{c.name}</Text>
-                <Text style={styles.userMeta}>{c.platform.toUpperCase()} • {c.url}</Text>
-                {c.description ? <Text style={styles.userMeta}>{c.description}</Text> : null}
-                <View style={styles.actRow}>
-                  <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.delete(`/admin/channels/${c.id}`))}>
                     <Text style={styles.actT}>Supprimer</Text>
                   </TouchableOpacity>
                 </View>
@@ -2342,12 +2243,6 @@ export default function AdminHome() {
           </>
         )}
 
-        {tab === "support" && (
-          <>
-            <SupportAgentsCard />
-            <AdminSupportTab />
-          </>
-        )}
 
         {tab === "versions" && (
           <>
@@ -2557,266 +2452,12 @@ export default function AdminHome() {
                 Les clés API/secrets restent sécurisées côté serveur (masquées). Modifiez uniquement pour remplacer une clé existante.
               </Text>
               <BizTransPayCard />
-              <PaymentGatewaysCard />
             </View>
-            <PaymentRouterLogsCard />
           </>
         )}
 
         {tab === "payment" && (
           <>
-            <PaymentGatewaysCard />
-            <Card style={{ marginTop: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="logo-bitcoin" size={22} color="#F59E0B" />
-                <Text style={styles.section}>Paiement manuel Crypto (USDT BEP20)</Text>
-              </View>
-              <Text style={styles.helperTxt}>
-                L'utilisateur envoie l'équivalent du montant d'activation en USDT (réseau BEP20)
-                à l'adresse wallet ci-dessous, puis colle le hash de transaction (TXID). L'admin valide manuellement.
-              </Text>
-              <TouchableOpacity
-                style={[styles.toggleRow, cryptoEnabled ? styles.toggleOn : styles.toggleOff]}
-                onPress={() => setCryptoEnabled((v) => !v)}
-                testID="crypto-toggle-enabled"
-              >
-                <Ionicons
-                  name={cryptoEnabled ? "checkmark-circle" : "close-circle-outline"}
-                  size={20}
-                  color={cryptoEnabled ? "#fff" : theme.colors.textSecondary}
-                />
-                <Text style={[styles.toggleTxt, cryptoEnabled && { color: "#fff" }]}>
-                  {cryptoEnabled ? "Activé — paiement crypto disponible" : "Désactivé — paiement crypto masqué"}
-                </Text>
-              </TouchableOpacity>
-
-              <Input
-                label="Réseau"
-                value={cryptoNetwork}
-                onChangeText={setCryptoNetwork}
-                placeholder="USDT BEP20"
-                testID="crypto-network"
-              />
-              <Input
-                label="Adresse wallet"
-                value={cryptoWallet}
-                onChangeText={setCryptoWallet}
-                placeholder="0x..."
-                autoCapitalize="none"
-                testID="crypto-wallet"
-              />
-              <Input
-                label="Montant à envoyer (USDT)"
-                value={cryptoAmount}
-                onChangeText={setCryptoAmount}
-                placeholder="5"
-                keyboardType="decimal-pad"
-                testID="crypto-amount"
-              />
-              <Input
-                label="Instructions affichées à l'utilisateur"
-                value={cryptoInstructions}
-                onChangeText={setCryptoInstructions}
-                placeholder="Envoyez 5 USDT (BEP20)..."
-                multiline
-                testID="crypto-instructions"
-              />
-              <View style={{ marginTop: 12 }}>
-                <Button
-                  title={cryptoSaving ? "Enregistrement..." : "Enregistrer la configuration crypto"}
-                  icon={<Ionicons name="save" size={16} color="#fff" />}
-                  loading={cryptoSaving}
-                  disabled={cryptoSaving}
-                  onPress={async () => {
-                    setCryptoSaving(true);
-                    try {
-                      await api.put("/admin/settings/crypto-payment", {
-                        enabled: cryptoEnabled,
-                        network: cryptoNetwork.trim(),
-                        wallet_address: cryptoWallet.trim(),
-                        amount_usdt: parseFloat(cryptoAmount) || 5,
-                        instructions: cryptoInstructions,
-                      });
-                      if (typeof window !== "undefined") window.alert("Configuration crypto enregistrée ✅");
-                    } catch (e: any) {
-                      if (typeof window !== "undefined") window.alert(e?.detail || "Erreur lors de l'enregistrement");
-                    } finally { setCryptoSaving(false); }
-                  }}
-                  testID="crypto-save-btn"
-                />
-              </View>
-            </Card>
-
-            <Card style={{ marginTop: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="card" size={22} color={theme.colors.primary} />
-                <Text style={styles.section}>Configuration paiement manuel</Text>
-              </View>
-              <Text style={styles.helperTxt}>
-                Cette section permet aux utilisateurs d'effectuer un paiement en dehors du flux automatique.
-                Ils verront le titre, les instructions, le bouton vers le lien de paiement et les coordonnées que vous renseignez ici.
-              </Text>
-
-              <TouchableOpacity
-                style={[styles.toggleRow, mpEnabled ? styles.toggleOn : styles.toggleOff]}
-                onPress={() => setMpEnabled((v) => !v)}
-                testID="mp-toggle-enabled"
-              >
-                <Ionicons
-                  name={mpEnabled ? "checkmark-circle" : "close-circle-outline"}
-                  size={20}
-                  color={mpEnabled ? "#fff" : theme.colors.textSecondary}
-                />
-                <Text style={[styles.toggleTxt, mpEnabled && { color: "#fff" }]}>
-                  {mpEnabled ? "Activé — visible aux utilisateurs" : "Désactivé — masqué"}
-                </Text>
-              </TouchableOpacity>
-
-              <Input
-                label="Titre affiché"
-                value={mpTitle}
-                onChangeText={setMpTitle}
-                placeholder="Ex: Paiement manuel"
-                testID="mp-title"
-              />
-              <Input
-                label="Lien de paiement (URL)"
-                value={mpPaymentUrl}
-                onChangeText={setMpPaymentUrl}
-                placeholder="https://..."
-                autoCapitalize="none"
-                keyboardType="url"
-                testID="mp-payment-url"
-              />
-
-              <Text style={[styles.lbl, { marginTop: 8 }]}>Pays autorisés pour le paiement manuel</Text>
-              <Text style={styles.helperTxt}>
-                Cochez les pays où les utilisateurs verront cette méthode de paiement. Si aucun pays n'est coché, le paiement manuel reste désactivé pour tous.
-              </Text>
-              <View style={styles.countryGrid}>
-                {(cfgCountries.length > 0 ? cfgCountries : [
-                  { code: "TG", name: "Togo", flag: "🇹🇬" },
-                  { code: "BJ", name: "Bénin", flag: "🇧🇯" },
-                  { code: "CI", name: "Côte d'Ivoire", flag: "🇨🇮" },
-                  { code: "BF", name: "Burkina Faso", flag: "🇧🇫" },
-                ]).map((c) => {
-                  const on = mpAllowedCountries.includes(c.code);
-                  return (
-                    <TouchableOpacity
-                      key={c.code}
-                      style={[styles.countryChip, on && styles.countryChipOn]}
-                      onPress={() => {
-                        setMpAllowedCountries((prev) =>
-                          prev.includes(c.code)
-                            ? prev.filter((x) => x !== c.code)
-                            : [...prev, c.code],
-                        );
-                      }}
-                      testID={`mp-country-${c.code}`}
-                    >
-                      <Ionicons
-                        name={on ? "checkbox" : "square-outline"}
-                        size={18}
-                        color={on ? "#fff" : theme.colors.textSecondary}
-                      />
-                      <Text style={[styles.countryChipTxt, on && { color: "#fff" }]}>
-                        {c.flag} {c.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <Text style={styles.lbl}>Instructions</Text>
-              <TextInput
-                style={styles.textarea}
-                value={mpInstructions}
-                onChangeText={setMpInstructions}
-                placeholder="Ex: Effectuez un dépôt Mobile Money sur le numéro ci-dessous puis cliquez sur le lien pour confirmer..."
-                placeholderTextColor={theme.colors.textSecondary}
-                multiline
-                numberOfLines={5}
-                testID="mp-instructions"
-              />
-              <Input
-                label="Opérateur Mobile Money"
-                value={mpOperator}
-                onChangeText={setMpOperator}
-                placeholder="Ex: T-Money, MTN MoMo, Orange Money..."
-                testID="mp-operator"
-              />
-              <Input
-                label="Numéro Mobile Money à payer"
-                value={mpPhone}
-                onChangeText={setMpPhone}
-                placeholder="Ex: 22890000000"
-                keyboardType="phone-pad"
-                testID="mp-phone"
-              />
-
-              <View style={{ height: 8 }} />
-              <Button
-                title="ENREGISTRER LA CONFIGURATION"
-                icon={<Ionicons name="save" size={18} color="#fff" />}
-                loading={mpSaving}
-                onPress={async () => {
-                  setMpSaving(true);
-                  try {
-                    await api.put("/admin/settings/manual-payment", {
-                      enabled: mpEnabled,
-                      title: mpTitle,
-                      instructions: mpInstructions,
-                      payment_url: mpPaymentUrl,
-                      phone_to_pay: mpPhone,
-                      operator_name: mpOperator,
-                      allowed_countries: mpAllowedCountries,
-                    });
-                    notify("Configuration sauvegardée", "Les utilisateurs verront immédiatement les changements.");
-                  } catch (e: any) {
-                    notify("Erreur", e?.detail || "Impossible de sauvegarder.");
-                  } finally {
-                    setMpSaving(false);
-                  }
-                }}
-                testID="mp-save"
-              />
-            </Card>
-
-            <Card style={{ marginTop: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="eye" size={20} color={theme.colors.primary} />
-                <Text style={styles.section}>Aperçu côté utilisateur</Text>
-              </View>
-              <Text style={styles.helperTxt}>
-                Voici ce que verront les utilisateurs sur l'écran d'activation si la section est activée :
-              </Text>
-              <View style={styles.previewBox}>
-                <Text style={styles.previewTitle}>{mpTitle || "Paiement manuel"}</Text>
-                {!!mpInstructions && (
-                  <Text style={styles.previewInstr}>{mpInstructions}</Text>
-                )}
-                {(!!mpOperator || !!mpPhone) && (
-                  <View style={styles.previewKv}>
-                    {!!mpOperator && (
-                      <Text style={styles.previewLine}>
-                        <Text style={{ fontWeight: "700" }}>Opérateur : </Text>{mpOperator}
-                      </Text>
-                    )}
-                    {!!mpPhone && (
-                      <Text style={styles.previewLine}>
-                        <Text style={{ fontWeight: "700" }}>Numéro à payer : </Text>{mpPhone}
-                      </Text>
-                    )}
-                  </View>
-                )}
-                {!!mpPaymentUrl && (
-                  <View style={[styles.previewBtn]}>
-                    <Ionicons name="open" size={14} color="#fff" />
-                    <Text style={styles.previewBtnTxt}>OUVRIR LE LIEN DE PAIEMENT</Text>
-                  </View>
-                )}
-              </View>
-            </Card>
-
             {/* ----- Withdrawal fee settings ----- */}
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -4255,7 +3896,7 @@ function PaymentProvidersRouterCard() {
 
   return (
     <View testID="providers-router-card">
-      {providers.map((p, idx) => {
+      {providers.filter((p) => !/ashtec/i.test(`${p?.id || ""} ${p?.name || ""} ${p?.label || ""}`)).map((p, idx) => {
         const isActive = p.status === "active";
         const isExpanded = expanded[p.id] !== false; // default true
         return (
