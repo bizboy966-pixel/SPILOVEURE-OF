@@ -17,7 +17,7 @@ const BACKEND_PATHS = new Set([
 ]);
 const CAPACITOR_APK_PATH = "/downloads/spiloveure.apk";
 const DEFAULT_CAPACITOR_APK = path.join(
-  __dirname, "../generated-artifacts/spiloveure/SPILOVEURE-1.1.9.apk",
+  __dirname, "../generated-artifacts/spiloveure/SPILOVEURE-1.1.10.apk",
 );
 
 function serveCapacitorApk(request, response, apkFile) {
@@ -36,7 +36,7 @@ function serveCapacitorApk(request, response, apkFile) {
   }
   const headers = {
     "Content-Type": "application/vnd.android.package-archive",
-    "Content-Disposition": 'attachment; filename="SPILOVEURE-1.1.9.apk"',
+    "Content-Disposition": 'attachment; filename="SPILOVEURE-1.1.10.apk"',
     "Content-Length": String(stat.size),
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",

@@ -40,8 +40,8 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 10'));
-  assert.ok(gradle.includes('versionName "1.1.9"'));
+  assert.ok(gradle.includes('versionCode 11'));
+  assert.ok(gradle.includes('versionName "1.1.10"'));
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
@@ -64,6 +64,23 @@ test("Capacitor bundles Ionicons and uses Android's real APK download progress",
   assert.match(nativePlugin, /DownloadManager/);
   assert.match(nativePlugin, /VISIBILITY_VISIBLE_NOTIFY_COMPLETED/);
   assert.match(nativePlugin, /spiloveure\.org/);
+});
+
+test("official APK launcher resources use the full supplied icon", () => {
+  const iconSource = path.join(root, "tools/capacitor-android/branding/app-icon-source.png");
+  const launcherXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml");
+  const roundXml = local("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml");
+  assert.ok(fs.existsSync(iconSource));
+  assert.match(launcherXml, /@mipmap\/ic_launcher_foreground/);
+  assert.match(roundXml, /@mipmap\/ic_launcher_foreground/);
+  for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
+    for (const name of ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png"]) {
+      assert.ok(
+        fs.existsSync(path.join(root, `tools/capacitor-android/android/app/src/main/res/mipmap-${density}/${name}`)),
+        `${density}/${name} launcher icon`,
+      );
+    }
+  }
 });
 
 test("login and Chat calls explicitly use native HTTP, preserving errors", async () => {
