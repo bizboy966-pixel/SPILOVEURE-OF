@@ -5,9 +5,8 @@ import { theme } from "@/src/theme";
 /**
  * Card — composant partagé utilisé sur toutes les pages.
  *
- * Refonte design 2026-08-13 : padding plus généreux (20 vs 16), coins
- * plus arrondis (20 vs 16), bordure ultra-légère et ombre douce
- * inspirées des dashboards fintech modernes.
+ * Style partagé : padding confortable, rayon mesuré, bordure discrète
+ * et ombre légère, cohérents sur mobile et ordinateur.
  *
  * Prop `variant`:
  *   • "default" — carte standard (identique à l'ancien comportement, en mieux)

@@ -245,15 +245,18 @@ export const BottomNav: React.FC = () => {
 const styles = StyleSheet.create({
   floater: {
     position: "absolute", left: 0, right: 0, bottom: 0,
-    padding: 12,
+    paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10,
     zIndex: 100,
   },
   bar: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-around",
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
     backgroundColor: theme.colors.surface,
-    borderRadius: 26,
+    borderRadius: theme.radius.xl,
     paddingHorizontal: 8,
     paddingTop: 8,
     paddingBottom: 10,
@@ -261,9 +264,9 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     shadowColor: "#0B2D6F",
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOpacity: 0.10,
+    shadowRadius: 18,
+    elevation: 8,
   },
   item: {
     flex: 1,

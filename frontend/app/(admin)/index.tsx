@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator, Alert, FlatList, Linking, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity,
+  ActivityIndicator, Alert, FlatList, Linking, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, View, TextInput, TouchableOpacity, useWindowDimensions, type DimensionValue,
 } from "react-native";
 
 /**
@@ -39,10 +39,11 @@ import BizTransPayCatalog from "@/src/components/BizTransPayCatalog";
 import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
 import { AdminHeader, AdminMenuModal } from "@/src/components/admin/AdminChrome";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "channels" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "support" | "versions" | "activation_videos";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "versions" | "activation_videos";
 
 export default function AdminHome() {
   const router = useRouter();
+  const { width: viewportWidth } = useWindowDimensions();
   const { user, signOut } = useAuth();
   const { refresh: refreshFeatures } = useFeatures();
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -62,7 +63,6 @@ export default function AdminHome() {
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [wdQ, setWdQ] = useState("");
   const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [channels, setChannels] = useState<any[]>([]);
   const [versionsData, setVersionsData] = useState<{ settings?: any; versions?: any[] } | null>(null);
   const [newVersion, setNewVersion] = useState("");
   const [newVersionMandatory, setNewVersionMandatory] = useState(true);
@@ -218,14 +218,10 @@ export default function AdminHome() {
     }
   }, [chgEdit, chgEditName, chgEditTarget, chgEditReward, chgEditCurrency, chgEditStartDate, chgEditStartTime, chgEditEndDate, chgEditEndTime, chgEditActive]);
 
-  // New announcement / channel forms
+  // New announcement form
   const [annTitle, setAnnTitle] = useState("");
   const [annMsg, setAnnMsg] = useState("");
   const [annPriority, setAnnPriority] = useState<"normale" | "importante" | "urgente">("normale");
-  const [chName, setChName] = useState("");
-  const [chUrl, setChUrl] = useState("");
-  const [chPlatform, setChPlatform] = useState("telegram");
-  const [chDesc, setChDesc] = useState("");
 
   // Sub-tab filters for activations / withdrawals
   const [actFilter, setActFilter] = useState<"pending" | "validated" | "rejected">("pending");
@@ -345,7 +341,6 @@ export default function AdminHome() {
         }).catch(() => {});
       }
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
-      if (tab === "channels") setChannels(await api.get("/admin/channels"));
       if (tab === "versions") {
         const vd: any = await api.get("/admin/versions");
         setVersionsData(vd);
@@ -571,18 +566,18 @@ export default function AdminHome() {
       />
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 60, width: "100%", maxWidth: 1280, alignSelf: "center" }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
         {tab === "dashboard" && stats && (
           <>
             <View style={styles.statGrid}>
-              <StatCard icon="people" color="#3B82F6" label="Utilisateurs" value={stats.users_total} />
-              <StatCard icon="checkmark-circle" color={theme.colors.success} label="Actifs" value={stats.users_active} />
-              <StatCard icon="hourglass" color={theme.colors.warning} label="Activations à valider" value={stats.activations_pending} />
-              <StatCard icon="cash" color={theme.colors.secondary} label="Retraits en attente" value={stats.withdrawals_pending} />
-              <StatCard icon="trending-up" color="#0EA5E9" label="Total activations" value={formatFCFA(stats.total_activations_amount)} small />
-              <StatCard icon="arrow-down-circle" color={theme.colors.danger} label="Total retraits" value={formatFCFA(stats.total_withdrawals_amount)} small />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="people" color="#3B82F6" label="Utilisateurs" value={stats.users_total} />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="checkmark-circle" color={theme.colors.success} label="Actifs" value={stats.users_active} />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="hourglass" color={theme.colors.warning} label="Activations à valider" value={stats.activations_pending} />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="cash" color={theme.colors.secondary} label="Retraits en attente" value={stats.withdrawals_pending} />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="trending-up" color="#0EA5E9" label="Total activations" value={formatFCFA(stats.total_activations_amount)} small />
+              <StatCard width={viewportWidth >= 1100 ? "23%" : viewportWidth >= 700 ? "31%" : "47%"} icon="arrow-down-circle" color={theme.colors.danger} label="Total retraits" value={formatFCFA(stats.total_withdrawals_amount)} small />
             </View>
 
             <TouchableOpacity
@@ -590,8 +585,8 @@ export default function AdminHome() {
               onPress={() => router.push("/(admin)/content" as any)}
               testID="admin-open-content-mgmt"
             >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="library" size={24} color="#fff" />
+              <View style={[styles.contentMgmtIcon, { backgroundColor: theme.colors.primaryBg }]}>
+                <Ionicons name="library" size={22} color={theme.colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contentMgmtTitle}>Gestion des contenus</Text>
@@ -599,16 +594,16 @@ export default function AdminHome() {
                   Formations • E-Books • Apps Premium • Trading
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: theme.colors.success }]}
+              style={styles.contentMgmtCta}
               onPress={() => router.push("/(admin)/missions" as any)}
               testID="admin-open-missions-mgmt"
             >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="videocam" size={24} color="#fff" />
+              <View style={[styles.contentMgmtIcon, { backgroundColor: theme.colors.successBg }]}>
+                <Ionicons name="videocam" size={22} color={theme.colors.success} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contentMgmtTitle}>🎥 Gestion des Missions</Text>
@@ -616,16 +611,16 @@ export default function AdminHome() {
                   YouTube • TikTok • Instagram • Facebook • Questionnaires
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#0EA5E9" }]}
+              style={styles.contentMgmtCta}
               onPress={() => router.push("/(admin)/emploi" as any)}
               testID="admin-open-emploi-mgmt"
             >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="briefcase" size={24} color="#fff" />
+              <View style={[styles.contentMgmtIcon, { backgroundColor: theme.colors.infoBg }]}>
+                <Ionicons name="briefcase" size={22} color={theme.colors.info} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contentMgmtTitle}>💼 Gestion des offres d'emploi</Text>
@@ -633,16 +628,16 @@ export default function AdminHome() {
                   Publier, modifier, activer/désactiver et supprimer les offres
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#F59E0B" }]}
+              style={styles.contentMgmtCta}
               onPress={() => router.push("/(admin)/lottery" as any)}
               testID="admin-open-lottery-mgmt"
             >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="ticket" size={24} color="#fff" />
+              <View style={[styles.contentMgmtIcon, { backgroundColor: theme.colors.warningBg }]}>
+                <Ionicons name="ticket" size={22} color={theme.colors.warning} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contentMgmtTitle}>🎰 Lottery Jackpot</Text>
@@ -650,16 +645,16 @@ export default function AdminHome() {
                   Tirages, gagnants, paiements et statistiques
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.contentMgmtCta, { marginTop: 10, backgroundColor: "#7C3AED" }]}
+              style={styles.contentMgmtCta}
               onPress={() => router.push("/(admin)/push" as any)}
               testID="admin-open-push"
             >
-              <View style={styles.contentMgmtIcon}>
-                <Ionicons name="notifications" size={24} color="#fff" />
+              <View style={[styles.contentMgmtIcon, { backgroundColor: "#F0EDFF" }]}>
+                <Ionicons name="notifications" size={22} color={theme.colors.secondary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.contentMgmtTitle}>🔔 Notifications Push</Text>
@@ -667,7 +662,7 @@ export default function AdminHome() {
                   Envoyer une notification à tous, à un utilisateur ou à un groupe filtré
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
 
             <Card style={{ marginTop: 14 }}>
@@ -676,7 +671,7 @@ export default function AdminHome() {
                   <Ionicons name="globe-outline" size={20} color="#0EA5E9" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 15 }}>IP du serveur de production</Text>
+                  <Text style={{ color: theme.colors.textPrimary, fontWeight: "700", fontSize: 15 }}>IP du serveur de production</Text>
                   <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>
                     À whitelister chez votre passerelle de paiement (Money Fusion, etc.).
                   </Text>
@@ -691,7 +686,7 @@ export default function AdminHome() {
                 }}>
                   <Text style={{
                     fontFamily: "monospace", fontSize: 16, fontWeight: "700",
-                    color: serverIp ? theme.colors.text : theme.colors.textSecondary,
+                    color: serverIp ? theme.colors.textPrimary : theme.colors.textSecondary,
                     letterSpacing: 0.5,
                   }} selectable testID="admin-server-ip-value">
                     {ipLoading ? "Détection en cours…" : (serverIp || ipError || "Cliquez sur Actualiser")}
@@ -2395,7 +2390,7 @@ export default function AdminHome() {
                 testID="admin-publish-version-btn"
               >
                 <Ionicons name="rocket" size={18} color="#fff" />
-                <Text style={styles.copyBtnT}>Publier la nouvelle version</Text>
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Publier la nouvelle version</Text>
               </TouchableOpacity>
             </Card>
 
@@ -2675,9 +2670,9 @@ export default function AdminHome() {
             <Card style={{ marginTop: 12 }} testID="admin-community-popup-card">
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <Ionicons name="megaphone" size={18} color={theme.colors.primary} />
-                <Text style={styles.h3}>📢 Popup Communauté Officielle</Text>
+                <Text style={styles.section}>📢 Popup Communauté Officielle</Text>
               </View>
-              <Text style={styles.help}>
+              <Text style={styles.helperTxt}>
                 Affiché automatiquement au centre de l'écran juste après la connexion utilisateur.
                 Se ferme tout seul après {cpSeconds || 0}s ou via le bouton ✕.
               </Text>
@@ -2766,9 +2761,9 @@ export default function AdminHome() {
             <Card style={{ marginTop: 12 }} testID="admin-trading-card">
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <Ionicons name="trending-up" size={18} color={theme.colors.primary} />
-                <Text style={styles.h3}>📈 Trading — Canal Telegram</Text>
+                <Text style={styles.section}>📈 Trading — Canal Telegram</Text>
               </View>
-              <Text style={styles.help}>
+              <Text style={styles.helperTxt}>
                 Ce lien pilote la carte Trading affichée sur le Dashboard des utilisateurs.
                 Un clic sur la carte redirige vers ce canal Telegram.
               </Text>
@@ -3280,8 +3275,8 @@ function SubTabs({
 }
 
 
-function StatCard({ icon, color, label, value, small }: { icon: any; color: string; label: string; value: any; small?: boolean }) {  return (
-    <View style={styles.statCard}>
+function StatCard({ icon, color, label, value, small, width }: { icon: any; color: string; label: string; value: any; small?: boolean; width: DimensionValue }) {  return (
+    <View style={[styles.statCard, { width }]}>
       <View style={[styles.statIcon, { backgroundColor: `${color}22` }]}>
         <Ionicons name={icon} size={20} color={color} />
       </View>
@@ -3382,7 +3377,7 @@ const styles = StyleSheet.create({
   tabT: { fontWeight: "700", color: theme.colors.primary, fontSize: 12 },
 
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  statCard: { width: "47%", backgroundColor: "#fff", padding: 14, borderRadius: 20, ...theme.shadow.card },
+  statCard: { backgroundColor: theme.colors.surface, padding: 16, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.card },
   statIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   statLbl: { color: theme.colors.textSecondary, fontSize: 11 },
   statVal: { color: theme.colors.textPrimary, fontWeight: "800", fontSize: 20, marginTop: 2, letterSpacing: -0.3 },
@@ -3471,17 +3466,18 @@ const styles = StyleSheet.create({
 
   contentMgmtCta: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    marginTop: 12, padding: 14, borderRadius: 20,
-    backgroundColor: "#FF7A00",
+    marginTop: 12, padding: 14, borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1, borderColor: theme.colors.border,
     ...theme.shadow.card,
   },
   contentMgmtIcon: {
     width: 44, height: 44, borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.2)",
+    backgroundColor: theme.colors.surfaceSecondary,
     alignItems: "center", justifyContent: "center",
   },
-  contentMgmtTitle: { color: "#fff", fontWeight: "800", fontSize: 15 },
-  contentMgmtSub: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
+  contentMgmtTitle: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 15 },
+  contentMgmtSub: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
   historyOverlay: {
     flex: 1,

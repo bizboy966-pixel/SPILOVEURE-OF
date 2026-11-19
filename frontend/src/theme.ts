@@ -1,15 +1,12 @@
 /**
- * SPILOVEURE — Design tokens (v2, "Premium Fintech")
+ * SPILOVEURE — Design tokens
  *
- * Refonte design 2026-08-13 inspirée des bonnes pratiques modernes
- * (action.diokoma.sn, plateformes fintech premium) — **couleurs SPILOVEURE
- * conservées à l'identique**, seul le layout est modernisé :
+ * Standard visuel professionnel basé sur la référence OpenAI fournie
+ * (hiérarchie, espaces et finitions). **Les couleurs SPILOVEURE restent intactes.**
  *
- *  • Arrondis plus généreux (16 → 20-28)
- *  • Padding intérieur des cartes plus aéré (16 → 20)
- *  • Ombres beaucoup plus douces et diffuses (0,08 → 0,05 opacité)
- *  • Bordures plus légères (#E2E8F0 → #EEF2F7)
- *  • Typographie : line-height et letter-spacing homogènes
+ *  • Rayons plus sobres (12-22px) et espacements réguliers
+ *  • Surfaces et bordures légères avec un contraste lisible
+ *  • Typographie cohérente, sans modifier les couleurs de marque
  *
  * Tout module qui référence `theme.radius`, `theme.spacing`, `theme.shadow`
  * ou `theme.colors.border` héritera automatiquement de la refonte.
@@ -23,29 +20,31 @@ export const theme = {
     primaryBg: "#EBF1FF",            // Fond très pâle pour highlights
     secondary: "#7B61FF",
     secondaryGradient: ["#7B61FF", "#5B43E8"] as const,
-    background: "#F6F8FB",           // Fond légèrement plus doux qu'avant
+    background: "#F7F9FC",
     surface: "#FFFFFF",
+    card: "#FFFFFF", // alias compatible avec les écrans existants
     surfaceSecondary: "#F1F5F9",
-    surfaceMuted: "#F8FAFC",         // Nouveau — fond hover / sous-bloc
+    surfaceMuted: "#F8FAFC",
     textPrimary: "#0B2D6F",
+    text: "#0B2D6F", // alias compatible avec les écrans existants
     textSecondary: "#64748B",
     textMuted: "#94A3B8",             // Nouveau — labels, timestamps
     textInverse: "#FFFFFF",
     success: "#10B981",
     successBg: "#D1FAE5",
     danger: "#EF4444",
+    error: "#EF4444", // alias compatible avec les écrans existants
     dangerBg: "#FEE2E2",
     warning: "#F59E0B",
     warningBg: "#FEF3C7",
     info: "#0EA5E9",
     infoBg: "#E0F2FE",
-    // Bordure ultra-légère façon "premium fintech".
-    border: "#EEF2F7",
-    borderStrong: "#E2E8F0",         // Ancienne bordure — pour dividers marqués
+    // Bordures discrètes avec un contraste lisible.
+    border: "#E8EDF4",
+    borderStrong: "#D9E1EB",
   },
   spacing: { xs: 4, sm: 8, md: 14, lg: 20, xl: 28, xxl: 40, xxxl: 56 },
-  // Arrondis plus généreux pour un rendu premium (radiuses de "action.diokoma.sn").
-  radius: { sm: 10, md: 14, lg: 20, xl: 28, xxl: 36, round: 9999 },
+  radius: { sm: 8, md: 12, lg: 16, xl: 22, xxl: 30, round: 9999 },
   font: {
     // ─── Familles typographiques (v11 — global Nunito) ────────────
     // Utilisée par les composants qui veulent explicitement injecter la
@@ -58,9 +57,9 @@ export const theme = {
     h1: 30, h2: 22, h3: 19, h4: 17,
     bodyLg: 16, body: 14, bodySm: 12, caption: 11,
     // Weights
-    bold: "800" as const,      // titres — bolder pour un rendu premium
-    semibold: "700" as const,  // sous-titres, boutons
-    medium: "600" as const,    // labels, chips
+    bold: "700" as const,
+    semibold: "600" as const,
+    medium: "500" as const,
     regular: "400" as const,
     // Letter-spacing — négatif sur les titres pour un look Apple/Stripe.
     tightTitle: -0.5,

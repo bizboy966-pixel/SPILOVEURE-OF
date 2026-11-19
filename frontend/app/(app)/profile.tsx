@@ -94,7 +94,7 @@ export default function Profile() {
         </SafeAreaView>
       </LinearGradient>
 
-      <ScrollView style={{ marginTop: -36 }} contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 140 }}>
+      <ScrollView style={{ marginTop: -36 }} contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 140, width: "100%", maxWidth: 960, alignSelf: "center" }}>
         <ProfileHeaderCard user={user} />
         <ApkDownloadCard />
 

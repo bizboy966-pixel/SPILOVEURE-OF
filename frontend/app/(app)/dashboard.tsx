@@ -184,7 +184,7 @@ export default function Dashboard() {
       </LinearGradient>
 
       <ScrollView
-        contentContainerStyle={{ padding: 14, paddingBottom: 140 }}
+        contentContainerStyle={{ padding: 14, paddingBottom: 140, width: "100%", maxWidth: 1160, alignSelf: "center" }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
       >
@@ -384,7 +384,7 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingBottom: 12, paddingHorizontal: 16 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6, width: "100%", maxWidth: 1160, alignSelf: "center" },
   apkHeader: { paddingBottom: 8, paddingHorizontal: 14 },
   apkHeaderRow: { marginTop: 0 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
