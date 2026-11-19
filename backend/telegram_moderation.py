@@ -14,10 +14,13 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+import mimetypes
 import os
 import re
 import secrets
+import socket
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Optional
 from urllib.parse import urlparse
@@ -36,6 +39,11 @@ BOT_API = "https://api.telegram.org"
 TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 TOKEN_SETTINGS_KEY = "telegram_bot_token"
 ACTION_TTL = timedelta(days=14)
+MAX_TELEGRAM_PHOTO_BYTES = 10 * 1024 * 1024
+MAX_TELEGRAM_FILE_BYTES = 50 * 1024 * 1024
+MAX_TELEGRAM_TOTAL_BYTES = 100 * 1024 * 1024
+UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+UPLOAD_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
 
 class _TelegramPrivacyFilter(logging.Filter):
@@ -155,13 +163,25 @@ def _notification_chat_id(cfg: dict) -> str:
     return str(cfg.get("notification_chat_id") or cfg.get("group_chat_id") or "")
 
 
-async def _bot_call(method: str, payload: dict, db) -> dict:
+async def _bot_call(method: str, payload: dict, db, upload: tuple[str, bytes, str] | None = None) -> dict:
     token = await _token(db)
     if not token:
         raise HTTPException(503, "Enregistrez le jeton du bot dans Réglages ou configurez TELEGRAM_BOT_TOKEN.")
     try:
         async with httpx.AsyncClient(timeout=25) as client:
-            response = await client.post(f"{BOT_API}/bot{token}/{method}", json=payload)
+            if upload:
+                filename, content, content_type = upload
+                media_field = next(
+                    key for key in payload if key in {"photo", "video", "audio", "document"}
+                )
+                response = await client.post(
+                    f"{BOT_API}/bot{token}/{method}",
+                    data={key: str(value) if not isinstance(value, str) else value
+                          for key, value in payload.items() if key != media_field},
+                    files={media_field: (filename, content, content_type)},
+                )
+            else:
+                response = await client.post(f"{BOT_API}/bot{token}/{method}", json=payload)
         result = response.json()
     except Exception as exc:
         log.warning("Telegram API %s unavailable (%s)", method, type(exc).__name__)
@@ -176,19 +196,130 @@ def _safe_media_url(value: str) -> Optional[str]:
     value = str(value or "").strip()
     if value.startswith("/api/uploads/"):
         base = _public_url()
-        return f"{base}{value}" if base.startswith("https://") else None
+        parsed_base = urlparse(base)
+        if parsed_base.scheme != "https" or not parsed_base.hostname or parsed_base.username or parsed_base.password:
+            return None
+        return f"{base}{value}" if not value.startswith("//") else None
     parsed = urlparse(value)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if (len(value) > 2048 or parsed.scheme != "https" or not parsed.hostname
+            or parsed.username or parsed.password or port not in (None, 443)):
         return None
     try:
         ip = ipaddress.ip_address(parsed.hostname)
         if not ip.is_global:
             return None
     except ValueError:
-        host = parsed.hostname.lower()
-        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        try:
+            host = parsed.hostname.encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            return None
+        if (host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid"))
+                or not re.fullmatch(r"(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", host)):
             return None
     return value
+
+
+def _host_resolves_only_public_ips(host: str) -> bool:
+    """Reject external media hosts resolving to loopback, private, or reserved IPs."""
+    try:
+        addresses = {
+            ipaddress.ip_address(result[4][0].split("%", 1)[0])
+            for result in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        }
+    except (OSError, ValueError):
+        return False
+    return bool(addresses) and all(address.is_global for address in addresses)
+
+
+async def _external_media_url_is_public(url: str) -> bool:
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return False
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_host_resolves_only_public_ips, parsed.hostname),
+            timeout=5,
+        )
+    except (asyncio.TimeoutError, OSError):
+        return False
+
+
+def _stored_upload_filename(url: str) -> Optional[str]:
+    """Return a local upload name only for this site's own upload route."""
+    parsed = urlparse(url)
+    base = urlparse(_public_url())
+    if (not base.hostname or parsed.scheme != base.scheme
+            or parsed.hostname.lower() != base.hostname.lower()
+            or parsed.port != base.port):
+        return None
+    match = re.fullmatch(r"/api/uploads/([^/]+)", parsed.path)
+    if not match:
+        return None
+    filename = match.group(1)
+    if not UPLOAD_FILENAME_RE.fullmatch(filename) or filename in {".", ".."}:
+        return None
+    return filename
+
+
+def _read_stored_upload(filename: str) -> tuple[bytes, str]:
+    """Read a first-party upload from persistent storage, then legacy local disk."""
+    if not UPLOAD_FILENAME_RE.fullmatch(filename) or filename in {".", ".."}:
+        raise FileNotFoundError("invalid upload name")
+    try:
+        import object_storage
+        if object_storage.is_enabled():
+            try:
+                return object_storage.get_upload(filename)
+            except FileNotFoundError:
+                pass
+    except Exception:
+        # The legacy local copy remains usable if persistent storage is
+        # temporarily unavailable.
+        pass
+    local_path = UPLOADS_DIR / filename
+    if local_path.is_file():
+        return local_path.read_bytes(), mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    raise FileNotFoundError("upload unavailable")
+
+
+async def _send_submission_media(chat_id: str, media: list[tuple[str, str]], db) -> bool:
+    """Deliver media before the moderation text; return whether any failed."""
+    failed = False
+    total_bytes = 0
+    methods = {"photo": "sendPhoto", "video": "sendVideo", "audio": "sendAudio", "document": "sendDocument"}
+    for media_kind, url in media:
+        filename = _stored_upload_filename(url)
+        try:
+            if filename:
+                content, content_type = await asyncio.to_thread(_read_stored_upload, filename)
+                per_file_limit = MAX_TELEGRAM_PHOTO_BYTES if media_kind == "photo" else MAX_TELEGRAM_FILE_BYTES
+                if len(content) > per_file_limit or total_bytes + len(content) > MAX_TELEGRAM_TOTAL_BYTES:
+                    log.warning("Telegram skipped oversized stored %s media", media_kind)
+                    failed = True
+                    continue
+                total_bytes += len(content)
+                if media_kind == "photo" and filename.lower().endswith(".svg"):
+                    media_kind = "document"
+                if not content_type or content_type == "application/octet-stream":
+                    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+                await _bot_call(
+                    methods[media_kind], {"chat_id": chat_id, media_kind: "attach://media"},
+                    db, upload=(filename, content, content_type),
+                )
+            else:
+                if not await _external_media_url_is_public(url):
+                    log.warning("Telegram skipped media with a non-public or unresolved host")
+                    failed = True
+                    continue
+                await _bot_call(methods[media_kind], {"chat_id": chat_id, media_kind: url}, db)
+        except (HTTPException, FileNotFoundError, OSError) as exc:
+            log.warning("Telegram could not deliver one %s media (%s)", media_kind, type(exc).__name__)
+            failed = True
+    return failed
 
 
 def _collect_media(item: dict) -> list[tuple[str, str]]:
@@ -223,6 +354,8 @@ def _collect_media(item: dict) -> list[tuple[str, str]]:
             if url:
                 ext = PurePosixPath(urlparse(url).path).suffix.lower()
                 if ext == ".pdf":
+                    kind = "document"
+                elif ext == ".svg" and kind == "photo":
                     kind = "document"
                 raw.append((kind, url))
     unique = []
@@ -313,23 +446,19 @@ async def notify_submission(db, kind: str, item_id: str) -> bool:
         {"text": "❌ Rejeter", "callback_data": f"mod:{token}:reject"},
     ]]}
     try:
+        media_failed = await _send_submission_media(chat_id, _collect_media(item), db)
+        summary = _summary(kind, item)
+        if media_failed:
+            summary += "\n⚠️ Un ou plusieurs médias n'ont pas pu être transmis (fichier inaccessible, URL non sûre ou limite de taille Telegram)."
+        link = _safe_media_url(str(item.get("link") or "")) if kind == "special_task" else None
+        allow_preview = bool(link and await _external_media_url_is_public(link))
         message = await _bot_call("sendMessage", {
-            "chat_id": chat_id, "text": _summary(kind, item),
-            "reply_markup": keyboard, "disable_web_page_preview": False,
+            "chat_id": chat_id, "text": summary,
+            "reply_markup": keyboard, "disable_web_page_preview": not allow_preview,
         }, db)
         await db.telegram_moderation_actions.update_one(
             {"token": token}, {"$set": {"status": "pending", "message_id": message.get("message_id"),
                                          "chat_id": str(chat_id)}})
-        for media_kind, url in _collect_media(item):
-            try:
-                await _bot_call({"photo": "sendPhoto", "video": "sendVideo", "audio": "sendAudio",
-                                 "document": "sendDocument"}[media_kind], {
-                    "chat_id": chat_id, media_kind: url,
-                }, db)
-            except HTTPException:
-                # Keep the moderation buttons working even when one old or
-                # private media URL cannot be fetched by Telegram.
-                log.warning("Telegram could not attach one %s file to %s", media_kind, kind)
     except HTTPException:
         await db.telegram_moderation_actions.update_one(
             {"token": token}, {"$set": {"status": "send_failed", "failed_at": datetime.now(timezone.utc)}})
