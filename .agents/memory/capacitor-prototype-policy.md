@@ -35,6 +35,19 @@ scénarios de stabilité, de connexion et de médias ont été vérifiés.
 **How to apply:** Présenter l’essai initial comme réussi,
 mais ne pas annoncer la validation complète de toute la grille sans détails.
 
+Pour remettre une APK compilée à l’utilisateur, ne pas utiliser la carte
+`presentAsset` : les fichiers APK non pris en charge peuvent lui parvenir
+comme des archives ZIP. Le serveur de preview peut fournir le binaire brut sur
+`/downloads/spiloveure.apk`, avec le nom `.apk` et le type MIME Android.
+
+**Why:** L’utilisateur a besoin d’un package directement installable, pas d’une
+archive renommée ou d’un paquet de fichiers.
+
+**How to apply:** Après compilation, servir l’APK via la passerelle, puis
+télécharger à nouveau le lien et vérifier le type de fichier et l’égalité du
+SHA-256 avant de le partager. Ce lien de preview est temporaire ; la diffusion
+permanente doit utiliser l’hébergement officiel.
+
 Les polices et autres ressources embarquées ne doivent pas dépendre d'un
 chemin pnpm caché : le paquet Android peut écarter ces fichiers. Pour un
 téléchargement binaire avec progression, utiliser le gestionnaire Android,
