@@ -167,7 +167,7 @@ def inspect_official_apk(apk_path: str) -> dict:
     aapt = os.environ.get("ANDROID_AAPT") or shutil.which("aapt")
     if not apksigner or not aapt:
         raise RuntimeError(
-            "Les outils Android apksigner et aapt doivent être installés et accessibles sur le VPS."
+            "Les outils Android apksigner et aapt doivent être accessibles dans le conteneur backend."
         )
     try:
         signature = subprocess.run(

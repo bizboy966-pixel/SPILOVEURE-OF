@@ -168,14 +168,15 @@ public historique `/api/android/releases` et de son processus de préparation
 manuel : les mises à jour obligatoires intégrées à l'application utilisent
 `/api/app/version` et un fichier persistant `/api/uploads/`.
 
-Pour activer cette route lors du déploiement backend, ajouter au VPS le secret
-`ANDROID_RELEASE_TOKEN` (identique au secret Replit) et installer Android SDK
-Build Tools afin que `apksigner` et `aapt` soient accessibles par `PATH`, ou
-définir `ANDROID_APKSIGNER` et `ANDROID_AAPT`. Le stockage persistant des
-uploads doit être opérationnel. Sans ces prérequis, la route refuse la release
-et garde les métadonnées publiques précédentes. Le premier envoi accepté fixe
-l'empreinte de signature officielle dans les réglages de version; tout envoi
-ultérieur doit conserver cette clé.
+Pour activer cette route, ajouter au VPS le secret `ANDROID_RELEASE_TOKEN`
+(identique au secret Replit). L’image `deploy/hostinger/backend.Dockerfile`
+embarque Android Build Tools 35.0.0 et vérifie le SHA-256 de l’archive Google;
+`ANDROID_APKSIGNER` et `ANDROID_AAPT` pointent vers ces binaires dans le
+conteneur backend. Installer ces outils uniquement sur l’hôte ne suffit pas.
+Le stockage persistant des uploads doit aussi être opérationnel. Sans ces
+prérequis, la route refuse la release et garde les métadonnées publiques
+précédentes. Le premier envoi accepté fixe l'empreinte de signature officielle
+dans les réglages de version; tout envoi ultérieur doit conserver cette clé.
 
 Le déploiement initial du backend et la configuration sécurisée du VPS restent
 des opérations séparées : la commande ne pousse aucun code sur le VPS et ne le
