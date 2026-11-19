@@ -72,7 +72,7 @@ async function main() {
     });
     assert.equal(download.status, 200);
     assert.equal(download.headers["content-type"], "application/vnd.android.package-archive");
-    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-1\.1\.14\.apk"/);
+    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-1\.1\.15\.apk"/);
     assert.equal(download.headers["x-content-type-options"], "nosniff");
     assert.deepEqual(download.body, apkBytes);
     const partial = await get(apkGatewayPort, CAPACITOR_APK_PATH, { range: "bytes=2-5" });
