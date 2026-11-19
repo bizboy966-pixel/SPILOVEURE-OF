@@ -2445,6 +2445,7 @@ export default function AdminHome() {
 
         {tab === "payment" && (
           <>
+            <AdminTelegramBotSettings />
             {/* ----- Withdrawal fee settings ----- */}
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

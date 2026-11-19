@@ -1,18 +1,21 @@
 """Telegram group moderation for pending user publications.
 
-The bot token is read only from TELEGRAM_BOT_TOKEN. The webhook secret is
-derived from that token; tokens and Telegram API URLs are never logged.
+The bot token is stored encrypted in app settings, with TELEGRAM_BOT_TOKEN as
+a compatibility fallback. The webhook secret is derived from the active token;
+tokens and Telegram API URLs are never logged.
 Telegram group admins link the group with /link. Every member of the linked
 group may use the one-time approve/reject buttons.
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import ipaddress
 import logging
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
@@ -20,6 +23,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -30,11 +34,80 @@ admin = APIRouter(prefix="/api/admin/telegram-bot", tags=["telegram-bot-admin"],
 webhook = APIRouter(prefix="/api/webhooks/telegram", tags=["telegram-bot-webhook"])
 BOT_API = "https://api.telegram.org"
 TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
+TOKEN_SETTINGS_KEY = "telegram_bot_token"
 ACTION_TTL = timedelta(days=14)
 
 
-def _token() -> str:
+class _TelegramPrivacyFilter(logging.Filter):
+    """Redact Telegram bot tokens from any httpx URL log record."""
+
+    def filter(self, record):
+        message = record.getMessage()
+        redacted = re.sub(
+            r"https://api\.telegram\.org/bot[^/\s\"']+",
+            "https://api.telegram.org/bot[redacted]",
+            message,
+        )
+        if redacted != message:
+            record.msg, record.args = redacted, ()
+        return True
+
+
+logging.getLogger("httpx").addFilter(_TelegramPrivacyFilter())
+
+
+def _token_encryption_key() -> bytes:
+    secret = (os.environ.get("SESSION_SECRET") or "").encode("utf-8")
+    if len(secret) < 24:
+        raise HTTPException(503, "SESSION_SECRET doit être configuré pour enregistrer le jeton Telegram.")
+    return hashlib.sha256(b"spiloveure-telegram-bot-token-v1:" + secret).digest()
+
+
+def _encrypt_token(token: str) -> str:
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(_token_encryption_key()).encrypt(
+        nonce, token.encode("utf-8"), b"telegram-bot-token-v1",
+    )
+    return "v1:" + base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+
+
+def _decrypt_token(value: str) -> str:
+    if not value.startswith("v1:"):
+        raise ValueError("Unsupported Telegram token ciphertext.")
+    raw = base64.urlsafe_b64decode(value[3:].encode("ascii"))
+    plaintext = AESGCM(_token_encryption_key()).decrypt(
+        raw[:12], raw[12:], b"telegram-bot-token-v1",
+    )
+    return plaintext.decode("utf-8")
+
+
+async def _token(db=None) -> str:
+    if db is not None:
+        doc = await db.app_settings.find_one({"key": TOKEN_SETTINGS_KEY}) or {}
+        value = doc.get("value") if isinstance(doc.get("value"), dict) else {}
+        encrypted = value.get("token_enc")
+        if encrypted:
+            try:
+                return _decrypt_token(str(encrypted))
+            except HTTPException:
+                raise
+            except Exception:
+                log.error("Telegram bot token cannot be decrypted; verify SESSION_SECRET.")
+                raise HTTPException(
+                    503,
+                    "Le jeton Telegram enregistré ne peut pas être déchiffré. Restaurez le SESSION_SECRET utilisé lors de son enregistrement.",
+                ) from None
     return (os.environ.get(TOKEN_ENV) or "").strip()
+
+
+async def _token_status(db) -> tuple[bool, str]:
+    doc = await db.app_settings.find_one({"key": TOKEN_SETTINGS_KEY}) or {}
+    value = doc.get("value") if isinstance(doc.get("value"), dict) else {}
+    if value.get("token_enc"):
+        # Validate decryption so a damaged stored value is not reported as usable.
+        await _token(db)
+        return True, "admin"
+    return bool((os.environ.get(TOKEN_ENV) or "").strip()), "environment"
 
 
 def _webhook_secret(token: str) -> str:
@@ -78,10 +151,10 @@ async def _store_config(db, changes: dict) -> dict:
     return cfg
 
 
-async def _bot_call(method: str, payload: dict) -> dict:
-    token = _token()
+async def _bot_call(method: str, payload: dict, db) -> dict:
+    token = await _token(db)
     if not token:
-        raise HTTPException(503, "Ajoutez le jeton du bot dans les Secrets du serveur.")
+        raise HTTPException(503, "Enregistrez le jeton du bot dans Réglages ou configurez TELEGRAM_BOT_TOKEN.")
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             response = await client.post(f"{BOT_API}/bot{token}/{method}", json=payload)
@@ -192,7 +265,7 @@ def _summary(kind: str, item: dict) -> str:
 async def notify_submission(db, kind: str, item_id: str) -> bool:
     cfg = await _config(db)
     chat_id = cfg.get("group_chat_id")
-    if not _token() or not chat_id:
+    if not await _token(db) or not chat_id:
         return False
     source = {"marketplace": "marketplace_listings", "ads": "ads",
               "special_task": "special_tasks"}.get(kind)
@@ -234,7 +307,7 @@ async def notify_submission(db, kind: str, item_id: str) -> bool:
         message = await _bot_call("sendMessage", {
             "chat_id": chat_id, "text": _summary(kind, item),
             "reply_markup": keyboard, "disable_web_page_preview": False,
-        })
+        }, db)
         await db.telegram_moderation_actions.update_one(
             {"token": token}, {"$set": {"status": "pending", "message_id": message.get("message_id"),
                                          "chat_id": str(chat_id)}})
@@ -243,7 +316,7 @@ async def notify_submission(db, kind: str, item_id: str) -> bool:
                 await _bot_call({"photo": "sendPhoto", "video": "sendVideo", "audio": "sendAudio",
                                  "document": "sendDocument"}[media_kind], {
                     "chat_id": chat_id, media_kind: url,
-                })
+                }, db)
             except HTTPException:
                 # Keep the moderation buttons working even when one old or
                 # private media URL cannot be fetched by Telegram.
@@ -297,19 +370,19 @@ async def _answer_callback(update: dict, db) -> None:
     data = str(query.get("data") or "")
     match = __import__("re").fullmatch(r"mod:([A-Za-z0-9_-]{20,32}):(approve|reject)", data)
     if not match:
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Bouton non reconnu.", "show_alert": True})
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Bouton non reconnu.", "show_alert": True}, db)
         return
     token, decision = match.groups()
     message = query.get("message") or {}
     cfg = await _config(db)
     if str((message.get("chat") or {}).get("id")) != str(cfg.get("group_chat_id")):
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Groupe non autorisé.", "show_alert": True})
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Groupe non autorisé.", "show_alert": True}, db)
         return
     action = await db.telegram_moderation_actions.find_one(
         {"token": token, "status": "pending", "message_id": message.get("message_id"),
          "chat_id": str(cfg.get("group_chat_id")), "expires_at": {"$gt": datetime.now(timezone.utc)}})
     if not action:
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Déjà traité ou expiré.", "show_alert": True})
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Déjà traité ou expiré.", "show_alert": True}, db)
         return
     claim = await db.telegram_moderation_actions.update_one(
         {"token": token, "status": "pending"},
@@ -318,7 +391,7 @@ async def _answer_callback(update: dict, db) -> None:
                   "actor_name": str((query.get("from") or {}).get("username") or "")[:100],
                   "decided_at": datetime.now(timezone.utc)}})
     if not claim.modified_count:
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Un autre membre vient de traiter cette publication.", "show_alert": True})
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Un autre membre vient de traiter cette publication.", "show_alert": True}, db)
         return
     try:
         state = await _perform_decision(db, action, decision, str((query.get("from") or {}).get("id") or "unknown"))
@@ -326,22 +399,22 @@ async def _answer_callback(update: dict, db) -> None:
         await db.telegram_moderation_actions.update_one(
             {"token": token, "status": "processing"},
             {"$set": {"status": "stale", "error_code": exc.status_code}})
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "La publication n’est plus en attente.", "show_alert": True})
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "La publication n’est plus en attente.", "show_alert": True}, db)
         await _bot_call("editMessageReplyMarkup", {
             "chat_id": cfg.get("group_chat_id"), "message_id": message.get("message_id"),
-            "reply_markup": {"inline_keyboard": []}})
+            "reply_markup": {"inline_keyboard": []}}, db)
         return
     await db.telegram_moderation_actions.update_one(
         {"token": token, "status": "processing"},
         {"$set": {"status": state, "updated_at": datetime.now(timezone.utc)}})
     suffix = "validée" if decision == "approve" else "rejetée"
-    await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": f"Publication {suffix}."})
+    await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": f"Publication {suffix}."}, db)
     await _bot_call("editMessageReplyMarkup", {
         "chat_id": cfg.get("group_chat_id"), "message_id": message.get("message_id"),
-        "reply_markup": {"inline_keyboard": []}})
+        "reply_markup": {"inline_keyboard": []}}, db)
     try:
         await _bot_call("sendMessage", {"chat_id": cfg.get("group_chat_id"),
-            "text": f"Décision : publication {suffix} par @{((query.get('from') or {}).get('username') or 'membre')}."})
+            "text": f"Décision : publication {suffix} par @{((query.get('from') or {}).get('username') or 'membre')}."}, db)
     except HTTPException:
         pass
 
@@ -356,18 +429,18 @@ async def _link_group(update: dict, db) -> None:
     _, _, supplied_code = text.partition(" ")
     cfg = await _config(db)
     if cfg.get("group_chat_id") and str(cfg.get("group_chat_id")) != str(chat.get("id")):
-        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Ce groupe n’est pas autorisé à remplacer le groupe SPILOVEURE déjà lié."})
+        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Ce groupe n’est pas autorisé à remplacer le groupe SPILOVEURE déjà lié."}, db)
         return
-    member = await _bot_call("getChatMember", {"chat_id": chat.get("id"), "user_id": sender.get("id")})
+    member = await _bot_call("getChatMember", {"chat_id": chat.get("id"), "user_id": sender.get("id")}, db)
     if member.get("status") not in ("creator", "administrator"):
-        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Seul un administrateur Telegram du groupe peut le relier au bot."})
+        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Seul un administrateur Telegram du groupe peut le relier au bot."}, db)
         return
     expires = _utc_datetime(cfg.get("link_code_expires_at"))
     if (not supplied_code or not cfg.get("link_code")
             or not hmac.compare_digest(supplied_code.strip(), str(cfg.get("link_code")))
             or expires is None
             or expires <= datetime.now(timezone.utc)):
-        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Code de liaison absent ou expiré. Un administrateur SPILOVEURE doit copier le nouveau code dans le panneau d’administration."})
+        await _bot_call("sendMessage", {"chat_id": chat.get("id"), "text": "Code de liaison absent ou expiré. Un administrateur SPILOVEURE doit copier le nouveau code dans le panneau d’administration."}, db)
         return
     await _store_config(db, {"group_chat_id": str(chat["id"]), "group_title": str(chat.get("title") or "")[:120],
                              "group_linked_at": datetime.now(timezone.utc)})
@@ -376,17 +449,17 @@ async def _link_group(update: dict, db) -> None:
         {"$unset": {"value.link_code": "", "value.link_code_expires_at": ""}},
     )
     await _bot_call("sendMessage", {"chat_id": chat["id"], "text":
-        "Groupe SPILOVEURE lié. Tous les membres peuvent valider ou rejeter les publications avec les boutons."})
+        "Groupe SPILOVEURE lié. Tous les membres peuvent valider ou rejeter les publications avec les boutons."}, db)
 
 
 @webhook.post("")
 async def telegram_webhook(request: Request,
                            secret: Optional[str] = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token")):
-    token = _token()
+    db = request.app.state.db
+    token = await _token(db)
     if not token or not secret or not hmac.compare_digest(secret, _webhook_secret(token)):
         raise HTTPException(401, "Webhook Telegram non autorisé.")
     update = await request.json()
-    db = request.app.state.db
     if isinstance(update, dict) and update.get("callback_query"):
         await _answer_callback(update, db)
     elif isinstance(update, dict) and str((update.get("message") or {}).get("text") or "").split("@", 1)[0].split(" ", 1)[0].strip() == "/link":
@@ -396,7 +469,9 @@ async def telegram_webhook(request: Request,
 
 @admin.get("")
 async def admin_get(request: Request):
-    cfg = await _config(request.app.state.db)
+    db = request.app.state.db
+    cfg = await _config(db)
+    configured, source = await _token_status(db)
     now = datetime.now(timezone.utc)
     code_expiry = _utc_datetime(cfg.get("link_code_expires_at"))
     if not cfg.get("group_chat_id") and (
@@ -407,7 +482,11 @@ async def admin_get(request: Request):
             "link_code_expires_at": now + timedelta(minutes=15),
         })
     return {
-        "token_configured": bool(_token()),
+        "token_configured": configured,
+        "token_source": source if configured else "",
+        "bot_verified": bool(cfg.get("bot_verified_at")),
+        "bot_username": cfg.get("bot_username") or "",
+        "bot_name": cfg.get("bot_name") or "",
         "group_chat_id": cfg.get("group_chat_id") or "",
         "group_title": cfg.get("group_title") or "",
         "group_link_code": cfg.get("link_code") or "",
@@ -418,24 +497,94 @@ async def admin_get(request: Request):
     }
 
 
+@admin.post("/token")
+async def admin_save_token(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    token = str(body.get("token") or "").strip() if isinstance(body, dict) else ""
+    if not re.fullmatch(r"[0-9]{5,16}:[A-Za-z0-9_-]{20,128}", token):
+        raise HTTPException(400, "Format de jeton Telegram invalide.")
+    encrypted = _encrypt_token(token)
+    db = request.app.state.db
+    await db.app_settings.update_one(
+        {"key": TOKEN_SETTINGS_KEY},
+        {"$set": {"key": TOKEN_SETTINGS_KEY, "value": {"token_enc": encrypted},
+                  "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    await db.app_settings.update_one(
+        {"key": "telegram_moderation"},
+        {"$unset": {"value.bot_verified_at": "", "value.bot_id": "",
+                    "value.bot_username": "", "value.bot_name": "",
+                    "value.webhook_configured_at": "", "value.webhook_url": ""}},
+    )
+    return {"ok": True, "token_configured": True}
+
+
+async def _verify_bot(db) -> dict:
+    bot = await _bot_call("getMe", {}, db)
+    if not bot.get("id") or not bot.get("is_bot"):
+        raise HTTPException(502, "Telegram n’a pas confirmé l’identité du bot.")
+    values = {
+        "bot_verified_at": datetime.now(timezone.utc),
+        "bot_id": str(bot["id"]),
+        "bot_username": str(bot.get("username") or "")[:64],
+        "bot_name": str(bot.get("first_name") or "")[:120],
+    }
+    await _store_config(db, values)
+    return {
+        "ok": True,
+        "bot_verified": True,
+        "bot_username": values["bot_username"],
+        "bot_name": values["bot_name"],
+    }
+
+
+@admin.post("/verify")
+async def admin_verify_token(request: Request):
+    db = request.app.state.db
+    verified = await _verify_bot(db)
+    cfg = await _config(db)
+    webhook_configured = False
+    if _public_url().startswith("https://"):
+        info = await _bot_call("getWebhookInfo", {}, db)
+        expected_url = f"{_public_url()}/api/webhooks/telegram"
+        webhook_configured = info.get("url") == expected_url
+        if webhook_configured:
+            await _store_config(db, {
+                "webhook_configured_at": datetime.now(timezone.utc),
+                "webhook_url": expected_url,
+            })
+        elif cfg.get("webhook_configured_at"):
+            await db.app_settings.update_one(
+                {"key": "telegram_moderation"},
+                {"$unset": {"value.webhook_configured_at": "", "value.webhook_url": ""}},
+            )
+    return {**verified, "webhook_configured": webhook_configured}
+
+
 @admin.post("/configure")
 async def admin_configure(request: Request):
-    token = _token()
+    db = request.app.state.db
+    token = await _token(db)
     base = _public_url()
     if not token:
-        raise HTTPException(503, f"Ajoutez {TOKEN_ENV} aux Secrets du serveur avant de connecter le bot.")
+        raise HTTPException(503, "Enregistrez le jeton du bot dans Réglages ou configurez TELEGRAM_BOT_TOKEN.")
     if not base.startswith("https://"):
         raise HTTPException(
             503,
             "Configurez TELEGRAM_PUBLIC_URL avec le domaine HTTPS public qui héberge le webhook du bot.",
         )
     url = f"{base}/api/webhooks/telegram"
+    await _verify_bot(db)
     result = await _bot_call("setWebhook", {
         "url": url, "secret_token": _webhook_secret(token),
         "allowed_updates": ["message", "callback_query"],
         "drop_pending_updates": False,
-    })
-    await _store_config(request.app.state.db, {
+    }, db)
+    await _store_config(db, {
         "webhook_configured_at": datetime.now(timezone.utc),
         "webhook_url": url,
     })
