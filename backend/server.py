@@ -4756,9 +4756,14 @@ from notifications_api import router as notifications_router  # noqa: E402
 app.include_router(notifications_router)
 
 # v27aj (2026-03-04) — minimalist app version management (publish-only, no APK).
-from app_versions import public_router as av_public, admin_router as av_admin  # noqa: E402
+from app_versions import (  # noqa: E402
+    public_router as av_public,
+    admin_router as av_admin,
+    release_router as av_release,
+)
 app.include_router(av_public)
 app.include_router(av_admin)
+app.include_router(av_release)
 
 # v27ap (2026-03-04) — Activity stats endpoints for the Dashboard.
 # Registered right after app_versions so the module exists before any

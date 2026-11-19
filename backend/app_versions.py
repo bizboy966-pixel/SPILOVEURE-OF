@@ -15,18 +15,27 @@ from __future__ import annotations
 import logging
 import uuid
 import re
+import os
+import hmac
+import hashlib
+import shutil
+import subprocess
+import tempfile
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import require_admin  # type: ignore
+from apk_validation import InvalidApk, validate_apk, upload_content_type
 
 log = logging.getLogger("app_versions")
 
 public_router = APIRouter(prefix="/api/app", tags=["app-version"])
 admin_router = APIRouter(prefix="/api/admin/versions", tags=["app-version-admin"])
+release_router = APIRouter(prefix="/api/app/releases", tags=["official-android-release"])
 
 # v27an (2026-03-04) — path to the frontend's app.json. Used by
 # `auto_sync_from_frontend_version()` to detect new releases without any
@@ -77,8 +86,11 @@ _DEFAULT_SETTINGS = {
     "apk_url": "",
     "apk_size_mb": None,
     "apk_version": "",
+    "apk_version_code": None,
     "apk_minimum_supported_version": "",
     "apk_mandatory": True,
+    "apk_signer_sha256": "",
+    "apk_sha256": "",
     "updated_at": None,
 }
 
@@ -122,6 +134,7 @@ async def get_app_version(request: Request):
         "apk_url": s.get("apk_url") or "",
         "apk_size_mb": s.get("apk_size_mb"),
         "apk_version": s.get("apk_version") or "",
+        "apk_version_code": s.get("apk_version_code"),
         "apk_minimum_supported_version": s.get("apk_minimum_supported_version") or "",
         "apk_mandatory": bool(s.get("apk_mandatory", False)),
         "updated_at": s.get("updated_at"),
@@ -145,6 +158,212 @@ async def check_app_version(request: Request, client_version: str = "1.0.0"):
         "minimum_supported_version": s["minimum_supported_version"],
         "update_available": is_below_current,
         "update_required": is_below_min and bool(s.get("mandatory", False)),
+    }
+
+
+def inspect_official_apk(apk_path: str) -> dict:
+    """Cryptographically inspect a release APK using Android SDK tools."""
+    apksigner = os.environ.get("ANDROID_APKSIGNER") or shutil.which("apksigner")
+    aapt = os.environ.get("ANDROID_AAPT") or shutil.which("aapt")
+    if not apksigner or not aapt:
+        raise RuntimeError(
+            "Les outils Android apksigner et aapt doivent être installés et accessibles sur le VPS."
+        )
+    try:
+        signature = subprocess.run(
+            [apksigner, "verify", "--verbose", "--print-certs", apk_path],
+            check=True, capture_output=True, text=True, timeout=120,
+        ).stdout
+        badging = subprocess.run(
+            [aapt, "dump", "badging", apk_path],
+            check=True, capture_output=True, text=True, timeout=60,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("La vérification cryptographique ou la lecture du package APK a échoué.") from exc
+
+    package_match = re.search(
+        r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'",
+        badging, re.MULTILINE,
+    )
+    signer_match = re.search(
+        r"certificate SHA-256 digest:\s*([a-fA-F0-9:]+)",
+        signature, re.IGNORECASE,
+    )
+    if not package_match or not signer_match:
+        raise ValueError("Le package ou le certificat de signature de l’APK est illisible.")
+    version_code = int(package_match.group(2))
+    version = package_match.group(3)
+    if version_code < 1 or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("La version de l’APK doit être stable au format X.Y.Z avec un code positif.")
+    if package_match.group(1) != "com.spilivere.app":
+        raise ValueError("L’identifiant de cette application n’est pas celui de SPILOVEURE.")
+    if "application-debuggable" in badging:
+        raise ValueError("Une APK débogable ne peut pas être publiée comme version officielle.")
+    signer_sha256 = signer_match.group(1).replace(":", "").lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", signer_sha256):
+        raise ValueError("L’empreinte du certificat de signature est invalide.")
+    return {
+        "package": package_match.group(1),
+        "version": version,
+        "version_code": version_code,
+        "signer_sha256": signer_sha256,
+        "debuggable": False,
+    }
+
+
+@release_router.post("/publish")
+async def publish_official_apk(
+    request: Request,
+    file: UploadFile = File(...),
+    authorization: str = Header(default=""),
+):
+    """Authenticated release-only upload. Validates first; updates public settings last."""
+    expected_token = (os.environ.get("ANDROID_RELEASE_TOKEN") or "").strip()
+    supplied_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    if not expected_token:
+        raise HTTPException(503, "La publication automatique APK n’est pas configurée sur le VPS.")
+    if not supplied_token or not hmac.compare_digest(supplied_token, expected_token):
+        raise HTTPException(401, "Autorisation de publication APK invalide.")
+
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".apk"):
+        raise HTTPException(415, "Le fichier transmis doit être une APK.")
+    max_bytes = 100 * 1024 * 1024
+    data = bytearray()
+    try:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > max_bytes:
+                raise HTTPException(413, "Fichier APK trop volumineux (maximum 100 Mo).")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Impossible de lire le fichier APK transmis.") from None
+    if not data:
+        raise HTTPException(400, "Le fichier APK est vide.")
+
+    try:
+        validate_apk(bytes(data))
+    except InvalidApk as exc:
+        raise HTTPException(415, str(exc)) from None
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".apk", delete=False) as temp_file:
+            temp_file.write(data)
+            temp_path = temp_file.name
+        inspected = await asyncio.to_thread(inspect_official_apk, temp_path)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(415, str(exc)) from None
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+    db = request.app.state.db
+    current = await _get_settings(db)
+    version = inspected["version"]
+    version_code = inspected["version_code"]
+    signer = inspected["signer_sha256"]
+    if inspected["package"] != "com.spilivere.app":
+        raise HTTPException(415, "Cette APK n’appartient pas à l’application SPILOVEURE officielle.")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not isinstance(version_code, int) or version_code < 1:
+        raise HTTPException(415, "Version officielle invalide : X.Y.Z et code Android positif requis.")
+    if inspected.get("debuggable") is True:
+        raise HTTPException(415, "Une APK débogable ne peut pas être publiée comme version officielle.")
+    if not re.fullmatch(r"[a-f0-9]{64}", signer):
+        raise HTTPException(415, "L’empreinte du certificat de signature est invalide.")
+    current_version = (current.get("apk_version") or "").strip()
+    if current_version and _cmp(version, current_version) <= 0:
+        # Allow a retry only when it is byte-for-byte the already-published release.
+        current_hash = hashlib.sha256(data).hexdigest()
+        if version == current_version and current.get("apk_sha256") == current_hash:
+            return {
+                "ok": True, "published": False, "version": version,
+                "version_code": current.get("apk_version_code"),
+                "url": current.get("apk_url"),
+            }
+        raise HTTPException(409, "La version APK doit être supérieure à la version déjà publiée.")
+    current_code = current.get("apk_version_code")
+    if current_code is not None and version_code <= int(current_code):
+        raise HTTPException(409, "Le code de version Android doit être strictement supérieur au précédent.")
+    pinned_signer = (current.get("apk_signer_sha256") or "").lower()
+    if pinned_signer and not hmac.compare_digest(signer, pinned_signer):
+        raise HTTPException(409, "La signature ne correspond pas à la clé officielle déjà utilisée.")
+
+    apk_hash = hashlib.sha256(data).hexdigest()
+    safe_version = version.replace(".", "-")
+    stored_name = f"spiloveure-official-{safe_version}.apk"
+    url = f"/api/uploads/{stored_name}"
+    try:
+        import object_storage
+        if not object_storage.is_enabled():
+            raise RuntimeError("Le stockage persistant des APK n’est pas configuré.")
+        await asyncio.to_thread(
+            object_storage.put_upload,
+            stored_name, bytes(data), upload_content_type(filename, file.content_type),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Official APK storage upload failed: %s", exc)
+        raise HTTPException(503, "L’envoi vers le stockage officiel a échoué ; la version active n’a pas changé.") from None
+
+    now = datetime.now(timezone.utc)
+    try:
+        await db.media_uploads.insert_one({
+            "id": str(uuid.uuid4()),
+            "filename": filename,
+            "stored_as": stored_name,
+            "url": url,
+            "size": len(data),
+            "content_type": upload_content_type(filename, file.content_type),
+            "apk_validated": True,
+            "apk_package": inspected["package"],
+            "apk_version": version,
+            "apk_version_code": version_code,
+            "apk_signer_sha256": signer,
+            "apk_sha256": apk_hash,
+            "official_release": True,
+            "uploaded_by": "official-release-command",
+            "uploaded_at": now,
+        })
+        settings = await _save_settings(db, {
+            "apk_url": url,
+            "apk_size_mb": round(len(data) / (1024 * 1024), 2),
+            "apk_version": version,
+            "apk_version_code": version_code,
+            "apk_minimum_supported_version": version,
+            "apk_mandatory": True,
+            "apk_signer_sha256": signer,
+            "apk_sha256": apk_hash,
+        })
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Official APK metadata was not activated: %s", exc)
+        raise HTTPException(503, "L’APK est envoyée mais ses métadonnées n’ont pas été activées ; la version active n’a pas changé.") from None
+
+    try:
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": "official-release-command",
+            "action": "publish_official_android_apk",
+            "meta": {
+                "version": version, "version_code": version_code,
+                "sha256": apk_hash, "size": len(data),
+            },
+            "at": now,
+        })
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Official APK audit log could not be written: %s", exc)
+    log.info("Official Android APK %s published (code %s, sha256 %s)", version, version_code, apk_hash)
+    return {
+        "ok": True, "published": True, "version": version,
+        "version_code": version_code, "url": url, "settings": settings,
     }
 
 
@@ -412,3 +631,4 @@ def register(app):
     """Mount both routers onto the FastAPI app. Called from server.py."""
     app.include_router(public_router)
     app.include_router(admin_router)
+    app.include_router(release_router)

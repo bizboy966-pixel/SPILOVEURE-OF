@@ -42,10 +42,48 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
   assert.ok(gradle.includes('versionCode 18'));
   assert.ok(gradle.includes('versionName "1.1.17"'));
+  assert.match(read("tools/capacitor-android/package.json"), /"apk:release": "node \.\/release-official\.cjs"/);
+  assert.match(read("tools/capacitor-android/package.json"), /"apk:debug": "[^"]*assembleDebug/);
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
   assert.ok(gradle.includes("validateOfficialReleaseSigning"));
+});
+
+test("the official release command validates before publishing and debug artifacts are rejected", async () => {
+  const release = require("../release-official.cjs");
+  assert.throws(() => release.assertReleaseMetadata({
+    packageName: "com.spilivere.app",
+    version: "1.2.0",
+    versionCode: 20,
+    debuggable: true,
+  }), /APK debug/);
+  assert.throws(() => release.assertReleaseMetadata({
+    packageName: "com.spilivere.app.preview",
+    version: "1.2.0",
+    versionCode: 20,
+    debuggable: false,
+  }), /Identifiant Android/);
+  assert.throws(() => release.assertReleaseMetadata({
+    packageName: "com.spilivere.app",
+    version: "1.1.16",
+    versionCode: 20,
+    debuggable: false,
+  }, { apk_version: "1.1.17", apk_version_code: 18 }), /doit dépasser/);
+
+  let uploads = 0;
+  await assert.rejects(release.publishVerifiedApk({
+    apkPath: __filename,
+    metadata: {
+      packageName: "com.spilivere.app",
+      version: "1.2.0",
+      versionCode: 20,
+      debuggable: true,
+    },
+    env: { ANDROID_RELEASE_TOKEN: "test-only" },
+    fetchImpl: async () => { uploads += 1; throw new Error("must not upload"); },
+  }), /APK debug/);
+  assert.equal(uploads, 0);
 });
 
 test("Capacitor bundles Ionicons and uses Android's real APK download progress", () => {

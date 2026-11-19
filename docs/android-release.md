@@ -159,7 +159,29 @@ Utiliser un seul opérateur de publication à la fois. Sauvegarder les fichiers
 et rapports avant tout changement d'hébergement. Ne pas placer ces fichiers
 volumineux dans Git.
 
-## Hébergement Hostinger
+## Hébergement Hostinger et publication automatique des mises à jour APK
+
+La commande `pnpm --filter @workspace/capacitor-android run apk:release`
+compile l'APK officielle signée et la publie au point de terminaison dédié
+`POST /api/app/releases/publish`. Cette route est distincte du téléchargement
+public historique `/api/android/releases` et de son processus de préparation
+manuel : les mises à jour obligatoires intégrées à l'application utilisent
+`/api/app/version` et un fichier persistant `/api/uploads/`.
+
+Pour activer cette route lors du déploiement backend, ajouter au VPS le secret
+`ANDROID_RELEASE_TOKEN` (identique au secret Replit) et installer Android SDK
+Build Tools afin que `apksigner` et `aapt` soient accessibles par `PATH`, ou
+définir `ANDROID_APKSIGNER` et `ANDROID_AAPT`. Le stockage persistant des
+uploads doit être opérationnel. Sans ces prérequis, la route refuse la release
+et garde les métadonnées publiques précédentes. Le premier envoi accepté fixe
+l'empreinte de signature officielle dans les réglages de version; tout envoi
+ultérieur doit conserver cette clé.
+
+Le déploiement initial du backend et la configuration sécurisée du VPS restent
+des opérations séparées : la commande ne pousse aucun code sur le VPS et ne le
+redémarre pas.
+
+## Hébergement Hostinger — téléchargement public historique
 
 Le serveur lit par défaut `UPLOADS_DIR/android-releases`. Le volume existant
 `/data/uploads` du VPS peut donc conserver les APK et leur historique.

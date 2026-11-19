@@ -55,6 +55,8 @@ Le build release exige ces valeurs dans Replit Secrets, jamais dans le dépôt :
 - `ANDROID_KEYSTORE_BASE64` : fichier JKS encodé en Base64.
 - `ANDROID_KEYSTORE_PASSWORD` : mot de passe du keystore et de l'alias.
 - `ANDROID_KEY_ALIAS` : optionnel ; par défaut `spiloveure`.
+- `ANDROID_RELEASE_TOKEN` : secret commun utilisé par l’outil de release et le VPS
+  pour authentifier la publication automatique.
 
 Prérequis de compilation : Node et pnpm du workspace, **JDK 21**, Android SDK
 `platforms;android-35`, `build-tools;35.0.0` (Gradle peut aussi demander 34.0.0),
@@ -65,14 +67,31 @@ Depuis la racine du dépôt :
 ```sh
 pnpm install --frozen-lockfile
 pnpm --filter @workspace/capacitor-android test
-pnpm --filter @workspace/capacitor-android run apk:debug
 pnpm --filter @workspace/capacitor-android run apk:release
 ```
 
-`apk:debug` est réservé aux essais et ne doit pas être distribué comme version
-officielle. `apk:release` refuse de produire une version officielle si les
-secrets de signature sont absents ou invalides. Il copie l'APK signée ici :
-`generated-artifacts/spiloveure/SPILOVEURE-1.1.17.apk`.
+`apk:debug` reste réservé aux essais et ne publie jamais. La seule commande de
+release officielle vérifie d’abord que la version et le code Android dépassent
+la version active, compile en mode release, vérifie le certificat, le package,
+la version et l’absence du mode débogage, puis envoie l’APK au VPS. Le VPS
+vérifie de nouveau le binaire signé et active automatiquement la mise à jour
+obligatoire. Si une étape échoue, la version publique précédente reste active.
+Le fichier compilé est conservé sous
+`generated-artifacts/spiloveure/SPILOVEURE-<version>.apk`.
+
+Pour que la publication fonctionne après le déploiement initial du backend,
+configurer `ANDROID_RELEASE_TOKEN` avec la même valeur dans Replit Secrets et
+dans l’environnement sécurisé du VPS. Installer Android SDK Build Tools sur le
+VPS et rendre `apksigner` et `aapt` accessibles sur son `PATH` (ou renseigner
+`ANDROID_APKSIGNER` et `ANDROID_AAPT`). Le VPS doit aussi disposer du stockage
+persistant déjà utilisé par `/api/uploads/`. La première release officielle
+enregistre l’empreinte du certificat; toutes les suivantes doivent utiliser
+exactement la même clé.
+
+Avant une nouvelle release, augmenter `versionName` et `versionCode` dans
+`android/app/build.gradle`. La commande ne publie pas les builds debug et ne
+redémarre ni ne déploie le VPS. Android demandera toujours à chaque utilisateur
+de confirmer l’installation.
 
 ## Icône Android
 

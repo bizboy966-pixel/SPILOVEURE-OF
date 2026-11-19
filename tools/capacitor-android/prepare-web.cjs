@@ -6,8 +6,14 @@ const { buildSync } = require("esbuild");
 const root = path.resolve(__dirname, "../..");
 const output = path.join(__dirname, "www");
 const config = require("./capacitor.config.json");
+const gradle = fs.readFileSync(path.join(__dirname, "android/app/build.gradle"), "utf8");
+const versionCode = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);
+const version = gradle.match(/versionName\s+"([^"]+)"/)?.[1];
 if (config.server.url || config.appId !== "com.spilivere.app") {
   throw new Error("L'application officielle doit embarquer le web avec son identifiant Android officiel.");
+}
+if (!Number.isInteger(versionCode) || versionCode < 1 || !/^\d+\.\d+\.\d+$/.test(version || "")) {
+  throw new Error("La version Android officielle doit avoir un code positif et une version stable X.Y.Z.");
 }
 fs.rmSync(output, { recursive: true, force: true });
 execFileSync("pnpm", ["--filter", "frontend", "exec", "expo", "export",
@@ -18,7 +24,7 @@ execFileSync("pnpm", ["--filter", "frontend", "exec", "expo", "export",
     CI: "1", EXPO_NO_TELEMETRY: "1", EXPO_NO_DOTENV: "1",
     EXPO_PUBLIC_BACKEND_URL: "https://spiloveure.org",
     EXPO_PUBLIC_CAPACITOR_NATIVE: "1",
-    EXPO_PUBLIC_CAPACITOR_VERSION: "1.1.17",
+    EXPO_PUBLIC_CAPACITOR_VERSION: version,
     EXPO_PUBLIC_TEST_BUILD: "0",
   },
 });
@@ -38,7 +44,7 @@ for (const name of ["sw.js", "firebase-messaging-sw.js", "manifest.webmanifest"]
   fs.rmSync(path.join(output, name), { force: true });
 }
 fs.writeFileSync(path.join(output, "capacitor-build.json"), JSON.stringify({
-  name: config.appName, applicationId: config.appId, version: "1.1.17", versionCode: 18,
+  name: config.appName, applicationId: config.appId, version, versionCode,
   backend: "https://spiloveure.org", bundledFrontend: true,
   builtAt: new Date().toISOString(), physicalDeviceValidated: false,
 }, null, 2));
