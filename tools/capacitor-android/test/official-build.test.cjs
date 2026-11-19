@@ -43,12 +43,29 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.ok(gradle.includes('versionCode 19'));
   assert.ok(gradle.includes('versionName "1.1.18"'));
   assert.equal(JSON.parse(local("package.json")).version, "1.1.18");
+  assert.equal(JSON.parse(local("package.json")).scripts["apk:build"], "node ./build-official.cjs");
   assert.match(read("tools/capacitor-android/package.json"), /"apk:release": "node \.\/release-official\.cjs"/);
   assert.match(read("tools/capacitor-android/package.json"), /"apk:debug": "[^"]*assembleDebug/);
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
   assert.ok(gradle.includes("validateOfficialReleaseSigning"));
+});
+
+test("VPS test build verifies and saves the signed APK without publishing it", () => {
+  const buildScript = local("build-official.cjs");
+  const compose = read("deploy/hostinger/docker-compose.android.yml");
+  const dockerfile = read("deploy/hostinger/android-builder.Dockerfile");
+  assert.match(buildScript, /inspectReleaseApk\(APK_PATH\)/);
+  assert.match(buildScript, /COPYFILE_EXCL/);
+  assert.match(buildScript, /ANDROID_KEYSTORE_BASE64/);
+  assert.match(buildScript, /OFFICIAL_SIGNER_SHA256/);
+  assert.doesNotMatch(buildScript, /publishVerifiedApk|\/releases\/publish/);
+  assert.match(compose, /android-builder/);
+  assert.match(compose, /ANDROID_KEYSTORE_PASSWORD/);
+  assert.match(compose, /generated-artifacts\/spiloveure/);
+  assert.match(dockerfile, /platforms;android-35/);
+  assert.match(dockerfile, /build-tools;35\.0\.0/);
 });
 
 test("the official release command validates before publishing and debug artifacts are rejected", async () => {

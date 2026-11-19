@@ -6,7 +6,7 @@ base de données ne sont compilés dans l'APK. Toutes les requêtes utilisent le
 VPS `https://spiloveure.org`. Elle garde le même identifiant Android que l'application Expo :
 `com.spilivere.app`.
 
-La version préparée est **1.1.17 (code 18)**. Elle est signée avec
+La version préparée est **1.1.18 (code 19)**. Elle est signée avec
 une nouvelle clé de production, distincte de la clé EAS inaccessible. Pour la
 première installation, les utilisateurs devront désinstaller l'ancienne APK
 Expo puis installer celle-ci. Les données conservées sur le VPS ne sont pas
@@ -87,6 +87,37 @@ VPS et rendre `apksigner` et `aapt` accessibles sur son `PATH` (ou renseigner
 persistant déjà utilisé par `/api/uploads/`. La première release officielle
 enregistre l’empreinte du certificat; toutes les suivantes doivent utiliser
 exactement la même clé.
+
+## Compilation de test dans Docker sur le VPS
+
+Le backend Docker conserve seulement les outils de vérification `apksigner` et
+`aapt`. Le conteneur séparé `android-builder` fournit Node, JDK 21, Android SDK
+35 et Gradle pour compiler sans installer ces outils dans le service backend.
+Il signe l’APK avec le keystore configuré, vérifie le package, la version et le
+même certificat que les APK officielles déjà installées, puis enregistre le
+binaire dans `generated-artifacts/spiloveure/`. Cette commande ne
+téléverse ni ne publie l’APK aux utilisateurs.
+
+Sur le VPS, après avoir récupéré le commit GitHub qui contient la version voulue :
+
+1. Copier `deploy/hostinger/android-builder.env.example` vers
+   `deploy/hostinger/android-builder.env`.
+2. Renseigner `ANDROID_KEYSTORE_BASE64` et `ANDROID_KEYSTORE_PASSWORD` dans ce
+   fichier par le canal sécurisé Hostinger, puis appliquer `chmod 600`.
+   Ne jamais committer ou envoyer ces valeurs dans le chat.
+3. Depuis la racine du dépôt, lancer :
+
+   ```sh
+   docker compose --env-file deploy/hostinger/android-builder.env \
+     -f deploy/hostinger/docker-compose.android.yml build android-builder
+   docker compose --env-file deploy/hostinger/android-builder.env \
+     -f deploy/hostinger/docker-compose.android.yml run --rm android-builder
+   ```
+
+L’APK de test signée sera dans
+`generated-artifacts/spiloveure/SPILOVEURE-1.1.18.apk`. Le fichier
+`android-builder.env` est ignoré par Git. Le conteneur de compilation est séparé
+du lancement normal de Docker Compose et n’est pas démarré au redémarrage du VPS.
 
 Avant une nouvelle release, augmenter `versionName` et `versionCode` dans
 `android/app/build.gradle`. La commande ne publie pas les builds debug et ne

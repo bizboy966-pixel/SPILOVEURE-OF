@@ -6,6 +6,7 @@
     "prepare:web": "node prepare-web.cjs",
     "icons:generate": "bash ./generate-icon-assets.sh",
     "sync": "pnpm run prepare:web && cap sync android",
+    "apk:build": "node ./build-official.cjs",
     "apk:debug": "pnpm run sync && cd android && ./gradlew :app:assembleDebug",
     "apk:release": "node ./release-official.cjs",
     "apk": "pnpm run apk:release",

@@ -1,0 +1,22 @@
+services:
+  android-builder:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger/android-builder.Dockerfile
+    image: spiloveure-android-builder:1.1.18
+    working_dir: /workspace
+    environment:
+      ANDROID_KEYSTORE_BASE64: ${ANDROID_KEYSTORE_BASE64:?Set this in deploy/hostinger/android-builder.env}
+      ANDROID_KEYSTORE_PASSWORD: ${ANDROID_KEYSTORE_PASSWORD:?Set this in deploy/hostinger/android-builder.env}
+      ANDROID_KEY_ALIAS: ${ANDROID_KEY_ALIAS:-spiloveure}
+    volumes:
+      - ../../generated-artifacts/spiloveure:/workspace/generated-artifacts/spiloveure
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - pnpm
+      - --filter
+      - "@workspace/capacitor-android"
+      - run
+      - apk:build
