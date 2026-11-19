@@ -40,8 +40,8 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 12'));
-  assert.ok(gradle.includes('versionName "1.1.11"'));
+  assert.ok(gradle.includes('versionCode 13'));
+  assert.ok(gradle.includes('versionName "1.1.12"'));
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {
     assert.ok(gradle.includes(key), `${key} release signing configuration`);
   }
@@ -74,7 +74,7 @@ test("official APK launcher resources use the full supplied icon", () => {
   assert.ok(fs.existsSync(iconSource));
   assert.match(launcherXml, /@mipmap\/ic_launcher_foreground/);
   assert.match(roundXml, /@mipmap\/ic_launcher_foreground/);
-  assert.match(background, /#013080/i);
+  assert.match(background, /#001758/i);
   for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
     for (const name of ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png"]) {
       assert.ok(
