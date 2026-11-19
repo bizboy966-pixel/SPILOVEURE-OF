@@ -28,3 +28,31 @@ mtime_ms = 1795045660407
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/fe5432ae-7ad1-4862-b758-3412c57a1fd9/c7e4d41f-f739-4c79-b06f-d93b6d944cb4"
 storage_version_token = "1795045808529277"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "EUZqWEvEc4ebA7YDed519"
+uri = "file://generated-artifacts/spiloveure/SPILOVEURE-1.1.10.apk"
+type = "unspecified"
+title = "SPILOVEURE Android 1.1.10"
+description = "APK officielle signée, avec la nouvelle icône fournie."
+logical_id = "eb823cc8-490c-4b7a-93cf-bc158bf1fe82"
+content_hash = "sha256:a3a32e417861b3a4ac10eb3016d7fae27bf55bcf28eb1fe866dfc6d86c7f69dd"
+size = 8324990
+mtime_ms = 1795046776107
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/eb823cc8-490c-4b7a-93cf-bc158bf1fe82/91db0114-6e17-4f78-961f-fe5b7f605625"
+storage_version_token = "1795047058531832"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "GUyz8cdBwN3FGDnhFaceB"
+uri = "file://tools/capacitor-android/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png"
+type = "image"
+title = "Aperçu de la nouvelle icône"
+description = "L’image fournie, bord à bord, dans les ressources Android du lanceur."
+logical_id = "b243eeb2-f545-441f-8a97-f8b1a48167a4"
+content_hash = "sha256:21fc7f36abe6384c9795d33b8435650046b04db17f1d56044c8be8424266cbbb"
+size = 232168
+mtime_ms = 1795046604244
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/b243eeb2-f545-441f-8a97-f8b1a48167a4/a8b5f34b-02a6-4928-8511-0eaf8949caa3"
+storage_version_token = "1795047059012053"
+content_type = "image/png"
