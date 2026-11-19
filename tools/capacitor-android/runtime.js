@@ -5,6 +5,9 @@ import { installApiTransport } from "./transport";
 if (Capacitor.isNativePlatform()) {
   installApiTransport(window, CapacitorHttp);
   window.__SPV_APK_INSTALLER__ = registerPlugin("ApkInstaller");
+  App.addListener("appStateChange", state => {
+    window.dispatchEvent(new CustomEvent("spv-capacitor-app-state", { detail: state }));
+  }).catch(error => console.error("Suivi de l’état de l’application indisponible", error));
   App.addListener("backButton", () => {
     // React Native Web already wires Escape to the active Modal's
     // onRequestClose. Close that overlay before its underlying conversation.

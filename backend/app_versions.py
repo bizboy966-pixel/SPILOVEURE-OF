@@ -332,6 +332,13 @@ async def update_settings(body: dict, request: Request, admin=Depends(require_ad
         raise HTTPException(400, "Aucun champ à mettre à jour.")
     cur = await _get_settings(db)
     effective = {**cur, **patch}
+    # Publishing an APK always blocks older app versions. A version published
+    # through the admin panel is the version every installed client must reach.
+    if (("apk_url" in body or "apk_version" in body)
+            and effective.get("apk_url") and effective.get("apk_version")):
+        patch["apk_mandatory"] = True
+        patch["apk_minimum_supported_version"] = effective["apk_version"]
+        effective = {**cur, **patch}
     if effective.get("apk_mandatory"):
         if not effective.get("apk_url") or not effective.get("apk_version"):
             raise HTTPException(400, "Pour imposer la mise à jour, enregistrez d'abord le fichier APK et sa version.")

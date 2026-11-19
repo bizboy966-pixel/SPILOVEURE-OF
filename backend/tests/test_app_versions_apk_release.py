@@ -68,6 +68,32 @@ def test_apk_release_metadata_is_public_and_mandatory():
     assert db.admin_logs.rows[0]["action"] == "update_app_version_settings"
 
 
+def test_publishing_a_new_apk_forces_mandatory_update_even_if_admin_sends_false():
+    request, db = _request()
+    db.app_settings.doc = {
+        "key": "app_version",
+        "value": {
+            **app_versions._DEFAULT_SETTINGS,
+            "apk_version": "1.1.15",
+            "apk_minimum_supported_version": "1.1.15",
+            "apk_mandatory": False,
+        },
+    }
+    db.media_uploads.rows.append({
+        "url": "/api/uploads/spiloveure-1.1.16.apk",
+        "apk_validated": True,
+    })
+
+    result = asyncio.run(app_versions.update_settings({
+        "apk_url": "/api/uploads/spiloveure-1.1.16.apk",
+        "apk_version": "1.1.16",
+        "apk_mandatory": False,
+    }, request, admin={"id": "admin"}))
+
+    assert result["settings"]["apk_mandatory"] is True
+    assert result["settings"]["apk_minimum_supported_version"] == "1.1.16"
+
+
 def test_unvalidated_uploaded_zip_cannot_be_published_as_apk():
     request, db = _request()
     db.media_uploads.rows.append({

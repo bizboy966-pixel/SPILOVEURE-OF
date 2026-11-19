@@ -70,7 +70,6 @@ export default function AdminHome() {
   const [newVersionNotes, setNewVersionNotes] = useState("");
   const [apkUrl, setApkUrl] = useState("");
   const [apkVersion, setApkVersion] = useState("");
-  const [apkMandatory, setApkMandatory] = useState(true);
   const [apkSaveBusy, setApkSaveBusy] = useState(false);
   const [challenges, setChallenges] = useState<any[]>([]);
   // Challenge form state (create only — edits go through inline actions).
@@ -104,7 +103,6 @@ export default function AdminHome() {
     if (!settings) return;
     setApkUrl(settings.apk_url || "");
     setApkVersion(settings.apk_version || "");
-    setApkMandatory(Boolean(settings.apk_mandatory));
   }, [versionsData]);
   // Ads state
   const [adsPricing, setAdsPricing] = useState<any>(null);
@@ -2269,7 +2267,7 @@ export default function AdminHome() {
             <Card style={{ marginBottom: 12 }} testID="admin-apk-info-card">
               <Text style={[styles.section, { marginBottom: 6 }]}>📱 Publication de l’APK Android</Text>
               <Text style={{ color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16, marginBottom: 10 }}>
-                Après chaque compilation, importez le nouvel APK et enregistrez sa version. Les versions APK intégrant ce mécanisme détecteront la mise à jour au démarrage. Les anciennes installations devront installer cette première version une fois depuis Chrome. Android demandera ensuite de confirmer l’installation.
+                Après chaque compilation, importez le nouvel APK et enregistrez sa version. Les anciennes installations doivent installer manuellement une première APK avec ce mécanisme. Ensuite, SPILOVEURE détectera et téléchargera les nouvelles versions au démarrage ; Android demandera de confirmer chaque installation.
               </Text>
               <Text style={styles.lbl}>Version incluse dans l’APK</Text>
               <TextInput
@@ -2288,16 +2286,12 @@ export default function AdminHome() {
                 onChange={setApkUrl}
                 testID="admin-apk-file"
               />
-              <TouchableOpacity
-                onPress={() => setApkMandatory(!apkMandatory)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}
-                testID="admin-apk-mandatory"
-              >
-                <Ionicons name={apkMandatory ? "checkbox" : "square-outline"} size={20} color={apkMandatory ? theme.colors.primary : theme.colors.textSecondary} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }} testID="admin-apk-mandatory">
+                <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
                 <Text style={{ color: theme.colors.textPrimary, fontSize: 13, flex: 1 }}>
-                  Mise à jour obligatoire pour les anciennes versions Android
+                  Chaque nouvelle version publiée sera obligatoire sur les anciennes versions Android.
                 </Text>
-              </TouchableOpacity>
+              </View>
               <TouchableOpacity
                 disabled={apkSaveBusy || !apkUrl.trim() || !apkVersion.trim()}
                 style={{
@@ -2314,8 +2308,8 @@ export default function AdminHome() {
                     const response = await api.post<any>("/admin/versions/settings", {
                       apk_url: apkUrl.trim(),
                       apk_version: apkVersion.trim(),
-                      apk_mandatory: apkMandatory,
-                      apk_minimum_supported_version: apkMandatory ? apkVersion.trim() : (versionsData?.settings?.apk_minimum_supported_version || ""),
+                      apk_mandatory: true,
+                      apk_minimum_supported_version: apkVersion.trim(),
                     });
                     setVersionsData((current) => current ? { ...current, settings: response.settings } : current);
                     notify("APK enregistré", `La version Android ${apkVersion.trim()} est maintenant publiée.`);

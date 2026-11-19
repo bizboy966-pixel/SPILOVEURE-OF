@@ -1,10 +1,17 @@
 package com.spilivere.app;
 
 import android.app.DownloadManager;
+import android.app.PendingIntent;
+import android.content.Intent;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.Settings;
+import android.content.pm.PackageInstaller;
+import java.io.InputStream;
+import java.io.OutputStream;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -88,6 +95,91 @@ public class ApkInstallerPlugin extends Plugin {
             call.resolve(result);
         } catch (Exception exception) {
             call.reject("Impossible de lire la progression du téléchargement.", exception);
+        }
+    }
+
+    @PluginMethod
+    public void installDownloadedApk(PluginCall call) {
+        long downloadId = call.getLong("downloadId", -1L);
+        if (downloadId < 0) {
+            call.reject("Identifiant de téléchargement invalide.");
+            return;
+        }
+        DownloadManager manager = downloadManager();
+        if (manager == null) {
+            call.reject("Le service de téléchargement Android est indisponible.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            try {
+                Intent settings = new Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getContext().getPackageName()));
+                settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(settings);
+                JSObject result = new JSObject();
+                result.put("status", "permission_required");
+                call.resolve(result);
+            } catch (Exception exception) {
+                call.reject("Autorise l’installation d’applications depuis SPILOVEURE dans les paramètres Android.", exception);
+            }
+            return;
+        }
+
+        Uri apkUri = manager.getUriForDownloadedFile(downloadId);
+        if (apkUri == null) {
+            call.reject("Le téléchargement de l’APK n’est pas terminé ou le fichier est introuvable.");
+            return;
+        }
+
+        PackageInstaller installer = getContext().getPackageManager().getPackageInstaller();
+        int sessionId = -1;
+        try {
+            PackageInstaller.SessionParams params =
+                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            params.setAppPackageName(getContext().getPackageName());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
+            }
+            sessionId = installer.createSession(params);
+            try (PackageInstaller.Session session = installer.openSession(sessionId);
+                 InputStream input = getContext().getContentResolver().openInputStream(apkUri);
+                 OutputStream output = session.openWrite("base.apk", 0, -1)) {
+                if (input == null) {
+                    throw new IllegalStateException("Le fichier téléchargé ne peut pas être lu.");
+                }
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) >= 0) {
+                    if (count > 0) output.write(buffer, 0, count);
+                }
+                session.fsync(output);
+
+                Intent callbackIntent = new Intent(getContext(), ApkInstallResultReceiver.class)
+                    .setAction(ApkInstallResultReceiver.ACTION_INSTALL_STATUS)
+                    .setPackage(getContext().getPackageName());
+                int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    pendingFlags |= PendingIntent.FLAG_MUTABLE;
+                }
+                PendingIntent callback = PendingIntent.getBroadcast(
+                    getContext(), sessionId, callbackIntent, pendingFlags);
+                session.commit(callback.getIntentSender());
+            }
+
+            JSObject result = new JSObject();
+            result.put("status", "installing");
+            call.resolve(result);
+        } catch (Exception exception) {
+            if (sessionId >= 0) {
+                try {
+                    installer.abandonSession(sessionId);
+                } catch (Exception ignored) {
+                    // Keep the original installation error.
+                }
+            }
+            call.reject("Android n’a pas pu lancer l’installation de la mise à jour.", exception);
         }
     }
 

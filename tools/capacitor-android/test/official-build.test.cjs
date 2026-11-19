@@ -175,7 +175,7 @@ test("empty responses, aborted requests and network failures are not converted t
 });
 
 test("back closes the conversation before navigating and asks before exiting", async () => {
-  let listener, closed = 0;
+  let listener, appStateListener, closed = 0, appState = false;
   let handled = true;
   let modal = true, dismissed = 0;
   const code = transformSync(local("runtime.js").replace(/^import .*;\n/gm, ""), { format: "cjs" }).code;
@@ -184,17 +184,30 @@ test("back closes the conversation before navigating and asks before exiting", a
     registerPlugin: name => ({ name }),
     installApiTransport() {},
     App: {
-      addListener: async (name, callback) => { assert.equal(name, "backButton"); listener = callback; },
+      addListener: async (name, callback) => {
+        if (name === "backButton") listener = callback;
+        else if (name === "appStateChange") appStateListener = callback;
+        else assert.fail(`Unexpected Capacitor listener: ${name}`);
+      },
       exitApp() { closed++; },
     },
     Event, KeyboardEvent: class { constructor(type, init) { this.type = type; this.key = init.key; } },
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     navigator: {}, console,
     document: {
       querySelector: () => modal,
       dispatchEvent: event => { assert.equal(event.key, "Escape"); dismissed++; },
     },
-    window: { dispatchEvent: event => { if (handled) event.preventDefault(); }, confirm: () => true },
+    window: {
+      dispatchEvent: event => {
+        if (event.type === "spv-capacitor-app-state") appState = Boolean(event.detail.isActive);
+        else if (handled) event.preventDefault();
+      },
+      confirm: () => true,
+    },
   });
+  appStateListener({ isActive: true });
+  assert.equal(appState, true);
   listener();
   assert.equal(dismissed, 1);
   assert.equal(closed, 0);
@@ -209,10 +222,11 @@ test("back closes the conversation before navigating and asks before exiting", a
   assert.match(read("frontend/app/_layout.tsx"), /event\.defaultPrevented \|\| !router\.canGoBack\(\)/);
 });
 
-test("native capabilities are minimal and media uses VPS cookies and Range", () => {
+test("native capabilities are scoped to media and official APK self-updates", () => {
   const manifest = local("android/app/src/main/AndroidManifest.xml");
   assert.match(manifest, /android\.permission\.RECORD_AUDIO/);
-  for (const forbidden of ["REQUEST_INSTALL_PACKAGES", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "CAMERA"]) {
+  assert.match(manifest, /android\.permission\.REQUEST_INSTALL_PACKAGES/);
+  for (const forbidden of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "CAMERA"]) {
     assert.ok(!manifest.includes(forbidden), forbidden);
   }
   assert.match(manifest, /android:allowBackup="false"/);
