@@ -49,6 +49,21 @@ test("supported payment providers and unrelated admin journeys remain available"
   }
 });
 
+test("each payment provider's credentials are grouped with its own country catalog", () => {
+  const routerStart = admin.indexOf("function PaymentProvidersRouterCard(");
+  const routerEnd = admin.indexOf("function PaymentRouterLogsCard()", routerStart);
+  const router = admin.slice(routerStart, routerEnd);
+  assert.match(router, /p\.id === "moneyfusion"[\s\S]*<MoneyFusionSettings/);
+  assert.match(router, /p\.id === "biztranspay"[\s\S]*<BizTransPayCard/);
+  assert.match(router, /p\.countries[\s\S]*p\.id/);
+
+  const providersTabStart = admin.indexOf('{tab === "providers" &&');
+  const providersTabEnd = admin.indexOf('{tab === "payment" &&', providersTabStart);
+  const providersTab = admin.slice(providersTabStart, providersTabEnd);
+  assert.match(providersTab, /<PaymentProvidersRouterCard/);
+  assert.doesNotMatch(providersTab, /<MoneyFusionSettings|<BizTransPayCard/);
+});
+
 test("brand colors remain unchanged by the visual refresh", () => {
   const theme = read("src/theme.ts");
   for (const color of ["#1B5BFF", "#0B2D6F", "#7B61FF", "#10B981", "#EF4444"]) {

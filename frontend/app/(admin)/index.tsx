@@ -2436,18 +2436,10 @@ export default function AdminHome() {
                 Plusieurs prestataires peuvent être actifs, mais chaque couple pays + opérateur doit appartenir à un seul prestataire. Désactivez l’opérateur chez l’ancien prestataire avant de le transférer. Une transaction déjà lancée reste suivie par son prestataire d’origine.
               </Text>
             </View>
-            <MoneyFusionSettings
-              onSaved={() => setProviderCardVersion((version) => version + 1)}
-              onCatalogueRefreshed={() => setProviderCardVersion((version) => version + 1)}
+            <PaymentProvidersRouterCard
+              key={`providers-${providerCardVersion}`}
+              onProviderSettingsChanged={() => setProviderCardVersion((version) => version + 1)}
             />
-            <PaymentProvidersRouterCard key={`providers-${providerCardVersion}`} />
-            <View style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, marginTop: 8, marginBottom: 12 }}>
-              <Text style={{ fontSize: 13, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 }}>🔑 Configuration des clés (par prestataire)</Text>
-              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 10 }}>
-                Les clés API/secrets restent sécurisées côté serveur (masquées). Modifiez uniquement pour remplacer une clé existante.
-              </Text>
-              <BizTransPayCard />
-            </View>
           </>
         )}
 
@@ -3843,16 +3835,25 @@ function PaymentGatewaysCard() {
  *   • capacités : dépôt automatique, retrait automatique (info uniquement)
  *   • pays imbriqués → opérateurs, chacun activable/désactivable
  */
-function PaymentProvidersRouterCard() {
+function PaymentProvidersRouterCard({
+  onProviderSettingsChanged,
+}: {
+  onProviderSettingsChanged?: () => void;
+}) {
   const [providers, setProviders] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [providerLoadError, setProviderLoadError] = useState("");
 
   const load = async () => {
+    setProviderLoadError("");
     try {
       const r = await api.get<any>("/admin/payment-providers");
       setProviders(r.providers || []);
-    } catch { setProviders([]); }
+    } catch {
+      setProviders([]);
+      setProviderLoadError("Catalogue des pays indisponible. Les réglages des prestataires restent accessibles.");
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -3886,36 +3887,54 @@ function PaymentProvidersRouterCard() {
     } finally { setLoading(false); }
   };
 
-  if (providers === null) {
-    return <Card style={{ padding: 12 }}><ActivityIndicator color={theme.colors.primary} /></Card>;
+  const providerDefaults = [
+    { id: "moneyfusion", name: "MoneyFusion", status: "inactive", priority: 4, countries: [] },
+    { id: "biztranspay", name: "Biz-transPay", status: "inactive", priority: 1, countries: [] },
+  ];
+  const visibleProviders = [...(providers || [])];
+  for (const fallback of providerDefaults) {
+    if (!visibleProviders.some((provider) => provider.id === fallback.id)) visibleProviders.push(fallback);
   }
 
   return (
     <View testID="providers-router-card">
-      {providers.filter((p) => !/ashtec/i.test(`${p?.id || ""} ${p?.name || ""} ${p?.label || ""}`)).map((p, idx) => {
+      {providers === null && <ActivityIndicator color={theme.colors.primary} />}
+      {!!providerLoadError && (
+        <Text accessibilityRole="alert" style={{ color: theme.colors.danger, fontSize: 12, marginBottom: 8 }}>
+          {providerLoadError}
+        </Text>
+      )}
+      {visibleProviders.filter((p) => !/ashtec/i.test(`${p?.id || ""} ${p?.name || ""} ${p?.label || ""}`)).map((p, idx) => {
         const isActive = p.status === "active";
+        const providerListLoading = providers === null;
         const isExpanded = expanded[p.id] !== false; // default true
+        const providerColor = providerListLoading
+          ? theme.colors.textSecondary
+          : isActive ? "#1E3A8A" : "#991B1B";
+        const providerHeaderBackground = providerListLoading
+          ? theme.colors.surfaceSecondary
+          : isActive ? "#DBEAFE" : "#FEE2E2";
         return (
           <Card key={p.id} style={{ marginBottom: 12, borderWidth: 2, borderColor: isActive ? "#2563EB" : theme.colors.border, padding: 0, overflow: "hidden" }}>
             {/* Header */}
             <TouchableOpacity
               onPress={() => setExpanded({ ...expanded, [p.id]: !isExpanded })}
-              style={{ padding: 12, backgroundColor: isActive ? "#DBEAFE" : "#FEE2E2", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+              style={{ padding: 12, backgroundColor: providerHeaderBackground, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
               testID={`provider-${p.id}-header`}
             >
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: "900", color: isActive ? "#1E3A8A" : "#991B1B" }}>
-                  {isActive ? "🟢" : "🔴"} {p.name}
+                <Text style={{ fontSize: 15, fontWeight: "900", color: providerColor }}>
+                  {providerListLoading ? "…" : isActive ? "🟢" : "🔴"} {p.name}
                   <Text style={{ fontSize: 11, fontWeight: "600" }}>  •  Priorité {p.priority}</Text>
                 </Text>
-                <Text style={{ fontSize: 11, color: isActive ? "#1E3A8A" : "#991B1B", marginTop: 3 }}>
-                  {p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt {p.auto_deposit ? "✅" : "❌"} • Retrait {p.auto_withdrawal ? "✅" : "❌"} • {p.countries?.length || 0} pays
+                <Text style={{ fontSize: 11, color: providerColor, marginTop: 3 }}>
+                  {providerListLoading ? "Chargement du catalogue…" : `${p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt ${p.auto_deposit ? "✅" : "❌"} • Retrait ${p.auto_withdrawal ? "✅" : "❌"} • ${p.countries?.length || 0} pays`}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
                 <TouchableOpacity
                   onPress={(e: any) => { e?.stopPropagation?.(); bump(p.id, -1, p.priority); }}
-                  disabled={loading || p.priority <= 1}
+                  disabled={loading || providerListLoading || p.priority <= 1}
                   style={{ padding: 6, borderRadius: 6, backgroundColor: p.priority <= 1 ? "#E5E7EB" : "#2563EB" }}
                   testID={`provider-${p.id}-prio-up`}
                 >
@@ -3923,7 +3942,7 @@ function PaymentProvidersRouterCard() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={(e: any) => { e?.stopPropagation?.(); bump(p.id, +1, p.priority); }}
-                  disabled={loading}
+                  disabled={loading || providerListLoading}
                   style={{ padding: 6, borderRadius: 6, backgroundColor: "#2563EB" }}
                   testID={`provider-${p.id}-prio-down`}
                 >
@@ -3935,7 +3954,23 @@ function PaymentProvidersRouterCard() {
 
             {isExpanded && (
               <View style={{ padding: 10 }}>
-                {(!p.countries || p.countries.length === 0) && (
+                {p.id === "moneyfusion" && (
+                  <View testID="provider-moneyfusion-config" style={{ marginBottom: 10 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>
+                      Clés API et catalogue MoneyFusion
+                    </Text>
+                    <MoneyFusionSettings
+                      onSaved={onProviderSettingsChanged}
+                      onCatalogueRefreshed={onProviderSettingsChanged}
+                    />
+                  </View>
+                )}
+                {p.id === "biztranspay" && (
+                  <View testID="provider-biztranspay-config" style={{ marginBottom: 10 }}>
+                    <BizTransPayCard onSaved={onProviderSettingsChanged} />
+                  </View>
+                )}
+                {(!p.countries || p.countries.length === 0) && providers !== null && (
                   <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic" }}>
                     Aucun pays configuré pour ce prestataire.
                   </Text>
@@ -3948,7 +3983,7 @@ function PaymentProvidersRouterCard() {
                       <View style={{ flexDirection: "row", backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2" }}>
                         <TouchableOpacity
                           onPress={() => toggleCountry(p.id, c.country_code, !cActive)}
-                          disabled={loading}
+                          disabled={loading || providerListLoading}
                           style={{ flex: 1, padding: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                           testID={`provider-${p.id}-country-${c.country_code}`}
                         >
@@ -3970,7 +4005,7 @@ function PaymentProvidersRouterCard() {
                               if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
                             } finally { setLoading(false); }
                           }}
-                          disabled={loading}
+                          disabled={loading || providerListLoading}
                           style={{ paddingHorizontal: 10, justifyContent: "center", backgroundColor: isManual ? "#FDE68A" : "#BFDBFE" }}
                           testID={`provider-${p.id}-mode-${c.country_code}`}
                         >
@@ -3986,7 +4021,7 @@ function PaymentProvidersRouterCard() {
                             <TouchableOpacity
                               key={`${p.id}-${c.country_code}-${o.operator_code}`}
                               onPress={() => toggleOp(p.id, c.country_code, o.operator_code, !oActive)}
-                              disabled={loading}
+                              disabled={loading || providerListLoading}
                               style={{ padding: 6, borderRadius: 6, backgroundColor: oActive ? "#D1FAE5" : "#FEF3C7", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}
                               testID={`provider-${p.id}-op-${c.country_code}-${o.operator_code}`}
                             >
@@ -4090,7 +4125,7 @@ function PaymentRouterLogsCard() {
  *   • master switch + PayIn/PayOut toggles indépendants
  *   • toggles par pays + opérateur (TG / BJ / BF)
  */
-function BizTransPayCard() {
+function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [showKeys, setShowKeys] = useState(true);
@@ -4113,6 +4148,7 @@ function BizTransPayCard() {
       await api.put<any>("/admin/payment-gateways", body);
       await load();
       setPublicKeyInput(""); setSecretKeyInput(""); setWebhookInput(""); setRefundInput("");
+      onSaved?.();
       if (typeof window !== "undefined") window.alert("✅ Enregistré");
     } catch (e: any) {
       const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
