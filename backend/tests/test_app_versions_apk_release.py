@@ -113,8 +113,9 @@ def test_apk_release_metadata_is_public_and_mandatory():
     assert db.admin_logs.rows[0]["action"] == "update_app_version_settings"
 
 
-def test_official_release_upload_publishes_signed_apk_and_pins_signer(monkeypatch):
+def test_official_release_upload_publishes_signed_apk_and_pins_signer(monkeypatch, tmp_path):
     request, db = _request()
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     result = _run_official_upload(monkeypatch, request, file=_Upload(_signed_apk_fixture()))
 
     assert result["ok"] is True
@@ -131,6 +132,37 @@ def test_official_release_upload_publishes_signed_apk_and_pins_signer(monkeypatc
     assert db.app_settings.doc["value"]["apk_signer_sha256"] == "a" * 64
     assert db.media_uploads.rows[0]["official_release"] is True
     assert db.admin_logs.rows[0]["action"] == "publish_official_android_apk"
+
+
+@pytest.mark.parametrize("object_storage_mode", ["disabled", "failed"])
+def test_official_release_uses_persistent_local_storage_when_object_storage_is_unavailable(
+    monkeypatch, tmp_path, object_storage_mode,
+):
+    request, db = _request()
+    apk_bytes = _signed_apk_fixture()
+    apk = _Upload(apk_bytes)
+    monkeypatch.setenv("ANDROID_RELEASE_TOKEN", "release-test-token")
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
+    monkeypatch.setattr(app_versions, "validate_apk", lambda _data: None)
+    monkeypatch.setattr(app_versions, "inspect_official_apk", lambda _path: _official_metadata())
+    import object_storage
+    if object_storage_mode == "disabled":
+        monkeypatch.setattr(object_storage, "is_enabled", lambda: False)
+    else:
+        monkeypatch.setattr(object_storage, "is_enabled", lambda: True)
+        monkeypatch.setattr(
+            object_storage, "put_upload",
+            lambda *_args: (_ for _ in ()).throw(RuntimeError("storage unavailable")),
+        )
+
+    result = asyncio.run(app_versions.publish_official_apk(
+        request, apk, authorization="Bearer release-test-token",
+    ))
+
+    assert result["published"] is True
+    assert result["url"] == "/api/uploads/spiloveure-official-1-1-18.apk"
+    assert (tmp_path / "spiloveure-official-1-1-18.apk").read_bytes() == apk_bytes
+    assert db.app_settings.doc["value"]["apk_version"] == "1.1.18"
 
 
 def test_official_release_rejects_missing_or_wrong_release_token(monkeypatch):
@@ -207,35 +239,40 @@ def test_official_release_rejects_a_changed_signing_key(monkeypatch):
     assert db.app_settings.doc["value"]["apk_version"] == "1.1.17"
 
 
-def test_official_release_storage_failure_keeps_previous_release_unchanged(monkeypatch):
+def test_official_release_publishes_from_persistent_disk_when_object_storage_fails(
+    monkeypatch, tmp_path,
+):
     request, db = _request()
     db.app_settings.doc = {
         "key": "app_version",
         "value": {**app_versions._DEFAULT_SETTINGS, "apk_version": "1.1.17"},
     }
     monkeypatch.setenv("ANDROID_RELEASE_TOKEN", "release-test-token")
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     monkeypatch.setattr(app_versions, "validate_apk", lambda _data: None)
     monkeypatch.setattr(app_versions, "inspect_official_apk", lambda _path: _official_metadata())
     import object_storage
     monkeypatch.setattr(object_storage, "is_enabled", lambda: True)
     monkeypatch.setattr(object_storage, "put_upload", lambda *_args: (_ for _ in ()).throw(OSError("offline")))
 
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(app_versions.publish_official_apk(
-            request, _Upload(), authorization="Bearer release-test-token",
-        ))
-    assert exc.value.status_code == 503
-    assert db.app_settings.doc["value"]["apk_version"] == "1.1.17"
-    assert db.media_uploads.rows == []
+    apk_bytes = _signed_apk_fixture()
+    result = asyncio.run(app_versions.publish_official_apk(
+        request, _Upload(apk_bytes), authorization="Bearer release-test-token",
+    ))
+    assert result["published"] is True
+    assert db.app_settings.doc["value"]["apk_version"] == "1.1.18"
+    assert (tmp_path / "spiloveure-official-1-1-18.apk").read_bytes() == apk_bytes
+    assert db.media_uploads.rows[0]["official_release"] is True
 
 
-def test_official_release_requires_persistent_storage_before_publication(monkeypatch):
+def test_official_release_requires_a_writable_persistent_volume(monkeypatch, tmp_path):
     request, db = _request()
     monkeypatch.setenv("ANDROID_RELEASE_TOKEN", "release-test-token")
     monkeypatch.setattr(app_versions, "validate_apk", lambda _data: None)
     monkeypatch.setattr(app_versions, "inspect_official_apk", lambda _path: _official_metadata())
-    import object_storage
-    monkeypatch.setattr(object_storage, "is_enabled", lambda: False)
+    blocked_dir = tmp_path / "not-a-directory"
+    blocked_dir.write_text("block directory creation")
+    monkeypatch.setenv("UPLOADS_DIR", str(blocked_dir / "uploads"))
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(app_versions.publish_official_apk(

@@ -148,3 +148,22 @@ def test_download_route_serves_apk_bytes_with_android_headers(tmp_path, use_obje
     assert response.headers["content-type"].split(";")[0] == APK_CONTENT_TYPE
     assert response.headers["content-disposition"] == 'attachment; filename="release.apk"'
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_official_apk_download_uses_the_vps_persistent_volume(monkeypatch, tmp_path):
+    apk_bytes = make_signed_apk()
+    filename = "spiloveure-official-1-1-18.apk"
+    persistent_dir = tmp_path / "persistent"
+    persistent_dir.mkdir()
+    (persistent_dir / filename).write_bytes(apk_bytes)
+    monkeypatch.setenv("UPLOADS_DIR", str(persistent_dir))
+
+    class DisabledStorage:
+        def is_enabled(self):
+            return False
+
+    response = serve_uploaded_file(filename, tmp_path / "legacy", DisabledStorage())
+
+    assert response.path == str(persistent_dir / filename)
+    assert response.media_type == APK_CONTENT_TYPE
+    assert response.filename == filename

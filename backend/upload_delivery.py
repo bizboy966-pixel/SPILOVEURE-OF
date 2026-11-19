@@ -1,6 +1,7 @@
 """Shared delivery behavior for admin-uploaded media."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -30,14 +31,21 @@ def serve_uploaded_file(filename: str, uploads_dir: Path, storage) -> Response:
                 "object storage GET failed for %s: %s", filename, error,
             )
 
-    local = uploads_dir / filename
-    if local.is_file():
-        return FileResponse(
-            str(local),
-            media_type=APK_CONTENT_TYPE if is_apk else None,
-            filename=filename if is_apk else None,
-            headers=headers,
-        )
+    local_candidates = [uploads_dir / filename]
+    if is_apk and filename.startswith("spiloveure-official-"):
+        persistent_uploads = (os.environ.get("UPLOADS_DIR") or "").strip()
+        if persistent_uploads:
+            persistent_path = Path(persistent_uploads)
+            if persistent_path.resolve() != Path(uploads_dir).resolve():
+                local_candidates.append(persistent_path / filename)
+    for local in local_candidates:
+        if local.is_file():
+            return FileResponse(
+                str(local),
+                media_type=APK_CONTENT_TYPE if is_apk else None,
+                filename=filename if is_apk else None,
+                headers=headers,
+            )
 
     raise HTTPException(
         status_code=410,

@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import asyncio
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -302,17 +303,44 @@ async def publish_official_apk(
     safe_version = version.replace(".", "-")
     stored_name = f"spiloveure-official-{safe_version}.apk"
     url = f"/api/uploads/{stored_name}"
+    uploads_dir = Path(
+        os.environ.get("UPLOADS_DIR") or (Path(__file__).parent / "uploads")
+    )
+    try:
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        fd, local_temp_path = tempfile.mkstemp(
+            prefix=".official-apk-", suffix=".tmp", dir=uploads_dir,
+        )
+        try:
+            with os.fdopen(fd, "wb") as local_file:
+                local_file.write(data)
+            os.replace(local_temp_path, uploads_dir / stored_name)
+        finally:
+            try:
+                os.unlink(local_temp_path)
+            except FileNotFoundError:
+                pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Official APK persistent local storage failed: %s", exc)
+        raise HTTPException(
+            503,
+            "L’APK n’a pas pu être enregistrée dans le stockage persistant ; la version active n’a pas changé.",
+        ) from None
+
+    # Hostinger serves uploads from its persistent Docker volume. Keep object
+    # storage as a best-effort mirror, not a release blocker, so the official
+    # download remains available when this optional integration is unavailable.
     try:
         import object_storage
-        if not object_storage.is_enabled():
-            raise RuntimeError("Le stockage persistant des APK n’est pas configuré.")
-        await asyncio.to_thread(
-            object_storage.put_upload,
-            stored_name, bytes(data), upload_content_type(filename, file.content_type),
-        )
+        if object_storage.is_enabled():
+            await asyncio.to_thread(
+                object_storage.put_upload,
+                stored_name, bytes(data), upload_content_type(filename, file.content_type),
+            )
+        else:
+            log.info("Official APK saved to persistent local storage; object storage is disabled.")
     except Exception as exc:  # noqa: BLE001
-        log.warning("Official APK storage upload failed: %s", exc)
-        raise HTTPException(503, "L’envoi vers le stockage officiel a échoué ; la version active n’a pas changé.") from None
+        log.warning("Official APK object-storage mirror failed; persistent local copy is available: %s", exc)
 
     now = datetime.now(timezone.utc)
     try:
