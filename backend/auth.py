@@ -105,9 +105,22 @@ async def get_current_user(
     return user
 
 
-async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+async def require_admin(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    x_admin_step_up: Optional[str] = Header(default=None, alias="X-Admin-Step-Up"),
+) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Accès réservé à l’administrateur.")
+    db = request.app.state.db
+    mfa = await db.admin_mfa.find_one({"user_id": user["id"]}, {"_id": 0, "totp_enabled": 1})
+    if not mfa or not mfa.get("totp_enabled"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ADMIN_2FA_SETUP_REQUIRED")
+    if not x_admin_step_up:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ADMIN_2FA_REQUIRED")
+    from admin_two_factor import validate_step_up_token
+    if not validate_step_up_token(x_admin_step_up, user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ADMIN_2FA_REQUIRED")
     return user
 
 

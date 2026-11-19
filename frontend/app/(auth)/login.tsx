@@ -40,9 +40,9 @@ export default function Login() {
     setLoading(true);
     try {
       await signIn(email.trim(), password);
-      const account = await api.get<{ role: string }>("/auth/me");
+      await api.get("/auth/me");
       armWelcomeSplash();
-      router.replace(account.role === "admin" ? "/(admin)" : "/(app)/dashboard");
+      router.replace("/(app)/dashboard");
     } catch (e: any) {
       setErr(e?.detail || t("auth.invalid_credentials"));
     } finally {

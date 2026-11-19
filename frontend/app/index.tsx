@@ -45,7 +45,7 @@ function ExpoIndex() {
       }
       if (user) {
         routed.current = true;
-        if (user.role === "admin") router.replace("/(admin)" as any);
+        if (user.role === "admin") router.replace("/(app)/dashboard" as any);
         else if (user.status === "active" && (user.max_level || 0) >= 1) {
           router.replace(user.email_verified ? "/(auth)/login" as any : "/(app)/dashboard" as any);
         } else router.replace("/(app)/pay" as any);

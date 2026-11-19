@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { storage } from "@/src/utils/storage";
-import { api, setAuthToken, setUnauthorizedHandler } from "@/src/api";
+import { api, setAdminStepUpToken, setAuthToken, setUnauthorizedHandler } from "@/src/api";
 
 export type User = {
   id: string;
@@ -122,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (identifier: string, password: string) => {
+    setAdminStepUpToken(null);
     const r = await api.post<{ access_token: string; user: User }>(
       "/auth/login",
       { identifier, password },
@@ -133,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (payload: any) => {
+    setAdminStepUpToken(null);
     const r = await api.post<{ access_token: string; user: User }>(
       "/auth/register",
       payload,
@@ -144,12 +146,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    setAdminStepUpToken(null);
     setAuthToken(null);
     await storage.secureRemove("auth_token");
     setUser(null);
   };
 
   const adoptSession = useCallback(async (accessToken: string, nextUser: User) => {
+    setAdminStepUpToken(null);
     setAuthToken(accessToken);
     await storage.secureSet("auth_token", accessToken);
     setUser(nextUser);

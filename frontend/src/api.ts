@@ -8,9 +8,34 @@ const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 // Eliminates the race condition where AsyncStorage (IndexedDB on web) hasn't
 // flushed the new token by the time the next request reads it.
 let _authToken: string | null = null;
+let _adminStepUpToken: string | null = null;
+let _adminStepUpExpiresAt = 0;
+type AdminStepUpRequiredHandler = () => void;
+let _onAdminStepUpRequired: AdminStepUpRequiredHandler | null = null;
+
+export function setAdminStepUpToken(token: string | null, expiresInSeconds = 0) {
+  _adminStepUpToken = token;
+  _adminStepUpExpiresAt = token ? Date.now() + Math.max(0, expiresInSeconds) * 1000 : 0;
+}
+
+export function getAdminStepUpToken(): string | null {
+  if (_adminStepUpToken && Date.now() >= _adminStepUpExpiresAt) {
+    setAdminStepUpToken(null);
+  }
+  return _adminStepUpToken;
+}
+
+export function setAdminStepUpRequiredHandler(handler: AdminStepUpRequiredHandler | null) {
+  _onAdminStepUpRequired = handler;
+}
+
+function isAdminRequest(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/");
+}
 
 export function setAuthToken(token: string | null) {
   _authToken = token;
+  if (!token) setAdminStepUpToken(null);
 }
 
 export function getAuthToken(): string | null {
@@ -90,6 +115,8 @@ async function request<T = any>(
     }
     if (token) h["Authorization"] = `Bearer ${token}`;
   }
+  const adminStepUpToken = isAdminRequest(path) ? getAdminStepUpToken() : null;
+  if (adminStepUpToken) h["X-Admin-Step-Up"] = adminStepUpToken;
   if (pwdConfirm) h["X-Password-Confirm"] = pwdConfirm;
   const res = await fetch(`${BASE}/api${path}`, {
     ...rest,
@@ -153,6 +180,10 @@ async function request<T = any>(
         try { _onActivationRequired(); } catch { /* ignore handler bugs */ }
       }
     }
+    if (res.status === 403 && (message === "ADMIN_2FA_REQUIRED" || message === "ADMIN_2FA_SETUP_REQUIRED")) {
+      setAdminStepUpToken(null);
+      try { _onAdminStepUpRequired?.(); } catch { /* ignore handler failures */ }
+    }
     const err: ApiError = { detail: message, status: res.status };
     throw err;
   }
@@ -185,6 +216,8 @@ export const api = {
     }
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    const adminStepUpToken = isAdminRequest(p) ? getAdminStepUpToken() : null;
+    if (adminStepUpToken) headers["X-Admin-Step-Up"] = adminStepUpToken;
     const res = await fetch(`${BASE}/api${p}`, { method: "POST", headers, body: fd as any, ...(isChat ? { credentials: "include" as RequestCredentials } : {}) });
     const text = await res.text();
     let data: any = null;
@@ -193,7 +226,12 @@ export const api = {
       if (isChat && res.status === 401) {
         reportChatUnauthorized();
       }
-      const err: ApiError = { detail: (data && (data.detail || data.msg)) || `Upload failed (${res.status})`, status: res.status };
+      const message = (data && (data.detail || data.msg)) || `Upload failed (${res.status})`;
+      if (res.status === 403 && (message === "ADMIN_2FA_REQUIRED" || message === "ADMIN_2FA_SETUP_REQUIRED")) {
+        setAdminStepUpToken(null);
+        try { _onAdminStepUpRequired?.(); } catch { /* ignore handler failures */ }
+      }
+      const err: ApiError = { detail: message, status: res.status };
       throw err;
     }
     return data as T;

@@ -38,6 +38,7 @@ from auth import (  # noqa: E402
     hash_password, verify_password, create_access_token, create_pwd_confirm_token,
     get_current_user, require_admin, require_pwd_confirm,
 )
+from admin_two_factor import router as admin_two_factor_router  # noqa: E402
 from levels import LEVELS, LEVELS_BY_NUM, COUNTRIES, OPERATORS_BY_COUNTRY  # noqa: E402
 
 
@@ -97,6 +98,7 @@ async def lifespan(app: FastAPI):
     await db.users.create_index("username", unique=True)
     await db.users.create_index("sponsor_id")
     await db.users.create_index("status")
+    await db.admin_mfa.create_index("user_id", unique=True)
     # v27ao (2026-03-04) — per-user per-listing seen tracking for the
     # WhatsApp-style Marketplace ring. Unique on (user_id, listing_id)
     # so repeated POSTs are naturally idempotent.
@@ -4703,6 +4705,7 @@ async def _verify_ashtec_payment(p: dict, order_id: str, request: Request) -> di
 
 
 api.include_router(admin_router)
+api.include_router(admin_two_factor_router)
 app.include_router(api)
 
 # Digital content (formations, ebooks, premium apps, trading) — registered separately

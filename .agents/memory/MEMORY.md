@@ -14,3 +14,4 @@
 - [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.
 - [Nouvelle APK Android officielle](apk-expo-native.md) — Capacitor remplace Expo après une désinstallation unique ; garder la nouvelle clé pour toutes les mises à jour.
 - [Front embarqué Capacitor](capacitor-prototype-policy.md) — embarquer l’interface, garder l’API sur le VPS et préserver une origine compatible avec les cookies du Chat.
+- [Double authentification admin](admin-mfa-policy.md) — l’accès admin caché reste protégé par TOTP et une validation serveur sur toutes les routes admin.

@@ -43,7 +43,7 @@ export default function AppLayout() {
   const [payChatStatus, setPayChatStatus] = useState<"idle" | "checking" | "done">("idle");
 
   const isPending = useMemo(() => {
-    if (!user) return false;
+    if (!user || user.role === "admin") return false;
     return user.status === "pending" && (user.max_level || 0) === 0;
   }, [user]);
 
@@ -55,7 +55,7 @@ export default function AppLayout() {
     if (!user) return false;
     return user.status === "active" && (user.max_level || 0) >= 1;
   }, [user]);
-  const needsAccountAccess = !!user && user.auth_flow_version === 2 && isActivated &&
+  const needsAccountAccess = !!user && user.role !== "admin" && user.auth_flow_version === 2 && isActivated &&
     !user.main_password_created;
 
   // v27d (2026-02-14) — compute the "bounce" decision at render time so

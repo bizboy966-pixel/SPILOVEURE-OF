@@ -1,15 +1,46 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
+import { AdminTwoFactorGate } from "@/src/components/admin/AdminTwoFactorGate";
+import { setAdminStepUpToken } from "@/src/api";
 
 export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { user, signOut } = useAuth();
   const { t } = useI18n();
   const router = useRouter();
+  const [adminGateOpen, setAdminGateOpen] = useState(false);
+  const levelTaps = useRef(0);
+  const levelTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openAdminGate = () => {
+    if (user?.role !== "admin") return;
+    if (levelTapTimer.current) clearTimeout(levelTapTimer.current);
+    levelTaps.current = 0;
+    onClose();
+    setAdminGateOpen(true);
+  };
+
+  const onLevelPress = () => {
+    if (user?.role !== "admin") return;
+    if (levelTapTimer.current) clearTimeout(levelTapTimer.current);
+    levelTaps.current += 1;
+    if (levelTaps.current >= 4) {
+      openAdminGate();
+      return;
+    }
+    levelTapTimer.current = setTimeout(() => {
+      levelTaps.current = 0;
+      levelTapTimer.current = null;
+    }, 2200);
+  };
+
+  React.useEffect(() => () => {
+    if (levelTapTimer.current) clearTimeout(levelTapTimer.current);
+  }, []);
 
   const go = (path: any) => {
     onClose();
@@ -41,6 +72,7 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
   ];
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.panel} onPress={() => {}}>
@@ -56,9 +88,26 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.username}>{user?.username}</Text>
-              <View style={styles.levelPill}>
-                <Text style={styles.levelPillText}>{t("menu.level", { level: user?.max_level ?? 0 })}</Text>
-              </View>
+              {user?.role === "admin" ? (
+                <TouchableOpacity
+                  onPress={onLevelPress}
+                  style={styles.levelPill}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("menu.level", { level: user?.max_level ?? 0 })}
+                  accessibilityHint="Appuyez quatre fois rapidement pour demander la vérification administrateur."
+                  accessibilityActions={[{ name: "verify-admin-access", label: "Vérifier l’accès administrateur" }]}
+                  onAccessibilityAction={(event) => {
+                    if (event.nativeEvent.actionName === "verify-admin-access") openAdminGate();
+                  }}
+                  testID="menu-admin-level-trigger"
+                >
+                  <Text style={styles.levelPillText}>{t("menu.level", { level: user?.max_level ?? 0 })}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.levelPill}>
+                  <Text style={styles.levelPillText}>{t("menu.level", { level: user?.max_level ?? 0 })}</Text>
+                </View>
+              )}
             </View>
           </View>
           <ScrollView style={{ flex: 1 }}>
@@ -76,19 +125,6 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             ))}
-            {user?.role === "admin" && (
-              <TouchableOpacity
-                style={styles.item}
-                onPress={() => go("/(admin)")}
-                testID="menu-admin"
-              >
-                <View style={[styles.itemIcon, { backgroundColor: "#1B5BFF22" }]}>
-                  <Ionicons name="shield-checkmark" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={styles.itemLabel}>{t("menu.admin")}</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            )}
             <TouchableOpacity
               style={[styles.item, { marginTop: 4 }]}
               onPress={refreshPage}
@@ -119,6 +155,18 @@ export function SideMenu({ visible, onClose }: { visible: boolean; onClose: () =
         </Pressable>
       </Pressable>
     </Modal>
+    <AdminTwoFactorGate
+      visible={adminGateOpen}
+      username={user?.username}
+      onClose={() => setAdminGateOpen(false)}
+      onSuccess={(token, expiresIn) => {
+        setAdminStepUpToken(token, expiresIn);
+        setAdminGateOpen(false);
+        onClose();
+        router.push("/(admin)" as any);
+      }}
+    />
+    </>
   );
 }
 
