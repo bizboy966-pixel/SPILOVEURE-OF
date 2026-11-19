@@ -44,6 +44,7 @@ class _MockTelegramClient:
         method = url.rsplit("/", 1)[-1]
         result = {
             "getMe": {"id": 123, "is_bot": True, "first_name": "SPILOVEURE", "username": "spiloveure_bot"},
+            "getChat": {"id": 24680, "type": "private", "first_name": "Admin"},
             "getWebhookInfo": {"url": "https://spiloveure.example/api/webhooks/telegram"},
             "setWebhook": True,
             "sendMessage": {"message_id": 456},
@@ -71,18 +72,29 @@ def test_admin_token_lifecycle_encrypts_secret_and_verifies_with_telegram(monkey
 
     saved = client.post("/api/admin/telegram-bot/token", json={"token": BOT_TOKEN})
     assert saved.status_code == 200
+    assert saved.json()["webhook_configured"] is True
     assert BOT_TOKEN not in saved.text
     stored = asyncio.run(db.app_settings.find_one({"key": telegram.TOKEN_SETTINGS_KEY}))
     encrypted = stored["value"]["token_enc"]
     assert BOT_TOKEN not in encrypted
     assert asyncio.run(telegram._token(db)) == BOT_TOKEN
-    asyncio.run(telegram._store_config(db, {"group_chat_id": "-10042", "group_title": "SPILOVEURE"}))
+    asyncio.run(telegram._store_config(db, {
+        "group_chat_id": "-10042", "group_title": "SPILOVEURE",
+        "notification_chat_id": "24680", "notification_chat_title": "Admin",
+    }))
     asyncio.run(db.marketplace_listings.insert_one({
         "id": "listing-1", "name": "Annonce", "seller_username": "seller",
         "status": "pending_admin_review",
     }))
     assert asyncio.run(telegram.notify_submission(db, "marketplace", "listing-1")) is True
-    assert any(f"/bot{BOT_TOKEN}/sendMessage" in url for url, _payload in _MockTelegramClient.calls)
+    moderation_message = next(
+        payload for url, payload in _MockTelegramClient.calls
+        if url.endswith("/sendMessage") and payload.get("reply_markup")
+    )
+    assert moderation_message["chat_id"] == "24680"
+    assert f"/bot{BOT_TOKEN}/sendMessage" in next(
+        url for url, payload in _MockTelegramClient.calls if payload is moderation_message
+    )
 
     status = client.get("/api/admin/telegram-bot")
     assert status.status_code == 200
@@ -106,6 +118,49 @@ def test_admin_token_lifecycle_encrypts_secret_and_verifies_with_telegram(monkey
     assert BOT_TOKEN not in repr(set_webhook)
 
 
+def test_start_replies_with_chat_id_and_admin_can_save_notification_chat(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET", STRONG_SESSION_SECRET)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    client, db = _test_client(monkeypatch)
+    assert client.post("/api/admin/telegram-bot/token", json={"token": BOT_TOKEN}).status_code == 200
+    webhook_secret = telegram._webhook_secret(BOT_TOKEN)
+
+    started = client.post(
+        "/api/webhooks/telegram",
+        json={"message": {"text": "/start@spiloveure_bot", "chat": {"id": 24680, "type": "private"}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": webhook_secret},
+    )
+    assert started.status_code == 200
+    start_reply = next(
+        payload for url, payload in _MockTelegramClient.calls
+        if url.endswith("/sendMessage") and "ID de ce chat" in payload.get("text", "")
+    )
+    assert start_reply["chat_id"] == "24680"
+    assert "ID de ce chat : 24680" in start_reply["text"]
+
+    saved = client.post("/api/admin/telegram-bot/chat-id", json={"chat_id": "24680"})
+    assert saved.status_code == 200
+    assert saved.json()["notification_chat_id"] == "24680"
+    assert saved.json()["notification_chat_title"] == "Admin"
+    confirmation = next(
+        payload for url, payload in _MockTelegramClient.calls
+        if url.endswith("/sendMessage") and "Connexion SPILOVEURE confirmée" in payload.get("text", "")
+    )
+    assert confirmation["chat_id"] == "24680"
+    status = client.get("/api/admin/telegram-bot").json()
+    assert status["notification_chat_id"] == "24680"
+    assert status["notification_chat_title"] == "Admin"
+
+
+def test_admin_rejects_invalid_telegram_chat_id(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET", STRONG_SESSION_SECRET)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    client, _db = _test_client(monkeypatch)
+    assert client.post("/api/admin/telegram-bot/token", json={"token": BOT_TOKEN}).status_code == 200
+    response = client.post("/api/admin/telegram-bot/chat-id", json={"chat_id": "not-a-number"})
+    assert response.status_code == 400
+
+
 def test_webhook_uses_saved_token_and_rejects_old_or_missing_secret(monkeypatch):
     monkeypatch.setenv("SESSION_SECRET", STRONG_SESSION_SECRET)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -120,6 +175,12 @@ def test_webhook_uses_saved_token_and_rejects_old_or_missing_secret(monkeypatch)
     )
     assert accepted.status_code == 200
     assert accepted.json() == {"ok": True}
+    empty_message = client.post(
+        "/api/webhooks/telegram",
+        json={"message": {"text": "   ", "chat": {"id": 42, "type": "private"}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": webhook_secret},
+    )
+    assert empty_message.status_code == 200
     rejected = client.post("/api/webhooks/telegram", json={"update_id": 8})
     assert rejected.status_code == 401
     old_secret = client.post(
@@ -146,8 +207,8 @@ def test_replacing_token_invalidates_old_webhook_secret_and_bot_status(monkeypat
     assert REPLACEMENT_BOT_TOKEN not in replaced.text
     status = client.get("/api/admin/telegram-bot").json()
     assert status["token_configured"] is True
-    assert status["bot_verified"] is False
-    assert status["webhook_configured"] is False
+    assert status["bot_verified"] is True
+    assert status["webhook_configured"] is True
 
     old_secret = client.post(
         "/api/webhooks/telegram",

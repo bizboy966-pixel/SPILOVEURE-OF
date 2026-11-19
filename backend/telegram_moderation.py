@@ -151,6 +151,10 @@ async def _store_config(db, changes: dict) -> dict:
     return cfg
 
 
+def _notification_chat_id(cfg: dict) -> str:
+    return str(cfg.get("notification_chat_id") or cfg.get("group_chat_id") or "")
+
+
 async def _bot_call(method: str, payload: dict, db) -> dict:
     token = await _token(db)
     if not token:
@@ -233,7 +237,12 @@ def _collect_media(item: dict) -> list[tuple[str, str]]:
 def _summary(kind: str, item: dict) -> str:
     title = item.get("name") if kind == "marketplace" else item.get("title")
     owner = item.get("seller_username") or item.get("username") or item.get("creator_username") or "utilisateur"
-    parts = [f"Nouvelle soumission — {kind.replace('_', ' ').title()}",
+    category_label = {
+        "marketplace": "Marketplace",
+        "ads": "Publicité",
+        "special_task": "Tâche spéciale",
+    }.get(kind, "Publication")
+    parts = [f"Nouvelle soumission — {category_label}",
              f"Publication : {str(title or item.get('action_type') or 'Sans titre')[:180]}",
              f"Auteur : @{str(owner)[:80]}"]
     if kind == "marketplace":
@@ -264,7 +273,7 @@ def _summary(kind: str, item: dict) -> str:
 
 async def notify_submission(db, kind: str, item_id: str) -> bool:
     cfg = await _config(db)
-    chat_id = cfg.get("group_chat_id")
+    chat_id = _notification_chat_id(cfg)
     if not await _token(db) or not chat_id:
         return False
     source = {"marketplace": "marketplace_listings", "ads": "ads",
@@ -374,13 +383,18 @@ async def _answer_callback(update: dict, db) -> None:
         return
     token, decision = match.groups()
     message = query.get("message") or {}
+    message_chat_id = str((message.get("chat") or {}).get("id") or "")
     cfg = await _config(db)
-    if str((message.get("chat") or {}).get("id")) != str(cfg.get("group_chat_id")):
-        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Groupe non autorisé.", "show_alert": True}, db)
+    allowed_chat_ids = {
+        str(value) for value in (cfg.get("notification_chat_id"), cfg.get("group_chat_id"))
+        if value is not None and str(value)
+    }
+    if message_chat_id not in allowed_chat_ids:
+        await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Chat non autorisé.", "show_alert": True}, db)
         return
     action = await db.telegram_moderation_actions.find_one(
         {"token": token, "status": "pending", "message_id": message.get("message_id"),
-         "chat_id": str(cfg.get("group_chat_id")), "expires_at": {"$gt": datetime.now(timezone.utc)}})
+         "chat_id": message_chat_id, "expires_at": {"$gt": datetime.now(timezone.utc)}})
     if not action:
         await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "Déjà traité ou expiré.", "show_alert": True}, db)
         return
@@ -401,7 +415,7 @@ async def _answer_callback(update: dict, db) -> None:
             {"$set": {"status": "stale", "error_code": exc.status_code}})
         await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": "La publication n’est plus en attente.", "show_alert": True}, db)
         await _bot_call("editMessageReplyMarkup", {
-            "chat_id": cfg.get("group_chat_id"), "message_id": message.get("message_id"),
+            "chat_id": message_chat_id, "message_id": message.get("message_id"),
             "reply_markup": {"inline_keyboard": []}}, db)
         return
     await db.telegram_moderation_actions.update_one(
@@ -410,10 +424,10 @@ async def _answer_callback(update: dict, db) -> None:
     suffix = "validée" if decision == "approve" else "rejetée"
     await _bot_call("answerCallbackQuery", {"callback_query_id": query_id, "text": f"Publication {suffix}."}, db)
     await _bot_call("editMessageReplyMarkup", {
-        "chat_id": cfg.get("group_chat_id"), "message_id": message.get("message_id"),
+        "chat_id": message_chat_id, "message_id": message.get("message_id"),
         "reply_markup": {"inline_keyboard": []}}, db)
     try:
-        await _bot_call("sendMessage", {"chat_id": cfg.get("group_chat_id"),
+        await _bot_call("sendMessage", {"chat_id": message_chat_id,
             "text": f"Décision : publication {suffix} par @{((query.get('from') or {}).get('username') or 'membre')}."}, db)
     except HTTPException:
         pass
@@ -452,6 +466,22 @@ async def _link_group(update: dict, db) -> None:
         "Groupe SPILOVEURE lié. Tous les membres peuvent valider ou rejeter les publications avec les boutons."}, db)
 
 
+async def _reply_to_start(update: dict, db) -> None:
+    message = update.get("message") or {}
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return
+    await _bot_call("sendMessage", {
+        "chat_id": str(chat_id),
+        "text": (
+            "Le bot SPILOVEURE est actif.\n"
+            f"ID de ce chat : {chat_id}\n"
+            "Copiez cet identifiant dans l’admin panel pour recevoir les notifications."
+        ),
+    }, db)
+
+
 @webhook.post("")
 async def telegram_webhook(request: Request,
                            secret: Optional[str] = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token")):
@@ -462,8 +492,14 @@ async def telegram_webhook(request: Request,
     update = await request.json()
     if isinstance(update, dict) and update.get("callback_query"):
         await _answer_callback(update, db)
-    elif isinstance(update, dict) and str((update.get("message") or {}).get("text") or "").split("@", 1)[0].split(" ", 1)[0].strip() == "/link":
-        await _link_group(update, db)
+    elif isinstance(update, dict):
+        message = update.get("message") or {}
+        command_parts = str(message.get("text") or "").strip().split(maxsplit=1)
+        command = command_parts[0].split("@", 1)[0].lower() if command_parts else ""
+        if command == "/start":
+            await _reply_to_start(update, db)
+        elif command == "/link":
+            await _link_group(update, db)
     return JSONResponse({"ok": True})
 
 
@@ -489,6 +525,8 @@ async def admin_get(request: Request):
         "bot_name": cfg.get("bot_name") or "",
         "group_chat_id": cfg.get("group_chat_id") or "",
         "group_title": cfg.get("group_title") or "",
+        "notification_chat_id": cfg.get("notification_chat_id") or "",
+        "notification_chat_title": cfg.get("notification_chat_title") or "",
         "group_link_code": cfg.get("link_code") or "",
         "group_link_code_expires_at": code_expiry.isoformat() if code_expiry else "",
         "webhook_configured": bool(cfg.get("webhook_configured_at")),
@@ -520,7 +558,44 @@ async def admin_save_token(request: Request):
                     "value.bot_username": "", "value.bot_name": "",
                     "value.webhook_configured_at": "", "value.webhook_url": ""}},
     )
-    return {"ok": True, "token_configured": True}
+    webhook_configured = False
+    if _public_url().startswith("https://"):
+        try:
+            await _configure_webhook(db)
+            webhook_configured = True
+        except HTTPException as exc:
+            log.warning("Telegram webhook could not be configured after token save (HTTP %s)", exc.status_code)
+    return {
+        "ok": True,
+        "token_configured": True,
+        "webhook_configured": webhook_configured,
+    }
+
+
+@admin.post("/chat-id")
+async def admin_save_chat_id(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    chat_id = str(body.get("chat_id") or "").strip() if isinstance(body, dict) else ""
+    if not re.fullmatch(r"-?[0-9]{1,20}", chat_id):
+        raise HTTPException(400, "ID de chat invalide. Utilisez l’identifiant numérique envoyé par le bot.")
+    db = request.app.state.db
+    if not await _token(db):
+        raise HTTPException(503, "Enregistrez et vérifiez d’abord le jeton du bot.")
+    chat = await _bot_call("getChat", {"chat_id": chat_id}, db)
+    await _bot_call("sendMessage", {
+        "chat_id": chat_id,
+        "text": "Connexion SPILOVEURE confirmée. Ce chat recevra les notifications du bot.",
+    }, db)
+    title = str(chat.get("title") or chat.get("username") or chat.get("first_name") or "")[:120]
+    await _store_config(db, {
+        "notification_chat_id": chat_id,
+        "notification_chat_title": title,
+        "notification_chat_verified_at": datetime.now(timezone.utc),
+    })
+    return {"ok": True, "notification_chat_id": chat_id, "notification_chat_title": title}
 
 
 async def _verify_bot(db) -> dict:
@@ -540,6 +615,30 @@ async def _verify_bot(db) -> dict:
         "bot_username": values["bot_username"],
         "bot_name": values["bot_name"],
     }
+
+
+async def _configure_webhook(db) -> str:
+    token = await _token(db)
+    base = _public_url()
+    if not token:
+        raise HTTPException(503, "Enregistrez le jeton du bot dans Réglages ou configurez TELEGRAM_BOT_TOKEN.")
+    if not base.startswith("https://"):
+        raise HTTPException(
+            503,
+            "Configurez TELEGRAM_PUBLIC_URL avec le domaine HTTPS public qui héberge le webhook du bot.",
+        )
+    url = f"{base}/api/webhooks/telegram"
+    await _verify_bot(db)
+    await _bot_call("setWebhook", {
+        "url": url, "secret_token": _webhook_secret(token),
+        "allowed_updates": ["message", "callback_query"],
+        "drop_pending_updates": False,
+    }, db)
+    await _store_config(db, {
+        "webhook_configured_at": datetime.now(timezone.utc),
+        "webhook_url": url,
+    })
+    return url
 
 
 @admin.post("/verify")
@@ -568,27 +667,8 @@ async def admin_verify_token(request: Request):
 @admin.post("/configure")
 async def admin_configure(request: Request):
     db = request.app.state.db
-    token = await _token(db)
-    base = _public_url()
-    if not token:
-        raise HTTPException(503, "Enregistrez le jeton du bot dans Réglages ou configurez TELEGRAM_BOT_TOKEN.")
-    if not base.startswith("https://"):
-        raise HTTPException(
-            503,
-            "Configurez TELEGRAM_PUBLIC_URL avec le domaine HTTPS public qui héberge le webhook du bot.",
-        )
-    url = f"{base}/api/webhooks/telegram"
-    await _verify_bot(db)
-    result = await _bot_call("setWebhook", {
-        "url": url, "secret_token": _webhook_secret(token),
-        "allowed_updates": ["message", "callback_query"],
-        "drop_pending_updates": False,
-    }, db)
-    await _store_config(db, {
-        "webhook_configured_at": datetime.now(timezone.utc),
-        "webhook_url": url,
-    })
-    return {"ok": True, "webhook_configured": True, "url": url, "result": bool(result)}
+    url = await _configure_webhook(db)
+    return {"ok": True, "webhook_configured": True, "url": url}
 
 
 @admin.post("/notify-pending")

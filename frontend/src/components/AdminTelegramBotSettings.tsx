@@ -13,6 +13,8 @@ type BotStatus = {
   bot_name?: string;
   group_chat_id?: string;
   group_title?: string;
+  notification_chat_id?: string;
+  notification_chat_title?: string;
   group_link_code?: string;
   group_link_code_expires_at?: string;
   webhook_configured?: boolean;
@@ -23,6 +25,7 @@ type BotStatus = {
 export default function AdminTelegramBotSettings() {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [token, setToken] = useState("");
+  const [chatId, setChatId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -47,9 +50,16 @@ export default function AdminTelegramBotSettings() {
     setError("");
     setNotice("");
     try {
-      await api.post("/admin/telegram-bot/token", { token: token.trim() });
+      const result = await api.post<{ webhook_configured?: boolean }>(
+        "/admin/telegram-bot/token",
+        { token: token.trim() },
+      );
       setToken("");
-      setNotice("Jeton enregistré de façon chiffrée. Vérifiez ensuite le bot auprès de Telegram.");
+      setNotice(
+        result.webhook_configured
+          ? "Jeton enregistré et webhook connecté. Envoie /start au bot pour recevoir l’ID de chat."
+          : "Jeton enregistré de façon chiffrée. Connectez le webhook avant d’envoyer /start au bot.",
+      );
       await refresh();
     } catch (e: any) {
       setError(e?.detail || e?.message || "Impossible d’enregistrer le jeton.");
@@ -84,10 +94,37 @@ export default function AdminTelegramBotSettings() {
     setNotice("");
     try {
       await api.post("/admin/telegram-bot/configure", {});
-      setNotice("Webhook connecté. Ajoute le bot au groupe puis envoie /link CODE dans le groupe depuis un compte administrateur.");
+      setNotice("Webhook connecté. Envoie /start au bot, puis copie l’ID de chat qu’il te renvoie ci-dessous.");
       await refresh();
     } catch (e: any) {
       setError(e?.detail || e?.message || "La connexion du webhook a échoué.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveChatId = async () => {
+    if (!chatId.trim()) {
+      setError("Saisissez l’ID numérique renvoyé par le bot après /start.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const saved = await api.post<{ notification_chat_title?: string }>(
+        "/admin/telegram-bot/chat-id",
+        { chat_id: chatId.trim() },
+      );
+      setChatId("");
+      setNotice(
+        saved.notification_chat_title
+          ? `Chat enregistré : ${saved.notification_chat_title}. Un message de confirmation a été envoyé.`
+          : "Chat enregistré. Un message de confirmation a été envoyé.",
+      );
+      await refresh();
+    } catch (e: any) {
+      setError(e?.detail || e?.message || "Impossible d’enregistrer cet ID de chat.");
     } finally {
       setBusy(false);
     }
@@ -100,7 +137,7 @@ export default function AdminTelegramBotSettings() {
       </Text>
       <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
         Enregistrez le jeton du bot ici. Il est masqué dans ce formulaire et chiffré sur le serveur.
-        Les annonces, publicités payées et tâches spéciales payées continueront d’utiliser le groupe lié.
+        Les publications à modérer sont envoyées au chat cible enregistré, ou au groupe lié si aucun chat cible n’est défini.
       </Text>
 
       <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: "700", marginTop: 12, marginBottom: 5 }}>
@@ -160,6 +197,11 @@ export default function AdminTelegramBotSettings() {
             <Text testID="status-telegram-group" style={{ color: theme.colors.textPrimary, fontSize: 13, marginTop: 4 }}>
               Groupe : {status.group_title ? `${status.group_title} (${status.group_chat_id})` : "pas encore relié"}
             </Text>
+            <Text testID="status-telegram-notification-chat" style={{ color: theme.colors.textPrimary, fontSize: 13, marginTop: 4 }}>
+              Chat cible : {status.notification_chat_id
+                ? `${status.notification_chat_title || "configuré"} (${status.notification_chat_id})`
+                : "pas encore enregistré"}
+            </Text>
             {!status.group_chat_id && status.group_link_code ? (
               <Text selectable style={{ color: theme.colors.primary, fontSize: 15, fontWeight: "900", marginTop: 8 }}>
                 Code de liaison temporaire : {status.group_link_code}
@@ -172,6 +214,41 @@ export default function AdminTelegramBotSettings() {
             ) : null}
           </>
         ) : null}
+      </View>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 10 }}>
+        Après connexion du webhook, envoie /start au bot. Copie l’ID qu’il renvoie ici ; l’enregistrement vérifie l’accès et envoie un message de confirmation.
+      </Text>
+      <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: "700", marginTop: 10, marginBottom: 5 }}>
+        ID de chat Telegram
+      </Text>
+      <TextInput
+        value={chatId}
+        onChangeText={setChatId}
+        placeholder={status?.notification_chat_id || "Ex. 123456789 ou -1001234567890"}
+        placeholderTextColor={theme.colors.textSecondary}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="numbers-and-punctuation"
+        accessibilityLabel="ID de chat Telegram"
+        testID="input-telegram-chat-id"
+        style={{
+          borderWidth: 1,
+          borderColor: theme.colors.borderStrong,
+          borderRadius: 10,
+          backgroundColor: theme.colors.surface,
+          color: theme.colors.textPrimary,
+          paddingHorizontal: 12,
+          paddingVertical: 12,
+          fontSize: 14,
+        }}
+      />
+      <View style={{ marginTop: 8 }}>
+        <Button
+          title={busy ? "Enregistrement…" : "Enregistrer l’ID du chat"}
+          onPress={saveChatId}
+          disabled={busy || !chatId.trim() || !status?.token_configured}
+          testID="button-save-telegram-chat-id"
+        />
       </View>
       {status?.webhook_url ? (
         <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 6 }}>

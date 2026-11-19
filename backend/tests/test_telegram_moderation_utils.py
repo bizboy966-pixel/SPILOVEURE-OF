@@ -54,8 +54,18 @@ def test_moderation_summary_does_not_share_seller_phone():
         "description": "Annonce publique",
     })
     assert "Produit" in message
+    assert "Nouvelle soumission — Marketplace" in message
     assert "vendeur" in message
     assert "+22890000000" not in message
+
+
+def test_moderation_summary_uses_french_advertising_label():
+    message = _summary("ads", {
+        "title": "Annonce sponsorisée", "username": "annonceur",
+        "duration_days": 7, "video_url": "",
+    })
+    assert "Nouvelle soumission — Publicité" in message
+    assert "Nouvelle soumission — Ads" not in message
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@
 - [Contrat Biz-transPay](biztranspay-contract.md) — catalogues par sens et compte marchand ; aucun POST financier pour tester des identifiants.
 - [Routage exclusif Mobile Money](payment-routing-policy.md) — un prestataire par pays + opérateur physique ; suivi conservé chez le prestataire d’origine.
 - [Modération du groupe Telegram](telegram-moderation-policy.md) — tous les membres du groupe lié peuvent voter ; le rejet d’une tâche payée signale un remboursement manuel.
+- [Configuration du bot Telegram](telegram-bot-setup.md) — `/start` doit retourner l’ID du chat ; l’admin le sauvegarde pour recevoir les notifications.
 - [Notifications du Chat](chat-notifications-policy.md) — web d’abord ; distinguer sons locaux, push et sonneries Android ; marquer non lu ne révoque pas les lectures.
 - [Récupération du mot de passe](password-recovery-policy.md) — révoquer les accès antérieurs sans bloquer une reconnexion immédiate ni contourner l’activation.
 - [Compatibilité native du Chat](chat-native-compatibility.md) — window existe aussi dans React Native ; les événements DOM exigent une garde web explicite.

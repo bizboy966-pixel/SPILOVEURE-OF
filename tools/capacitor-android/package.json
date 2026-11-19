@@ -1,13 +1,13 @@
 {
   "name": "@workspace/capacitor-android",
-  "version": "1.1.13",
+  "version": "1.1.14",
   "private": true,
   "scripts": {
     "prepare:web": "node prepare-web.cjs",
     "icons:generate": "bash ./generate-icon-assets.sh",
     "sync": "pnpm run prepare:web && cap sync android",
     "apk:debug": "pnpm run sync && cd android && ./gradlew :app:assembleDebug",
-    "apk:release": "pnpm run sync && cd android && ./gradlew :app:assembleRelease && mkdir -p ../../../generated-artifacts/spiloveure && cp app/build/outputs/apk/release/app-release.apk ../../../generated-artifacts/spiloveure/SPILOVEURE-1.1.13.apk",
+    "apk:release": "pnpm run sync && cd android && ./gradlew :app:assembleRelease && mkdir -p ../../../generated-artifacts/spiloveure && cp app/build/outputs/apk/release/app-release.apk ../../../generated-artifacts/spiloveure/SPILOVEURE-1.1.14.apk",
     "apk": "pnpm run apk:release",
     "test": "node --test test/*.test.cjs"
   },

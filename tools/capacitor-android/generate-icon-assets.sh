@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$ROOT/branding/app-icon-source.png"
+BACKGROUND="$ROOT/branding/app-icon-background.png"
 RESOURCE="$ROOT/android/app/src/main/res"
 
 if ! command -v magick >/dev/null 2>&1; then
@@ -14,30 +15,32 @@ if [[ ! -f "$SOURCE" ]]; then
   echo "Icon source not found: $SOURCE" >&2
   exit 1
 fi
+if [[ ! -f "$BACKGROUND" ]]; then
+  echo "Icon background not found: $BACKGROUND" >&2
+  exit 1
+fi
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-# Keep the original blue/gold illustration as a soft, full-bleed background.
-magick "$SOURCE" -resize 512x512\! -gaussian-blur 0x22 \
-  -modulate 86,118,100 -resize 1024x1024\! -depth 8 -strip \
+# Keep a crisp, full-bleed blue/gold illustration behind the logo.
+magick "$BACKGROUND" -resize 1024x1024\! -depth 8 -strip \
   "PNG24:$TEMP_DIR/background.png"
 mkdir -p "$RESOURCE/drawable-nodpi"
 cp "$TEMP_DIR/background.png" "$RESOURCE/drawable-nodpi/launcher_background_art.png"
 
+# Remove only the connected dark backdrop from the supplied logo, preserving
+# the sharp lettering and symbols as transparent foreground artwork.
+magick "$SOURCE" -alpha set -fuzz 24% -fill none \
+  -draw 'color 0,0 floodfill' -depth 8 "PNG32:$TEMP_DIR/foreground-source.png"
+
 make_foreground_content() {
   local size="$1"
-  local inner=$((size * 82 / 100))
+  local inner=$((size * 92 / 100))
   local offset=$(((size - inner) / 2))
-  local mask_size=$((inner * 4))
-  local radius=$((mask_size * 20 / 100))
 
-  magick "$SOURCE" -resize "${inner}x${inner}\!" "$TEMP_DIR/source.png"
-  magick -size "${mask_size}x${mask_size}" xc:black -fill white \
-    -draw "roundrectangle 0,0 $((mask_size - 1)),$((mask_size - 1)) $radius,$radius" \
-    -resize "${inner}x${inner}\!" "$TEMP_DIR/mask.png"
-  magick "$TEMP_DIR/source.png" "$TEMP_DIR/mask.png" \
-    -compose CopyOpacity -composite -depth 8 "PNG32:$TEMP_DIR/content.png"
+  magick "$TEMP_DIR/foreground-source.png" -resize "${inner}x${inner}\!" \
+    -depth 8 "PNG32:$TEMP_DIR/content.png"
   printf '%s %s\n' "$inner" "$offset"
 }
 
@@ -64,4 +67,4 @@ xxhdpi 324 144
 xxxhdpi 432 192
 DENSITIES
 
-echo "Generated Android launcher icons with a full-bleed illustration and safe logo margins."
+echo "Generated sharp Android launcher icons with a full-bleed illustration and safe logo margins."
