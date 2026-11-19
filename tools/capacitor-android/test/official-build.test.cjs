@@ -40,8 +40,9 @@ test("official Capacitor identity matches Expo package and embeds the frontend",
   assert.equal(config.android.allowMixedContent, false);
   assert.equal(config.plugins.CapacitorHttp.enabled, true);
   assert.ok(gradle.includes(`applicationId "${config.appId}"`));
-  assert.ok(gradle.includes('versionCode 18'));
-  assert.ok(gradle.includes('versionName "1.1.17"'));
+  assert.ok(gradle.includes('versionCode 19'));
+  assert.ok(gradle.includes('versionName "1.1.18"'));
+  assert.equal(JSON.parse(local("package.json")).version, "1.1.18");
   assert.match(read("tools/capacitor-android/package.json"), /"apk:release": "node \.\/release-official\.cjs"/);
   assert.match(read("tools/capacitor-android/package.json"), /"apk:debug": "[^"]*assembleDebug/);
   for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"]) {

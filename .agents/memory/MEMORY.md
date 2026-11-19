@@ -18,3 +18,4 @@
 - [Double authentification admin](admin-mfa-policy.md) — l’accès admin caché reste protégé par TOTP et une validation serveur sur toutes les routes admin.
 - [Rattachement des catalogues prestataires](payment-provider-admin-layout.md) — garder visibles les réglages et rattacher visuellement chaque configuration API à son catalogue pays/opérateurs.
 - [Icône Android SPILOVEURE](android-launcher-icon.md) — conserver le fond illustré en plein écran tout en gardant le nom et les cinq pictogrammes dans la zone visible.
+- [Builds Android lents](android-build-performance.md) — Metro et Gradle peuvent rester silencieux longtemps; les lancer en arrière-plan et vérifier les marqueurs réels.
