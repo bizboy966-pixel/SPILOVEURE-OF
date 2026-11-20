@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Animated, Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
+import { Animated, AppState, Modal, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { theme } from "../theme";
@@ -7,6 +7,8 @@ import { api } from "../api";
 import { useActivationGuard } from "./ActivationGuard";
 import { useAuth } from "../auth";
 import { useNavigationTransition } from "../messenger/NavigationTransition";
+import { messengerApi } from "../messenger/api";
+import { sumUnreadMessages, unreadBadgeLabel } from "../messenger/unreadBadge";
 import { useChat } from "../chat/ChatContext";
 import { useI18n } from "../i18n";
 import { clearChatLogoutMarker } from "../chat/chatLaunchState";
@@ -64,6 +66,7 @@ export const BottomNav: React.FC = () => {
   const pathname = usePathname() || "";
   const [plusOpen, setPlusOpen] = useState(false);
   const [unreadTasks, setUnreadTasks] = useState<number>(0);
+  const [unreadMessages, setUnreadMessages] = useState<number>(0);
   const { guardedNavigate, showModal } = useActivationGuard();
   const { user } = useAuth();
   const { user: chatUser, refresh: refreshChat } = useChat();
@@ -84,6 +87,102 @@ export const BottomNav: React.FC = () => {
     const iv = setInterval(fetchCount, 60_000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [pathname]);
+
+  useEffect(() => {
+    if (!chatUser?.id) {
+      setUnreadMessages(0);
+      return;
+    }
+
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let attempt = 0;
+    let refreshSequence = 0;
+
+    const refreshUnread = async () => {
+      const sequence = ++refreshSequence;
+      try {
+        // Archived conversations are included so unread messages do not disappear
+        // from the dashboard badge simply because a thread was archived.
+        const [active, archived] = await Promise.all([
+          messengerApi.conversations(false),
+          messengerApi.conversations(true),
+        ]);
+        if (!stopped && sequence === refreshSequence) {
+          setUnreadMessages(sumUnreadMessages([...active, ...archived]));
+        }
+      } catch {
+        // Keep the last known total on temporary network failures.
+      }
+    };
+
+    const reconnectDelay = () => Math.min(30_000, 1_200 * 2 ** attempt++);
+    const connect = async () => {
+      if (stopped || typeof WebSocket === "undefined") return;
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+
+      try {
+        const { ticket } = await api.post<{ ticket: string }>("/messenger/socket-ticket");
+        if (stopped) return;
+        const base = process.env.EXPO_PUBLIC_BACKEND_URL
+          || (typeof window !== "undefined" ? window.location.origin : "");
+        if (!base) throw new Error("Adresse du serveur Chat non configurée.");
+        const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
+        socket = new WebSocket(`${wsBase}/api/messenger/ws?ticket=${encodeURIComponent(ticket)}`);
+        socket.onopen = () => {
+          attempt = 0;
+          void refreshUnread();
+        };
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (["message", "updated", "read", "delivered"].includes(data.type)) {
+              void refreshUnread();
+            }
+          } catch {
+            // Ignore malformed or unrelated socket events.
+          }
+        };
+        socket.onclose = () => {
+          if (!stopped) retryTimer = setTimeout(connect, reconnectDelay());
+        };
+        socket.onerror = () => socket?.close();
+      } catch {
+        if (!stopped) retryTimer = setTimeout(connect, reconnectDelay());
+      }
+    };
+
+    void refreshUnread();
+    void connect();
+    pollTimer = setInterval(() => { void refreshUnread(); }, 30_000);
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void refreshUnread();
+        void connect();
+      }
+    });
+    const handleFocus = () => {
+      void refreshUnread();
+      void connect();
+    };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.addEventListener("focus", handleFocus);
+    }
+
+    return () => {
+      stopped = true;
+      refreshSequence++;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (pollTimer) clearInterval(pollTimer);
+      socket?.close();
+      appStateSubscription.remove();
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.removeEventListener("focus", handleFocus);
+      }
+    };
+  }, [chatUser?.id]);
 
   // Preserve the pre-existing dashboard entrance motion on dashboard mounts.
   // Chat's persistent transition overlay owns the two-bar synchronized return.
@@ -147,6 +246,7 @@ export const BottomNav: React.FC = () => {
 
   const renderItem = (it: Item, side: "L" | "R") => {
     const active = isActive(pathname, it.matchers);
+    const chatBadge = it.key === "chat" ? unreadBadgeLabel(unreadMessages) : null;
     return (
       <TouchableOpacity
         key={`${side}-${it.key}`}
@@ -154,11 +254,31 @@ export const BottomNav: React.FC = () => {
         onPress={() => goto(it.route)}
         testID={`bottom-nav-${it.key}`}
       >
-        <Ionicons
-          name={it.icon}
-          size={22}
-          color={active ? theme.colors.primary : "#8FA6C4"}
-        />
+        {it.key === "chat" ? (
+          <View style={styles.chatIconWrap}>
+            <Ionicons
+              name={it.icon}
+              size={22}
+              color={active ? theme.colors.primary : "#8FA6C4"}
+            />
+            {chatBadge ? (
+              <View
+                style={styles.chatBadge}
+                testID="bottom-nav-chat-badge"
+                accessibilityRole="text"
+                accessibilityLabel={`${unreadMessages} messages non lus`}
+              >
+                <Text style={styles.chatBadgeText}>{chatBadge}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <Ionicons
+            name={it.icon}
+            size={22}
+            color={active ? theme.colors.primary : "#8FA6C4"}
+          />
+        )}
         <Text style={[styles.label, active && styles.labelActive]}>
           {t(`nav.${it.key === "home" ? "home" : it.key}`)}
         </Text>
@@ -282,6 +402,32 @@ const styles = StyleSheet.create({
   labelActive: {
     color: theme.colors.primary,
     fontWeight: "900",
+  },
+  chatIconWrap: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatBadge: {
+    position: "absolute",
+    top: -3,
+    right: -8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: theme.colors.surface,
+    paddingHorizontal: 3,
+  },
+  chatBadgeText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 9,
+    lineHeight: 12,
   },
   centreSlot: {
     alignItems: "center",
