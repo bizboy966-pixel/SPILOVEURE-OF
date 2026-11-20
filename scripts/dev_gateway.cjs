@@ -16,8 +16,10 @@ const BACKEND_PATHS = new Set([
   "/robots.txt",
 ]);
 const CAPACITOR_APK_PATH = "/downloads/spiloveure.apk";
+const CAPACITOR_APK_VERSION = require("../tools/capacitor-android/package.json").version;
+const CAPACITOR_APK_FILENAME = `SPILOVEURE-${CAPACITOR_APK_VERSION}.apk`;
 const DEFAULT_CAPACITOR_APK = path.join(
-  __dirname, "../generated-artifacts/spiloveure/SPILOVEURE-1.1.17.apk",
+  __dirname, "../generated-artifacts/spiloveure", CAPACITOR_APK_FILENAME,
 );
 
 function serveCapacitorApk(request, response, apkFile) {
@@ -36,7 +38,7 @@ function serveCapacitorApk(request, response, apkFile) {
   }
   const headers = {
     "Content-Type": "application/vnd.android.package-archive",
-    "Content-Disposition": 'attachment; filename="SPILOVEURE-1.1.17.apk"',
+    "Content-Disposition": `attachment; filename="${CAPACITOR_APK_FILENAME}"`,
     "Content-Length": String(stat.size),
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",
@@ -232,6 +234,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  CAPACITOR_APK_PATH, createGateway, isBackendPath, parsePreviewApiUpstream,
+  CAPACITOR_APK_FILENAME, CAPACITOR_APK_PATH, createGateway, isBackendPath, parsePreviewApiUpstream,
   resolvePreviewApiUpstream, serveCapacitorApk,
 };

@@ -1,10 +1,12 @@
 ---
 name: Android build performance
-description: Handling long Expo and Gradle build startup in this Replit workspace.
+description: Android SDK layout and long builds in this Replit workspace.
 ---
 
 Metro web export and the first Gradle release build can appear idle for more than 15 minutes while reading project or Nix-store files.
 
-**Why:** A Capacitor test build on 2026-11-19 spent extended periods in filesystem waits before emitting build output; stopping it at a short timeout would have interrupted a still-running process.
+The Nix Android SDK package exposes the SDK under `libexec/android-sdk` inside its output. This app’s release build needs platform 35 and Build Tools 34.0.0 as well as 35.0.0; Gradle’s release lint may fail if 34.0.0 is missing.
 
-**How to apply:** Run Metro export and Gradle release assembly as background tasks, monitor their actual output and process state, avoid duplicate exports, and verify the final APK metadata and signature before delivery.
+**Why:** A previous Capacitor build failed when Gradle was pointed at the package root and when only Build Tools 35.0.0 was present. The first Gradle release build can also spend more than 15 minutes reading project or Nix-store files.
+
+**How to apply:** Point `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and Gradle’s `sdk.dir` at the nested SDK root; include platform 35 and Build Tools 34.0.0/35.0.0. Run Gradle assembly in the background, monitor actual output, avoid duplicate builds, and verify final APK metadata and signature.

@@ -6,6 +6,7 @@ const path = require("node:path");
 const WebSocket = require("ws");
 const WebSocketServer = WebSocket.Server;
 const {
+  CAPACITOR_APK_FILENAME,
   CAPACITOR_APK_PATH,
   createGateway,
   isBackendPath,
@@ -72,7 +73,7 @@ async function main() {
     });
     assert.equal(download.status, 200);
     assert.equal(download.headers["content-type"], "application/vnd.android.package-archive");
-    assert.match(download.headers["content-disposition"], /filename="SPILOVEURE-1\.1\.17\.apk"/);
+    assert.equal(download.headers["content-disposition"], `attachment; filename="${CAPACITOR_APK_FILENAME}"`);
     assert.equal(download.headers["x-content-type-options"], "nosniff");
     assert.deepEqual(download.body, apkBytes);
     const partial = await get(apkGatewayPort, CAPACITOR_APK_PATH, { range: "bytes=2-5" });
