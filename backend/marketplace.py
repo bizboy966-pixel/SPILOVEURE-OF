@@ -181,12 +181,6 @@ async def create_listing(data: ListingCreate, request: Request, user=Depends(req
         "created_at": now,
     }
     await db.marketplace_listings.insert_one(doc)
-    try:
-        from telegram_moderation import schedule_submission
-        schedule_submission(db, "marketplace", doc["id"])
-    except Exception as exc:
-        import logging
-        logging.getLogger("marketplace").warning("Telegram moderation notification failed (%s)", type(exc).__name__)
     return _serialize(doc)
 
 

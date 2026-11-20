@@ -6,9 +6,10 @@ from types import SimpleNamespace
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
+import marketplace
 from marketplace import (
-    ListingComment, add_listing_comment, initialize, listing_comments,
-    public_feed, toggle_listing_like,
+    ListingComment, ListingCreate, add_listing_comment, create_listing, initialize,
+    listing_comments, public_feed, toggle_listing_like,
 )
 
 
@@ -46,6 +47,41 @@ def marketplace_db():
 
 def request_for(db):
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+
+
+@pytest.mark.asyncio
+async def test_new_listing_is_saved_without_scheduling_telegram_notification(marketplace_db, monkeypatch):
+    calls = []
+
+    async def enabled(_db, _flag):
+        return True
+
+    monkeypatch.setattr(marketplace, "feature_enabled", enabled)
+    monkeypatch.setattr(marketplace, "_config", lambda _db: _enabled_config())
+    import telegram_moderation
+    monkeypatch.setattr(
+        telegram_moderation, "schedule_submission",
+        lambda *_args: calls.append("scheduled"),
+    )
+
+    listing = await create_listing(
+        ListingCreate(
+            images=["https://cdn.example.org/product.jpg"],
+            name="Produit", category="Maison", price=2500, city="Lomé",
+            whatsapp="+22890000000",
+        ),
+        request_for(marketplace_db),
+        user={"id": "seller", "username": "Shop"},
+    )
+
+    saved = await marketplace_db.marketplace_listings.find_one({"id": listing["id"]})
+    assert saved["status"] == "pending_admin_review"
+    assert saved["name"] == "Produit"
+    assert calls == []
+
+
+async def _enabled_config():
+    return {"enabled": True, "duration_days": 14}
 
 
 @pytest.mark.asyncio

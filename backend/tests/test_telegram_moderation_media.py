@@ -62,11 +62,6 @@ def _setup(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("kind", "collection", "item"),
     [
-        ("marketplace", "marketplace_listings", {
-            "name": "Chaussures", "images": ["/api/uploads/listing.jpg"],
-            "seller_username": "vendeur", "category": "Mode", "price": 12000,
-            "currency": "FCFA", "city": "Lomé",
-        }),
         ("ads", "ads", {
             "title": "Campagne", "cover_image_url": "/api/uploads/cover.jpg",
             "video_url": "/api/uploads/ad.mp4", "username": "annonceur",
@@ -81,7 +76,7 @@ def _setup(monkeypatch, tmp_path):
 )
 def test_stored_photo_and_video_files_arrive_before_voting(kind, collection, item, monkeypatch, tmp_path):
     db = _setup(monkeypatch, tmp_path)
-    for filename in ("listing.jpg", "cover.jpg", "ad.mp4", "task.mp4"):
+    for filename in ("cover.jpg", "ad.mp4", "task.mp4"):
         (tmp_path / filename).write_bytes(f"bytes:{filename}".encode())
     item.update({"id": "pending-1", "status": "pending_admin_review"})
     asyncio.run(db[collection].insert_one(item))
@@ -100,7 +95,6 @@ def test_stored_photo_and_video_files_arrive_before_voting(kind, collection, ite
     assert "reply_markup" in vote_message["json"]
     assert "Valider" in vote_message["json"]["reply_markup"]["inline_keyboard"][0][0]["text"]
     assert {
-        "marketplace": "Marketplace",
         "ads": "Publicité",
         "special_task": "Tâche spéciale",
     }[kind] in vote_message["json"]["text"]
@@ -110,18 +104,18 @@ def test_stored_photo_and_video_files_arrive_before_voting(kind, collection, ite
     assert action["chat_id"] == "-100123"
 
 
-def test_first_party_upload_uses_persistent_storage_bytes(monkeypatch, tmp_path):
+def test_first_party_upload_uses_persistent_storage_bytes_for_ads(monkeypatch, tmp_path):
     db = _setup(monkeypatch, tmp_path)
     import object_storage
 
     monkeypatch.setattr(object_storage, "is_enabled", lambda: True)
     monkeypatch.setattr(object_storage, "get_upload", lambda _filename: (b"persistent image", "image/jpeg"))
-    asyncio.run(db.marketplace_listings.insert_one({
+    asyncio.run(db.ads.insert_one({
         "id": "persistent-image", "status": "pending_admin_review",
-        "name": "Objet", "images": ["/api/uploads/persistent.jpg"],
+        "title": "Campagne", "cover_image_url": "/api/uploads/persistent.jpg",
     }))
 
-    assert asyncio.run(telegram.notify_submission(db, "marketplace", "persistent-image")) is True
+    assert asyncio.run(telegram.notify_submission(db, "ads", "persistent-image")) is True
 
     photo = next(call for call in _RecordingTelegramClient.calls if call["method"] == "sendPhoto")
     field_name, file_data = next(iter(photo["files"].items()))
@@ -131,32 +125,28 @@ def test_first_party_upload_uses_persistent_storage_bytes(monkeypatch, tmp_path)
     assert photo["data"] == {"chat_id": "-100123"}
 
 
-@pytest.mark.asyncio
-async def test_external_media_url_is_only_forwarded_after_public_dns_validation(monkeypatch):
-    calls = []
+def test_marketplace_submission_is_not_sent_or_recorded_again(monkeypatch, tmp_path):
+    db = _setup(monkeypatch, tmp_path)
+    asyncio.run(db.marketplace_listings.insert_one({
+        "id": "listing-1", "status": "pending_admin_review",
+        "name": "Objet", "images": ["/api/uploads/listing.jpg"],
+    }))
+    historical_action = {
+        "token": "historical-token", "subject_key": "marketplace:listing-1",
+        "kind": "marketplace", "item_id": "listing-1", "status": "pending",
+        "message_id": 42, "chat_id": "-100123",
+    }
+    asyncio.run(db.telegram_moderation_actions.insert_one(historical_action))
+    action_before = asyncio.run(db.telegram_moderation_actions.find_one(
+        {"subject_key": "marketplace:listing-1"},
+    ))
 
-    async def fake_public_check(url):
-        calls.append(url)
-        return False
+    assert asyncio.run(telegram.notify_submission(db, "marketplace", "listing-1")) is False
 
-    monkeypatch.setattr(telegram, "_external_media_url_is_public", fake_public_check)
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
-    db = AsyncMongoMockClient().telegram_media_external_test
-    await telegram._store_config(db, {"notification_chat_id": "-100123"})
-    await db.marketplace_listings.insert_one({
-        "id": "external-image", "status": "pending_admin_review",
-        "name": "Objet", "images": ["https://cdn.example.org/private.jpg"],
-    })
-    _RecordingTelegramClient.calls = []
-    monkeypatch.setattr(telegram.httpx, "AsyncClient", _RecordingTelegramClient)
-
-    assert await telegram.notify_submission(db, "marketplace", "external-image") is True
-
-    assert calls == ["https://cdn.example.org/private.jpg"]
-    assert not any(call["method"] == "sendPhoto" for call in _RecordingTelegramClient.calls)
-    vote_message = next(call for call in _RecordingTelegramClient.calls if call["method"] == "sendMessage")
-    assert "URL non sûre" in vote_message["json"]["text"]
-    assert "reply_markup" in vote_message["json"]
+    assert _RecordingTelegramClient.calls == []
+    assert asyncio.run(db.telegram_moderation_actions.find_one(
+        {"subject_key": "marketplace:listing-1"},
+    )) == action_before
 
 
 def test_external_host_validation_rejects_private_dns_answers(monkeypatch):
@@ -206,17 +196,18 @@ def test_oversized_stored_photo_is_skipped_with_clear_warning(monkeypatch, tmp_p
         telegram, "_read_stored_upload",
         lambda _filename: (b"x" * (telegram.MAX_TELEGRAM_PHOTO_BYTES + 1), "image/jpeg"),
     )
-    asyncio.run(db.marketplace_listings.insert_one({
+    asyncio.run(db.ads.insert_one({
         "id": "large-image", "status": "pending_admin_review",
-        "name": "Image trop lourde", "images": ["/api/uploads/large.jpg"],
+        "title": "Image trop lourde", "cover_image_url": "/api/uploads/large.jpg",
     }))
 
-    assert asyncio.run(telegram.notify_submission(db, "marketplace", "large-image")) is True
+    assert asyncio.run(telegram.notify_submission(db, "ads", "large-image")) is True
 
     calls = _RecordingTelegramClient.calls
     assert not any(call["method"] == "sendPhoto" for call in calls)
     vote_message = next(call for call in calls if call["method"] == "sendMessage")
     assert "limite de taille Telegram" in vote_message["json"]["text"]
+    assert "Publicité" in vote_message["json"]["text"]
     assert "reply_markup" in vote_message["json"]
 
 

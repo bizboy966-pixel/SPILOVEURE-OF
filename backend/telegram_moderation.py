@@ -405,6 +405,11 @@ def _summary(kind: str, item: dict) -> str:
 
 
 async def notify_submission(db, kind: str, item_id: str) -> bool:
+    # Marketplace submissions continue through the admin dashboard, but are
+    # no longer announced to Telegram. Keep this guard here as well as at the
+    # submission route so manual or future dispatches cannot send one.
+    if kind == "marketplace":
+        return False
     cfg = await _config(db)
     chat_id = _notification_chat_id(cfg)
     if not await _token(db) or not chat_id:

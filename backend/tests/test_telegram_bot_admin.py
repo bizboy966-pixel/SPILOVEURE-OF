@@ -86,15 +86,9 @@ def test_admin_token_lifecycle_encrypts_secret_and_verifies_with_telegram(monkey
         "id": "listing-1", "name": "Annonce", "seller_username": "seller",
         "status": "pending_admin_review",
     }))
-    assert asyncio.run(telegram.notify_submission(db, "marketplace", "listing-1")) is True
-    moderation_message = next(
-        payload for url, payload in _MockTelegramClient.calls
-        if url.endswith("/sendMessage") and payload.get("reply_markup")
-    )
-    assert moderation_message["chat_id"] == "24680"
-    assert f"/bot{BOT_TOKEN}/sendMessage" in next(
-        url for url, payload in _MockTelegramClient.calls if payload is moderation_message
-    )
+    calls_before_marketplace_notification = list(_MockTelegramClient.calls)
+    assert asyncio.run(telegram.notify_submission(db, "marketplace", "listing-1")) is False
+    assert _MockTelegramClient.calls == calls_before_marketplace_notification
 
     status = client.get("/api/admin/telegram-bot")
     assert status.status_code == 200
