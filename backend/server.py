@@ -76,6 +76,8 @@ async def lifespan(app: FastAPI):
     db = client[os.environ.get("DB_NAME", "spilivere")]
     app.state.mongo = client
     app.state.db = db
+    from ads import initialize_reactor_reward_indexes
+    await initialize_reactor_reward_indexes(db)
     # Community messenger owns separate collections; support retention never touches them.
     from messenger_core import initialize as initialize_messenger
     await initialize_messenger(db)
@@ -851,7 +853,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         pass
     try:
         agg2 = db.ads_reactor_rewards.aggregate([
-            {"$match": {"user_id": user["id"]}},
+            {"$match": {"user_id": user["id"], "status": {"$ne": "pending"}}},
             {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
         ])
         async for row in agg2:

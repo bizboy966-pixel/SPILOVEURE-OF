@@ -117,10 +117,7 @@ export default function AdminHome() {
   const [stDistPct, setStDistPct] = useState<number>(70);
   const [adsReactor, setAdsReactor] = useState<any>({
     distribution_percentage: 70,
-    like_reward: 25,
-    comment_reward: 50,
-    max_likes: 100,
-    max_comments: 50,
+    active_users_count: 0,
   });
   // Marketplace admin state
   const [mkCfg, setMkCfg] = useState<any>({});
@@ -355,10 +352,7 @@ export default function AdminHome() {
         ]);
         setAdsPricing(pr);
         setAdsList(ls?.items || []);
-        setAdsReactor(rc || {
-          distribution_percentage: 70, like_reward: 25, comment_reward: 50,
-          max_likes: 100, max_comments: 50,
-        });
+        setAdsReactor(rc || { distribution_percentage: 70, active_users_count: 0 });
       }
       if (tab === "special_tasks") {
         const cfg = await api.get<any>("/admin/special-tasks/config");
@@ -1548,9 +1542,8 @@ export default function AdminHome() {
             <Card>
               <Text style={styles.section}>🎯 Récompenses des réacteurs (Like + Commentaire uniquement)</Text>
               <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginBottom: 8 }}>
-                Seuls les <Text style={{ fontWeight: "800" }}>Likes 👍</Text> et
-                <Text style={{ fontWeight: "800" }}> Commentaires 💬</Text> sont rémunérés.
-                Les vues et partages restent gratuits. Une seule récompense par utilisateur et par action.
+                Seuls les likes et les commentaires valides sont rémunérés. Les vues et partages restent gratuits.
+                Chaque compte actif peut recevoir une seule part par campagne, lors de sa première interaction.
               </Text>
 
               <View style={{ backgroundColor: "#FEF3C7", borderRadius: 12, padding: 10, marginBottom: 12 }}>
@@ -1579,63 +1572,22 @@ export default function AdminHome() {
                 </View>
               </View>
 
-              <Text style={{ fontWeight: "800", fontSize: 12, marginTop: 4, marginBottom: 6 }}>
-                👍 Configuration Like
-              </Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Input
-                    label="Récompense / Like (FCFA)"
-                    value={String(adsReactor.like_reward)}
-                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, like_reward: Number(v) || 0 }))}
-                    keyboardType="numeric"
-                    testID="ads-reactor-like-reward"
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Input
-                    label="Max Likes / campagne"
-                    value={String(adsReactor.max_likes)}
-                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, max_likes: Number(v) || 1 }))}
-                    keyboardType="numeric"
-                    testID="ads-reactor-max-likes"
-                  />
-                </View>
-              </View>
-
-              <Text style={{ fontWeight: "800", fontSize: 12, marginTop: 8, marginBottom: 6 }}>
-                💬 Configuration Commentaire
-              </Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Input
-                    label="Récompense / Comment (FCFA)"
-                    value={String(adsReactor.comment_reward)}
-                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, comment_reward: Number(v) || 0 }))}
-                    keyboardType="numeric"
-                    testID="ads-reactor-comment-reward"
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Input
-                    label="Max Comments / campagne"
-                    value={String(adsReactor.max_comments)}
-                    onChangeText={(v: string) => setAdsReactor((s: any) => ({ ...s, max_comments: Number(v) || 1 }))}
-                    keyboardType="numeric"
-                    testID="ads-reactor-max-comments"
-                  />
-                </View>
+              <View style={{ marginTop: 4, padding: 10, backgroundColor: theme.colors.background, borderRadius: 10 }}>
+                <Text style={{ fontSize: 12, lineHeight: 18, color: theme.colors.textPrimary }}>
+                  À l’approbation, le budget des interactions est partagé équitablement entre les comptes actifs,
+                  en excluant le créateur de la publicité. Le montant par personne est fixé pour cette campagne.
+                  Les campagnes déjà approuvées gardent leur ancien calcul.
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 8 }}>
+                  Comptes actifs actuellement : {Number(adsReactor.active_users_count) || 0}
+                </Text>
               </View>
 
               <Button
-                title="💾 Enregistrer récompenses réacteurs"
+                title="💾 Enregistrer la répartition"
                 onPress={() => action(async () => {
                   const r = await api.put<any>("/admin/ads-reactor-config", {
                     distribution_percentage: Number(adsReactor.distribution_percentage) || 0,
-                    like_reward: Number(adsReactor.like_reward) || 0,
-                    comment_reward: Number(adsReactor.comment_reward) || 0,
-                    max_likes: Number(adsReactor.max_likes) || 1,
-                    max_comments: Number(adsReactor.max_comments) || 1,
                   });
                   setAdsReactor(r);
                 })}
@@ -1645,9 +1597,12 @@ export default function AdminHome() {
                 <Text style={{ fontSize: 11 }}>
                   📊 Exemple : Pub à 10 000 FCFA →
                   pool réacteurs = {(10000 * (Number(adsReactor.distribution_percentage) || 0) / 100).toFixed(0)} FCFA
-                  {"\n"}Coût max théorique :
-                  {" "}{(Number(adsReactor.like_reward) * Number(adsReactor.max_likes)).toFixed(0)} FCFA (likes)
-                  {" + "}{(Number(adsReactor.comment_reward) * Number(adsReactor.max_comments)).toFixed(0)} FCFA (comments)
+                  {"\n"}Part estimée : {(Number(adsReactor.active_users_count) || 0) > 1
+                    ? `${Math.floor(
+                      (10000 * (Number(adsReactor.distribution_percentage) || 0) / 100)
+                      / ((Number(adsReactor.active_users_count) || 0) - 1) * 100,
+                    ) / 100} FCFA par compte actif`
+                    : "— faute de comptes actifs éligibles"} (créateur exclu)
                 </Text>
               </View>
             </Card>

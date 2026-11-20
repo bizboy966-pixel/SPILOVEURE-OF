@@ -18,11 +18,13 @@ import os
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from auth import get_current_user, require_active_user, require_admin
 from object_storage import is_enabled as _obj_enabled, put_upload as _obj_put
@@ -748,18 +750,15 @@ async def admin_set_pricing(data: AdPricingUpdate, request: Request):
 
 # ─── Reactor pool config (refonte 2026-08) ─────────────────────────────
 #
-# New model — Only LIKE and COMMENT are rewarded. Admin configures:
-#   - distribution_percentage   : % of ad price for users (rest = platform)
-#   - like_reward, comment_reward : fixed FCFA per action
-#   - max_likes, max_comments   : hard caps per campaign
-#
-# One reward per (user, action, campaign). No self-reward. Payments are
-# credited atomically as long as the campaign has slots remaining AND the
-# global reactor pool (distribution_percentage × price) is not exhausted.
+# Current model — only LIKE and COMMENT qualify. At approval, the configured
+# share of the campaign price is split evenly across the snapshot of active
+# users, excluding the creator. Each eligible member can claim once per ad.
+# Fixed rewards/caps remain for campaigns approved before this model.
 class AdReactorConfig(BaseModel):
-    # New canonical fields
+    # New campaigns use the global budget percentage.
     distribution_percentage: Optional[float] = Field(default=None, ge=0, le=100)
     platform_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    # Retained for legacy campaigns and older admin clients.
     like_reward: Optional[float] = Field(default=None, ge=0)
     comment_reward: Optional[float] = Field(default=None, ge=0)
     max_likes: Optional[int] = Field(default=None, ge=1)
@@ -793,37 +792,230 @@ async def _get_reactor_config(db) -> dict:
 
 # Rewarded action set is now strictly {like, comment}.
 REWARDED_ACTIONS: set[str] = {"like", "comment"}
+EQUAL_ACTIVE_SHARE_MODEL = "equal_active_share"
 
 
-async def _initialise_reactor_pool(db, ad: dict) -> float:
+async def initialize_reactor_reward_indexes(db) -> None:
+    """Prevent a like/comment race from paying the same member twice per ad."""
+    await db.ads_reactor_rewards.create_index(
+        [("ad_id", 1), ("user_id", 1)],
+        unique=True,
+        partialFilterExpression={"reward_model": EQUAL_ACTIVE_SHARE_MODEL},
+        name="ads_reactor_equal_share_user_unique",
+    )
+    await db.ads_reactor_eligible_users.create_index(
+        [("ad_id", 1), ("user_id", 1)],
+        unique=True,
+        name="ads_reactor_eligible_user_unique",
+    )
+
+
+def _equal_active_share(pool: float, eligible_users: int) -> float:
+    if eligible_users <= 0 or pool <= 0:
+        return 0.0
+    return float(
+        (Decimal(str(pool)) / Decimal(eligible_users)).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN,
+        )
+    )
+
+
+async def _active_reactor_users(db, excluded_user_id: str | None = None) -> int:
+    query: dict = {"role": "user", "status": "active"}
+    if excluded_user_id:
+        query["id"] = {"$ne": excluded_user_id}
+    return int(await db.users.count_documents(query))
+
+
+async def _active_reactor_user_ids(db, excluded_user_id: str | None = None) -> list[str]:
+    query: dict = {"role": "user", "status": "active"}
+    if excluded_user_id:
+        query["id"] = {"$ne": excluded_user_id}
+    return [
+        user["id"]
+        async for user in db.users.find(query, {"_id": 0, "id": 1})
+        if user.get("id")
+    ]
+
+
+async def _initialise_reactor_pool(
+    db, ad: dict, reward_model: str = "legacy_fixed",
+) -> float:
     """Compute and persist the reactor pool for an ad. Idempotent —
-    the pool is set exactly once per ad (on the first reactor action).
+    the pool is set exactly once per ad (on approval for new campaigns).
     Returns the pool amount in FCFA (= distribution_percentage × price).
     """
     if ad.get("reactor_pool") is not None:
         return float(ad["reactor_pool"])
     cfg = await _get_reactor_config(db)
     pool = round(float(ad.get("price_amount") or 0) * (cfg["distribution_percentage"] / 100.0), 2)
+    eligible_user_ids = (
+        await _active_reactor_user_ids(db, ad.get("user_id"))
+        if reward_model == EQUAL_ACTIVE_SHARE_MODEL else []
+    )
+    eligible_users = len(eligible_user_ids)
+    if reward_model == EQUAL_ACTIVE_SHARE_MODEL:
+        # The set, not just the count, is frozen at approval. Users activated
+        # later cannot take a reserved share from the original cohort.
+        await db.ads_reactor_eligible_users.delete_many({"ad_id": ad["id"]})
+        if eligible_user_ids:
+            await db.ads_reactor_eligible_users.insert_many([
+                {
+                    "ad_id": ad["id"],
+                    "user_id": eligible_user_id,
+                    "created_at": datetime.now(timezone.utc),
+                }
+                for eligible_user_id in eligible_user_ids
+            ], ordered=False)
+    snapshot = {
+        "reactor_pool": pool,
+        "reactor_pool_remaining": pool,
+        "reactor_reward_model": reward_model,
+        "reactor_distribution_percentage": cfg["distribution_percentage"],
+        # Keep the old cap snapshot for legacy campaigns.
+        "reactor_max_likes": cfg["max_likes"],
+        "reactor_max_comments": cfg["max_comments"],
+        "reactor_likes_awarded": 0,
+        "reactor_comments_awarded": 0,
+        "reactor_pool_initialised_at": datetime.now(timezone.utc),
+    }
+    if reward_model == EQUAL_ACTIVE_SHARE_MODEL:
+        snapshot.update({
+            "reactor_eligible_users": eligible_users,
+            "reactor_reward_per_user": _equal_active_share(pool, eligible_users),
+            "reactor_users_awarded": 0,
+        })
     await db.ads.update_one(
         {"id": ad["id"], "reactor_pool": {"$exists": False}},
-        {"$set": {"reactor_pool": pool,
-                  "reactor_pool_remaining": pool,
-                  # Snapshot per-campaign caps for immutability once the
-                  # pool starts filling.
-                  "reactor_max_likes": cfg["max_likes"],
-                  "reactor_max_comments": cfg["max_comments"],
-                  "reactor_likes_awarded": 0,
-                  "reactor_comments_awarded": 0,
-                  "reactor_pool_initialised_at": datetime.now(timezone.utc)}},
+        {"$set": snapshot},
     )
     fresh = await db.ads.find_one({"id": ad["id"]}, {"reactor_pool": 1, "_id": 0}) or {}
     return float(fresh.get("reactor_pool") or pool)
 
 
+async def _credit_equal_active_share(
+    db, ad: dict, user_id: str, username: str, action: str,
+) -> Optional[float]:
+    """Pay one campaign share on the member's first valid like or comment."""
+    account = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "role": 1, "status": 1},
+    )
+    if not account or account.get("role") != "user" or account.get("status") != "active":
+        return None
+    if not await db.ads_reactor_eligible_users.find_one({
+        "ad_id": ad["id"], "user_id": user_id,
+    }):
+        return None
+
+    eligible_users = int(ad.get("reactor_eligible_users") or 0)
+    reward = _equal_active_share(float(ad.get("reactor_pool") or 0), eligible_users)
+    if eligible_users <= 0 or reward <= 0:
+        return None
+
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent = await db.ads_reactor_rewards.count_documents({
+        "user_id": user_id, "created_at": {"$gte": one_hour_ago},
+    })
+    if recent >= 50:
+        return None
+
+    now = datetime.now(timezone.utc)
+    reward_id = str(uuid.uuid4())
+    reward_record = {
+        "id": reward_id,
+        "ad_id": ad["id"],
+        "user_id": user_id,
+        "username": username,
+        "action": action,
+        "amount": reward,
+        "currency": "FCFA",
+        "reward_model": EQUAL_ACTIVE_SHARE_MODEL,
+        "status": "pending",
+        "created_at": now,
+    }
+    try:
+        # Insert before updating the pool: the partial unique index prevents
+        # simultaneous likes/comments from paying twice for this campaign.
+        await db.ads_reactor_rewards.insert_one(reward_record)
+    except DuplicateKeyError:
+        return None
+
+    reserved = False
+    credited = False
+    try:
+        reservation = await db.ads.update_one(
+            {
+                "id": ad["id"],
+                "reactor_reward_model": EQUAL_ACTIVE_SHARE_MODEL,
+                "reactor_pool_remaining": {"$gte": reward},
+                "reactor_users_awarded": {"$lt": eligible_users},
+            },
+            {"$inc": {
+                "reactor_pool_remaining": -reward,
+                "reactor_users_awarded": 1,
+            }},
+        )
+        if reservation.modified_count == 0:
+            await db.ads_reactor_rewards.delete_one({"id": reward_id})
+            return None
+        reserved = True
+
+        balance_update = await db.users.update_one(
+            {"id": user_id, "role": "user", "status": "active"},
+            {"$inc": {"balance_profit": reward}},
+        )
+        if balance_update.modified_count == 0:
+            await db.ads.update_one(
+                {"id": ad["id"]},
+                {"$inc": {
+                    "reactor_pool_remaining": reward,
+                    "reactor_users_awarded": -1,
+                }},
+            )
+            await db.ads_reactor_rewards.delete_one({"id": reward_id})
+            return None
+        credited = True
+        try:
+            await db.ads_reactor_rewards.update_one(
+                {"id": reward_id}, {"$set": {"status": "paid"}},
+            )
+        except Exception:
+            log.exception("Could not finalize ad reward record %s", reward_id)
+    except Exception:
+        if reserved and not credited:
+            await db.ads.update_one(
+                {"id": ad["id"]},
+                {"$inc": {
+                    "reactor_pool_remaining": reward,
+                    "reactor_users_awarded": -1,
+                }},
+            )
+        if not credited:
+            await db.ads_reactor_rewards.delete_one({"id": reward_id})
+        raise
+
+    try:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "kind": "reactor_reward",
+            "title": f"+{reward:g} FCFA gagnés 🎯",
+            "body": f"Votre première interaction ({action}) sur cette publicité vous a rapporté une part égale.",
+            "meta": {"ad_id": ad["id"], "action": action, "amount": reward},
+            "read": False,
+            "created_at": now,
+        })
+    except Exception:
+        pass
+    return reward
+
+
 async def _credit_reactor(db, ad: dict, user_id: str, username: str,
                           action: str) -> Optional[float]:
-    """Idempotently credit a reactor's balance_profit for a given (ad, user,
-    action). Returns the amount credited, or None if:
+    """Credit a reactor under the model saved on that campaign.
+
+    New campaigns pay once per (ad, user), while older campaigns retain their
+    original per-action rules. Returns the amount credited, or None if:
     • action is not in the rewarded set {like, comment}
     • same user already rewarded for this action on this ad
     • per-campaign cap reached for that action
@@ -838,6 +1030,9 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
     action = action.lower()
     if action not in REWARDED_ACTIONS:
         return None
+
+    if ad.get("reactor_reward_model") == EQUAL_ACTIVE_SHARE_MODEL:
+        return await _credit_equal_active_share(db, ad, user_id, username, action)
 
     # 1) Idempotency guard: refuse if this (ad, user, action) is already paid.
     existing = await db.ads_reactor_rewards.find_one(
@@ -856,7 +1051,9 @@ async def _credit_reactor(db, ad: dict, user_id: str, username: str,
         return None
 
     cfg = await _get_reactor_config(db)
-    pool = await _initialise_reactor_pool(db, ad)
+    pool = await _initialise_reactor_pool(
+        db, ad, reward_model=ad.get("reactor_reward_model") or "legacy_fixed",
+    )
     if pool <= 0:
         return None
 
@@ -932,18 +1129,26 @@ async def reactor_status(ad_id: str, request: Request, user=Depends(get_current_
     db = request.app.state.db
     ad = await db.ads.find_one({"id": ad_id}, {"_id": 0, "reactor_pool": 1,
                                                 "reactor_pool_remaining": 1,
+                                                "reactor_reward_model": 1,
+                                                "reactor_eligible_users": 1,
+                                                "reactor_reward_per_user": 1,
                                                 "user_id": 1, "status": 1,
                                                 "price_amount": 1})
     if not ad:
         raise HTTPException(404, "Publicité introuvable.")
     earned_agg = await db.ads_reactor_rewards.aggregate([
-        {"$match": {"ad_id": ad_id, "user_id": user["id"]}},
+        {"$match": {
+            "ad_id": ad_id, "user_id": user["id"], "status": {"$ne": "pending"},
+        }},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
     earned = float(earned_agg[0]["total"]) if earned_agg else 0.0
     return {
         "pool": float(ad.get("reactor_pool") or 0),
         "remaining": float(ad.get("reactor_pool_remaining") or 0),
+        "reward_model": ad.get("reactor_reward_model", "legacy_fixed"),
+        "eligible_users": int(ad.get("reactor_eligible_users") or 0),
+        "reward_per_user": float(ad.get("reactor_reward_per_user") or 0),
         "you_earned": earned,
         "is_creator": ad.get("user_id") == user["id"],
     }
@@ -967,7 +1172,7 @@ async def my_reactor_rewards(request: Request, user=Depends(get_current_user),
     a `{date, total, count, likes, comments}` row for the histogram.
     """
     db = request.app.state.db
-    q: dict = {"user_id": user["id"]}
+    q: dict = {"user_id": user["id"], "status": {"$ne": "pending"}}
     if action in ("like", "comment"):
         q["action"] = action
     dt_range: dict = {}
@@ -1037,7 +1242,7 @@ async def reactor_feed(ad_id: str, request: Request, user=Depends(get_current_us
     db = request.app.state.db
     items = []
     async for r in db.ads_reactor_rewards.find(
-        {"ad_id": ad_id}, {"_id": 0, "user_id": 0}
+        {"ad_id": ad_id, "status": {"$ne": "pending"}}, {"_id": 0, "user_id": 0}
     ).sort("created_at", -1).limit(min(limit, 100)):
         uname = r.get("username") or "anon"
         r["username"] = uname[:3] + "•••" if len(uname) > 3 else uname + "•••"
@@ -1055,7 +1260,11 @@ async def public_get_reactor_config(request: Request):
 
 @admin.get("/ads-reactor-config")
 async def admin_get_reactor_config(request: Request):
-    return await _get_reactor_config(request.app.state.db)
+    db = request.app.state.db
+    return {
+        **await _get_reactor_config(db),
+        "active_users_count": await _active_reactor_users(db),
+    }
 
 
 @admin.put("/ads-reactor-config")
@@ -1108,7 +1317,10 @@ async def admin_set_reactor_config(data: AdReactorConfig, request: Request):
         }},
         upsert=True,
     )
-    return await _get_reactor_config(db)
+    return {
+        **await _get_reactor_config(db),
+        "active_users_count": await _active_reactor_users(db),
+    }
 
 
 @admin.get("/ads")
@@ -1171,6 +1383,11 @@ async def admin_approve(ad_id: str, request: Request, user=Depends(get_current_u
     now = datetime.now(timezone.utc)
     duration = int(ad.get("duration_days") or 0)
     expires_at = now + timedelta(days=duration) if duration else None
+    # Freeze the percentage and eligible active-user count before the ad is
+    # visible, so no first interaction can race in with legacy reward rules.
+    await _initialise_reactor_pool(
+        db, ad, reward_model=EQUAL_ACTIVE_SHARE_MODEL,
+    )
     await db.ads.update_one(
         {"id": ad_id},
         {"$set": {
@@ -1182,12 +1399,7 @@ async def admin_approve(ad_id: str, request: Request, user=Depends(get_current_u
             "updated_at": now,
         }},
     )
-    # Eagerly initialise the reactor pool at approval time so the "budget
-    # cap" behaviour is deterministic from the very first interaction —
-    # no ambiguity between "no reward yet" and "no pool initialised yet".
     fresh_ad = await db.ads.find_one({"id": ad_id})
-    if fresh_ad:
-        await _initialise_reactor_pool(db, fresh_ad)
 
     # 🔔 Broadcast push notification to every user who opted-in (activated
     # or not — per spec 2026-02 point 3). Skip the ad creator.
@@ -1246,4 +1458,5 @@ async def admin_delete_ad(ad_id: str, request: Request, user=Depends(get_current
     if not ad:
         raise HTTPException(404, "Publicité introuvable.")
     await db.ads.delete_one({"id": ad_id})
+    await db.ads_reactor_eligible_users.delete_many({"ad_id": ad_id})
     return {"ok": True, "deleted": ad_id}

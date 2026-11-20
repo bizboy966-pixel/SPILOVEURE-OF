@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   FlatList,
   Image,
+  Platform,
   RefreshControl,
   SafeAreaView,
   StyleSheet,
@@ -17,6 +19,7 @@ import { theme } from "../../src/theme";
 import { api } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
 import { LinkifiedText } from "@/src/components/LinkifiedText";
+import { FeatureGuard } from "@/src/components/FeatureGuard";
 import { useAuth } from "@/src/auth";
 import { useI18n } from "@/src/i18n";
 
@@ -31,6 +34,20 @@ type Comment = {
   reply_to_username?: string;
   reply_to_text?: string;
 };
+
+type ReactorReward = number | { amount: number } | null | undefined;
+
+function rewardAmount(reward: ReactorReward): number {
+  return typeof reward === "number" ? reward : Number(reward?.amount || 0);
+}
+
+function showInteractionReward(title: string, message: string): void {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(message);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 type Ad = {
   id: string;
   user_id: string;
@@ -45,8 +62,6 @@ type Ad = {
   comments: Comment[];
   published_at?: string;
 };
-
-import { FeatureGuard } from "@/src/components/FeatureGuard";
 
 function AdsScreenInner() {
   const { t } = useI18n();
@@ -76,8 +91,16 @@ function AdsScreenInner() {
 
   const onLike = async (adId: string) => {
     try {
-      const r = await api.post<{ liked: boolean; likes_count: number }>(`/ads/${adId}/like`);
+      const r = await api.post<{
+        liked: boolean;
+        likes_count: number;
+        reward?: ReactorReward;
+      }>(`/ads/${adId}/like`);
       setAds((prev) => prev.map((a) => a.id === adId ? { ...a, likes: r.liked ? [...a.likes, "me"] : a.likes.slice(0, -1) } : a));
+      const amount = rewardAmount(r.reward);
+      if (amount > 0) showInteractionReward(
+        t("ads.reward_title"), t("ads.interaction_reward", { amount }),
+      );
     } catch {}
   };
 
@@ -131,7 +154,7 @@ function AdsScreenInner() {
         setReplyTo((r) => ({ ...r, [adId]: null }));
         setNewComment((n) => ({ ...n, [adId]: "" }));
       } else {
-        const r = await api.post<{ comment: Comment; reward?: { amount: number } | null }>(
+        const r = await api.post<{ comment: Comment; reward?: ReactorReward }>(
           `/ads/${adId}/comment`, { text },
         );
         setAds((prev) =>
@@ -142,11 +165,10 @@ function AdsScreenInner() {
           ),
         );
         setNewComment((n) => ({ ...n, [adId]: "" }));
-        if (r.reward && r.reward.amount) {
-          if (typeof window !== "undefined") {
-            window.alert(t("ads.comment_reward", { amount: r.reward.amount }));
-          }
-        }
+        const amount = rewardAmount(r.reward);
+        if (amount > 0) showInteractionReward(
+          t("ads.reward_title"), t("ads.interaction_reward", { amount }),
+        );
       }
     } catch (err: any) {
       const msg =

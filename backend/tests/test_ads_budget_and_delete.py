@@ -109,4 +109,5 @@ async def test_reactor_pool_initialised_at_approval(admin_headers):
         assert fresh["reactor_pool_remaining"] == pytest.approx(1400, abs=0.01)
     finally:
         await db.ads.delete_many({"id": ad_id})
+        await db.ads_reactor_eligible_users.delete_many({"ad_id": ad_id})
         client.close()

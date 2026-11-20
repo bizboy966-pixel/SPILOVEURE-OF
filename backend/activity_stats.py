@@ -201,7 +201,11 @@ async def _collect_bucketed_gains(db, user_id: str, start: datetime, end: dateti
 
     # 2) Ads reactor rewards.
     cur = db.ads_reactor_rewards.find(
-        {"user_id": user_id, "created_at": {"$gte": start, "$lt": end}},
+        {
+            "user_id": user_id,
+            "created_at": {"$gte": start, "$lt": end},
+            "status": {"$ne": "pending"},
+        },
         {"_id": 0, "amount": 1, "created_at": 1},
     )
     async for doc in cur:
@@ -365,7 +369,11 @@ async def activity_day(
 
     # Ads.
     cur = db.ads_reactor_rewards.find(
-        {"user_id": user["id"], "created_at": {"$gte": start, "$lt": end}},
+        {
+            "user_id": user["id"],
+            "created_at": {"$gte": start, "$lt": end},
+            "status": {"$ne": "pending"},
+        },
         {"_id": 0, "amount": 1, "ad_id": 1, "ad_title": 1, "created_at": 1},
     ).sort("created_at", 1)
     async for doc in cur:
