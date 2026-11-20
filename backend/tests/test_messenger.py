@@ -229,6 +229,10 @@ def test_block_prevents_private_send_and_creation(chat):
 
 def test_contact_request_accept_and_remove(chat):
     assert call(chat, "post", "/contacts/bob").status_code == 200
+    assert call(chat, "post", "/contacts/bob").status_code == 200
+    assert asyncio.run(chat[1].spv_contacts.count_documents({
+        "user_id": "alice", "peer_id": "bob",
+    })) == 1
     assert call(chat, "get", "/contacts", "bob").json()["requests"][0]["id"] == "alice"
     assert call(chat, "post", "/contacts/alice/accept", "bob").status_code == 200
     assert call(chat, "get", "/contacts").json()["contacts"][0]["id"] == "bob"
@@ -248,6 +252,11 @@ def test_people_privacy_settings(chat):
     assert call(chat, "patch", "/settings", "bob", json={"allow_contacts": False, "show_presence": False}).status_code == 200
     assert call(chat, "post", "/contacts/bob").status_code == 403
     assert call(chat, "get", "/people?q=bo").json()[0]["last_seen"] is None
+
+
+def test_contact_request_refuses_when_pair_is_blocked(chat):
+    assert call(chat, "post", "/blocks/bob").status_code == 200
+    assert call(chat, "post", "/contacts/bob").status_code == 403
 
 
 def test_people_directory_lists_platform_users_and_chat_username_is_separate(chat):

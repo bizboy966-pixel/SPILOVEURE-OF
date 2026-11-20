@@ -13,15 +13,30 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from auth import get_current_user, require_active_user, require_admin
 from feature_flags import is_enabled as feature_enabled
+from identity_policy import email_verified
 
 
 public = APIRouter(prefix="/api", tags=["marketplace"])
 admin = APIRouter(prefix="/api/admin", tags=["marketplace_admin"], dependencies=[Depends(require_admin)])
 
 DEFAULT_DURATION_DAYS = 14
+
+
+async def initialize(db):
+    """Indexes for marketplace interactions stored separately from listings."""
+    await db.marketplace_listing_likes.create_index(
+        [("listing_id", 1), ("user_id", 1)], unique=True,
+        name="mk_listing_like_unique",
+    )
+    await db.marketplace_listing_comments.create_index(
+        [("listing_id", 1), ("created_at", -1)],
+        name="mk_listing_comments_recent",
+    )
+    await db.marketplace_listing_comments.create_index("id", unique=True)
 
 
 class ListingCreate(BaseModel):
@@ -40,6 +55,10 @@ class ListingCreate(BaseModel):
 class Review(BaseModel):
     rating: int = Field(..., ge=1, le=5)
     comment: str = Field(default="", max_length=500)
+
+
+class ListingComment(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1000)
 
 
 class ConfigUpdate(BaseModel):
@@ -65,6 +84,63 @@ async def _config(db) -> dict:
         "duration_days": int(doc.get("duration_days") or DEFAULT_DURATION_DAYS),
         "enabled": doc.get("enabled") if doc.get("enabled") is not None else True,
     }
+
+
+async def _interaction_summaries(db, listing_ids: list[str], user_id: str):
+    likes_by_listing: dict[str, dict] = {}
+    comments_by_listing: dict[str, int] = {}
+    if not listing_ids:
+        return likes_by_listing, comments_by_listing
+    async for row in db.marketplace_listing_likes.aggregate([
+        {"$match": {"listing_id": {"$in": listing_ids}}},
+        {"$group": {
+            "_id": "$listing_id",
+            "count": {"$sum": 1},
+            "liked_by_me": {"$sum": {"$cond": [{"$eq": ["$user_id", user_id]}, 1, 0]}},
+        }},
+    ]):
+        likes_by_listing[row["_id"]] = {
+            "likes_count": row["count"], "liked_by_me": row["liked_by_me"] > 0,
+        }
+    async for row in db.marketplace_listing_comments.aggregate([
+        {"$match": {"listing_id": {"$in": listing_ids}}},
+        {"$group": {"_id": "$listing_id", "count": {"$sum": 1}}},
+    ]):
+        comments_by_listing[row["_id"]] = row["count"]
+    return likes_by_listing, comments_by_listing
+
+
+async def _public_listing_rows(db, listings: list[dict], user_id: str):
+    listing_ids = [row["id"] for row in listings]
+    seller_ids = list({row.get("seller_id") for row in listings if row.get("seller_id")})
+    sellers = {
+        row["id"]: row async for row in db.users.find(
+            {"id": {"$in": seller_ids}},
+            {"id": 1, "username": 1, "profile_photo": 1, "avatar_url": 1,
+             "email_verified": 1, "email_verified_address": 1, "email": 1},
+        )
+    }
+    likes, comments = await _interaction_summaries(db, listing_ids, user_id)
+    result = []
+    for listing in listings:
+        row = _serialize(listing)
+        seller = sellers.get(listing.get("seller_id"), {})
+        row["seller_profile"] = {
+            "username": seller.get("username") or listing.get("seller_username") or "Vendeur",
+            "avatar": seller.get("profile_photo") or seller.get("avatar_url") or "",
+            "verified": email_verified(seller),
+        }
+        row.update(likes.get(listing["id"], {"likes_count": 0, "liked_by_me": False}))
+        row["comments_count"] = comments.get(listing["id"], 0)
+        result.append(row)
+    return result
+
+
+async def _approved_listing(db, listing_id: str):
+    listing = await db.marketplace_listings.find_one({"id": listing_id, "status": "approved"})
+    if not listing:
+        raise HTTPException(404, "Annonce introuvable ou indisponible.")
+    return listing
 
 
 # ---------- USER ----------
@@ -125,10 +201,73 @@ async def public_feed(request: Request, user=Depends(get_current_user)):
         {"status": "approved", "expires_at": {"$lte": now}},
         {"$set": {"status": "expired"}},
     )
-    items = []
-    async for l in db.marketplace_listings.find({"status": "approved"}).sort("approved_at", -1).limit(500):
-        items.append(_serialize(l))
-    return {"items": items}
+    listings = await db.marketplace_listings.find(
+        {"status": "approved"},
+    ).sort("approved_at", -1).limit(500).to_list(500)
+    return {"items": await _public_listing_rows(db, listings, user["id"])}
+
+
+@public.post("/marketplace/{listing_id}/like")
+async def toggle_listing_like(listing_id: str, request: Request, user=Depends(get_current_user)):
+    db = request.app.state.db
+    await _approved_listing(db, listing_id)
+    likes = db.marketplace_listing_likes
+    existing = await likes.find_one({"listing_id": listing_id, "user_id": user["id"]})
+    liked = False
+    if existing:
+        removed = await likes.delete_one({"listing_id": listing_id, "user_id": user["id"]})
+        liked = removed.deleted_count == 0
+    else:
+        try:
+            await likes.insert_one({
+                "listing_id": listing_id, "user_id": user["id"],
+                "created_at": datetime.now(timezone.utc),
+            })
+            liked = True
+        except DuplicateKeyError:
+            # Two quick taps may race; the unique index still prevents a
+            # duplicate like, and the returned state reflects persistence.
+            liked = True
+    return {
+        "liked_by_me": liked,
+        "likes_count": await likes.count_documents({"listing_id": listing_id}),
+    }
+
+
+@public.get("/marketplace/{listing_id}/comments")
+async def listing_comments(
+    listing_id: str, request: Request, limit: int = 50, user=Depends(get_current_user),
+):
+    if limit < 1 or limit > 100:
+        raise HTTPException(422, "Choisissez entre 1 et 100 commentaires.")
+    await _approved_listing(request.app.state.db, listing_id)
+    rows = await request.app.state.db.marketplace_listing_comments.find(
+        {"listing_id": listing_id},
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    rows.reverse()
+    return [_serialize(row) for row in rows]
+
+
+@public.post("/marketplace/{listing_id}/comments")
+async def add_listing_comment(
+    listing_id: str, body: ListingComment, request: Request,
+    user=Depends(get_current_user),
+):
+    db = request.app.state.db
+    await _approved_listing(db, listing_id)
+    comments = db.marketplace_listing_comments
+    if await comments.count_documents({"listing_id": listing_id}) >= 500:
+        raise HTTPException(400, "Limite de commentaires atteinte.")
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Votre commentaire est vide.")
+    row = {
+        "id": str(uuid.uuid4()), "listing_id": listing_id,
+        "user_id": user["id"], "username": user.get("username") or "Membre",
+        "text": text, "created_at": datetime.now(timezone.utc),
+    }
+    await comments.insert_one(row)
+    return _serialize(row)
 
 
 # ---------- "Nouveauté" badge + WhatsApp-style ring (v27ao) ----------

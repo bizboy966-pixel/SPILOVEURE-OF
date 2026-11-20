@@ -46,6 +46,30 @@ export function safeMessengerReturnTo(target: unknown): string {
   if (target === "/messenger" || target === "/account-access" || target === "/account-access?source=chat") {
     return target;
   }
+  if (typeof target === "string") {
+    try {
+      const parsed = new URL(target, "https://spiloveure.org");
+      if (
+        parsed.origin === "https://spiloveure.org"
+        && ["/marketplace", "/(app)/marketplace"].includes(parsed.pathname)
+        && parsed.hash === ""
+        && Array.from(parsed.searchParams.keys()).sort().join(",") === "listingId,marketplaceAction,sellerId"
+      ) {
+        const action = parsed.searchParams.get("marketplaceAction");
+        const sellerId = parsed.searchParams.get("sellerId") || "";
+        const listingId = parsed.searchParams.get("listingId") || "";
+        if (
+          (action === "save" || action === "chat")
+          && /^[\w.-]{1,100}$/.test(sellerId)
+          && /^[\w.-]{1,100}$/.test(listingId)
+        ) {
+          return `/marketplace?marketplaceAction=${action}&sellerId=${encodeURIComponent(sellerId)}&listingId=${encodeURIComponent(listingId)}`;
+        }
+      }
+    } catch {
+      return "/messenger";
+    }
+  }
   return typeof target === "string" ? messengerProfileRouteFromUrl(target) || "/messenger" : "/messenger";
 }
 

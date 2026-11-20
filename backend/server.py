@@ -81,6 +81,8 @@ async def lifespan(app: FastAPI):
     await initialize_messenger(db)
     from identity_core import initialize as initialize_identity
     await initialize_identity(db)
+    from marketplace import initialize as initialize_marketplace
+    await initialize_marketplace(db)
     # Bind DB to modules that need it for observability (BizTransPay API logs).
     try:
         from biztranspay import _bind_db as _biztranspay_bind_db
