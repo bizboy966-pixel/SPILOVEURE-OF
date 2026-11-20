@@ -22,15 +22,3 @@ timeoutMs = 180000
 [nix]
 channel = "stable-25_05"
 packages = ["jdk21", "android-tools", "gradle"]
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 19080
-externalPort = 3000
-
-[[ports]]
-localPort = 20285
-externalPort = 80
