@@ -15,7 +15,7 @@ export default function ReferralRedirect() {
   useEffect(() => {
     const ref = (typeof username === "string" ? username : "admin").trim() || "admin";
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.replace(`/?ref=${encodeURIComponent(ref)}`);
+      window.location.replace(`/?showLanding=1&ref=${encodeURIComponent(ref)}`);
     }
   }, [username]);
 
