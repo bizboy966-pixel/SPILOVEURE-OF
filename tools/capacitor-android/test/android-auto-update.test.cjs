@@ -124,6 +124,11 @@ test("Android installer handles confirmation and relaunches after successful rep
   assert.match(plugin, /USER_ACTION_REQUIRED/);
   assert.match(plugin, /permission_required/);
   assert.match(plugin, /session\.commit/);
+  assert.match(plugin, /launchSystemApkInstaller\(apkUri\)/);
+  assert.match(plugin, /new Intent\(Intent\.ACTION_VIEW\)/);
+  assert.match(plugin, /application\/vnd\.android\.package-archive/);
+  assert.match(plugin, /Intent\.FLAG_GRANT_READ_URI_PERMISSION/);
+  assert.match(plugin, /installMethod", "android_installer"/);
   assert.match(receiver, /STATUS_PENDING_USER_ACTION/);
   assert.match(receiver, /startActivity\(confirmation\)/);
   assert.match(receiver, /STATUS_SUCCESS/);
