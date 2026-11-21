@@ -20,6 +20,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "ApkInstaller")
 public class ApkInstallerPlugin extends Plugin {
+    private static final String TAG = "SpiloveureApkInstall";
+
     @PluginMethod
     public void startDownload(PluginCall call) {
         String rawUrl = call.getString("url");
@@ -179,8 +181,32 @@ public class ApkInstallerPlugin extends Plugin {
                     // Keep the original installation error.
                 }
             }
-            call.reject("Android n’a pas pu lancer l’installation de la mise à jour.", exception);
+            android.util.Log.w(
+                TAG,
+                "La session d’installation a échoué; tentative via l’installateur Android.",
+                exception);
+            try {
+                launchSystemApkInstaller(apkUri);
+                JSObject result = new JSObject();
+                result.put("status", "installing");
+                result.put("installMethod", "android_installer");
+                call.resolve(result);
+            } catch (Exception fallbackException) {
+                fallbackException.addSuppressed(exception);
+                call.reject(
+                    "Android n’a pas pu ouvrir l’installateur. Vérifie l’autorisation "
+                        + "d’installer des applications depuis SPILOVEURE puis réessaie.",
+                    fallbackException);
+            }
         }
+    }
+
+    private void launchSystemApkInstaller(Uri apkUri) {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+        intent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        getContext().startActivity(intent);
     }
 
     private DownloadManager downloadManager() {
