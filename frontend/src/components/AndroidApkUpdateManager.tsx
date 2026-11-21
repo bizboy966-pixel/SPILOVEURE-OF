@@ -3,7 +3,11 @@ import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } fr
 
 import { api, resolveMediaUrl } from "@/src/api";
 import { theme } from "@/src/theme";
-import { requiresMandatoryApkUpdate, validateApkUrl } from "@/src/utils/androidApkRelease";
+import {
+  requiresMandatoryApkUpdate,
+  resolveAndroidAppVersion,
+  validateApkUrl,
+} from "@/src/utils/androidApkRelease";
 import type { ApkRelease } from "@/src/utils/androidApkRelease";
 import {
   downloadApkWithProgress,
@@ -12,7 +16,7 @@ import {
 import type { ApkInstallerBridge } from "@/src/utils/capacitorApkUpdate";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "https://spiloveure.org";
-const APP_VERSION = process.env.EXPO_PUBLIC_CAPACITOR_VERSION || "";
+const APP_VERSION = resolveAndroidAppVersion(process.env.EXPO_PUBLIC_CAPACITOR_VERSION);
 
 type Phase = "checking" | "idle" | "downloading" | "installing" | "permission";
 

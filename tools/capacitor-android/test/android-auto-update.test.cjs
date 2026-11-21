@@ -16,7 +16,8 @@ function loadTypeScript(relative) {
 }
 
 test("mandatory update detection compares the installed app to the published minimum", () => {
-  const { requiresMandatoryApkUpdate } = loadTypeScript("frontend/src/utils/androidApkRelease.ts");
+  const { requiresMandatoryApkUpdate, resolveAndroidAppVersion } =
+    loadTypeScript("frontend/src/utils/androidApkRelease.ts");
   const release = {
     apk_url: "https://spiloveure.org/api/uploads/spiloveure-1.1.16.apk",
     apk_version: "1.1.16",
@@ -28,11 +29,18 @@ test("mandatory update detection compares the installed app to the published min
   assert.equal(requiresMandatoryApkUpdate("1.1.16", release), false);
   assert.equal(requiresMandatoryApkUpdate("1.1.17", release), false);
   assert.equal(requiresMandatoryApkUpdate("1.1.15", { ...release, apk_mandatory: false }), false);
+  assert.equal(resolveAndroidAppVersion("1.1.21", "1.1.7"), "1.1.21");
+  assert.equal(resolveAndroidAppVersion(undefined, "1.1.7"), "1.1.7");
 });
 
 test("Capacitor update manager checks on startup and blocks until the required update", () => {
   const component = read("frontend/src/components/AndroidApkUpdateManager.tsx");
+  const androidComponent = read("frontend/src/components/AndroidApkUpdateManager.android.tsx");
+  const prepareWeb = read("tools/capacitor-android/prepare-web.cjs");
   assert.match(component, /getNativeInstaller\(\)/);
+  assert.match(androidComponent, /process\.env\.EXPO_PUBLIC_CAPACITOR_VERSION/);
+  assert.match(androidComponent, /Constants\.expoConfig\?\.version/);
+  assert.match(prepareWeb, /EXPO_PUBLIC_CAPACITOR_VERSION:\s*version/);
   assert.match(component, /void checkRelease\(\)/);
   assert.match(component, /spv-capacitor-app-state/);
   assert.match(component, /Mise à jour disponible/);

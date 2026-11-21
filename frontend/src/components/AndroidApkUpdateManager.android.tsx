@@ -14,10 +14,18 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
 import { api, resolveMediaUrl } from "@/src/api";
-import { ApkRelease, requiresMandatoryApkUpdate, validateApkUrl } from "@/src/utils/androidApkRelease";
+import {
+  ApkRelease,
+  requiresMandatoryApkUpdate,
+  resolveAndroidAppVersion,
+  validateApkUrl,
+} from "@/src/utils/androidApkRelease";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "https://spiloveure.org";
-const APP_VERSION = String(Constants.expoConfig?.version || "0.0.0");
+const APP_VERSION = resolveAndroidAppVersion(
+  process.env.EXPO_PUBLIC_CAPACITOR_VERSION,
+  String(Constants.expoConfig?.version || ""),
+);
 const APP_PACKAGE = String(Constants.expoConfig?.android?.package || "com.spilivere.app");
 
 type DownloadPhase = "idle" | "downloading" | "ready";

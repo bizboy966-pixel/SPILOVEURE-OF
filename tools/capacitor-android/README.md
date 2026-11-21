@@ -6,7 +6,7 @@ base de données ne sont compilés dans l'APK. Toutes les requêtes utilisent le
 VPS `https://spiloveure.org`. Elle garde le même identifiant Android que l'application Expo :
 `com.spilivere.app`.
 
-La version candidate est **1.1.21 (code 22)**. Elle est signée avec
+La version candidate est **1.1.22 (code 23)**. Elle est signée avec
 une nouvelle clé de production, distincte de la clé EAS inaccessible. Pour la
 première installation, les utilisateurs devront désinstaller l'ancienne APK
 Expo puis installer celle-ci. Les données conservées sur le VPS ne sont pas
@@ -115,7 +115,7 @@ Sur le VPS, après avoir récupéré le commit GitHub qui contient la version vo
    ```
 
 L’APK de test signée sera dans
-`generated-artifacts/spiloveure/SPILOVEURE-1.1.21.apk`. Le fichier
+`generated-artifacts/spiloveure/SPILOVEURE-1.1.22.apk`. Le fichier
 `android-builder.env` est ignoré par Git. Le conteneur de compilation est séparé
 du lancement normal de Docker Compose et n’est pas démarré au redémarrage du VPS.
 
