@@ -15,7 +15,7 @@ export default function Index() {
 function ExpoIndex() {
   const params = useLocalSearchParams<{ ref?: string; showLanding?: string }>();
   const refCode = typeof params.ref === "string" ? params.ref : "";
-  const forceLanding = params.showLanding === "1";
+  const forceLanding = params.showLanding === "1" || !!refCode.trim();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { user: chatUser, loading: chatLoading } = useChat();

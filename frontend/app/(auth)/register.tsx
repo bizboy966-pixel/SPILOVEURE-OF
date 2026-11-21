@@ -37,7 +37,7 @@ export default function Register() {
     if (featLoading) return;
     const hasRef = !!(params.ref && String(params.ref).trim());
     if (hasRef && params.via !== "landing") {
-      router.replace(`/?ref=${encodeURIComponent(String(params.ref))}` as any);
+      router.replace(`/?showLanding=1&ref=${encodeURIComponent(String(params.ref))}` as any);
       return;
     }
     // Fallback for when landing_page flag is enabled but the visitor came
