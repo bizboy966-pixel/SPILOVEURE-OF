@@ -5,6 +5,10 @@ export type ApkRelease = {
   apk_minimum_supported_version?: string;
 };
 
+export function resolveAndroidAppVersion(capacitorVersion?: string, expoVersion?: string): string {
+  return capacitorVersion?.trim() || expoVersion?.trim() || "0.0.0";
+}
+
 export function compareAppVersions(left: string, right: string): number {
   const parts = (value: string) => value.split("-")[0].split(".").map((part) => Number(part) || 0);
   const a = parts(left);
