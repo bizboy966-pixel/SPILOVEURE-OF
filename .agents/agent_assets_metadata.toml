@@ -168,3 +168,17 @@ mtime_ms = 1795065710001
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/a5d684b8-6c64-4a69-a631-c01b98fd5d2d/7d88e0af-eb41-4687-b020-0ed53e35e309"
 storage_version_token = "1795065813875630"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "TAlOskk29ddjouIZ0G_WW"
+uri = "file://generated-artifacts/spiloveure/SPILOVEURE-1.1.21.apk"
+type = "unspecified"
+title = "SPILOVEURE 1.1.21 — APK corrective"
+description = "APK officielle signée de test, non publiée sur le VPS. Elle ajoute un lancement de secours de l’installateur Android."
+logical_id = "6e1825f6-8696-4286-bbd4-080b40e29df5"
+content_hash = "sha256:f511a3e50bedeea489cd01dcc88c8806d89a08caa43a40b2d5c2c6ebc7df553e"
+size = 8891587
+mtime_ms = 1795225015483
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:71c2a1d9-5da8-4ad4-b7b5-db808de8bf04/6e1825f6-8696-4286-bbd4-080b40e29df5/86b4bb70-3bce-4ec2-a311-2eef02758bfb"
+storage_version_token = "1795225075733656"
+content_type = "application/octet-stream"
