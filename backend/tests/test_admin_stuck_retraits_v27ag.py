@@ -1,5 +1,4 @@
-"""Regression — 2026-03-04 (v27ag) : boutons admin sur retraits stuck +
-auto-reconciliation à l'ouverture du panel.
+"""Regression — admin withdrawal actions and server-side reconciliation.
 
 Cause reportée par l'utilisateur :
 > Certaines requêtes sont validées automatiquement mais toujours dans "En
@@ -13,8 +12,8 @@ Fixes :
   2. Backend : /reject accepte pending/dispatched/processing.
   3. Backend : /validate accepte pending/dispatched/processing. Cas spécial
      auto-dispatched BTP → override sans re-dispatch, status→completed.
-  4. Frontend : à l'ouverture de l'onglet retraits, fire-and-forget d'un
-     reconcile-all pour rattraper automatiquement les stuck.
+   4. Backend : provider pollers reconcile withdrawals in the background;
+      opening a repeatedly refreshed admin tab must not launch extra sweeps.
 """
 import re
 from pathlib import Path
@@ -66,10 +65,11 @@ def test_frontend_shows_buttons_for_lifecycle_statuses():
     assert 'admin-reconcile-wd-' in src
 
 
-def test_frontend_auto_reconciles_on_panel_open():
-    src = ADMIN_UI.read_text()
-    assert '"/admin/withdrawals/reconcile-all"' in src, (
-        "Panel open must trigger a background reconcile-all"
-    )
-    # Fire-and-forget pattern
-    assert 'reconcile-all")' in src and '.catch(() => {})' in src
+def test_reconciliation_runs_in_backend_not_on_every_panel_refresh():
+    ui = ADMIN_UI.read_text()
+    server = SERVER.read_text()
+    moneyfusion = (SERVER.parent / "moneyfusion.py").read_text()
+    assert 'api.post("/admin/withdrawals/reconcile-all")' not in ui
+    assert "payout_polling_loop" in server
+    assert "async def polling_loop(db)" in (SERVER.parent / "biztranspay.py").read_text()
+    assert "async def reconcile_all_dispatched" in moneyfusion
