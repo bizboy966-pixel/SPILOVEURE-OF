@@ -35,7 +35,6 @@ import { useFeatures } from "@/src/features";
 import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
-import BizTransPayCatalog from "@/src/components/BizTransPayCatalog";
 import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
 import { AdminHeader, AdminMenuModal } from "@/src/components/admin/AdminChrome";
 
@@ -4202,7 +4201,7 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
         <Text style={styles.section}>⚡ Biz-transPay <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>(Integration API v1 • TG / BJ / BF)</Text></Text>
       </View>
       <Text style={styles.helperTxt}>
-        Passerelle Biz-transPay — Mobile Money via l'API Integration v1 (dépôts + retraits). Portée : Togo, Bénin, Burkina Faso.
+        Passerelle Biz-transPay — API Integration v1 pour le Togo, le Bénin et le Burkina Faso. Les catalogues de dépôts et de retraits automatiques sont gérés séparément ci-dessous.
       </Text>
 
       {/* Master switch */}
@@ -4378,11 +4377,6 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
         )}
       </View>
 
-      {/* Countries / operators toggles */}
-      <View style={{ marginTop: 12 }}>
-        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>🌍 Pays & opérateurs</Text>
-        <BizTransPayCatalog />
-      </View>
     </Card>
   );
 }

@@ -65,6 +65,45 @@ def test_biztranspay_payout_catalog_maps_live_cameroon_orange_operator():
     assert match["code"] == "orange-money-cm"
 
 
+def test_biztranspay_payout_toggle_persists_after_catalog_refresh():
+    db = _db()
+    entry = {
+        "country": "TG", "code": "tmoney-tg", "currency": "XOF",
+        "label": "T-Money",
+    }
+
+    async def exercise():
+        await db.payment_providers.insert_one({
+            "id": "biztranspay", "name": "Biz-transPay", "status": "active",
+            "auto_deposit": True, "auto_withdrawal": True, "priority": 1,
+        })
+        await sync_btp_catalog_rows(db, [entry], direction="payout")
+        assert await toggle_operator(
+            db, "biztranspay", "TG", "tmoney-tg", True, kind="payout",
+        )
+        await sync_btp_catalog_rows(db, [entry], direction="payout")
+        enabled = await db.payment_provider_payout_operators.find_one({
+            "provider_id": "biztranspay", "country_code": "TG",
+            "operator_code": "tmoney-tg",
+        })
+        assert enabled["status"] == "active"
+
+        assert await toggle_operator(
+            db, "biztranspay", "TG", "tmoney-tg", False, kind="payout",
+        )
+        await sync_btp_catalog_rows(db, [entry], direction="payout")
+        disabled = await db.payment_provider_payout_operators.find_one({
+            "provider_id": "biztranspay", "country_code": "TG",
+            "operator_code": "tmoney-tg",
+        })
+        gateway = await db.app_settings.find_one({"key": "payment_gateway"})
+        assert disabled["status"] == "inactive"
+        assert gateway["value"]["biztranspay_payout_countries"]["TG"]["tmoney-tg"] is False
+        assert "tmoney-tg" not in gateway["value"].get("biztranspay_countries", {}).get("TG", {})
+
+    run(exercise())
+
+
 def test_moneyfusion_payout_toggle_does_not_change_current_payin_catalog():
     db = _db()
 

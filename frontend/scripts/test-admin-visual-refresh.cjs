@@ -56,11 +56,11 @@ test("each payment provider's credentials are grouped with its own country catal
   assert.match(router, /testID=\{`provider-\$\{p\.id\}-config-catalog`\}/);
   assert.match(router, /testID=\{`provider-\$\{p\.id\}-config-catalog-heading`\}/);
   assert.match(router, /hasCredentialConfiguration && \{[\s\S]*borderColor: theme\.colors\.borderStrong/);
-  assert.match(router, /hasCredentialConfiguration && \([\s\S]*p\.name[\s\S]*Configuration et catalogue des pays et opérateurs/);
+  assert.match(router, /hasCredentialConfiguration && \([\s\S]*p\.name[\s\S]*Configuration et catalogues Pay-in \/ Pay-out/);
   assert.match(router, /p\.id === "moneyfusion"[\s\S]*<MoneyFusionSettings/);
   assert.match(router, /p\.id === "biztranspay"[\s\S]*<BizTransPayCard/);
   assert.match(router, /p\.countries[\s\S]*p\.id/);
-  assert.match(router, /p\.countries \|\| \[\]\)\.map/);
+  assert.match(router, /const renderCatalog = \([\s\S]*?\(countries \|\| \[\]\)\.map/);
   assert.match(router, /expanded\[p\.id\] !== false/);
 
   const providersTabStart = admin.indexOf('{tab === "providers" &&');
@@ -70,13 +70,15 @@ test("each payment provider's credentials are grouped with its own country catal
   assert.doesNotMatch(providersTab, /<MoneyFusionSettings|<BizTransPayCard/);
 });
 
-test("provider key-saving and country/operator toggle requests remain unchanged", () => {
+test("provider settings use the separated direction-specific catalogs", () => {
   const moneyFusion = read("src/components/MoneyFusionSettings.tsx");
-  const bizTransPayCatalog = read("src/components/BizTransPayCatalog.tsx");
+  const admin = read("app/(admin)/index.tsx");
   assert.match(moneyFusion, /api\.put<MoneyFusionConfig>\("\/admin\/payment-gateways\/moneyfusion"/);
   assert.match(moneyFusion, /api\.post\("\/admin\/payment-gateways\/moneyfusion\/catalog\/refresh"\)/);
-  assert.match(bizTransPayCatalog, /api\.get<Catalog>\(`\/admin\/biztranspay\/catalog\?direction=\$\{next\}`\)/);
-  assert.match(bizTransPayCatalog, /api\.put\(code \? `\$\{path\}\/operators\/\$\{encodeURIComponent\(code\)\}` : path, \{ enabled \}\)/);
+  assert.doesNotMatch(admin, /BizTransPayCatalog/);
+  assert.match(admin, /renderCatalog\(p\.id, "payin", p\.countries \|\| \[\]\)/);
+  assert.match(admin, /renderCatalog\(p\.id, "payout", p\.payout_countries \|\| \[\]\)/);
+  assert.match(admin, /`\/admin\/payment-providers\/\$\{pid\}\/\$\{kind\}\/countries\/\$\{cc\}`/);
 });
 
 test("brand colors remain unchanged by the visual refresh", () => {
