@@ -356,13 +356,10 @@ async def fetch_methods() -> list[dict]:
 
 
 async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) -> None:
-    """Persist live payout methods; newly discovered methods default OFF."""
+    """Keep the existing catalog for Pay-in and copy it into separate Pay-out routes."""
     now = _now()
     for country in entries:
         cc = country["country_code"]
-        legacy_country = await db.payment_provider_countries.find_one(
-            {"provider_id": PAYIN_PROVIDER, "country_code": cc}, {"_id": 0},
-        )
         await db.payment_provider_countries.update_one(
             {"provider_id": PAYIN_PROVIDER, "country_code": cc},
             {"$setOnInsert": {
@@ -377,7 +374,7 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
             {"provider_id": PAYIN_PROVIDER, "country_code": cc},
             {"$setOnInsert": {
                 "provider_id": PAYIN_PROVIDER, "country_code": cc,
-                "status": "active" if legacy_country and legacy_country.get("status") == "active" else "inactive",
+                "status": "inactive",
                 "mode": "automatic", "priority": 4,
                 "source": "moneyfusion_payout_methods", "created_at": now,
             }, "$set": {"country_name": country["country"],
@@ -386,10 +383,6 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
             upsert=True,
         )
         for operator in country["operators"]:
-            legacy_operator = await db.payment_provider_operators.find_one(
-                {"provider_id": PAYIN_PROVIDER, "country_code": cc,
-                 "operator_code": operator["code"]}, {"_id": 0},
-            )
             await db.payment_provider_operators.update_one(
                 {"provider_id": PAYIN_PROVIDER, "country_code": cc,
                  "operator_code": operator["code"]},
@@ -407,7 +400,7 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
                 {"$setOnInsert": {
                     "provider_id": PAYIN_PROVIDER, "country_code": cc,
                     "operator_code": operator["code"],
-                    "status": "active" if legacy_operator and legacy_operator.get("status") == "active" else "inactive",
+                    "status": "inactive",
                     "source": "moneyfusion_payout_methods", "created_at": now,
                 }, "$set": {"operator_label": operator["label"], "updated_at": now,
                             "catalog_direction": "payout"}},
@@ -529,14 +522,26 @@ def _normalize_operator(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
 
 
-async def _active_catalog_country(db, country_code: str) -> Optional[dict]:
-    return await db.payment_provider_countries.find_one(
+def _catalog_route_collections(db, kind: str = "payin"):
+    if kind == "payout":
+        return db.payment_provider_payout_countries, db.payment_provider_payout_operators
+    return db.payment_provider_countries, db.payment_provider_operators
+
+
+async def _active_catalog_country(
+    db, country_code: str, *, kind: str = "payin",
+) -> Optional[dict]:
+    countries, _ = _catalog_route_collections(db, kind)
+    return await countries.find_one(
         {"provider_id": PAYIN_PROVIDER, "country_code": country_code.upper(),
          "status": "active"}, {"_id": 0},
     )
 
 
-async def _active_operator_for_label(db, country: str, label: str, methods: list[dict]) -> Optional[dict]:
+async def _active_operator_for_label(
+    db, country: str, label: str, methods: list[dict], *, kind: str = "payin",
+) -> Optional[dict]:
+    _, operators = _catalog_route_collections(db, kind)
     norm = _normalize_operator(label)
     catalog = next((c for c in methods if c["country_code"] == country.upper()), None)
     if not catalog:
@@ -546,7 +551,7 @@ async def _active_operator_for_label(db, country: str, label: str, methods: list
                      if norm and norm in {_normalize_operator(o["code"]), _normalize_operator(o["label"])}), None)
     if not operator:
         return None
-    return await db.payment_provider_operators.find_one(
+    return await operators.find_one(
         {"provider_id": PAYIN_PROVIDER, "country_code": country.upper(),
          "operator_code": operator["code"], "status": "active"},
         {"_id": 0},
@@ -609,7 +614,7 @@ async def payout_catalog(request: Request, user=Depends(get_current_user)):
         raise HTTPException(503, "Catalogue des retraits MoneyFusion indisponible.")
     countries = []
     for country in entries:
-        if not await _active_catalog_country(db, country["country_code"]):
+        if not await _active_catalog_country(db, country["country_code"], kind="payout"):
             continue
         currency = str(country["currency"]).upper()
         try:
@@ -621,7 +626,7 @@ async def payout_catalog(request: Request, user=Depends(get_current_user)):
             continue
         enabled = []
         for op in country["operators"]:
-            active = await db.payment_provider_operators.find_one({
+            active = await db.payment_provider_payout_operators.find_one({
                 "provider_id": PAYIN_PROVIDER, "country_code": country["country_code"],
                 "operator_code": op["code"], "status": "active",
             })
@@ -1066,19 +1071,20 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
         return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
                                               "not_mobile", "Ce retrait n’est pas un retrait Mobile Money.")
     cc = str(withdrawal.get("country") or "").upper()
-    country = await _active_catalog_country(db, cc)
+    country = await _active_catalog_country(db, cc, kind="payout")
     if not country:
         return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
                                               "country_disabled")
     methods = await refresh_catalog(db)
     selected = await _active_operator_for_label(
-        db, cc, str(withdrawal.get("operator") or ""), methods,
+        db, cc, str(withdrawal.get("operator") or ""), methods, kind="payout",
     )
     if not selected:
         return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
                                               "operator_disabled_or_unmapped")
     from payment_exclusivity import assert_assignment
-    await assert_assignment(db, PAYIN_PROVIDER, cc, selected["operator_code"], selected.get("operator_label", ""))
+    await assert_assignment(db, PAYIN_PROVIDER, cc, selected["operator_code"],
+                            selected.get("operator_label", ""), kind="payout")
     catalog_country = next((c for c in methods if c["country_code"] == cc), None)
     if not catalog_country:
         return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),

@@ -116,7 +116,6 @@ async def sync_btp_catalog_rows(
     db, entries: list, cfg: Optional[dict] = None, *, direction: str = "deposit",
 ) -> int:
     """Sync one live BTP catalog into its direction-specific route tables."""
-    from payment_exclusivity import operator_identity
     direction = "payout" if direction == "payout" else "deposit"
     countries_collection = (
         db.payment_provider_payout_countries if direction == "payout"
@@ -142,29 +141,18 @@ async def sync_btp_catalog_rows(
     added = 0
     for cc, ops in by_cc.items():
         c_toggles = toggles.get(cc) or {}
-        old_country = await db.payment_provider_countries.find_one(
-            {"provider_id": "biztranspay", "country_code": cc}, {"_id": 0},
-        ) if direction == "payout" else None
-        legacy_ops = [row async for row in db.payment_provider_operators.find(
-            {"provider_id": "biztranspay", "country_code": cc}, {"_id": 0},
-        )] if direction == "payout" else []
         initial_states = []
         for code, e in ops.items():
-            legacy = next((row for row in legacy_ops if
-                           operator_identity(cc, row.get("operator_code", ""),
-                                             row.get("operator_label", "")) ==
-                           operator_identity(cc, code, e.get("label", ""))), None)
             initial_states.append(
                 bool(c_toggles[code]) if code in c_toggles
-                else bool(legacy and legacy.get("status") == "active")
+                else (True if direction == "deposit"
+                      else False)
             )
         any_on = any(initial_states)
         if direction == "deposit":
             any_on = any(bool(c_toggles.get(code, True)) for code in ops)
         elif cc in toggles and isinstance(toggles.get(cc), dict):
             any_on = any(bool(value) for value in toggles[cc].values())
-        elif old_country:
-            any_on = old_country.get("status") == "active"
         currency = next(iter(ops.values()))["currency"]
         try:
             from levels import COUNTRIES

@@ -886,6 +886,26 @@ def _match_payout_entry(entries: list, cc: str, internal_code: str) -> Optional[
     return None
 
 
+def _resolve_live_payout_entry(entries: list, country: str, raw_operator: str) -> Optional[dict]:
+    """Resolve a user-facing operator label against the live payout catalog."""
+    country = (country or "").upper()
+    raw_operator = (raw_operator or "").strip()
+    exact = next((entry for entry in entries
+                  if entry["country"] == country and entry["code"] == raw_operator), None)
+    if exact:
+        return exact
+    from payment_exclusivity import operator_identity
+    wanted = operator_identity(country, raw_operator)
+    matches = [
+        entry for entry in entries if entry["country"] == country
+        and operator_identity(country, entry["code"], entry["label"]) == wanted
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    internal_code = _resolve_operator_code(country, raw_operator)
+    return _match_payout_entry(entries, country, internal_code) if internal_code else None
+
+
 async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     """Auto-payout via POST /payouts using the live direction-specific catalog.
     Operator code comes from the live payout catalog; one attempt, Idempotency-Key = wd id."""
@@ -907,20 +927,7 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
     raw_op = (wd_doc.get("operator") or "").strip()
-    exact = next((entry for entry in entries
-                  if entry["country"] == country and entry["code"] == raw_op), None)
-    if not exact:
-        from payment_exclusivity import operator_identity
-        wanted = operator_identity(country, raw_op)
-        matching_entries = [
-            entry for entry in entries if entry["country"] == country
-            and operator_identity(country, entry["code"], entry["label"]) == wanted
-        ]
-        if len(matching_entries) == 1:
-            exact = matching_entries[0]
-    internal_code = _resolve_operator_code(country, raw_op)
-    if not exact and internal_code:
-        exact = _match_payout_entry(entries, country, internal_code)
+    exact = _resolve_live_payout_entry(entries, country, raw_op)
     if not exact:
         await _persist_dispatch_failure(
             db, wd_id, "operator_not_supported",

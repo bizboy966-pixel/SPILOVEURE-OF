@@ -156,15 +156,28 @@ def conflicts(routes):
 
 
 async def validate_change(db, *, kind="payin", **changes):
-    before = conflicts(await mobile_routes(db, kind=kind))
-    after = conflicts(await mobile_routes(db, kind=kind, **changes))
+    kind = "payout" if str(kind).lower() in ("payout", "withdrawal", "retrait") else "payin"
+    shared = {key: value for key, value in changes.items()
+              if key in ("provider_enabled", "flat_config", "mf_config")}
+    other_kind = "payin" if kind == "payout" else "payout"
+    before_routes = (
+        await mobile_routes(db, kind="payin")
+        + await mobile_routes(db, kind="payout")
+    )
+    affected_routes = await mobile_routes(db, kind=kind, **changes)
+    unaffected_routes = await mobile_routes(db, kind=other_kind, **shared)
+    after_routes = (affected_routes + unaffected_routes if kind == "payin"
+                    else unaffected_routes + affected_routes)
+    before = conflicts(before_routes)
+    after = conflicts(after_routes)
     for (cc, identity), owners in after.items():
         if owners != before.get((cc, identity)):
             raise HTTPException(409, f"{cc} / {identity} est déjà attribué à un autre prestataire ({', '.join(sorted(owners))}). Désactivez d’abord cet opérateur chez l’ancien prestataire.")
 
 
 async def assert_assignment(db, provider_id, country, code, label="", *, kind="payin"):
-    routes = await mobile_routes(db, kind=kind)
+    routes = (await mobile_routes(db, kind="payin")
+              + await mobile_routes(db, kind="payout"))
     identity = operator_identity(country, code, label)
     owners = {route["provider_id"] for route in routes
               if route["country_code"] == country and route["identity"] == identity}
@@ -178,4 +191,7 @@ async def available_for_new_operator(db, provider_id, country, code, label="", *
     identity = operator_identity(country, code, label)
     return not any(route["provider_id"] != provider_id and route["country_code"] == country
                    and route["identity"] == identity
-                   for route in await mobile_routes(db, kind=kind))
+                   for route in (
+                       await mobile_routes(db, kind="payin")
+                       + await mobile_routes(db, kind="payout")
+                   ))

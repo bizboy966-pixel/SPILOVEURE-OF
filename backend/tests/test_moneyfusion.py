@@ -60,6 +60,14 @@ def env(monkeypatch):
         await mf.sync_catalog(db, METHODS)
         for country in METHODS:
             await toggle_country(db, "moneyfusion", country["country_code"], True)
+            await toggle_country(
+                db, "moneyfusion", country["country_code"], True, kind="payout",
+            )
+            for operator in country["operators"]:
+                await toggle_operator(
+                    db, "moneyfusion", country["country_code"], operator["code"],
+                    True, kind="payout",
+                )
         await db.withdrawals.insert_one(dict(PAYOUT))
         now = mf._now()
         rate_date = now.date().isoformat()

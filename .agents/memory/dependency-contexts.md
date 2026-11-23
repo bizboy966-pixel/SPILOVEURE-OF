@@ -30,3 +30,9 @@ Pour les vérifications navigateur locales, préférer le Chromium déjà dispon
 **Why:** Le binaire Playwright en cache peut exister sans trouver ses bibliothèques natives sous NixOS, alors que le Chromium système est autonome et fonctionne. Cela évite des installations inutiles.
 
 **How to apply:** Détecter `command -v chromium` et le passer comme `executablePath` aux vérifications locales, sans imposer ce chemin Nix au code applicatif ou au VPS.
+
+Les tests backend du workspace doivent être lancés avec le Python système 3.12 et le chemin explicite des dépendances locales; la commande pytest du dossier `.pythonlibs` peut viser une autre version. Certains tests d’intégration dépendent aussi de `MONGO_URL`, d’une configuration TOTP admin ou du chemin `/app` du conteneur.
+
+**Why:** Le workspace n’est pas le conteneur Hostinger : plusieurs tests d’intégration ne peuvent pas reproduire ici son stockage, sa base externe ou l’état MFA.
+
+**How to apply:** Pour valider une modification, lancer d’abord les tests isolés qui couvrent directement le code; signaler séparément les suites bloquées par ces prérequis au lieu de les traiter comme des régressions applicatives.

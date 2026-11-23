@@ -85,6 +85,24 @@ def env(monkeypatch):
         "biztranspay_enabled": True, "biztranspay_payin_enabled": True, "biztranspay_payout_enabled": True,
         "biztranspay_secret_key": "sk_live_x", "biztranspay_public_key": "pk_live_x",
         "biztranspay_webhook_secret": "whsec"}}))
+    # Existing catalog rows represent the preserved Pay-in setup; the first
+    # separated Pay-out catalog inherits these enabled physical operators.
+    loop.run_until_complete(db.payment_provider_countries.insert_one({
+        "provider_id": "biztranspay", "country_code": "TG", "currency": "XOF",
+        "status": "active", "mode": "automatic",
+    }))
+    loop.run_until_complete(db.payment_provider_operators.insert_one({
+        "provider_id": "biztranspay", "country_code": "TG", "operator_code": "tmoney_tg",
+        "operator_label": "Mixx By Yas", "status": "active",
+    }))
+    loop.run_until_complete(db.payment_provider_payout_countries.insert_one({
+        "provider_id": "biztranspay", "country_code": "TG", "currency": "XOF",
+        "status": "active", "mode": "automatic",
+    }))
+    loop.run_until_complete(db.payment_provider_payout_operators.insert_one({
+        "provider_id": "biztranspay", "country_code": "TG", "operator_code": "tmoney_tg",
+        "operator_label": "Mixx By Yas", "status": "active",
+    }))
     monkeypatch.setattr(b, "_get", fake_get)
     monkeypatch.setattr(b, "_post", fake_post)
     bc._CATALOG.clear(); bc._RATES.clear(); CALLS.clear()
@@ -165,6 +183,10 @@ def test_payout_tg_moov_uses_catalog_code(env):
     db, loop = env
     loop.run_until_complete(db.payment_provider_operators.insert_one(
         {"provider_id": "biztranspay", "country_code": "TG", "operator_code": "moov_tg", "status": "active"}))
+    loop.run_until_complete(db.payment_provider_payout_operators.insert_one({
+        "provider_id": "biztranspay", "country_code": "TG", "operator_code": "moov-togo",
+        "operator_label": "Moov Money", "status": "active",
+    }))
     wd = _wd("TG", "Moov Money (Flooz)")
     loop.run_until_complete(db.withdrawals.insert_one(dict(wd)))
     r = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))

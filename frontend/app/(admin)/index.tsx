@@ -3841,8 +3841,18 @@ function PaymentProvidersRouterCard({
   }
 
   const renderCatalog = (pid: string, kind: "payin" | "payout", countries: any[]) => (
-    <View testID={`provider-${pid}-${kind}-catalog`}>
-      <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary, marginTop: 8, marginBottom: 6 }}>
+    <View
+      testID={`provider-${pid}-${kind}-catalog`}
+      style={{
+        marginTop: 10,
+        padding: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: kind === "payin" ? "#93C5FD" : "#A7F3D0",
+        backgroundColor: theme.colors.surface,
+      }}
+    >
+      <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 }}>
         {kind === "payin" ? "Pay-in · dépôts et activations" : "Pay-out · retraits automatiques"}
       </Text>
       {(!countries || countries.length === 0) && (
