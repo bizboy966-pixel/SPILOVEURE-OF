@@ -7,6 +7,7 @@ states are always fetched from MoneyFusion before applying account changes.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -517,6 +518,44 @@ async def manual_withdrawal_action_allowed(db, wd_id: str) -> bool:
     return bool(payout and payout.get("status") in ("refused", "not_submitted"))
 
 
+_PAYOUT_FAILURE_MESSAGES = {
+    "not_configured": "Les retraits MoneyFusion ne sont pas configurés.",
+    "country_disabled": "Ce pays est désactivé dans le catalogue des retraits MoneyFusion.",
+    "operator_disabled_or_unmapped": "Cet opérateur n’est pas actif dans le catalogue réel des retraits MoneyFusion.",
+    "country_unsupported": "Ce pays n’existe pas dans le catalogue de retraits MoneyFusion.",
+    "fx_rate_unavailable": "Le taux de conversion du retrait est indisponible.",
+    "phone_missing": "Le numéro Mobile Money du portefeuille est invalide.",
+    "public_url_missing": "L’adresse HTTPS publique du serveur n’est pas configurée pour le webhook.",
+    "submission_reserved": "Une tentative de retrait existe déjà; vérifiez son statut avant toute action.",
+    "withdrawal_already_processed": "Le retrait a déjà changé de statut et n’a pas été envoyé.",
+}
+
+
+async def _record_dispatch_failure(db, wd_id: str, reason: str, detail: str = "") -> dict:
+    message = (detail or _PAYOUT_FAILURE_MESSAGES.get(reason) or
+               "Le retrait automatique MoneyFusion n’a pas été lancé.")
+    try:
+        await db.withdrawals.update_one(
+            {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected", "validated"]}},
+            {"$set": {
+                "gateway": PAYIN_PROVIDER,
+                "auto_dispatched": False,
+                "auto_dispatch_reason": message[:300],
+                "gateway_error_code": f"moneyfusion_{reason}"[:80],
+                "gateway_error": message[:300],
+                "updated_at": _now(),
+            }},
+        )
+    except Exception:
+        log.exception("MoneyFusion payout failure reason could not be persisted wd=%s", wd_id)
+    return {"auto_dispatched": False, "reason": reason, "detail": message}
+
+
+def _payout_poll_delay(attempts: int) -> int:
+    """Start at 30 seconds and back off to at most 15 minutes per payout."""
+    return min(30 * (2 ** min(max(int(attempts) - 1, 0), 5)), 900)
+
+
 @api.get("/payout-catalog")
 async def payout_catalog(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
@@ -981,47 +1020,56 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
     cfg = await load_config(db)
     credentials = await load_credentials(db)
     if not cfg.get("payout_enabled") or not credentials.get("payout_private_key"):
-        return {"auto_dispatched": False, "reason": "not_configured"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "not_configured")
     if (withdrawal.get("method") or "").lower() not in ("mobile", "mobile_money", "mm"):
-        return {"auto_dispatched": False, "reason": "not_mobile"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "not_mobile", "Ce retrait n’est pas un retrait Mobile Money.")
     cc = str(withdrawal.get("country") or "").upper()
     country = await _active_catalog_country(db, cc)
     if not country:
-        return {"auto_dispatched": False, "reason": "country_disabled"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "country_disabled")
     methods = await refresh_catalog(db)
     selected = await _active_operator_for_label(
         db, cc, str(withdrawal.get("operator") or ""), methods,
     )
     if not selected:
-        return {"auto_dispatched": False, "reason": "operator_disabled_or_unmapped"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "operator_disabled_or_unmapped")
     from payment_exclusivity import assert_assignment
     await assert_assignment(db, PAYIN_PROVIDER, cc, selected["operator_code"], selected.get("operator_label", ""))
     catalog_country = next((c for c in methods if c["country_code"] == cc), None)
     if not catalog_country:
-        return {"auto_dispatched": False, "reason": "country_unsupported"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "country_unsupported")
     currency = str(catalog_country["currency"]).upper()
     net_xof = float(withdrawal.get("net_payout") or withdrawal.get("amount") or 0)
     try:
         fx = await automatic_fx_rates(db, [currency])
     except HTTPException:
-        return {"auto_dispatched": False, "reason": "fx_rate_unavailable"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "fx_rate_unavailable")
     fx_cfg = {**cfg, "rates_per_xof": fx.get("rates_per_xof") or {}}
     amount = _amount_from_xof(fx_cfg, net_xof, currency)
     if amount is None:
-        return {"auto_dispatched": False, "reason": "fx_rate_unavailable"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "fx_rate_unavailable")
     phone = _local_phone(str(withdrawal.get("phone") or ""), cc)
     if not re.fullmatch(r"\d{6,15}", phone):
-        return {"auto_dispatched": False, "reason": "phone_missing"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "phone_missing")
     public_url = (os.environ.get("PUBLIC_APP_URL") or os.environ.get("SITE_URL") or "").rstrip("/")
     if not public_url.startswith("https://"):
-        return {"auto_dispatched": False, "reason": "public_url_missing"}
+        return await _record_dispatch_failure(db, str(withdrawal.get("id") or ""),
+                                              "public_url_missing")
 
     wd_id = str(withdrawal["id"])
     existing = await db.moneyfusion_payouts.find_one({"wd_id": wd_id}, {"_id": 0})
     if existing:
         return {"auto_dispatched": bool(existing.get("tokenPay")),
-                "reason": "already_submitted",
-                "tokenPay": existing.get("tokenPay")}
+                "reason": "already_submitted", "tokenPay": existing.get("tokenPay"),
+                "detail": "Une tentative MoneyFusion existe déjà; vérifiez son statut sans la renvoyer."}
     payout_row = {
         "_id": wd_id,
         "wd_id": wd_id, "user_id": withdrawal.get("user_id"),
@@ -1035,7 +1083,10 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
     try:
         await db.moneyfusion_payouts.insert_one(payout_row)
     except Exception:
-        return {"auto_dispatched": False, "reason": "submission_reserved"}
+        return await _record_dispatch_failure(
+            db, wd_id, "submission_reserved",
+            "Une tentative MoneyFusion existe déjà; vérifiez son statut sans la renvoyer.",
+        )
 
     # Reserve the withdrawal before the provider POST. Admin actions must not
     # refund or manually validate a possibly submitted transfer.
@@ -1071,12 +1122,15 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
         await db.withdrawals.update_one(
             {"id": wd_id},
             {"$set": {"gateway_status": "unknown",
-                      "auto_dispatch_error": "MoneyFusion: résultat inconnu; vérification manuelle requise",
+                      "auto_dispatch_attempted": True,
+                      "auto_dispatch_error": "MoneyFusion: résultat inconnu; vérifiez le token du retrait sans le renvoyer.",
+                      "auto_dispatch_reason": "Résultat de la soumission incertain; vérification MoneyFusion nécessaire avant toute action.",
                       "auto_dispatch_at": _now()}},
         )
-        return {"auto_dispatched": False, "reason": "unknown_result"}
+        return {"auto_dispatched": False, "reason": "unknown_result",
+                "detail": "Résultat de la soumission incertain; ne renvoyez pas le retrait."}
     token = str(result.get("tokenPay") or "").strip()
-    if result.get("statut") is not True or not _valid_token(token):
+    if result.get("statut") is not True:
         await db.moneyfusion_payouts.update_one(
             {"wd_id": wd_id},
             {"$set": {"status": "refused", "error": str(result.get("message") or "Requête refusée")[:300],
@@ -1085,22 +1139,47 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
         await db.withdrawals.update_one(
             {"id": wd_id, "status": "processing", "gateway_status": "submitting"},
             {"$set": {"status": "pending", "gateway_status": "refused",
-                      "auto_dispatch_error": "MoneyFusion a refusé la demande."}},
+                      "auto_dispatch_error": "MoneyFusion a refusé la demande.",
+                      "auto_dispatch_reason": str(result.get("message") or "MoneyFusion a refusé la demande.")[:300],
+                      "gateway_error_code": str(result.get("code") or "moneyfusion_refused")[:80],
+                      "gateway_error": str(result.get("message") or "MoneyFusion a refusé la demande.")[:300],
+                      "auto_dispatched": False}},
         )
         return {"auto_dispatched": False, "reason": "gateway_refused"}
+    if not _valid_token(token):
+        await db.moneyfusion_payouts.update_one(
+            {"wd_id": wd_id, "status": "submitting"},
+            {"$set": {"status": "unknown", "error": "Réponse acceptée sans tokenPay valide.",
+                      "updated_at": _now()}},
+        )
+        await db.withdrawals.update_one(
+            {"id": wd_id, "status": "processing"},
+            {"$set": {"gateway_status": "unknown", "auto_dispatch_attempted": True,
+                      "auto_dispatch_error": "MoneyFusion a peut-être accepté le retrait mais n’a pas renvoyé un token valide.",
+                      "auto_dispatch_reason": "Réponse MoneyFusion incertaine; vérifiez le tableau MoneyFusion sans renvoyer le retrait.",
+                      "gateway_error_code": "moneyfusion_token_missing",
+                      "gateway_error": "Réponse acceptée sans tokenPay valide."}},
+        )
+        return {"auto_dispatched": False, "reason": "unknown_result",
+                "detail": "Réponse MoneyFusion incertaine; ne renvoyez pas le retrait."}
 
     await db.moneyfusion_payouts.update_one(
         {"wd_id": wd_id},
         {"$set": {"status": "dispatched", "tokenPay": token,
                   "provider_message": str(result.get("message") or "")[:200],
-                  "dispatched_at": _now(), "updated_at": _now()}},
+                  "dispatched_at": _now(), "updated_at": _now(),
+                  "next_reconcile_at": _now() + timedelta(seconds=30),
+                  "reconcile_attempts": 0}},
     )
     await db.withdrawals.update_one(
         {"id": wd_id},
         {"$set": {"status": "dispatched", "gateway": PAYIN_PROVIDER,
                   "gateway_channel": "mobile", "gateway_intent_id": token,
                   "gateway_status": "pending", "dispatched_at": _now(),
-                  "dispatched_by": "auto:moneyfusion"}},
+                  "dispatched_by": "auto:moneyfusion", "auto_dispatched": True,
+                  "auto_dispatch_attempted": True,
+                  "auto_dispatch_reason": None, "gateway_error": None,
+                  "gateway_error_code": None}},
     )
     return {"auto_dispatched": True, "gateway_intent_id": token,
             "gateway_status": "pending"}
@@ -1129,12 +1208,57 @@ def _payout_details_match(payout: dict, data: dict) -> bool:
     )
 
 
+async def _notify_payout_terminal(db, withdrawal: dict, status: str, *, push: bool) -> None:
+    wd_id = str(withdrawal.get("id") or "")
+    user_id = withdrawal.get("user_id")
+    if not wd_id or not user_id:
+        return
+    amount = int(float(withdrawal.get("amount") or 0))
+    if status == "completed":
+        title = "Retrait validé"
+        body = f"Votre retrait de {amount:,} FCFA a été validé.".replace(",", " ")
+    else:
+        title = "Retrait rejeté"
+        body = f"Votre retrait de {amount:,} FCFA a été refusé et remboursé.".replace(",", " ")
+    notification_id = f"withdrawal:{wd_id}:{status}"
+    try:
+        await db.notifications.update_one(
+            {"_id": notification_id},
+            {"$setOnInsert": {
+                "id": notification_id, "user_id": user_id,
+                "kind": "withdrawal_status", "title": title, "body": body,
+                "meta": {"withdrawal_id": wd_id, "status": status,
+                         "gateway": PAYIN_PROVIDER},
+                "read": False, "created_at": _now(),
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("MoneyFusion withdrawal notification persistence failed wd=%s", wd_id)
+    if push:
+        try:
+            from push_helper import push_to_user
+            await push_to_user(
+                db, user_id, title=title, body=body,
+                link="/(app)/withdrawal",
+                data={"kind": "withdrawal_status", "withdrawal_id": wd_id,
+                      "status": status},
+                tag=notification_id,
+            )
+        except Exception:
+            log.debug("MoneyFusion withdrawal push notification failed wd=%s", wd_id)
+
+
 async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) -> dict:
     wd_id = payout.get("wd_id")
     wd = await db.withdrawals.find_one({"id": wd_id})
     if not wd:
         return {"handled": False, "reason": "withdrawal_not_found"}
     status = status.lower()
+    if status in {"success", "completed", "paid", "confirmed"}:
+        status = "success"
+    elif status in {"failed", "rejected", "declined", "canceled", "cancelled", "expired"}:
+        status = "failed"
     now = _now()
     if status == "success":
         result = await db.withdrawals.update_one(
@@ -1157,6 +1281,8 @@ async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) 
                 {"$inc": {"total_withdrawn": float(wd.get("amount") or 0)},
                  "$addToSet": {"moneyfusion_completed_withdrawals": wd_id}},
             )
+        await _notify_payout_terminal(db, settled, "completed",
+                                      push=bool(result.modified_count))
         return {"handled": True, "outcome": "completed", "changed": result.modified_count > 0}
     if status == "failed":
         result = await db.withdrawals.update_one(
@@ -1178,6 +1304,8 @@ async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) 
                 {"$inc": {"balance_profit": float(wd.get("amount") or 0)},
                  "$addToSet": {"moneyfusion_refunded_withdrawals": wd_id}},
             )
+        await _notify_payout_terminal(db, settled, "rejected",
+                                      push=bool(result.modified_count))
         return {"handled": True, "outcome": "failed", "changed": result.modified_count > 0}
     await db.moneyfusion_payouts.update_one(
         {"wd_id": wd_id},
@@ -1220,42 +1348,170 @@ class PayoutReconcileRequest(BaseModel):
     token: Optional[str] = None
 
 
-@admin.post("/payouts/{wd_id}/check")
-async def admin_check_payout(wd_id: str, body: PayoutReconcileRequest, request: Request,
-                            actor=Depends(require_admin)):
-    """Recover an ambiguous submission without ever sending a second payout."""
-    db = request.app.state.db
+async def _schedule_next_payout_check(db, payout: dict) -> None:
+    attempts = int(payout.get("reconcile_attempts") or 0) + 1
+    now = _now()
+    await db.moneyfusion_payouts.update_one(
+        {"wd_id": payout.get("wd_id"), "status": {"$in": ["dispatched", "unknown"]}},
+        {"$set": {
+            "last_reconcile_attempt_at": now,
+            "next_reconcile_at": now + timedelta(seconds=_payout_poll_delay(attempts)),
+            "reconcile_attempts": attempts,
+        }},
+    )
+
+
+async def reconcile_withdrawal(
+    db, wd_id: str, *, token: Optional[str] = None, schedule_next: bool = True,
+) -> dict:
+    """Verify the original MoneyFusion payout; this function never submits one."""
     payout = await db.moneyfusion_payouts.find_one({"wd_id": wd_id}, {"_id": 0})
     if not payout:
         raise HTTPException(404, "Retrait MoneyFusion introuvable.")
-    if payout.get("status") in ("refused", "not_submitted"):
-        raise HTTPException(409, "Cette demande n’a pas été acceptée par MoneyFusion. Aucun token externe ne peut lui être associé.")
-    token = str(payout.get("tokenPay") or body.token or "")
-    if not _valid_token(token):
-        raise HTTPException(400, "Saisissez le token du retrait affiché dans MoneyFusion pour vérifier la demande initiale, sans la renvoyer.")
+    if payout.get("status") in ("completed", "failed", "refused", "not_submitted"):
+        return {"ok": True, "status": payout.get("status"), "changed": False}
+
+    stored_token = str(payout.get("tokenPay") or "")
+    supplied_token = str(token or "").strip()
+    if stored_token and supplied_token and stored_token != supplied_token:
+        raise HTTPException(409, "Un token est déjà associé à cette demande. Il ne peut pas être remplacé.")
+    verify_token = stored_token or supplied_token
+    if not _valid_token(verify_token):
+        return {
+            "ok": False, "reason": "token_required",
+            "message": "Token MoneyFusion manquant. Récupérez le token du retrait initial; ne soumettez pas une nouvelle demande.",
+        }
+
+    if not stored_token:
+        try:
+            await db.moneyfusion_payouts.update_one(
+                {"wd_id": wd_id, "$or": [
+                    {"tokenPay": {"$exists": False}}, {"tokenPay": None}, {"tokenPay": ""},
+                ]},
+                {"$set": {"tokenPay": verify_token, "updated_at": _now()}},
+            )
+        except Exception:
+            raise HTTPException(409, "Ce token MoneyFusion est déjà lié à un autre retrait.")
+        payout = await db.moneyfusion_payouts.find_one({"wd_id": wd_id}, {"_id": 0})
+        if not payout or payout.get("tokenPay") != verify_token:
+            raise HTTPException(409, "Le token n’a pas pu être associé à cette demande.")
+
+    if schedule_next:
+        await _schedule_next_payout_check(db, payout)
     credentials = await load_credentials(db, strict=True)
-    if not credentials["payout_private_key"]:
+    if not credentials.get("payout_private_key"):
         raise HTTPException(503, "Clé privée MoneyFusion manquante.")
     try:
-        verified = await _verify_payout(token, credentials["payout_private_key"])
+        verified = await _verify_payout(verify_token, credentials["payout_private_key"])
     except Exception:
+        log.warning("MoneyFusion payout status check failed wd=%s", wd_id)
+        await db.moneyfusion_payouts.update_one(
+            {"wd_id": wd_id},
+            {"$set": {"last_reconcile_error": "status_check_unavailable",
+                      "last_reconcile_error_at": _now()}},
+        )
         raise HTTPException(502, "Vérification MoneyFusion indisponible. Ne renvoyez pas le retrait.")
     data = (verified or {}).get("data") or {}
-    if (verified.get("success") is not True or str(data.get("tokenPay") or "") != token
+    if (verified.get("success") is not True or str(data.get("tokenPay") or "") != verify_token
             or not _payout_details_match(payout, data)):
-        raise HTTPException(400, "Le token ne correspond pas au montant, numéro et opérateur du retrait.")
-    try:
         await db.moneyfusion_payouts.update_one(
-            {"wd_id": wd_id}, {"$set": {"tokenPay": token, "updated_at": _now()}},
+            {"wd_id": wd_id},
+            {"$set": {"last_reconcile_error": "verified_details_mismatch",
+                      "last_reconcile_error_at": _now()}},
         )
-    except Exception:
-        raise HTTPException(409, "Ce token est déjà lié à un autre retrait.")
+        raise HTTPException(400, "Le token ne correspond pas au montant, numéro et opérateur du retrait.")
+    outcome = await _apply_payout_status(db, payout, str(data.get("status") or ""), data)
+    return {"ok": bool(outcome.get("handled")),
+            "status": outcome.get("outcome") or outcome.get("reason"),
+            "changed": outcome.get("changed", False)}
+
+
+async def reconcile_all_dispatched(db, max_docs: int = 50) -> dict:
+    """Verify due payouts with known tokens; never resubmit a payout."""
+    now = _now()
+    stale_before = now - timedelta(minutes=3)
+    stale_count = 0
+    async for payout in db.moneyfusion_payouts.find({
+        "status": "submitting", "created_at": {"$lte": stale_before},
+    }).limit(max_docs):
+        changed = await db.moneyfusion_payouts.update_one(
+            {"wd_id": payout.get("wd_id"), "status": "submitting"},
+            {"$set": {"status": "unknown", "updated_at": now,
+                      "error": "Soumission interrompue; résultat non confirmé."}},
+        )
+        if changed.modified_count:
+            stale_count += 1
+            await db.withdrawals.update_one(
+                {"id": payout.get("wd_id"),
+                 "status": {"$in": ["pending", "dispatched", "processing"]}},
+                {"$set": {
+                    "status": "processing", "gateway": PAYIN_PROVIDER,
+                    "gateway_status": "unknown", "auto_dispatch_attempted": True,
+                    "auto_dispatch_reason": "Soumission interrompue; vérifiez le tableau MoneyFusion avant toute action.",
+                    "auto_dispatch_error": "Le résultat de la soumission n’a pas été confirmé. Aucun nouvel envoi ne sera fait automatiquement.",
+                    "gateway_error_code": "moneyfusion_submission_unknown",
+                    "updated_at": now,
+                }},
+            )
+
+    query = {
+        "status": {"$in": ["dispatched", "unknown"]},
+        "tokenPay": {"$type": "string", "$nin": ["", None]},
+        "$or": [{"next_reconcile_at": {"$exists": False}},
+                {"next_reconcile_at": {"$lte": now}}],
+    }
+    results = {"scanned": 0, "updated": 0, "errors": 0,
+               "stale_marked_unknown": stale_count}
+    async for payout in db.moneyfusion_payouts.find(query).sort("created_at", 1).limit(max_docs):
+        attempts = int(payout.get("reconcile_attempts") or 0) + 1
+        next_at = now + timedelta(seconds=_payout_poll_delay(attempts))
+        claim = await db.moneyfusion_payouts.update_one(
+            {"wd_id": payout["wd_id"], "status": payout.get("status"),
+             "$or": [{"next_reconcile_at": {"$exists": False}},
+                     {"next_reconcile_at": {"$lte": now}}]},
+            {"$set": {"last_reconcile_attempt_at": now,
+                      "next_reconcile_at": next_at,
+                      "reconcile_attempts": attempts}},
+        )
+        if not claim.modified_count:
+            continue
+        results["scanned"] += 1
+        try:
+            outcome = await reconcile_withdrawal(
+                db, payout["wd_id"], schedule_next=False,
+            )
+            if outcome.get("changed"):
+                results["updated"] += 1
+        except Exception:
+            results["errors"] += 1
+    return results
+
+
+async def payout_polling_loop(db, *, interval_seconds: int = 30) -> None:
+    """Background status reconciliation with bounded batches and backoff."""
+    while True:
+        try:
+            outcome = await reconcile_all_dispatched(db, max_docs=50)
+            if outcome.get("updated") or outcome.get("stale_marked_unknown"):
+                log.info("MoneyFusion payout reconciliation: %s", outcome)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("MoneyFusion payout polling worker failed")
+        await asyncio.sleep(max(10, int(interval_seconds)))
+
+
+@admin.post("/payouts/{wd_id}/check")
+async def admin_check_payout(wd_id: str, body: PayoutReconcileRequest, request: Request,
+                            actor=Depends(require_admin)):
+    """Recover the original submission without ever sending a second payout."""
+    db = request.app.state.db
+    outcome = await reconcile_withdrawal(db, wd_id, token=body.token)
     await db.admin_logs.insert_one({
         "id": str(uuid.uuid4()), "admin_id": actor["id"],
         "action": "moneyfusion_reconcile_payout", "target": wd_id, "at": _now(),
     })
-    outcome = await _apply_payout_status(db, payout, str(data.get("status") or ""), data)
-    return {"ok": bool(outcome.get("handled")), "status": outcome.get("outcome") or outcome.get("reason")}
+    return outcome
 
 
 class AdminConfigUpdate(BaseModel):

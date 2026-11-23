@@ -223,6 +223,7 @@ async def lifespan(app: FastAPI):
     # Launch chat retention background worker. It sleeps 30 min between passes
     # and permanently removes messages older than the admin-configured window.
     retention_task = None
+    moneyfusion_payout_task = None
     try:
         from chat import start_retention_worker as _start_retention  # noqa: WPS433
         retention_task = asyncio.create_task(_start_retention(db))
@@ -235,6 +236,12 @@ async def lifespan(app: FastAPI):
             log.info("Biz-transPay polling worker scheduled (4-sec interval)")
         except Exception as _btp_e:
             log.warning(f"Biz-transPay polling worker failed to start: {_btp_e}")
+        try:
+            from moneyfusion import payout_polling_loop as _mf_payout_poll
+            moneyfusion_payout_task = asyncio.create_task(_mf_payout_poll(db))
+            log.info("MoneyFusion payout polling worker scheduled (30-sec interval)")
+        except Exception as _mf_e:
+            log.warning("MoneyFusion payout polling worker failed to start: %s", _mf_e)
         # v27o (2026-02-20) — Mission window opener notification watcher.
         try:
             from missions import mission_window_watcher as _mission_watch
@@ -258,6 +265,12 @@ async def lifespan(app: FastAPI):
     yield
     messenger_delivery_task.cancel()
     messenger_file_retention_task.cancel()
+    if moneyfusion_payout_task:
+        moneyfusion_payout_task.cancel()
+        try:
+            await moneyfusion_payout_task
+        except asyncio.CancelledError:
+            pass
     try:
         await messenger_delivery_task
     except asyncio.CancelledError:
@@ -1102,29 +1115,70 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     auto_result = {"auto_dispatched": False}
     dispatched_gateway = None
     country_upper = (wallet.get("country") or "").upper()
-    preferred = await pick_payout_gateway_for_country(db, country_upper, wd_doc.get("operator"))
-    if preferred == "moneyfusion" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
+    method = (wd_doc.get("method") or "").lower()
+    preferred = None
+    if method in ("mobile", "mobile_money", "mm"):
+        route = await resolve_payout_gateway_for_country(
+            db, country_upper, wd_doc.get("operator"),
+        )
+        preferred = route.get("provider_id")
+        if not preferred:
+            auto_result = {"auto_dispatched": False, "reason": "route_unavailable",
+                           "detail": route.get("reason")}
+            await db.withdrawals.update_one(
+                {"id": wd_id},
+                {"$set": {
+                    "auto_dispatch_reason": route.get("reason"),
+                    "gateway_error_code": "provider_unavailable",
+                    "gateway_error": route.get("reason"),
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+    else:
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {"auto_dispatch_reason": "Retrait crypto : traitement manuel par l’administration."}},
+        )
+
+    if preferred == "moneyfusion" and method in ("mobile", "mobile_money", "mm"):
         try:
             from moneyfusion import dispatch_withdrawal
             auto_result = await dispatch_withdrawal(db, wd_doc)
+        except HTTPException as e:
+            auto_result = {"auto_dispatched": False, "reason": "routing_or_provider_error",
+                           "detail": str(e.detail)[:300]}
         except Exception as e:
             log.exception("MoneyFusion P-Out dispatch failed for wd_id=%s", wd_id)
-            auto_result = {"auto_dispatched": False, "reason": "exception"}
+            auto_result = {"auto_dispatched": False, "reason": "exception",
+                           "detail": "Erreur interne lors de la préparation du retrait automatique."}
         if auto_result.get("auto_dispatched"):
             dispatched_gateway = "moneyfusion"
-    elif preferred == "biztranspay" and (wd_doc.get("method") or "") in ("mobile", "mobile_money", "mm"):
+    elif preferred == "biztranspay" and method in ("mobile", "mobile_money", "mm"):
         try:
             from biztranspay import dispatch_biztranspay_withdrawal
             auto_result = await dispatch_biztranspay_withdrawal(db, wd_doc)
+        except HTTPException as e:
+            auto_result = {"auto_dispatched": False, "reason": "routing_or_provider_error",
+                           "detail": str(e.detail)[:300]}
         except Exception as e:
             import logging as _lg
             _lg.getLogger("biztranspay").exception(
                 "Biz-transPay P-Out dispatch failed for wd_id=%s: %s", wd_id, e)
-            auto_result = {"auto_dispatched": False, "reason": "exception"}
+            auto_result = {"auto_dispatched": False, "reason": "exception",
+                           "detail": "Erreur interne lors de la préparation du retrait automatique."}
         if auto_result.get("auto_dispatched"):
             dispatched_gateway = "biztranspay"
 
-    resp = {"id": wd_id, "status": "dispatched" if auto_result.get("auto_dispatched") else "pending",
+    if not auto_result.get("auto_dispatched") and auto_result.get("detail"):
+        await db.withdrawals.update_one(
+            {"id": wd_id, "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"auto_dispatch_reason": str(auto_result["detail"])[:300],
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    final_withdrawal = await db.withdrawals.find_one(
+        {"id": wd_id}, {"_id": 0, "status": 1},
+    )
+    resp = {"id": wd_id, "status": (final_withdrawal or {}).get("status", "pending"),
             "amount": data.amount, "fee": fee, "net_payout": net}
     if auto_result.get("auto_dispatched"):
         resp["auto_dispatched"] = True
@@ -2041,37 +2095,69 @@ async def pick_gateway_for_country(db, country: str) -> Optional[str]:
     return None
 
 
-async def pick_payout_gateway_for_country(db, country: str, operator: Optional[str] = None) -> Optional[str]:
-    """Return the P-Out gateway to use for a given country, or None.
+def _payout_route_reason(result: Optional[dict]) -> str:
+    attempts = (result or {}).get("attempts") or []
+    reason_labels = {
+        "operator_not_supported_or_disabled": "L’opérateur n’est pas activé ou n’est pas disponible dans le catalogue de retraits.",
+        "country_not_supported_or_disabled": "Le pays n’est pas activé dans un catalogue de retraits.",
+        "payout_disabled": "Les retraits automatiques sont désactivés chez le prestataire.",
+        "payout_not_configured": "La configuration des retraits du prestataire est incomplète.",
+        "missing_api_key": "Les clés API requises par le prestataire ne sont pas configurées.",
+        "missing_credentials": "Les identifiants requis par le prestataire ne sont pas configurés.",
+        "payout_unsupported": "Ce prestataire ne prend pas en charge les retraits automatiques.",
+    }
+    for attempt in attempts:
+        label = reason_labels.get(str(attempt.get("reason") or ""))
+        if label:
+            return label
+    return "Aucun prestataire de retrait automatique n’est configuré pour ce pays et cet opérateur. Le retrait reste en attente de traitement manuel."
 
-    v27j (Phase 2) — délègue au PaymentProviderRouter. Fallback legacy si le
-    router échoue.
-    """
+
+async def resolve_payout_gateway_for_country(
+    db, country: str, operator: Optional[str] = None,
+) -> dict:
+    """Return the assigned provider plus a safe admin-facing failure reason."""
     country = (country or "").upper()
-    if operator:
-        from payment_router import pick_provider, log_decision
-        result = await pick_provider(db, kind="payout", country=country, operator=operator)
-        await log_decision(db, kind="payout", country=country, operator=operator, result=result)
-        return (result or {}).get("provider_id")
-
+    result = None
     try:
         from payment_router import pick_provider, log_decision
-        result = await pick_provider(db, kind="payout", country=country)
+        result = await pick_provider(
+            db, kind="payout", country=country, operator=operator or None,
+        )
         pid = (result or {}).get("provider_id")
-        await log_decision(db, kind="payout", country=country, operator=None, result=result)
         if pid:
-            return pid
+            await log_decision(db, kind="payout", country=country,
+                               operator=operator or None, result=result)
+            return {"provider_id": pid, "attempts": (result or {}).get("attempts") or [],
+                    "reason": None}
+        await log_decision(db, kind="payout", country=country,
+                           operator=operator or None, result=result)
     except Exception as e:
         log.warning("payment_router pick_provider (payout) failed: %s", e)
+        detail = getattr(e, "detail", None)
+        if operator:
+            return {"provider_id": None, "attempts": [],
+                    "reason": str(detail or "Conflit de routage Mobile Money.")[:240]}
 
-    # Legacy cascade
+    if operator:
+        return {"provider_id": None, "attempts": (result or {}).get("attempts") or [],
+                "reason": _payout_route_reason(result)}
+
+    # Keep the legacy Togo route only for country-only diagnostics; a
+    # withdrawal with a physical operator never falls back to another route.
     cfg = await _load_payment_gateway(db)
-    # Biz-transPay first (TG only, requires payout switch ON + api key).
     if country == "TG" and cfg.get("biztranspay_enabled") and cfg.get("biztranspay_payout_enabled"):
         if (cfg.get("biztranspay_api_key") or "").strip() \
                 or (os.environ.get("BIZTRANSPAY_API_KEY") or "").strip():
-            return "biztranspay"
-    return None
+            return {"provider_id": "biztranspay", "attempts": [], "reason": None}
+    return {"provider_id": None, "attempts": (result or {}).get("attempts") or [],
+            "reason": _payout_route_reason(result)}
+
+
+async def pick_payout_gateway_for_country(db, country: str, operator: Optional[str] = None) -> Optional[str]:
+    """Return the P-Out provider; operator-specific routes never fall back."""
+    result = await resolve_payout_gateway_for_country(db, country, operator)
+    return result.get("provider_id")
 
 
 @api.get("/admin/payment-gateways/route-check")
@@ -3937,15 +4023,16 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
         # re-dispatch — the admin's click is a manual override that just marks
         # our internal doc as validated.
         if wd.get("auto_dispatched") and wd.get("gateway") == "biztranspay":
-            await db.withdrawals.update_one(
-                {"id": wd_id},
-                {"$set": {"status": "completed",
-                          "completed_at": datetime.now(timezone.utc),
-                          "validated_at": datetime.now(timezone.utc),
-                          "validated_by": admin["id"],
-                          "validation_source": "admin_override"}},
+            from biztranspay import _settle_withdrawal_status
+            now = datetime.now(timezone.utc)
+            settled = await _settle_withdrawal_status(
+                db, wd, "completed", wd.get("gateway_status") or "admin_confirmed",
+                source="admin_override",
+                extra_fields={"validated_at": now, "validated_by": admin["id"],
+                              "validation_source": "admin_override"},
             )
-            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
+            if not settled.get("ok"):
+                raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
             await db.admin_logs.insert_one({
                 "id": str(uuid.uuid4()), "admin_id": admin["id"],
                 "action": "validate_auto_withdrawal_override",
@@ -4160,27 +4247,36 @@ async def admin_logs_list(request: Request):
 
 @admin_router.post("/withdrawals/{wd_id}/reconcile")
 async def admin_reconcile_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
-    """v27af (2026-03-04) — force-poll the payment gateway for a stuck
-    auto-dispatched withdrawal. Currently supports Biz-transPay; extendable
-    to other gateways by dispatching on `wd.gateway`."""
+    """Force-poll the original provider for a stuck auto-dispatched withdrawal."""
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
     if not wd:
         raise HTTPException(404, "Retrait introuvable.")
-    if wd.get("gateway") != "biztranspay":
-        raise HTTPException(400, f"Reconcile non supporté pour la passerelle '{wd.get('gateway')}'.")
-    from biztranspay import reconcile_withdrawal as _btp_recon
-    r = await _btp_recon(db, wd)
-    return r
+    if wd.get("gateway") == "biztranspay":
+        from biztranspay import reconcile_withdrawal as _btp_recon
+        return await _btp_recon(db, wd)
+    if wd.get("gateway") == "moneyfusion":
+        from moneyfusion import reconcile_withdrawal as _mf_recon
+        return await _mf_recon(db, wd_id)
+    raise HTTPException(400, f"Vérification non prise en charge pour la passerelle '{wd.get('gateway')}'.")
 
 
 @admin_router.post("/withdrawals/reconcile-all")
 async def admin_reconcile_all_withdrawals(request: Request, admin=Depends(require_admin)):
-    """v27af — one-shot sweep of every stuck auto-dispatched BTP withdrawal."""
+    """One-shot sweep of eligible, in-flight Mobile Money provider withdrawals."""
     db = request.app.state.db
     from biztranspay import reconcile_all_dispatched as _btp_recon_all
-    r = await _btp_recon_all(db)
-    return r
+    from moneyfusion import reconcile_all_dispatched as _mf_recon_all
+    btp_result, mf_result = await asyncio.gather(
+        _btp_recon_all(db, max_docs=100),
+        _mf_recon_all(db, max_docs=50),
+    )
+    return {
+        "ok": True,
+        "updated": int(btp_result.get("updated") or 0) + int(mf_result.get("updated") or 0),
+        "biztranspay": btp_result,
+        "moneyfusion": mf_result,
+    }
 
 
 @admin_router.get("/stats/timeseries")

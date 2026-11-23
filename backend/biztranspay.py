@@ -755,11 +755,112 @@ async def _persist_dispatch_failure(db, wd_id: str, reason: str, detail: str = "
                 "auto_dispatched": False,
                 "gateway_error_code": reason,
                 "gateway_error": detail or reason,
+                "auto_dispatch_reason": detail or reason,
                 "updated_at": datetime.now(timezone.utc),
             }},
         )
     except Exception:
         pass
+
+
+async def _settle_withdrawal_status(
+    db, wd_doc: dict, target_status: str, gateway_status: str, *,
+    source: str, extra_fields: Optional[dict] = None,
+) -> dict:
+    """Apply a confirmed BTP terminal state and its accounting exactly once."""
+    wd_id = str(wd_doc.get("id") or "")
+    if not wd_id or target_status not in ("completed", "rejected"):
+        return {"ok": False, "reason": "invalid_terminal_status"}
+    now = datetime.now(timezone.utc)
+    fields = {
+        "status": target_status,
+        "gateway": "biztranspay",
+        "gateway_status": gateway_status,
+        "updated_at": now,
+        "settlement_source": source,
+    }
+    if target_status == "completed":
+        fields["completed_at"] = now
+    else:
+        fields["rejected_at"] = now
+        fields["gateway_error"] = f"Biz-transPay a refusé le retrait ({gateway_status})."
+    fields.update(extra_fields or {})
+
+    changed = await db.withdrawals.update_one(
+        {"id": wd_id, "status": {"$nin": ["completed", "rejected", "validated"]}},
+        {"$set": fields},
+    )
+    settled = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+    if not settled or settled.get("status") != target_status:
+        return {"ok": False, "reason": "conflicting_terminal_status"}
+
+    amount = float(settled.get("amount") or wd_doc.get("amount") or 0)
+    if target_status == "completed":
+        await db.users.update_one(
+            {"id": settled["user_id"], "biztranspay_completed_withdrawals": {"$ne": wd_id}},
+            {"$inc": {"total_withdrawn": amount},
+             "$addToSet": {"biztranspay_completed_withdrawals": wd_id}},
+        )
+        title = "Retrait validé"
+        body = f"Votre retrait de {int(amount):,} FCFA a été validé.".replace(",", " ")
+    else:
+        await db.users.update_one(
+            {"id": settled["user_id"], "biztranspay_refunded_withdrawals": {"$ne": wd_id}},
+            {"$inc": {"balance_profit": amount},
+             "$addToSet": {"biztranspay_refunded_withdrawals": wd_id}},
+        )
+        title = "Retrait rejeté"
+        body = f"Votre retrait de {int(amount):,} FCFA a été refusé et remboursé.".replace(",", " ")
+
+    notification_id = f"withdrawal:{wd_id}:{target_status}"
+    try:
+        await db.notifications.update_one(
+            {"_id": notification_id},
+            {"$setOnInsert": {
+                "id": notification_id, "user_id": settled["user_id"],
+                "kind": "withdrawal_status", "title": title, "body": body,
+                "meta": {"withdrawal_id": wd_id, "status": target_status,
+                         "gateway": "biztranspay"},
+                "read": False, "created_at": now,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("BTP withdrawal notification persistence failed wd=%s", wd_id)
+    if changed.modified_count:
+        try:
+            from push_helper import push_to_user
+            await push_to_user(
+                db, settled["user_id"], title=title, body=body,
+                link="/(app)/withdrawal",
+                data={"kind": "withdrawal_status", "withdrawal_id": wd_id,
+                      "status": target_status},
+                tag=notification_id,
+            )
+        except Exception:
+            log.debug("BTP withdrawal push notification failed wd=%s", wd_id)
+    return {"ok": True, "changed": bool(changed.modified_count),
+            "status": target_status}
+
+
+def _btp_error_code(payload) -> str:
+    """Read provider error codes from common nested response envelopes."""
+    if isinstance(payload, dict):
+        for key in ("code", "error_code", "errorCode"):
+            value = payload.get(key)
+            if isinstance(value, (str, int)) and str(value).strip():
+                return str(value).strip()[:80]
+        for key in ("error", "detail", "data", "response"):
+            nested = payload.get(key)
+            found = _btp_error_code(nested)
+            if found:
+                return found
+    elif isinstance(payload, list):
+        for item in payload[:3]:
+            found = _btp_error_code(item)
+            if found:
+                return found
+    return ""
 
 
 def _match_payout_entry(entries: list, cc: str, internal_code: str) -> Optional[dict]:
@@ -824,12 +925,17 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
             f"L'opérateur {op_code} ({country}) n'est pas dans le catalogue de retrait Biz-transPay actif.")
         return {"auto_dispatched": False, "reason": "operator_not_in_btp_catalog"}
     if not _toggle_on(await _load_cfg(db), country, entry):
+        await _persist_dispatch_failure(
+            db, wd_id, "operator_disabled_by_admin",
+            f"L'opérateur {entry['label']} ({country}) est désactivé dans la configuration Biz-transPay.",
+        )
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
     from payment_exclusivity import assert_assignment
     await assert_assignment(db, "biztranspay", country, entry["code"], entry["label"])
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     if net <= 0:
+        await _persist_dispatch_failure(db, wd_id, "invalid_amount", "Montant net du retrait invalide.")
         return {"auto_dispatched": False, "reason": "invalid_amount"}
     if entry["currency"] not in ("XOF", "XAF"):
         # Wallet balances are XOF: never send the CFA number as a foreign amount.
@@ -840,11 +946,20 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
             converted = _first_number(rate.json(), ("to_amount", "amount_to", "converted_amount", "receive_amount",
                                                    "target_amount", "output_amount", "amount_out"))
             if rate.status_code >= 400 or not converted:
+                await _persist_dispatch_failure(
+                    db, wd_id, "currency_quote_unavailable",
+                    "Conversion de devise Biz-transPay indisponible. Le retrait reste en attente.",
+                )
                 return {"auto_dispatched": False, "reason": "currency_quote_unavailable"}
             net = int(converted)
         except Exception:
+            await _persist_dispatch_failure(
+                db, wd_id, "currency_quote_unavailable",
+                "Conversion de devise Biz-transPay indisponible. Le retrait reste en attente.",
+            )
             return {"auto_dispatched": False, "reason": "currency_quote_unavailable"}
         if net <= 0:
+            await _persist_dispatch_failure(db, wd_id, "invalid_amount", "Montant converti invalide.")
             return {"auto_dispatched": False, "reason": "invalid_amount"}
     body = {"amount": net, "currency": entry["currency"], "country": country,
             "operator": entry["code"], "recipient": e164(wd_doc.get("phone") or "", country),
@@ -869,10 +984,11 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
 
     if r.status_code >= 400:
         detail, jd = _btp_error_detail(r)
-        code = str((jd.get("code") if isinstance(jd, dict) else "") or "gateway_error")
+        code = _btp_error_code(jd) or "gateway_error"
         log.warning("biztranspay /payouts %s wd=%s op=%s body=%s", r.status_code, wd_doc["id"], entry["code"], detail)
         await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": {
             "gateway_error": detail[:400], "gateway_error_code": code,
+            "auto_dispatch_reason": detail[:400],
             "gateway_status_code": r.status_code, "tried_operator_codes": [entry["code"]],
             "updated_at": datetime.now(timezone.utc)}})
         if r.status_code >= 500 or r.status_code in (408, 409, 429):
@@ -895,26 +1011,21 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
     internal_status = ("completed" if payout_status in _TERMINAL_OK
                        else "rejected" if payout_status in _TERMINAL_KO else "pending")
     now = datetime.now(timezone.utc)
-    set_fields = {"status": internal_status, "auto_dispatched": True, "gateway": "biztranspay",
-                  "payout_id": payout_id, "gateway_status": payout_status,
-                  "gateway_operator_code": entry["code"],
+    set_fields = {"auto_dispatched": True, "gateway": "biztranspay",
+                  "payout_id": payout_id, "gateway_operator_code": entry["code"],
                   "gateway_fee": payout_env.get("fee") or payout_env.get("total_fee"),
                   "dispatched_at": now, "updated_at": now}
-    if internal_status == "completed":
-        set_fields["completed_at"] = now
-    elif internal_status == "rejected":
-        set_fields["rejected_at"] = now
-        set_fields["gateway_error"] = f"Gateway returned terminal-fail status: {payout_status}"
-    settled = await db.withdrawals.update_one(
-        {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
-        {"$set": set_fields, "$unset": {"gateway_error_code": "", "gateway_status_code": ""}
-         if internal_status != "rejected" else {"gateway_error_code": ""}})
-    if internal_status == "rejected" and settled.modified_count:
-        try:
-            await db.users.update_one({"id": wd_doc["user_id"]},
-                                      {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}})
-        except Exception:
-            pass
+    if internal_status in ("completed", "rejected"):
+        await _settle_withdrawal_status(
+            db, wd_doc, internal_status, payout_status, source="dispatch",
+            extra_fields=set_fields,
+        )
+    else:
+        set_fields.update({"status": "dispatched", "gateway_status": payout_status})
+        await db.withdrawals.update_one(
+            {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": set_fields},
+        )
     return {"auto_dispatched": True, "id": payout_id, "status": payout_status, "internal": internal_status}
 
 
@@ -1034,24 +1145,27 @@ async def biztranspay_webhook(request: Request):
         if not wd and ref:
             wd = await db.withdrawals.find_one({"id": ref})
         if wd:
-            if wd.get("status") in ("completed", "rejected", "validated"):
-                return {"ok": True, "reconciled": "withdrawal", "status": wd.get("status"), "noop": True}
-            update = {"gateway_status": status_raw or event,
-                      "updated_at": datetime.now(timezone.utc)}
             if internal_status == "paid":
-                update["status"] = "completed"
-                update["completed_at"] = datetime.now(timezone.utc)
-            elif internal_status == "failed":
-                update["status"] = "rejected"
-            settled = await db.withdrawals.update_one(
-                {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
-                {"$set": update})
-            if internal_status == "failed" and settled.modified_count:
-                await db.users.update_one(
-                    {"id": wd["user_id"]},
-                    {"$inc": {"balance_profit": float(wd.get("amount") or 0)}},
+                outcome = await _settle_withdrawal_status(
+                    db, wd, "completed", status_raw or event, source="webhook",
+                    extra_fields={"payout_id": provider_id or wd.get("payout_id")},
                 )
-            return {"ok": True, "reconciled": "withdrawal", "status": internal_status}
+            elif internal_status == "failed":
+                outcome = await _settle_withdrawal_status(
+                    db, wd, "rejected", status_raw or event, source="webhook",
+                    extra_fields={"payout_id": provider_id or wd.get("payout_id")},
+                )
+            else:
+                await db.withdrawals.update_one(
+                    {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+                    {"$set": {"gateway_status": status_raw or event,
+                              "payout_id": provider_id or wd.get("payout_id"),
+                              "updated_at": datetime.now(timezone.utc)}},
+                )
+                outcome = {"ok": True, "status": "pending"}
+            return {"ok": True, "reconciled": "withdrawal",
+                    "status": outcome.get("status") or internal_status,
+                    "changed": outcome.get("changed", False)}
         return {"ok": True, "ignored": "unknown_payment"}
 
     if internal_status == "paid" and not p.get("activation_done"):
@@ -1534,9 +1648,7 @@ async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
     """v27af (2026-03-04) — poll Biz-transPay for the current status of a
     stuck auto-dispatched withdrawal and update our doc accordingly.
 
-    Called by :
-      • the admin endpoint POST /api/admin/withdrawals/{id}/reconcile
-      • a scheduled reconcile loop (future)
+    Called by the admin endpoint and the scheduled poller.
 
     Returns `{ok, changed, from_status, to_status, gateway_status}`.
     """
@@ -1561,7 +1673,12 @@ async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
         jd = r.json()
     except Exception:
         jd = {}
-    remote_status = str(jd.get("status") or (jd.get("payout") or {}).get("status") or "").lower()
+    envelope = jd.get("data") if isinstance(jd.get("data"), dict) else jd
+    payout_env = envelope.get("payout") if isinstance(envelope.get("payout"), dict) else {}
+    remote_status = str(
+        envelope.get("status") or payout_env.get("status")
+        or jd.get("status") or ""
+    ).lower()
 
     _OK = {"completed", "succeeded", "paid", "success", "sent", "delivered", "approved"}
     _KO = {"failed", "declined", "canceled", "expired", "rejected", "error"}
@@ -1573,29 +1690,30 @@ async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
     else:
         to_status = from_status
 
-    set_fields = {
-        "gateway_status": remote_status,
-        "updated_at": datetime.now(timezone.utc),
-        "reconciled_at": datetime.now(timezone.utc),
-    }
-    changed = (to_status != from_status)
-    if changed:
-        set_fields["status"] = to_status
-        if to_status == "completed":
-            set_fields["completed_at"] = datetime.now(timezone.utc)
-        elif to_status == "rejected":
-            set_fields["rejected_at"] = datetime.now(timezone.utc)
-            set_fields["gateway_error"] = f"Gateway terminal-fail on reconcile: {remote_status}"
-            try:
-                await db.users.update_one(
-                    {"id": wd_doc["user_id"]},
-                    {"$inc": {"balance_profit": float(wd_doc.get("amount") or 0)}},
-                )
-            except Exception:
-                pass
-    await db.withdrawals.update_one({"id": wd_doc["id"]}, {"$set": set_fields})
-    return {"ok": True, "changed": changed, "from_status": from_status,
-            "to_status": to_status, "gateway_status": remote_status}
+    now = datetime.now(timezone.utc)
+    if remote_status in _OK or remote_status in _KO:
+        outcome = await _settle_withdrawal_status(
+            db, wd_doc, to_status, remote_status, source="poll",
+            extra_fields={
+                "payout_id": payout_id,
+                "reconciled_at": now,
+            },
+        )
+        if not outcome.get("ok"):
+            return {"ok": False, "reason": outcome.get("reason"),
+                    "from_status": from_status, "to_status": from_status,
+                    "gateway_status": remote_status}
+        return {"ok": True, "changed": outcome.get("changed", False),
+                "from_status": from_status, "to_status": to_status,
+                "gateway_status": remote_status}
+
+    await db.withdrawals.update_one(
+        {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+        {"$set": {"gateway_status": remote_status, "updated_at": now,
+                  "reconciled_at": now}},
+    )
+    return {"ok": True, "changed": False, "from_status": from_status,
+            "to_status": from_status, "gateway_status": remote_status}
 
 
 async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:

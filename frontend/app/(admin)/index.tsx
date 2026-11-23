@@ -325,15 +325,6 @@ export default function AdminHome() {
       if (tab === "activations") setActivations(await api.get(`/admin/activations?status=${actFilter}`));
       if (tab === "withdrawals") {
         setWithdrawals(await api.get("/admin/withdrawals"));
-        // v27ag (2026-03-04) — auto-reconcile stuck BTP retraits on panel open.
-        // Fire-and-forget: don't block the UI. If any retrait was actually
-        // completed at the gateway, it flips to `completed` and appears in
-        // Validés on the next refresh.
-        api.post("/admin/withdrawals/reconcile-all").then(async (r: any) => {
-          if (r && r.updated > 0) {
-            setWithdrawals(await api.get("/admin/withdrawals"));
-          }
-        }).catch(() => {});
       }
       if (tab === "announcements") setAnnouncements(await api.get("/admin/announcements"));
       if (tab === "versions") {
@@ -498,18 +489,15 @@ export default function AdminHome() {
     }
   }, [serverIp]);
 
-  const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie", opts?: { autoSwitchTo?: "validated" | "rejected" | "pending" }) => {
+  const action = async (fn: () => Promise<any>, ok = "✅ Opération réussie") => {
     try {
-      await fn();
-      notify("Succès", ok);
-      await load();
-      // v27ai (2026-03-04) — after validate / reject, auto-switch the admin
-      // to the destination sub-tab so he visually sees the retrait moved.
-      // Avoids the "I clicked Valider but the retrait is still in En attente"
-      // confusion (actual root cause of the user bug report).
-      if (opts?.autoSwitchTo) {
-        setWdFilter(opts.autoSwitchTo);
+      const result = await fn();
+      if (result?.ok === false) {
+        notify("Statut non confirmé", result.message || result.detail || "Le prestataire n’a pas encore confirmé le retrait.");
+      } else {
+        notify("Succès", ok);
       }
+      await load();
     } catch (e: any) {
       const msg = e?.detail || e?.message || "Une erreur est survenue.";
       console.error("[admin action] failed:", e);
@@ -1066,7 +1054,7 @@ export default function AdminHome() {
               tabs={[
                 { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending" || w.status === "dispatched" || w.status === "processing").length },
                 { key: "validated", label: "Validés", color: theme.colors.success, count: withdrawals.filter((w) => w.status === "validated" || w.status === "completed").length },
-                { key: "rejected", label: "Rejetés", color: theme.colors.danger, count: withdrawals.filter((w) => w.status === "rejected").length },
+                { key: "rejected", label: "Rejetés", color: theme.colors.danger, count: withdrawals.filter((w) => w.status === "rejected" || w.status === "failed").length },
               ]}
               active={wdFilter}
               onChange={(k) => setWdFilter(k as any)}
@@ -1079,7 +1067,7 @@ export default function AdminHome() {
                   ? (w.status === "pending" || w.status === "dispatched" || w.status === "processing")
                   : wdFilter === "validated"
                     ? (w.status === "validated" || w.status === "completed")
-                    : w.status === "rejected";
+                    : (w.status === "rejected" || w.status === "failed");
                 if (!statusOk) return false;
                 if (!q) return true;
                 const haystack = [
@@ -1101,8 +1089,12 @@ export default function AdminHome() {
                 const isMission = w.withdrawal_type === "mission";
                 // v27ab (2026-03-04) — expose "Auto-retrait" badge when the
                 // A supported gateway auto-dispatched this withdrawal.
-                const isAuto = !!w.auto_dispatched;
+                const isAuto = !!w.auto_dispatched || (
+                  ["moneyfusion", "biztranspay"].includes(w.gateway) &&
+                  ["pending", "dispatched", "processing", "completed", "failed", "rejected"].includes(w.status)
+                );
                 const gwLabel = w.gateway === "biztranspay" ? "Biz-transPay"
+                              : w.gateway === "moneyfusion" ? "MoneyFusion"
                               : (w.gateway || "");
                 return (
                 <Card key={w.id} style={{ marginBottom: 8, ...(isMission ? { borderLeftWidth: 4, borderLeftColor: theme.colors.warning } : isAuto ? { borderLeftWidth: 4, borderLeftColor: "#0EA5E9" } : {}) }}>
@@ -1138,7 +1130,7 @@ export default function AdminHome() {
                       <KvRow k="Mode" v={`Automatique • ${gwLabel || "Passerelle"}`} />
                       {(w.status === "validated" || w.status === "completed") ? (
                         <KvRow k="Traitement" v="🟢 Validé automatiquement" />
-                      ) : (w.status === "rejected") ? (
+                      ) : (w.status === "rejected" || w.status === "failed") ? (
                         <KvRow k="Traitement" v="🔴 Rejeté par la passerelle" />
                       ) : (
                         <KvRow k="Traitement" v="⏳ Virement en cours (passerelle)" />
@@ -1185,6 +1177,7 @@ export default function AdminHome() {
                   {w.rejected_at ? <KvRow k="Rejeté le" v={formatDateTime(w.rejected_at)} /> : null}
                   {w.decided_at && !w.validated_at && !w.rejected_at ? <KvRow k="Traité le" v={formatDateTime(w.decided_at)} /> : null}
                   {w.reject_reason ? <KvRow k="Motif de rejet" v={w.reject_reason} /> : null}
+                  {w.auto_dispatch_reason ? <KvRow k="Raison de l’attente" v={String(w.auto_dispatch_reason).slice(0, 200)} /> : null}
                   {/* v27ab — gateway details when auto-dispatched */}
                   {isAuto ? (
                     <>
@@ -1217,21 +1210,21 @@ export default function AdminHome() {
                           in pending/dispatched, offer a Reconcile button that
                           polls the gateway synchronously. Cheap way to force-move
                           a "gateway_status: completed" retrait into Validés. */}
-                      {isAuto && w.gateway === "biztranspay" && (
+                      {isAuto && (w.gateway === "biztranspay" || w.gateway === "moneyfusion") && (
                         <TouchableOpacity
                           style={[styles.actBtn, { backgroundColor: "#0369A1" }]}
-                          onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reconcile`))}
+                          onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reconcile`), "Vérification du statut terminée")}
                           testID={`admin-reconcile-wd-${w.id}`}
                         >
                           <Ionicons name="refresh" size={14} color="#fff" />
                           <Text style={styles.actT}>🔄 Vérifier statut</Text>
                         </TouchableOpacity>
                       )}
-                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Retrait validé", { autoSwitchTo: "validated" })} testID={`admin-validate-wd-${w.id}`}>
+                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Retrait validé")} testID={`admin-validate-wd-${w.id}`}>
                         <Ionicons name="checkmark" size={14} color="#fff" />
                         <Text style={styles.actT}>Valider</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`), "✅ Retrait rejeté", { autoSwitchTo: "rejected" })} testID={`admin-reject-wd-${w.id}`}>
+                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`), "✅ Retrait rejeté")} testID={`admin-reject-wd-${w.id}`}>
                         <Ionicons name="close" size={14} color="#fff" />
                         <Text style={styles.actT}>Rejeter</Text>
                       </TouchableOpacity>
@@ -3240,6 +3233,7 @@ function PillStatus({ status }: { status: string }) {
     validated: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé" },
     completed: { bg: theme.colors.successBg, color: theme.colors.success, label: "Validé (auto)" },
     rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté" },
+    failed: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: "Rejeté par la passerelle" },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (
     <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: cfg.bg }}>
