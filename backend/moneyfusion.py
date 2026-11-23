@@ -360,6 +360,9 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
     now = _now()
     for country in entries:
         cc = country["country_code"]
+        legacy_country = await db.payment_provider_countries.find_one(
+            {"provider_id": PAYIN_PROVIDER, "country_code": cc}, {"_id": 0},
+        )
         await db.payment_provider_countries.update_one(
             {"provider_id": PAYIN_PROVIDER, "country_code": cc},
             {"$setOnInsert": {
@@ -370,7 +373,23 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
                         "currency": country["currency"], "updated_at": now}},
             upsert=True,
         )
+        await db.payment_provider_payout_countries.update_one(
+            {"provider_id": PAYIN_PROVIDER, "country_code": cc},
+            {"$setOnInsert": {
+                "provider_id": PAYIN_PROVIDER, "country_code": cc,
+                "status": "active" if legacy_country and legacy_country.get("status") == "active" else "inactive",
+                "mode": "automatic", "priority": 4,
+                "source": "moneyfusion_payout_methods", "created_at": now,
+            }, "$set": {"country_name": country["country"],
+                        "currency": country["currency"], "updated_at": now,
+                        "catalog_direction": "payout"}},
+            upsert=True,
+        )
         for operator in country["operators"]:
+            legacy_operator = await db.payment_provider_operators.find_one(
+                {"provider_id": PAYIN_PROVIDER, "country_code": cc,
+                 "operator_code": operator["code"]}, {"_id": 0},
+            )
             await db.payment_provider_operators.update_one(
                 {"provider_id": PAYIN_PROVIDER, "country_code": cc,
                  "operator_code": operator["code"]},
@@ -382,14 +401,35 @@ async def sync_catalog(db, entries: list[dict], *, cache_snapshot: bool = True) 
                 }, "$set": {"operator_label": operator["label"], "updated_at": now}},
                 upsert=True,
             )
+            await db.payment_provider_payout_operators.update_one(
+                {"provider_id": PAYIN_PROVIDER, "country_code": cc,
+                 "operator_code": operator["code"]},
+                {"$setOnInsert": {
+                    "provider_id": PAYIN_PROVIDER, "country_code": cc,
+                    "operator_code": operator["code"],
+                    "status": "active" if legacy_operator and legacy_operator.get("status") == "active" else "inactive",
+                    "source": "moneyfusion_payout_methods", "created_at": now,
+                }, "$set": {"operator_label": operator["label"], "updated_at": now,
+                            "catalog_direction": "payout"}},
+                upsert=True,
+            )
     # Retire removed methods without re-enabling previously disabled ones.
     country_codes = [c["country_code"] for c in entries]
     await db.payment_provider_countries.update_many(
         {"provider_id": PAYIN_PROVIDER, "country_code": {"$nin": country_codes}},
         {"$set": {"status": "inactive", "updated_at": now}},
     )
+    await db.payment_provider_payout_countries.update_many(
+        {"provider_id": PAYIN_PROVIDER, "country_code": {"$nin": country_codes}},
+        {"$set": {"status": "inactive", "updated_at": now}},
+    )
     for country in entries:
         await db.payment_provider_operators.update_many(
+            {"provider_id": PAYIN_PROVIDER, "country_code": country["country_code"],
+             "operator_code": {"$nin": [op["code"] for op in country["operators"]]}},
+            {"$set": {"status": "inactive", "updated_at": now}},
+        )
+        await db.payment_provider_payout_operators.update_many(
             {"provider_id": PAYIN_PROVIDER, "country_code": country["country_code"],
              "operator_code": {"$nin": [op["code"] for op in country["operators"]]}},
             {"$set": {"status": "inactive", "updated_at": now}},

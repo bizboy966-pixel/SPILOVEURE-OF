@@ -1745,7 +1745,8 @@ def _register_payment_gateway_routes(router):
         try:
             from btp_catalog import fetch_catalog as _btp_fc
             from payment_providers import sync_btp_catalog_rows as _btp_sync
-            await _btp_sync(db, (await _btp_fc(db, "deposit")) + (await _btp_fc(db, "payout")))
+            await _btp_sync(db, await _btp_fc(db, "deposit"), direction="deposit")
+            await _btp_sync(db, await _btp_fc(db, "payout"), direction="payout")
         except Exception as _e:
             log.warning("btp catalog sync on admin list failed: %s", _e)
         try:
@@ -1764,7 +1765,20 @@ def _register_payment_gateway_routes(router):
             for c in p["countries"]:
                 c["operators"] = [
                     o async for o in db.payment_provider_operators.find(
-                        {"provider_id": p["id"], "country_code": c["country_code"]}, {"_id": 0}
+                        {"provider_id": p["id"], "country_code": c["country_code"]},
+                        {"_id": 0}
+                    ).sort("operator_code", 1)
+                ]
+            p["payout_countries"] = [
+                c async for c in db.payment_provider_payout_countries.find(
+                    {"provider_id": p["id"]}, {"_id": 0}
+                ).sort("country_code", 1)
+            ]
+            for c in p["payout_countries"]:
+                c["operators"] = [
+                    o async for o in db.payment_provider_payout_operators.find(
+                        {"provider_id": p["id"], "country_code": c["country_code"]},
+                        {"_id": 0},
                     ).sort("operator_code", 1)
                 ]
         return {"providers": providers}
@@ -1792,6 +1806,22 @@ def _register_payment_gateway_routes(router):
             raise HTTPException(404, "Country not found for this provider")
         return {"ok": True, "enabled": enabled}
 
+    @router.put("/payment-providers/{provider_id}/{kind}/countries/{country_code}")
+    async def admin_toggle_direction_country(
+        provider_id: str, kind: str, country_code: str, request: Request,
+    ):
+        if kind not in ("payin", "payout"):
+            raise HTTPException(400, "Le sens doit être payin ou payout.")
+        body = await request.json()
+        enabled = bool(body.get("enabled"))
+        from payment_router import toggle_country
+        ok = await toggle_country(
+            request.app.state.db, provider_id, country_code, enabled, kind=kind,
+        )
+        if not ok:
+            raise HTTPException(404, "Pays introuvable dans ce catalogue.")
+        return {"ok": True, "enabled": enabled, "kind": kind}
+
     @router.put("/payment-providers/{provider_id}/countries/{country_code}/mode")
     async def admin_set_country_mode(provider_id: str, country_code: str, request: Request):
         body = await request.json()
@@ -1804,6 +1834,25 @@ def _register_payment_gateway_routes(router):
         if not ok:
             raise HTTPException(404, "Country not found for this provider")
         return {"ok": True, "mode": mode}
+
+    @router.put("/payment-providers/{provider_id}/{kind}/countries/{country_code}/mode")
+    async def admin_set_direction_country_mode(
+        provider_id: str, kind: str, country_code: str, request: Request,
+    ):
+        if kind not in ("payin", "payout"):
+            raise HTTPException(400, "Le sens doit être payin ou payout.")
+        body = await request.json()
+        mode = str(body.get("mode") or "").strip().lower()
+        try:
+            from payment_router import set_country_mode
+            ok = await set_country_mode(
+                request.app.state.db, provider_id, country_code, mode, kind=kind,
+            )
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+        if not ok:
+            raise HTTPException(404, "Pays introuvable dans ce catalogue.")
+        return {"ok": True, "mode": mode, "kind": kind}
 
     @router.post("/activations/{reference}/validate-manual")
     async def admin_validate_manual_activation(reference: str, request: Request):
@@ -1868,6 +1917,24 @@ def _register_payment_gateway_routes(router):
         if not ok:
             raise HTTPException(404, "Operator not found for this provider/country")
         return {"ok": True, "enabled": enabled}
+
+    @router.put("/payment-providers/{provider_id}/{kind}/countries/{country_code}/operators/{operator_code}")
+    async def admin_toggle_direction_operator(
+        provider_id: str, kind: str, country_code: str, operator_code: str,
+        request: Request,
+    ):
+        if kind not in ("payin", "payout"):
+            raise HTTPException(400, "Le sens doit être payin ou payout.")
+        body = await request.json()
+        enabled = bool(body.get("enabled"))
+        from payment_router import toggle_operator
+        ok = await toggle_operator(
+            request.app.state.db, provider_id, country_code, operator_code,
+            enabled, kind=kind,
+        )
+        if not ok:
+            raise HTTPException(404, "Opérateur introuvable dans ce catalogue.")
+        return {"ok": True, "enabled": enabled, "kind": kind}
 
     @router.get("/payment-router/logs")
     async def admin_router_logs(request: Request, limit: int = 50):

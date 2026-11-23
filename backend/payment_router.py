@@ -126,7 +126,15 @@ async def pick_provider(
 
     attempts: list[dict] = []
     from payment_exclusivity import mobile_routes, operator_identity, assert_assignment
-    routes = await mobile_routes(db)
+    countries_collection = (
+        db.payment_provider_payout_countries if kind == "payout"
+        else db.payment_provider_countries
+    )
+    operators_collection = (
+        db.payment_provider_payout_operators if kind == "payout"
+        else db.payment_provider_operators
+    )
+    routes = await mobile_routes(db, kind=kind)
     target = operator_identity(country, operator or "")
     direct = [r for r in routes if r["country_code"] == country and r["operator_code"] == operator]
     if direct:
@@ -135,12 +143,13 @@ async def pick_provider(
     if operator and matching:
         sample = matching[0]
         await assert_assignment(db, sample["provider_id"], country,
-                                sample["operator_code"], sample.get("operator_label", ""))
+                                sample["operator_code"], sample.get("operator_label", ""),
+                                kind=kind)
 
     for prov in active_providers:
         pid = prov["id"]
         # 2. Country match — either exact code or wildcard "*" (izichange universal).
-        country_row = await db.payment_provider_countries.find_one(
+        country_row = await countries_collection.find_one(
             {"provider_id": pid, "country_code": {"$in": [country, "*"]},
              "status": "active"},
             {"_id": 0},
@@ -151,7 +160,7 @@ async def pick_provider(
         # 3. Operator match (only if the caller provided one).
         op_row = None
         if operator:
-            op_row = await db.payment_provider_operators.find_one(
+            op_row = await operators_collection.find_one(
                 {"provider_id": pid,
                  "country_code": country_row["country_code"],
                  "operator_code": operator,
@@ -213,7 +222,9 @@ async def set_priority(db, provider_id: str, priority: int) -> bool:
     return r.modified_count > 0
 
 
-async def _mirror_btp_operator_to_legacy(db, country_code: str, operator_code: str, enabled: bool) -> None:
+async def _mirror_btp_operator_to_legacy(
+    db, country_code: str, operator_code: str, enabled: bool, *, kind: str = "payin",
+) -> None:
     """Mirror a per-operator toggle into the legacy flat config
     (`app_settings.payment_gateway.value.biztranspay_countries`) so that
     `sync_providers()` running at next boot (or after any other admin
@@ -228,11 +239,13 @@ async def _mirror_btp_operator_to_legacy(db, country_code: str, operator_code: s
     try:
         doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
         cfg = (doc.get("value") if isinstance(doc.get("value"), dict) else {}) or {}
-        countries = dict(cfg.get("biztranspay_countries") or {})
+        toggle_key = ("biztranspay_payout_countries" if kind == "payout"
+                      else "biztranspay_countries")
+        countries = dict(cfg.get(toggle_key) or {})
         inner = dict(countries.get(cc) or {})
         inner[operator_code] = bool(enabled)
         countries[cc] = inner
-        cfg["biztranspay_countries"] = countries
+        cfg[toggle_key] = countries
         await db.app_settings.update_one(
             {"key": "payment_gateway"},
             {"$set": {"key": "payment_gateway", "value": cfg,
@@ -244,12 +257,23 @@ async def _mirror_btp_operator_to_legacy(db, country_code: str, operator_code: s
 
 
 @configuration_write
-async def toggle_country(db, provider_id: str, country_code: str, enabled: bool) -> bool:
+async def toggle_country(
+    db, provider_id: str, country_code: str, enabled: bool, *, kind: str = "payin",
+) -> bool:
     cc = (country_code or "").upper()
+    kind = "payout" if kind == "payout" else "payin"
+    countries_collection = (
+        db.payment_provider_payout_countries if kind == "payout"
+        else db.payment_provider_countries
+    )
+    operators_collection = (
+        db.payment_provider_payout_operators if kind == "payout"
+        else db.payment_provider_operators
+    )
     if enabled:
         from payment_exclusivity import validate_change
-        await validate_change(db, country_change=(provider_id, cc, True))
-    r = await db.payment_provider_countries.update_one(
+        await validate_change(db, kind=kind, country_change=(provider_id, cc, True))
+    r = await countries_collection.update_one(
         {"provider_id": provider_id, "country_code": cc},
         {"$set": {"status": "active" if enabled else "inactive",
                   "updated_at": datetime.now(timezone.utc)}},
@@ -259,7 +283,7 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
     # Cascade to every operator of this country so (a) the toggle is
     # consistent (country off => no operator usable) and (b) sync won't
     # silently re-enable them.
-    await db.payment_provider_operators.update_many(
+    await operators_collection.update_many(
         {"provider_id": provider_id, "country_code": cc},
         {"$set": {"status": "active" if enabled else "inactive",
                   "updated_at": datetime.now(timezone.utc)}},
@@ -267,17 +291,15 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
     # Mirror into legacy flat config for BTP so sync_providers() is a no-op.
     if provider_id == "biztranspay":
         try:
-            from biztranspay import OPERATORS as BTP_OPS
-            info = BTP_OPS.get(cc) or {}
-            for op in info.get("operators") or []:
-                await _mirror_btp_operator_to_legacy(db, cc, op["code"], enabled)
-            async for op in db.payment_provider_operators.find(
+            async for op in operators_collection.find(
                 {"provider_id": provider_id, "country_code": cc}, {"operator_code": 1}
             ):
-                await _mirror_btp_operator_to_legacy(db, cc, op["operator_code"], enabled)
+                await _mirror_btp_operator_to_legacy(
+                    db, cc, op["operator_code"], enabled, kind=kind,
+                )
         except Exception as e:
             log.warning("mirror BTP country toggle failed: %s", e)
-    elif provider_id == "ashtec":
+    elif provider_id == "ashtec" and kind == "payin":
         await db.app_settings.update_one(
             {"key": "payment_gateway"},
             {"$set": {f"value.country_matrix.ashtec.{cc}": enabled}}, upsert=True)
@@ -285,7 +307,7 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
             await db.app_settings.update_one(
                 {"key": "payment_gateway"},
                 {"$set": {f"value.ashtec_operators.{cc}.{op['operator_code']}": enabled}})
-    elif provider_id == "moneyfusion":
+    elif provider_id == "moneyfusion" and kind == "payin":
         from moneyfusion import sync_enabled_payin_countries
         await sync_enabled_payin_countries(db)
     return True
@@ -293,13 +315,24 @@ async def toggle_country(db, provider_id: str, country_code: str, enabled: bool)
 
 @configuration_write
 async def toggle_operator(
-    db, provider_id: str, country_code: str, operator_code: str, enabled: bool,
+    db, provider_id: str, country_code: str, operator_code: str, enabled: bool, *,
+    kind: str = "payin",
 ) -> bool:
     cc = (country_code or "").upper()
+    kind = "payout" if kind == "payout" else "payin"
+    countries_collection = (
+        db.payment_provider_payout_countries if kind == "payout"
+        else db.payment_provider_countries
+    )
+    operators_collection = (
+        db.payment_provider_payout_operators if kind == "payout"
+        else db.payment_provider_operators
+    )
     if enabled:
         from payment_exclusivity import validate_change
-        await validate_change(db, operator_change=(provider_id, cc, operator_code, True))
-    r = await db.payment_provider_operators.update_one(
+        await validate_change(db, kind=kind,
+                              operator_change=(provider_id, cc, operator_code, True))
+    r = await operators_collection.update_one(
         {"provider_id": provider_id, "country_code": cc,
          "operator_code": operator_code},
         {"$set": {"status": "active" if enabled else "inactive",
@@ -310,15 +343,15 @@ async def toggle_operator(
     # A physical operator can have different legacy/live spellings in the
     # same provider catalogue. Transfer all of them together, not just one row.
     from payment_exclusivity import operator_identity
-    target = await db.payment_provider_operators.find_one(
+    target = await operators_collection.find_one(
         {"provider_id": provider_id, "country_code": cc, "operator_code": operator_code}) or {}
     identity = operator_identity(cc, operator_code, target.get("operator_label", ""))
     alias_codes = [
-        row["operator_code"] async for row in db.payment_provider_operators.find(
+        row["operator_code"] async for row in operators_collection.find(
             {"provider_id": provider_id, "country_code": cc})
         if operator_identity(cc, row["operator_code"], row.get("operator_label", "")) == identity
     ]
-    await db.payment_provider_operators.update_many(
+    await operators_collection.update_many(
         {"provider_id": provider_id, "country_code": cc, "operator_code": {"$in": alias_codes}},
         {"$set": {"status": "active" if enabled else "inactive",
                   "updated_at": datetime.now(timezone.utc)}})
@@ -326,8 +359,8 @@ async def toggle_operator(
     # the admin's choice next time it runs. See _mirror_btp_operator_to_legacy.
     if provider_id == "biztranspay":
         for code in alias_codes:
-            await _mirror_btp_operator_to_legacy(db, cc, code, enabled)
-    elif provider_id == "ashtec":
+            await _mirror_btp_operator_to_legacy(db, cc, code, enabled, kind=kind)
+    elif provider_id == "ashtec" and kind == "payin":
         changes = {f"value.ashtec_operators.{cc}.{code}": enabled for code in alias_codes}
         if enabled:
             changes[f"value.country_matrix.ashtec.{cc}"] = True
@@ -335,19 +368,19 @@ async def toggle_operator(
     # If we just enabled an operator, the country can no longer be inactive
     # (sync_providers derives country = ANY operator active).
     if enabled:
-        await db.payment_provider_countries.update_one(
+        await countries_collection.update_one(
             {"provider_id": provider_id, "country_code": cc, "status": "inactive"},
             {"$set": {"status": "active",
                       "updated_at": datetime.now(timezone.utc)}},
         )
-    if provider_id == "moneyfusion":
+    if provider_id == "moneyfusion" and kind == "payin":
         from moneyfusion import sync_enabled_payin_countries
         await sync_enabled_payin_countries(db)
     return True
 
 
 async def set_country_mode(
-    db, provider_id: str, country_code: str, mode: str,
+    db, provider_id: str, country_code: str, mode: str, *, kind: str = "payin",
 ) -> bool:
     """v27l (Phase 4) — flip a country between automatic and manual mode.
 
@@ -357,7 +390,11 @@ async def set_country_mode(
     """
     if mode not in ("automatic", "manual"):
         raise ValueError("mode must be 'automatic' or 'manual'")
-    r = await db.payment_provider_countries.update_one(
+    countries_collection = (
+        db.payment_provider_payout_countries if kind == "payout"
+        else db.payment_provider_countries
+    )
+    r = await countries_collection.update_one(
         {"provider_id": provider_id, "country_code": country_code.upper()},
         {"$set": {"mode": mode, "updated_at": datetime.now(timezone.utc)}},
     )

@@ -93,7 +93,7 @@ async def fetch_catalog(db, direction: str, force: bool = False, strict: bool = 
                     upsert=True)
                 try:
                     from payment_providers import sync_btp_catalog_rows
-                    await sync_btp_catalog_rows(db, items)
+                    await sync_btp_catalog_rows(db, items, direction=direction)
                 except Exception as e:
                     log.warning("btp catalog admin sync failed: %s", e)
                 return items

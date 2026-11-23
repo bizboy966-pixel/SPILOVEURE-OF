@@ -112,42 +112,90 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
     )
 
 
-async def sync_btp_catalog_rows(db, entries: list, cfg: Optional[dict] = None) -> int:
-    """Expose every live Biz-transPay catalog country/operator in the admin
-    provider panel (same rows as the static list). Admin toggles are kept:
-    existing rows are never re-activated; new rows follow the stored toggle (default ON)."""
-    from biztranspay import OPERATORS as BTP, _resolve_operator_code
+async def sync_btp_catalog_rows(
+    db, entries: list, cfg: Optional[dict] = None, *, direction: str = "deposit",
+) -> int:
+    """Sync one live BTP catalog into its direction-specific route tables."""
+    from payment_exclusivity import operator_identity
+    direction = "payout" if direction == "payout" else "deposit"
+    countries_collection = (
+        db.payment_provider_payout_countries if direction == "payout"
+        else db.payment_provider_countries
+    )
+    operators_collection = (
+        db.payment_provider_payout_operators if direction == "payout"
+        else db.payment_provider_operators
+    )
     if cfg is None:
         doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
         cfg = doc.get("value") or {}
-    toggles = cfg.get("biztranspay_countries") or {}
+    toggle_key = ("biztranspay_payout_countries" if direction == "payout"
+                  else "biztranspay_countries")
+    toggles = cfg.get(toggle_key) or {}
     now = datetime.now(timezone.utc)
     by_cc: dict = {}
     for e in entries or []:
-        cc = e["country"]
+        cc = str(e.get("country") or e.get("country_code") or "").upper()
+        if not cc:
+            continue
         by_cc.setdefault(cc, {})[e["code"]] = e
     added = 0
     for cc, ops in by_cc.items():
         c_toggles = toggles.get(cc) or {}
-        any_on = any(c_toggles.get(code, True) for code in ops)
-        currency = next(iter(ops.values()))["currency"]
-        await db.payment_provider_countries.update_one(
-            {"provider_id": "biztranspay", "country_code": cc},
-            {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "currency": currency,
-                              "status": "active" if any_on else "inactive", "mode": "automatic",
-                              "priority": 1, "source": "btp_catalog", "created_at": now},
-             "$set": {"updated_at": now}},
-            upsert=True)
+        old_country = await db.payment_provider_countries.find_one(
+            {"provider_id": "biztranspay", "country_code": cc}, {"_id": 0},
+        ) if direction == "payout" else None
+        legacy_ops = [row async for row in db.payment_provider_operators.find(
+            {"provider_id": "biztranspay", "country_code": cc}, {"_id": 0},
+        )] if direction == "payout" else []
+        initial_states = []
         for code, e in ops.items():
+            legacy = next((row for row in legacy_ops if
+                           operator_identity(cc, row.get("operator_code", ""),
+                                             row.get("operator_label", "")) ==
+                           operator_identity(cc, code, e.get("label", ""))), None)
+            initial_states.append(
+                bool(c_toggles[code]) if code in c_toggles
+                else bool(legacy and legacy.get("status") == "active")
+            )
+        any_on = any(initial_states)
+        if direction == "deposit":
+            any_on = any(bool(c_toggles.get(code, True)) for code in ops)
+        elif cc in toggles and isinstance(toggles.get(cc), dict):
+            any_on = any(bool(value) for value in toggles[cc].values())
+        elif old_country:
+            any_on = old_country.get("status") == "active"
+        currency = next(iter(ops.values()))["currency"]
+        try:
+            from levels import COUNTRIES
+            country_name = next((c["name"] for c in COUNTRIES if c["code"] == cc), cc)
+        except Exception:
+            country_name = cc
+        await countries_collection.update_one(
+            {"provider_id": "biztranspay", "country_code": cc},
+            {"$setOnInsert": {
+                "provider_id": "biztranspay", "country_code": cc, "currency": currency,
+                "country_name": country_name,
+                "status": "active" if any_on else "inactive", "mode": "automatic",
+                "priority": 1, "source": f"btp_{direction}_catalog", "created_at": now,
+            }, "$set": {"updated_at": now, "catalog_direction": direction,
+                        "country_name": country_name, "currency": currency}},
+            upsert=True)
+        for index, (code, e) in enumerate(ops.items()):
             from payment_exclusivity import available_for_new_operator
-            initial_enabled = bool(c_toggles.get(code, True)) and await available_for_new_operator(
-                db, "biztranspay", cc, code, e["label"])
-            r = await db.payment_provider_operators.update_one(
+            initial_enabled = initial_states[index]
+            initial_enabled = initial_enabled and await available_for_new_operator(
+                db, "biztranspay", cc, code, e["label"],
+                kind="payout" if direction == "payout" else "payin",
+            )
+            r = await operators_collection.update_one(
                 {"provider_id": "biztranspay", "country_code": cc, "operator_code": code},
-                {"$setOnInsert": {"provider_id": "biztranspay", "country_code": cc, "operator_code": code,
-                                  "status": "active" if initial_enabled else "inactive",
-                                  "source": "btp_catalog", "created_at": now},
-                 "$set": {"operator_label": e["label"], "updated_at": now}},
+                {"$setOnInsert": {
+                    "provider_id": "biztranspay", "country_code": cc, "operator_code": code,
+                    "status": "active" if initial_enabled else "inactive",
+                    "source": f"btp_{direction}_catalog", "created_at": now,
+                }, "$set": {"operator_label": e["label"], "updated_at": now,
+                            "catalog_direction": direction}},
                 upsert=True)
             added += 1 if r.upserted_id else 0
     return added
@@ -196,16 +244,27 @@ async def _sync_countries_operators(db, provider_id: str, cfg: dict) -> None:
                 if c_toggles.get(op["code"], default):
                     any_on = True; break
             await _upsert_country(cc, info["currency"], any_on)
+            await db.payment_provider_countries.update_one(
+                {"provider_id": provider_id, "country_code": cc},
+                {"$set": {"catalog_direction": "deposit", "country_name": info["name"]}},
+            )
             for op in info["operators"]:
                 default = bool(op.get("default_active", True))
                 on = c_toggles.get(op["code"], default)
                 await _upsert_operator(cc, op["code"], op["label"], on)
+                await db.payment_provider_operators.update_one(
+                    {"provider_id": provider_id, "country_code": cc,
+                     "operator_code": op["code"]},
+                    {"$set": {"catalog_direction": "deposit"}},
+                )
         try:
             from btp_catalog import fetch_catalog
-            entries = (await fetch_catalog(db, "deposit")) + (await fetch_catalog(db, "payout"))
+            deposit_entries = await fetch_catalog(db, "deposit")
+            payout_entries = await fetch_catalog(db, "payout")
         except Exception:
-            entries = []
-        await sync_btp_catalog_rows(db, entries, cfg)
+            deposit_entries, payout_entries = [], []
+        await sync_btp_catalog_rows(db, deposit_entries, cfg, direction="deposit")
+        await sync_btp_catalog_rows(db, payout_entries, cfg, direction="payout")
 
     elif provider_id == "ashtec":
         try:
@@ -268,6 +327,12 @@ async def sync_providers(db) -> dict:
             [("provider_id", 1), ("country_code", 1)], unique=True,
         )
         await db.payment_provider_operators.create_index(
+            [("provider_id", 1), ("country_code", 1), ("operator_code", 1)], unique=True,
+        )
+        await db.payment_provider_payout_countries.create_index(
+            [("provider_id", 1), ("country_code", 1)], unique=True,
+        )
+        await db.payment_provider_payout_operators.create_index(
             [("provider_id", 1), ("country_code", 1), ("operator_code", 1)], unique=True,
         )
 

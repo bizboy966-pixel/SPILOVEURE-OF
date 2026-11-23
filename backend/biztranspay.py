@@ -465,8 +465,10 @@ def _btp_error_detail(resp) -> tuple[str, dict]:
     return _redact(str(jd)[:300]), jd
 
 
-def _toggle_on(cfg: dict, cc: str, entry: dict) -> bool:
-    toggles = ((cfg.get("biztranspay_countries") or {}).get(cc)) or {}
+def _toggle_on(cfg: dict, cc: str, entry: dict, *, direction: str = "deposit") -> bool:
+    toggle_key = ("biztranspay_payout_countries" if direction == "payout"
+                  else "biztranspay_countries")
+    toggles = ((cfg.get(toggle_key) or {}).get(cc)) or {}
     if entry["code"] in toggles:
         return bool(toggles[entry["code"]])
     internal = _resolve_operator_code(cc, entry["code"]) or _resolve_operator_code(cc, entry["label"])
@@ -688,9 +690,13 @@ async def admin_btp_catalog(request: Request, direction: str = "deposit", _=Depe
     country_names = {country["code"]: country["name"] for country in COUNTRIES}
     for entry in items:
         entry["country_name"] = country_names.get(entry["country"], entry["country"])
-        country = await db.payment_provider_countries.find_one(
+        countries = (db.payment_provider_payout_countries if direction == "payout"
+                     else db.payment_provider_countries)
+        operators = (db.payment_provider_payout_operators if direction == "payout"
+                     else db.payment_provider_operators)
+        country = await countries.find_one(
             {"provider_id": "biztranspay", "country_code": entry["country"]}) or {}
-        operator = await db.payment_provider_operators.find_one(
+        operator = await operators.find_one(
             {"provider_id": "biztranspay", "country_code": entry["country"],
              "operator_code": entry["code"]}) or {}
         entry["country_enabled"] = country.get("status") == "active"
@@ -901,37 +907,48 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         return {"auto_dispatched": False, "reason": "no_api_key"}
 
     raw_op = (wd_doc.get("operator") or "").strip()
-    exact = next((entry for entry in entries if entry["country"] == country and entry["code"] == raw_op), None)
-    op_code = exact["code"] if exact else _resolve_operator_code(country, raw_op)
-    if not op_code:
+    exact = next((entry for entry in entries
+                  if entry["country"] == country and entry["code"] == raw_op), None)
+    if not exact:
+        from payment_exclusivity import operator_identity
+        wanted = operator_identity(country, raw_op)
+        matching_entries = [
+            entry for entry in entries if entry["country"] == country
+            and operator_identity(country, entry["code"], entry["label"]) == wanted
+        ]
+        if len(matching_entries) == 1:
+            exact = matching_entries[0]
+    internal_code = _resolve_operator_code(country, raw_op)
+    if not exact and internal_code:
+        exact = _match_payout_entry(entries, country, internal_code)
+    if not exact:
         await _persist_dispatch_failure(
             db, wd_id, "operator_not_supported",
             f"Opérateur '{raw_op}' non reconnu pour {country}. "
             "Sélectionnez un code du catalogue de retrait.")
         return {"auto_dispatched": False, "reason": "operator_not_supported", "operator_raw": raw_op}
-    op_row = await db.payment_provider_operators.find_one(
-        {"provider_id": "biztranspay", "country_code": country, "operator_code": op_code, "status": "active"})
-    country_off = (await db.payment_provider_countries.find_one(
-        {"provider_id": "biztranspay", "country_code": country, "status": "inactive"})) if op_row else None
+    op_code = exact["code"]
+    op_row = await db.payment_provider_payout_operators.find_one(
+        {"provider_id": "biztranspay", "country_code": country,
+         "operator_code": op_code, "status": "active"})
+    country_off = await db.payment_provider_payout_countries.find_one(
+        {"provider_id": "biztranspay", "country_code": country,
+         "status": "inactive"}) if op_row else None
     if not op_row or country_off:
         await _persist_dispatch_failure(db, wd_id, "operator_disabled_by_admin",
                                         f"L'opérateur {op_code} ({country}) est désactivé côté admin BTP.")
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
 
-    entry = exact or _match_payout_entry(entries, country, op_code)
-    if not entry:
-        await _persist_dispatch_failure(
-            db, wd_id, "operator_not_in_btp_catalog",
-            f"L'opérateur {op_code} ({country}) n'est pas dans le catalogue de retrait Biz-transPay actif.")
-        return {"auto_dispatched": False, "reason": "operator_not_in_btp_catalog"}
-    if not _toggle_on(await _load_cfg(db), country, entry):
+    entry = exact
+    if not _toggle_on(await _load_cfg(db), country, entry, direction="payout"):
         await _persist_dispatch_failure(
             db, wd_id, "operator_disabled_by_admin",
             f"L'opérateur {entry['label']} ({country}) est désactivé dans la configuration Biz-transPay.",
         )
         return {"auto_dispatched": False, "reason": "operator_disabled_by_admin"}
     from payment_exclusivity import assert_assignment
-    await assert_assignment(db, "biztranspay", country, entry["code"], entry["label"])
+    await assert_assignment(db, "biztranspay", country, entry["code"], entry["label"],
+                            kind="payout")
 
     net = int(wd_doc.get("net_payout") or wd_doc.get("amount") or 0)
     if net <= 0:

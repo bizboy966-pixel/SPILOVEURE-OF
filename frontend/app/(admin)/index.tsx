@@ -3811,20 +3811,20 @@ function PaymentProvidersRouterCard({
     } finally { setLoading(false); }
   };
 
-  const toggleCountry = async (pid: string, cc: string, next: boolean) => {
+  const toggleCountry = async (pid: string, cc: string, next: boolean, kind: "payin" | "payout") => {
     setLoading(true);
     try {
-      await api.put<any>(`/admin/payment-providers/${pid}/countries/${cc}`, { enabled: next });
+      await api.put<any>(`/admin/payment-providers/${pid}/${kind}/countries/${cc}`, { enabled: next });
       await load();
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
     } finally { setLoading(false); }
   };
 
-  const toggleOp = async (pid: string, cc: string, code: string, next: boolean) => {
+  const toggleOp = async (pid: string, cc: string, code: string, next: boolean, kind: "payin" | "payout") => {
     setLoading(true);
     try {
-      await api.put<any>(`/admin/payment-providers/${pid}/countries/${cc}/operators/${encodeURIComponent(code)}`, { enabled: next });
+      await api.put<any>(`/admin/payment-providers/${pid}/${kind}/countries/${cc}/operators/${encodeURIComponent(code)}`, { enabled: next });
       await load();
     } catch (e: any) {
       if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
@@ -3839,6 +3839,85 @@ function PaymentProvidersRouterCard({
   for (const fallback of providerDefaults) {
     if (!visibleProviders.some((provider) => provider.id === fallback.id)) visibleProviders.push(fallback);
   }
+
+  const renderCatalog = (pid: string, kind: "payin" | "payout", countries: any[]) => (
+    <View testID={`provider-${pid}-${kind}-catalog`}>
+      <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary, marginTop: 8, marginBottom: 6 }}>
+        {kind === "payin" ? "Pay-in · dépôts et activations" : "Pay-out · retraits automatiques"}
+      </Text>
+      {(!countries || countries.length === 0) && (
+        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic", marginBottom: 8 }}>
+          Aucun pays configuré dans ce catalogue.
+        </Text>
+      )}
+      {(countries || []).map((c: any) => {
+        const cActive = c.status === "active";
+        const isManual = (c.mode || "automatic") === "manual";
+        return (
+          <View key={`${pid}-${kind}-${c.country_code}`} style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2" }}>
+              <TouchableOpacity
+                onPress={() => toggleCountry(pid, c.country_code, !cActive, kind)}
+                disabled={loading || providers === null}
+                style={{ flex: 1, padding: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                testID={`provider-${pid}-${kind}-country-${c.country_code}`}
+              >
+                <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
+                  {c.country_code === "*" ? "Universel" : (c.country_name || c.country || c.country_code)}  •  {c.currency}
+                </Text>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
+                  {cActive ? "🟢 Activé" : "🔴 Désactivé"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  const next = isManual ? "automatic" : "manual";
+                  setLoading(true);
+                  try {
+                    await api.put<any>(`/admin/payment-providers/${pid}/${kind}/countries/${c.country_code}/mode`, { mode: next });
+                    await load();
+                  } catch (e: any) {
+                    if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
+                  } finally { setLoading(false); }
+                }}
+                disabled={loading || providers === null}
+                style={{ paddingHorizontal: 10, justifyContent: "center", backgroundColor: isManual ? "#FDE68A" : "#BFDBFE" }}
+                testID={`provider-${pid}-${kind}-mode-${c.country_code}`}
+              >
+                <Text style={{ fontSize: 10, fontWeight: "900", color: isManual ? "#92400E" : "#1E3A8A" }}>
+                  {isManual ? "✋ MANUEL" : "⚡ AUTO"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ padding: 6, backgroundColor: theme.colors.surface }}>
+              {(c.operators || []).map((o: any) => {
+                const oActive = o.status === "active";
+                return (
+                  <TouchableOpacity
+                    key={`${pid}-${kind}-${c.country_code}-${o.operator_code}`}
+                    onPress={() => toggleOp(pid, c.country_code, o.operator_code, !oActive, kind)}
+                    disabled={loading || providers === null}
+                    style={{ padding: 6, borderRadius: 6, backgroundColor: oActive ? "#D1FAE5" : "#FEF3C7", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}
+                    testID={`provider-${pid}-${kind}-op-${c.country_code}-${o.operator_code}`}
+                  >
+                    <View>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: oActive ? "#065F46" : "#92400E" }}>
+                        └─ {o.operator_label || o.operator_code}
+                      </Text>
+                      <Text style={{ fontSize: 9, color: oActive ? "#047857" : "#B45309", fontFamily: "monospace" }}>
+                        {o.operator_code}
+                      </Text>
+                    </View>
+                    <Ionicons name={oActive ? "checkmark-circle" : "close-circle-outline"} size={20} color={oActive ? "#10B981" : "#F59E0B"} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
 
   return (
     <View testID="providers-router-card">
@@ -3873,7 +3952,7 @@ function PaymentProvidersRouterCard({
                   <Text style={{ fontSize: 11, fontWeight: "600" }}>  •  Priorité {p.priority}</Text>
                 </Text>
                 <Text style={{ fontSize: 11, color: providerColor, marginTop: 3 }}>
-                  {providerListLoading ? "Chargement du catalogue…" : `${p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt ${p.auto_deposit ? "✅" : "❌"} • Retrait ${p.auto_withdrawal ? "✅" : "❌"} • ${p.countries?.length || 0} pays`}
+                  {providerListLoading ? "Chargement des catalogues…" : `${p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt ${p.auto_deposit ? "✅" : "❌"} · ${p.countries?.length || 0} pays • Retrait ${p.auto_withdrawal ? "✅" : "❌"} · ${p.payout_countries?.length || 0} pays`}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
@@ -3922,13 +4001,13 @@ function PaymentProvidersRouterCard({
                       marginBottom: 8,
                     }}
                   >
-                    {p.name} · Configuration et catalogue des pays et opérateurs
+                    {p.name} · Configuration et catalogues Pay-in / Pay-out
                   </Text>
                 )}
                 {p.id === "moneyfusion" && (
                   <View testID="provider-moneyfusion-config" style={{ marginBottom: 10 }}>
                     <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 6 }}>
-                      Clés API et catalogue MoneyFusion
+                      Clés API MoneyFusion
                     </Text>
                     <MoneyFusionSettings
                       onSaved={onProviderSettingsChanged}
@@ -3941,77 +4020,8 @@ function PaymentProvidersRouterCard({
                     <BizTransPayCard onSaved={onProviderSettingsChanged} />
                   </View>
                 )}
-                {(!p.countries || p.countries.length === 0) && providers !== null && (
-                  <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic" }}>
-                    Aucun pays configuré pour ce prestataire.
-                  </Text>
-                )}
-                {(p.countries || []).map((c: any) => {
-                  const cActive = c.status === "active";
-                  const isManual = (c.mode || "automatic") === "manual";
-                  return (
-                    <View key={`${p.id}-${c.country_code}`} style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
-                      <View style={{ flexDirection: "row", backgroundColor: cActive ? "#DCFCE7" : "#FEE2E2" }}>
-                        <TouchableOpacity
-                          onPress={() => toggleCountry(p.id, c.country_code, !cActive)}
-                          disabled={loading || providerListLoading}
-                          style={{ flex: 1, padding: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
-                          testID={`provider-${p.id}-country-${c.country_code}`}
-                        >
-                          <Text style={{ fontWeight: "800", color: cActive ? "#065F46" : "#991B1B", fontSize: 12 }}>
-                            {c.country_code === "*" ? "Universel" : (c.country_name || c.country || c.country_code)}  •  {c.currency}
-                          </Text>
-                          <Text style={{ fontSize: 11, fontWeight: "700", color: cActive ? "#065F46" : "#991B1B" }}>
-                            {cActive ? "🟢 Activé" : "🔴 Désactivé"}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            const next = isManual ? "automatic" : "manual";
-                            setLoading(true);
-                            try {
-                              await api.put<any>(`/admin/payment-providers/${p.id}/countries/${c.country_code}/mode`, { mode: next });
-                              await load();
-                            } catch (e: any) {
-                              if (typeof window !== "undefined") window.alert("Erreur: " + (e?.detail || e?.message));
-                            } finally { setLoading(false); }
-                          }}
-                          disabled={loading || providerListLoading}
-                          style={{ paddingHorizontal: 10, justifyContent: "center", backgroundColor: isManual ? "#FDE68A" : "#BFDBFE" }}
-                          testID={`provider-${p.id}-mode-${c.country_code}`}
-                        >
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: isManual ? "#92400E" : "#1E3A8A" }}>
-                            {isManual ? "✋ MANUEL" : "⚡ AUTO"}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={{ padding: 6, backgroundColor: theme.colors.surface }}>
-                        {(c.operators || []).map((o: any) => {
-                          const oActive = o.status === "active";
-                          return (
-                            <TouchableOpacity
-                              key={`${p.id}-${c.country_code}-${o.operator_code}`}
-                              onPress={() => toggleOp(p.id, c.country_code, o.operator_code, !oActive)}
-                              disabled={loading || providerListLoading}
-                              style={{ padding: 6, borderRadius: 6, backgroundColor: oActive ? "#D1FAE5" : "#FEF3C7", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}
-                              testID={`provider-${p.id}-op-${c.country_code}-${o.operator_code}`}
-                            >
-                              <View>
-                                <Text style={{ fontSize: 11, fontWeight: "700", color: oActive ? "#065F46" : "#92400E" }}>
-                                  └─ {o.operator_label || o.operator_code}
-                                </Text>
-                                <Text style={{ fontSize: 9, color: oActive ? "#047857" : "#B45309", fontFamily: "monospace" }}>
-                                  {o.operator_code}
-                                </Text>
-                              </View>
-                              <Ionicons name={oActive ? "checkmark-circle" : "close-circle-outline"} size={20} color={oActive ? "#10B981" : "#F59E0B"} />
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  );
-                })}
+                {renderCatalog(p.id, "payin", p.countries || [])}
+                {renderCatalog(p.id, "payout", p.payout_countries || [])}
               </View>
             )}
           </Card>

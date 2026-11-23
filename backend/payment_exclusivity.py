@@ -73,31 +73,52 @@ def operator_identity(country, code, label=""):
 
 
 async def mobile_routes(db, *, provider_enabled=None, country_change=None,
-                        operator_change=None, flat_config=None, mf_config=None):
+                        operator_change=None, flat_config=None, mf_config=None,
+                        kind="payin"):
+    kind = "payout" if str(kind).lower() in ("payout", "withdrawal", "retrait") else "payin"
+    countries_collection = (
+        db.payment_provider_payout_countries if kind == "payout"
+        else db.payment_provider_countries
+    )
+    operators_collection = (
+        db.payment_provider_payout_operators if kind == "payout"
+        else db.payment_provider_operators
+    )
     providers = {p["id"]: p async for p in db.payment_providers.find(
         {"id": {"$in": list(MOBILE_PROVIDERS)}}, {"_id": 0})}
     flags = dict(provider_enabled or {})
     if flat_config is not None:
         flags.update({
             "ashtec": bool(flat_config.get("ashtec_enabled")),
-            "biztranspay": bool(flat_config.get("biztranspay_enabled") and (
-                flat_config.get("biztranspay_payin_enabled", True) or flat_config.get("biztranspay_payout_enabled"))),
+            "biztranspay": bool(
+                flat_config.get("biztranspay_enabled")
+                and (flat_config.get("biztranspay_payout_enabled") if kind == "payout"
+                     else flat_config.get("biztranspay_payin_enabled", True))
+            ),
         })
     if mf_config is not None:
-        flags["moneyfusion"] = bool(mf_config.get("payin_enabled") or mf_config.get("payout_enabled"))
+        flags["moneyfusion"] = bool(
+            mf_config.get("payout_enabled") if kind == "payout"
+            else mf_config.get("payin_enabled")
+        )
     else:
         stored = await db.app_settings.find_one({"key": "moneyfusion_config"}) or {}
         mf_config = stored.get("value")
-    countries = {(r["provider_id"], r["country_code"]): r async for r in db.payment_provider_countries.find(
+        if isinstance(mf_config, dict):
+            flags["moneyfusion"] = bool(
+                mf_config.get("payout_enabled") if kind == "payout"
+                else mf_config.get("payin_enabled")
+            )
+    countries = {(r["provider_id"], r["country_code"]): r async for r in countries_collection.find(
         {"provider_id": {"$in": list(MOBILE_PROVIDERS)}}, {"_id": 0})}
     routes = []
-    async for op in db.payment_provider_operators.find(
+    async for op in operators_collection.find(
         {"provider_id": {"$in": list(MOBILE_PROVIDERS)}}, {"_id": 0}
     ):
         pid, cc, code = op["provider_id"], op["country_code"], op["operator_code"]
         provider = providers.get(pid, {})
-        enabled = flags.get(pid, provider.get("status") == "active" and (
-            provider.get("auto_deposit") or provider.get("auto_withdrawal")))
+        capability = "auto_withdrawal" if kind == "payout" else "auto_deposit"
+        enabled = flags.get(pid, provider.get("status") == "active" and provider.get(capability))
         country_on = countries.get((pid, cc), {}).get("status") == "active"
         operator_on = op.get("status") == "active"
         if flat_config is not None:
@@ -105,7 +126,9 @@ async def mobile_routes(db, *, provider_enabled=None, country_change=None,
                 country_on = (flat_config.get("country_matrix") or {}).get("ashtec", {}).get(cc, country_on)
                 operator_on = (flat_config.get("ashtec_operators") or {}).get(cc, {}).get(code, operator_on)
             if pid == "biztranspay":
-                toggles = (flat_config.get("biztranspay_countries") or {}).get(cc, {})
+                toggle_key = ("biztranspay_payout_countries" if kind == "payout"
+                              else "biztranspay_countries")
+                toggles = (flat_config.get(toggle_key) or {}).get(cc, {})
                 if code in toggles:
                     operator_on = bool(toggles[code])
                 # Saving the legacy gateway settings re-derives this country's state.
@@ -119,7 +142,8 @@ async def mobile_routes(db, *, provider_enabled=None, country_change=None,
                 country_on = True
         if enabled and country_on and operator_on:
             routes.append({**op, "identity": operator_identity(cc, code, op.get("operator_label", "")),
-                           "provider": provider, "country_row": countries.get((pid, cc), {})})
+                           "provider": provider, "country_row": countries.get((pid, cc), {}),
+                           "kind": kind})
     return routes
 
 
@@ -131,16 +155,16 @@ def conflicts(routes):
     return {key: owners for key, owners in pairs.items() if len(owners) > 1}
 
 
-async def validate_change(db, **changes):
-    before = conflicts(await mobile_routes(db))
-    after = conflicts(await mobile_routes(db, **changes))
+async def validate_change(db, *, kind="payin", **changes):
+    before = conflicts(await mobile_routes(db, kind=kind))
+    after = conflicts(await mobile_routes(db, kind=kind, **changes))
     for (cc, identity), owners in after.items():
         if owners != before.get((cc, identity)):
             raise HTTPException(409, f"{cc} / {identity} est déjà attribué à un autre prestataire ({', '.join(sorted(owners))}). Désactivez d’abord cet opérateur chez l’ancien prestataire.")
 
 
-async def assert_assignment(db, provider_id, country, code, label=""):
-    routes = await mobile_routes(db)
+async def assert_assignment(db, provider_id, country, code, label="", *, kind="payin"):
+    routes = await mobile_routes(db, kind=kind)
     identity = operator_identity(country, code, label)
     owners = {route["provider_id"] for route in routes
               if route["country_code"] == country and route["identity"] == identity}
@@ -150,7 +174,8 @@ async def assert_assignment(db, provider_id, country, code, label=""):
         raise HTTPException(409, "Cet opérateur est attribué à un autre prestataire. Actualisez la page de paiement.")
 
 
-async def available_for_new_operator(db, provider_id, country, code, label=""):
+async def available_for_new_operator(db, provider_id, country, code, label="", *, kind="payin"):
     identity = operator_identity(country, code, label)
     return not any(route["provider_id"] != provider_id and route["country_code"] == country
-                   and route["identity"] == identity for route in await mobile_routes(db))
+                   and route["identity"] == identity
+                   for route in await mobile_routes(db, kind=kind))
