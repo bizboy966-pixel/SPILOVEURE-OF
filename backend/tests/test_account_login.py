@@ -96,10 +96,11 @@ def test_duplicate_email_uses_the_unique_matching_password(identity_app):
 
 def test_failed_login_logs_only_a_non_sensitive_reason(identity_app, caplog):
     register(identity_app)
-    response = identity_app[1].post(
-        "/api/auth/login",
-        json={"identifier": "new@example.com", "password": "WrongSecret9!"},
-    )
+    with caplog.at_level("INFO", logger="account_login"):
+        response = identity_app[1].post(
+            "/api/auth/login",
+            json={"identifier": "new@example.com", "password": "WrongSecret9!"},
+        )
 
     assert response.status_code == 401
     assert "reason=password_mismatch" in caplog.text
@@ -115,10 +116,11 @@ def test_unusable_legacy_password_hash_is_distinguished_in_internal_logs(identit
         "country": "TG", "status": "active", "role": "user",
         "password_hash": "legacy-format-not-supported",
     }))
-    response = identity_app[1].post(
-        "/api/auth/login",
-        json={"identifier": "legacy-hash@example.com", "password": "Whatever9!"},
-    )
+    with caplog.at_level("INFO", logger="account_login"):
+        response = identity_app[1].post(
+            "/api/auth/login",
+            json={"identifier": "legacy-hash@example.com", "password": "Whatever9!"},
+        )
 
     assert response.status_code == 401
     assert "reason=password_hash_unusable" in caplog.text
