@@ -162,8 +162,7 @@ async def sync_btp_catalog_rows(
         await countries_collection.update_one(
             {"provider_id": "biztranspay", "country_code": cc},
             {"$setOnInsert": {
-                "provider_id": "biztranspay", "country_code": cc, "currency": currency,
-                "country_name": country_name,
+                "provider_id": "biztranspay", "country_code": cc,
                 "status": "active" if any_on else "inactive", "mode": "automatic",
                 "priority": 1, "source": f"btp_{direction}_catalog", "created_at": now,
             }, "$set": {"updated_at": now, "catalog_direction": direction,

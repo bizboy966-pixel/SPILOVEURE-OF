@@ -1,5 +1,6 @@
 """Regression tests for independent Pay-in and Pay-out catalogs."""
 import asyncio
+import inspect
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +11,15 @@ import moneyfusion
 from payment_exclusivity import mobile_routes
 from payment_providers import sync_btp_catalog_rows
 from payment_router import pick_provider, toggle_operator
+
+
+def test_btp_country_upsert_does_not_update_country_name_in_two_operators():
+    source = inspect.getsource(sync_btp_catalog_rows)
+    upsert = source.split("await countries_collection.update_one(", 1)[1].split(
+        "for index, (code, e)", 1,
+    )[0]
+    assert upsert.count('"country_name": country_name') == 1
+    assert upsert.count('"currency": currency') == 1
 
 
 def run(coro):
