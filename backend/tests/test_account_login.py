@@ -1,7 +1,7 @@
 """Registration and three-identifier login, with no real DB, mail or payments."""
 import pytest
 
-from auth import decode_token
+from auth import decode_token, hash_password
 from test_identity import identity_app, register, run, verify, activate, main_header
 
 
@@ -77,10 +77,62 @@ def test_historical_phone_format_and_ban_are_respected(identity_app):
     assert result.status_code == 403
 
 
-def test_identifier_switching_does_not_reset_password_attempt_limit(identity_app):
+def test_identifier_switching_counts_three_failed_attempts(identity_app):
     register(identity_app)
     identifiers = ["NewMember", "new@example.com", "+22891111111"]
-    for n in range(10):
+    for n in range(3):
         result = identity_app[1].post("/api/auth/login", json={"identifier": identifiers[n % 3], "password": "incorrect"})
-        assert result.status_code == 401
-    assert identity_app[1].post("/api/auth/login", json={"identifier": "+22891111111", "password": "SignupPassword9!"}).status_code == 429
+        assert result.status_code == (429 if n == 2 else 401)
+    assert identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "NewMember", "password": "SignupPassword9!"},
+    ).status_code == 429
+
+
+def test_successful_login_resets_consecutive_failed_attempts(identity_app):
+    register(identity_app)
+    for _ in range(2):
+        assert identity_app[1].post(
+            "/api/auth/login",
+            json={"identifier": "NewMember", "password": "incorrect"},
+        ).status_code == 401
+    assert identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "NewMember", "password": "SignupPassword9!"},
+    ).status_code == 200
+    assert identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "NewMember", "password": "incorrect"},
+    ).status_code == 401
+
+
+def test_a_shared_proxy_does_not_block_a_different_users_first_login(identity_app):
+    register(identity_app)
+    for n in range(3):
+        result = identity_app[1].post(
+            "/api/auth/login",
+            json={"identifier": "NewMember", "password": f"wrong-{n}"},
+        )
+        assert result.status_code == (429 if n == 2 else 401)
+    # The test client uses one shared source IP; a different account must not
+    # inherit the first account's failed-password counter.
+    result = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "legacy@example.com", "password": "LegacyPass9!"},
+    )
+    assert result.status_code == 200
+
+
+def test_email_login_is_not_confused_by_same_value_in_another_users_username(identity_app):
+    run(identity_app[0].state.db.users.insert_one({
+        "id": "email-like-username", "username": "legacy@example.com",
+        "email": "other@example.com", "phone": "+22890000001",
+        "role": "user", "status": "active", "max_level": 1,
+        "password_hash": hash_password("OtherPass9!"),
+    }))
+    result = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "legacy@example.com", "password": "LegacyPass9!"},
+    )
+    assert result.status_code == 200
+    assert result.json()["user"]["id"] == "legacy"
