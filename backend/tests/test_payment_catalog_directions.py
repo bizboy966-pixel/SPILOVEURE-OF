@@ -264,6 +264,22 @@ def test_disabling_old_payout_country_allows_moneyfusion_reassignment():
 
         assert await toggle_country(db, "biztranspay", "CD", False, kind="payin")
         assert await toggle_country(db, "biztranspay", "CD", False, kind="payout")
+        await sync_btp_catalog_rows(db, [{
+            "country": "CD", "code": "orange-cd-btp-payin",
+            "currency": "CDF", "label": "Orange Money",
+        }], direction="deposit")
+        await sync_btp_catalog_rows(db, [{
+            "country": "CD", "code": "orange-cd-btp-payout",
+            "currency": "CDF", "label": "Orange Money",
+        }], direction="payout")
+        assert (await db.payment_provider_operators.find_one({
+            "provider_id": "biztranspay", "country_code": "CD",
+            "operator_code": "orange-cd-btp-payin",
+        }))["status"] == "inactive"
+        assert (await db.payment_provider_payout_operators.find_one({
+            "provider_id": "biztranspay", "country_code": "CD",
+            "operator_code": "orange-cd-btp-payout",
+        }))["status"] == "inactive"
         assert await toggle_operator(
             db, "moneyfusion", "CD", "orange-cd-mf", True, kind="payout",
         )
