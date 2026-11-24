@@ -44,7 +44,13 @@ export default function Login() {
       armWelcomeSplash();
       router.replace("/(app)/dashboard");
     } catch (e: any) {
-      setErr(e?.detail || t("auth.invalid_credentials"));
+      const detail = typeof e?.detail === "string" ? e.detail.trim() : "";
+      setErr(
+        detail ||
+          (typeof e?.status === "number"
+            ? t("auth.login_failed")
+            : t("auth.connection_error"))
+      );
     } finally {
       setLoading(false);
     }

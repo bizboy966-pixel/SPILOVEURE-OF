@@ -83,10 +83,25 @@ def test_identifier_switching_counts_three_failed_attempts(identity_app):
     for n in range(3):
         result = identity_app[1].post("/api/auth/login", json={"identifier": identifiers[n % 3], "password": "incorrect"})
         assert result.status_code == (429 if n == 2 else 401)
+    # A stale failure lock must not prevent the account owner from recovering
+    # with the correct password.
     assert identity_app[1].post(
         "/api/auth/login",
         json={"identifier": "NewMember", "password": "SignupPassword9!"},
-    ).status_code == 429
+    ).status_code == 200
+    assert identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "NewMember", "password": "incorrect"},
+    ).status_code == 401
+
+
+def test_unknown_identifier_only_locks_after_three_failed_attempts(identity_app):
+    for n in range(3):
+        result = identity_app[1].post(
+            "/api/auth/login",
+            json={"identifier": "not-a-real-account", "password": f"wrong-{n}"},
+        )
+        assert result.status_code == (429 if n == 2 else 401)
 
 
 def test_successful_login_resets_consecutive_failed_attempts(identity_app):

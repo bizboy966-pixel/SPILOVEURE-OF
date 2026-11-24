@@ -75,7 +75,6 @@ async def login_account(data, request):
     db = request.app.state.db
     identifier = data.identifier.strip()
     attempt_keys = ["login-failed-identifier:" + identifier.casefold()]
-    await _check_login_limits(db, attempt_keys)
 
     users = []
     for query in login_queries(identifier):
@@ -84,16 +83,18 @@ async def login_account(data, request):
             break
     # Never select an arbitrary owner when historical phone numbers are shared.
     if len(users) != 1:
+        await _check_login_limits(db, attempt_keys)
         await _record_invalid_login(db, attempt_keys)
     user = users[0]
     # Switching between email, username and phone must not bypass the same
     # account's failure threshold.
     user_attempt_key = "login-failed-user:" + user["id"]
-    attempt_keys.append(user_attempt_key)
-    await _check_login_limits(db, [user_attempt_key])
     if not await asyncio.to_thread(verify_password, data.password, user.get("password_hash", "")):
-        await _record_invalid_login(db, attempt_keys)
-    await _clear_login_failures(db, attempt_keys)
+        await _check_login_limits(db, [user_attempt_key])
+        await _record_invalid_login(db, [user_attempt_key])
+    # A previously accumulated failure lock must not reject the account owner
+    # after they provide the correct password. Reset the account-wide counter.
+    await _clear_login_failures(db, [user_attempt_key])
     if user.get("status") == "banned":
         raise HTTPException(403, "Compte banni.")
     scope = "main_onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None
