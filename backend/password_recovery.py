@@ -1,5 +1,6 @@
 """Single-use, purpose-isolated password recovery through the configured mail sender."""
 import asyncio
+import logging
 import re
 import secrets
 from datetime import timedelta
@@ -13,6 +14,8 @@ from auth import hash_password
 from email_delivery import VerificationEmailSender
 from identity_core import check_origin, digest, now, rate_limit, remote_key
 from identity_policy import password_created
+
+log = logging.getLogger(__name__)
 
 
 def no_store(response: Response):
@@ -77,6 +80,7 @@ async def request_reset(body: RequestReset, request: Request):
         return {"challenge_id": challenge, "expires_in": 600, "resend_after": 60}
     sender = getattr(request.app.state, "email_sender", None) or VerificationEmailSender()
     if not await asyncio.to_thread(sender.configured):
+        log.warning("password_reset_delivery_unavailable category=mailer_not_configured")
         raise HTTPException(503, "L’envoi des e-mails est indisponible. Veuillez réessayer plus tard.")
     challenge, code = secrets.token_urlsafe(24), f"{secrets.randbelow(1_000_000):06d}"
     await db.identity_password_resets.insert_one({
@@ -88,7 +92,11 @@ async def request_reset(body: RequestReset, request: Request):
     })
     try:
         await asyncio.to_thread(sender.send_password_reset, email, code)
-    except Exception:
+    except Exception as exc:
+        category = getattr(exc, "category", "unexpected_sender_error")
+        if not re.fullmatch(r"[a-z0-9_]{1,64}", str(category)):
+            category = "unexpected_sender_error"
+        log.warning("password_reset_delivery_failed category=%s", category)
         await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "failed"}})
         raise HTTPException(503, "L’e-mail n’a pas pu être envoyé. Veuillez réessayer plus tard.") from None
     await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "sent"}})

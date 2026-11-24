@@ -14,7 +14,9 @@ import httpx
 
 
 class MailUnavailable(Exception):
-    pass
+    def __init__(self, category="mail_unavailable"):
+        self.category = category
+        super().__init__()
 
 
 _connector_ready = (0, False)
@@ -72,14 +74,14 @@ class VerificationEmailSender:
 
     def _send_message(self, recipient, subject, text):
         if not self.configured():
-            raise MailUnavailable()
+            raise MailUnavailable("mailer_not_configured")
         provider = os.getenv("MAIL_PROVIDER", "").lower()
         try:
             if provider in ("resend", "resend_connector"):
                 body = {"from": os.environ["MAIL_FROM"], "to": [recipient], "subject": subject, "text": text}
                 if provider == "resend_connector":
                     if not connector_call("send", body):
-                        raise MailUnavailable()
+                        raise MailUnavailable("resend_connector_failed")
                     return
                 with httpx.Client(timeout=15) as client:
                     response = client.post(
@@ -89,7 +91,7 @@ class VerificationEmailSender:
                     )
                     response.raise_for_status()
                     if not response.json().get("id"):
-                        raise MailUnavailable()
+                        raise MailUnavailable("resend_invalid_response")
             else:
                 msg = EmailMessage()
                 msg["From"], msg["To"], msg["Subject"] = os.environ["MAIL_FROM"], recipient, subject
@@ -103,7 +105,32 @@ class VerificationEmailSender:
                         client.starttls(context=context)
                     client.login(os.environ["SMTP_USERNAME"], os.environ["SMTP_PASSWORD"])
                     client.send_message(msg)
+        except MailUnavailable:
+            raise
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 403):
+                category = "resend_authorization_rejected"
+            elif status == 422:
+                category = "resend_request_rejected"
+            elif status == 429:
+                category = "resend_rate_limited"
+            elif status >= 500:
+                category = "resend_unavailable"
+            else:
+                category = "resend_rejected"
+            raise MailUnavailable(category) from None
+        except (httpx.TimeoutException, httpx.TransportError):
+            raise MailUnavailable("mail_provider_unreachable") from None
+        except smtplib.SMTPAuthenticationError:
+            raise MailUnavailable("smtp_authentication_rejected") from None
+        except smtplib.SMTPRecipientsRefused:
+            raise MailUnavailable("smtp_recipient_rejected") from None
+        except smtplib.SMTPResponseException:
+            raise MailUnavailable("smtp_request_rejected") from None
+        except (KeyError, ValueError):
+            raise MailUnavailable("mail_configuration_invalid") from None
         except Exception:
             # Provider responses may include addresses or credentials. Never
             # propagate their content to logs or the browser.
-            raise MailUnavailable() from None
+            raise MailUnavailable("mail_provider_error") from None
