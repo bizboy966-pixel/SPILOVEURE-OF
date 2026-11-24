@@ -652,6 +652,82 @@ def test_refused_payout_can_be_manually_processed_but_not_rebound(env):
     assert response.status_code == 409
 
 
+def test_moneyfusion_preflight_failure_is_marked_not_submitted(env):
+    result = run(mf._record_dispatch_failure(
+        env.db, "wd-one", "operator_disabled_or_unmapped",
+        "Opérateur désactivé dans le catalogue de retraits.",
+    ))
+    withdrawal = run(env.db.withdrawals.find_one({"id": "wd-one"}))
+    assert result["not_submitted"] is True
+    assert withdrawal["gateway_status"] == "not_submitted"
+
+
+def test_moneyfusion_duplicate_submission_is_not_marked_safe_to_refund(env):
+    result = run(mf._record_dispatch_failure(
+        env.db, "wd-one", "submission_reserved",
+        "Une tentative existe déjà.",
+    ))
+    withdrawal = run(env.db.withdrawals.find_one({"id": "wd-one"}))
+    assert result["not_submitted"] is False
+    assert withdrawal["gateway_status"] == "unknown"
+
+
+def test_definitive_moneyfusion_http_refusal_is_rejected_without_retry(env, monkeypatch):
+    import httpx
+    import payment_exclusivity
+    import server
+
+    monkeypatch.setattr(mf, "load_config", AsyncMock(return_value={"payout_enabled": True}))
+    monkeypatch.setattr(mf, "load_credentials", AsyncMock(return_value={
+        "payout_private_key": "test-only-key",
+    }))
+    monkeypatch.setattr(mf, "_active_catalog_country", AsyncMock(return_value={"country_code": "TG"}))
+    monkeypatch.setattr(mf, "refresh_catalog", AsyncMock(return_value=[{
+        "country_code": "TG", "currency": "XOF",
+    }]))
+    monkeypatch.setattr(mf, "_active_operator_for_label", AsyncMock(return_value={
+        "operator_code": "tmoney-tg", "operator_label": "T-Money",
+    }))
+    monkeypatch.setattr(mf, "automatic_fx_rates", AsyncMock(return_value={
+        "rates_per_xof": {"XOF": 1}, "rate_dates": {"XOF": "parité fixe"},
+        "source": "test",
+    }))
+    monkeypatch.setattr(payment_exclusivity, "assert_assignment", AsyncMock())
+
+    class RefusalClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, **kwargs):
+            response = httpx.Response(
+                400,
+                json={"code": 1001, "message": "Opérateur indisponible"},
+                request=httpx.Request("POST", url),
+            )
+            response.raise_for_status()
+
+    monkeypatch.setattr(mf.httpx, "AsyncClient", RefusalClient)
+    result = run(mf.dispatch_withdrawal(env.db, dict(PAYOUT)))
+    assert result["not_submitted"] is True
+    assert result["reason"] == "gateway_refused"
+    withdrawal = run(env.db.withdrawals.find_one({"id": "wd-one"}))
+    assert withdrawal["gateway_status"] == "refused"
+    assert withdrawal["gateway_error_code"] == "1001"
+
+    assert run(server._reject_unsubmitted_withdrawal(
+        env.db, withdrawal, withdrawal["auto_dispatch_reason"],
+    )) is True
+    settled = run(env.db.withdrawals.find_one({"id": "wd-one"}))
+    assert settled["status"] == "rejected"
+    assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 3100
+
+
 def test_old_provider_priority_is_retained_when_moneyfusion_config_changes(env):
     configure(env)
     run(env.db.payment_providers.update_one({"id": "moneyfusion"}, {"$set": {"priority": 1}}))
@@ -683,10 +759,15 @@ def test_admin_validation_is_local_and_never_resubmits_unknown_provider_payout(e
     run(env.db.users.insert_one({
         "id": "member", "balance_profit": 100, "total_withdrawn": 0,
     }))
-    run(env.db.withdrawals.insert_one({
-        **PAYOUT, "status": "processing", "gateway": "moneyfusion",
-        "gateway_status": "unknown", "payout_id": "already-submitted",
-    }))
+    run(env.db.withdrawals.update_one(
+        {"id": "wd-one"},
+        {"$set": {
+            "status": "processing", "gateway": "moneyfusion",
+            "gateway_status": "unknown", "payout_id": "already-submitted",
+            "admin_provider_verified_at": datetime.now(),
+            "admin_provider_verified_by": "admin",
+        }},
+    ))
     run(env.db.moneyfusion_payouts.insert_one({
         "wd_id": "wd-one", "user_id": "member", "status": "unknown",
         "tokenPay": "already-submitted",
@@ -706,6 +787,69 @@ def test_admin_validation_is_local_and_never_resubmits_unknown_provider_payout(e
     assert late_failure["reason"] == "conflicting_terminal_status"
     assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "validated"
     assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 100
+
+
+def test_admin_must_verify_uncertain_provider_payout_before_manual_action(env, monkeypatch):
+    from server import admin_verify_withdrawal, admin_validate_withdrawal
+    run(env.db.withdrawals.update_one(
+        {"id": "wd-one"},
+        {"$set": {
+            "status": "processing", "gateway": "moneyfusion",
+            "gateway_status": "unknown", "payout_id": "already-submitted",
+        }},
+    ))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=env.db)))
+    monkeypatch.setattr(
+        mf, "reconcile_withdrawal",
+        AsyncMock(return_value={"ok": False, "reason": "token_required"}),
+    )
+
+    blocked = None
+    try:
+        run(admin_validate_withdrawal("wd-one", request, admin={"id": "admin"}))
+    except HTTPException as exc:
+        blocked = exc
+    assert blocked is not None and blocked.status_code == 409
+    assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "processing"
+
+    first_check = run(admin_verify_withdrawal(
+        "wd-one", request, body={}, admin={"id": "admin"},
+    ))
+    assert first_check["requires_manual_confirmation"] is True
+    confirmed = run(admin_verify_withdrawal(
+        "wd-one", request, body={"manual_confirmation": True}, admin={"id": "admin"},
+    ))
+    assert confirmed["manual_confirmation_recorded"] is True
+    assert run(admin_validate_withdrawal("wd-one", request, admin={"id": "admin"}))["ok"]
+    assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "validated"
+    assert run(env.db.admin_logs.count_documents({
+        "action": "withdrawal_provider_manually_verified", "target": "wd-one",
+    })) == 1
+
+
+def test_verified_moneyfusion_withdrawal_can_be_rejected_locally_once(env):
+    from server import admin_reject_withdrawal
+    now = datetime.now()
+    run(env.db.withdrawals.update_one(
+        {"id": "wd-one"},
+        {"$set": {
+            "status": "processing", "gateway": "moneyfusion",
+            "gateway_status": "unknown", "auto_dispatched": True,
+            "payout_id": "provider-ref", "admin_provider_verified_at": now,
+            "admin_provider_verified_by": "admin",
+        }},
+    ))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=env.db)))
+
+    result = run(admin_reject_withdrawal(
+        "wd-one", request, admin={"id": "admin"}, body={"reason": "Vérifié auprès du prestataire"},
+    ))
+    assert result["ok"] is True
+    assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "rejected"
+    assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 3100
+    with pytest.raises(HTTPException):
+        run(admin_reject_withdrawal("wd-one", request, admin={"id": "admin"}, body={}))
+    assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 3100
 
 
 def test_legacy_manual_withdrawal_validation_and_rejection_are_preserved(env):

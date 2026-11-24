@@ -758,6 +758,7 @@ async def _persist_dispatch_failure(db, wd_id: str, reason: str, detail: str = "
             {"id": wd_id},
             {"$set": {
                 "gateway": "biztranspay",
+                "gateway_status": "not_submitted",
                 "auto_dispatched": False,
                 "gateway_error_code": reason,
                 "gateway_error": detail or reason,
@@ -1020,7 +1021,8 @@ async def dispatch_biztranspay_withdrawal(db, wd_doc: dict) -> dict:
         else:
             await db.withdrawals.update_one({"id": wd_id}, {"$set": {"gateway_status": "not_submitted",
                 "auto_dispatched": False}, "$unset": {"btp_submission_claimed": ""}})
-        return {"auto_dispatched": False, "reason": "gateway_error", "detail": detail, "code": code}
+        return {"auto_dispatched": False, "not_submitted": r.status_code < 500 and r.status_code not in (408, 409, 429),
+                "reason": "gateway_error", "detail": detail, "code": code}
 
     resp_json = {}
     try:

@@ -1,5 +1,6 @@
 """Isolated payout lifecycle regressions. Provider requests are mocked."""
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -132,6 +133,114 @@ def test_biztranspay_settlement_accounts_and_notifies_once():
     assert second["changed"] is False
     assert run(db.users.find_one({"id": "member"}))["total_withdrawn"] == 3000
     assert run(db.notifications.count_documents({"user_id": "member"})) == 1
+
+
+def test_unsubmitted_mobile_withdrawal_is_rejected_and_refunded_once():
+    import server
+
+    db = _db()
+    withdrawal = {
+        "id": "wd-unavailable", "user_id": "member", "amount": 3000,
+        "status": "pending", "gateway": "biztranspay",
+        "gateway_status": "not_submitted",
+        "auto_dispatch_reason": "Opérateur indisponible dans le catalogue.",
+    }
+
+    async def seed():
+        await db.users.insert_one({"id": "member", "balance_profit": 0})
+        await db.withdrawals.insert_one(withdrawal)
+
+    run(seed())
+    first = run(server._reject_unsubmitted_withdrawal(
+        db, withdrawal, withdrawal["auto_dispatch_reason"],
+    ))
+    second = run(server._reject_unsubmitted_withdrawal(
+        db, withdrawal, withdrawal["auto_dispatch_reason"],
+    ))
+
+    current = run(db.withdrawals.find_one({"id": withdrawal["id"]}))
+    user = run(db.users.find_one({"id": "member"}))
+    assert first is True and second is False
+    assert current["status"] == "rejected"
+    assert user["balance_profit"] == 3000
+    assert run(db.notifications.count_documents({"user_id": "member"})) == 1
+
+
+def test_uncertain_provider_result_is_never_automatically_refunded():
+    import server
+
+    db = _db()
+    withdrawal = {
+        "id": "wd-unknown", "user_id": "member", "amount": 3000,
+        "status": "processing", "gateway": "moneyfusion",
+        "gateway_status": "unknown", "auto_dispatched": True,
+        "payout_id": "provider-ref",
+    }
+
+    async def seed():
+        await db.users.insert_one({"id": "member", "balance_profit": 0})
+        await db.withdrawals.insert_one(withdrawal)
+
+    run(seed())
+    result = run(server._reject_unsubmitted_withdrawal(
+        db, withdrawal, "Statut inconnu",
+    ))
+    assert result is False
+    assert run(db.withdrawals.find_one({"id": withdrawal["id"]}))["status"] == "processing"
+    assert run(db.users.find_one({"id": "member"}))["balance_profit"] == 0
+
+
+def test_biztranspay_preflight_failure_is_marked_not_submitted():
+    db = _db()
+    async def seed():
+        await db.withdrawals.insert_one({
+            "id": "wd-btp-unavailable", "status": "pending",
+        })
+    run(seed())
+    run(biztranspay._persist_dispatch_failure(
+        db, "wd-btp-unavailable", "operator_not_supported",
+        "Opérateur indisponible pour les retraits.",
+    ))
+    withdrawal = run(db.withdrawals.find_one({"id": "wd-btp-unavailable"}))
+    assert withdrawal["gateway_status"] == "not_submitted"
+    assert withdrawal["gateway_error"] == "Opérateur indisponible pour les retraits."
+
+
+def test_verified_biztranspay_withdrawal_can_be_rejected_locally_without_resubmission(monkeypatch):
+    import server
+    monkeypatch.setattr(
+        biztranspay, "reconcile_withdrawal",
+        AsyncMock(side_effect=AssertionError("manual verification must not contact the provider")),
+    )
+
+    db = _db()
+    withdrawal = {
+        "id": "wd-btp-verified", "user_id": "member", "amount": 3000,
+        "status": "processing", "gateway": "biztranspay",
+        "gateway_status": "pending", "auto_dispatched": True,
+        "payout_id": "btp-reference",
+        "admin_provider_verified_at": datetime.now(timezone.utc),
+        "admin_provider_verified_by": "admin",
+    }
+
+    async def seed():
+        await db.users.insert_one({"id": "member", "balance_profit": 0})
+        await db.withdrawals.insert_one(withdrawal)
+
+    run(seed())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+    result = run(server.admin_reject_withdrawal(
+        withdrawal["id"], request, admin={"id": "admin"},
+        body={"reason": "Vérifié auprès du prestataire"},
+    ))
+    current = run(db.withdrawals.find_one({"id": withdrawal["id"]}))
+    assert result["ok"] is True
+    assert current["status"] == "rejected"
+    assert run(db.users.find_one({"id": "member"}))["balance_profit"] == 3000
+    assert run(db.admin_logs.count_documents({
+        "action": "reconcile_biztranspay_withdrawal_reject",
+    })) == 0
+    biztranspay.reconcile_withdrawal.assert_not_awaited()
 
 
 def test_biztranspay_sweep_reconciles_legacy_payout_without_auto_flag(monkeypatch):

@@ -1007,6 +1007,70 @@ async def save_wallet(data: WalletIn, request: Request, user=Depends(get_current
     return {"ok": True}
 
 
+async def _reject_unsubmitted_withdrawal(db, wd: dict, reason: str) -> bool:
+    """Reject/refund once only when the provider definitively did not accept a payout."""
+    wd_id = str(wd.get("id") or "")
+    user_id = wd.get("user_id")
+    if not wd_id or not user_id:
+        return False
+    now = datetime.now(timezone.utc)
+    safe_to_refund = (
+        wd.get("gateway_status") in ("not_submitted", "refused")
+        and not wd.get("payout_id")
+        and not wd.get("btp_submission_claimed")
+    )
+    if not safe_to_refund:
+        return False
+    claimed = await db.withdrawals.update_one(
+        {"id": wd_id, "status": {"$in": ["pending", "processing", "dispatched", "unknown"]},
+         "gateway_status": {"$in": ["not_submitted", "refused"]},
+         "payout_id": {"$in": [None, ""]},
+         "btp_submission_claimed": {"$ne": True}},
+        {"$set": {
+            "status": "rejected", "rejected_at": now,
+            "reject_reason": str(reason)[:300],
+            "settlement_source": "automatic_pre_dispatch_rejection",
+            "updated_at": now,
+        }},
+    )
+    if not claimed.modified_count:
+        return False
+    refunded = await db.users.update_one(
+        {"id": user_id, "automatic_withdrawal_refunds": {"$ne": wd_id}},
+        {"$inc": {"balance_profit": float(wd.get("amount") or 0)},
+         "$addToSet": {"automatic_withdrawal_refunds": wd_id}},
+    )
+    title = "Retrait indisponible"
+    body = f"{str(reason)[:220]} Le montant a été recrédité sur votre solde."
+    notification_id = f"withdrawal:{wd_id}:rejected"
+    try:
+        await db.notifications.update_one(
+            {"_id": notification_id},
+            {"$setOnInsert": {
+                "id": notification_id, "user_id": user_id,
+                "kind": "withdrawal_status", "title": title, "body": body,
+                "meta": {"withdrawal_id": wd_id, "status": "rejected"},
+                "read": False, "created_at": now,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("Automatic withdrawal rejection notification failed wd=%s", wd_id)
+    if refunded.modified_count:
+        try:
+            from push_helper import push_to_user
+            await push_to_user(
+                db, user_id, title=title, body=body,
+                link="/(app)/withdrawal",
+                data={"kind": "withdrawal_status", "withdrawal_id": wd_id,
+                      "status": "rejected"},
+                tag=notification_id,
+            )
+        except Exception:
+            log.debug("Automatic withdrawal rejection push failed wd=%s", wd_id)
+    return True
+
+
 @api.post("/withdrawals")
 async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(require_pwd_confirm)):
     db = request.app.state.db
@@ -1071,7 +1135,8 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     }
     await db.withdrawals.insert_one(wd_doc)
 
-    # Unsupported destinations remain pending for manual admin validation.
+    # Destinations without an available payout route are rejected immediately;
+    # the amount is returned because no provider has received a payout request.
     auto_result = {"auto_dispatched": False}
     dispatched_gateway = None
     country_upper = (wallet.get("country") or "").upper()
@@ -1091,6 +1156,7 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
                     "auto_dispatch_reason": route.get("reason"),
                     "gateway_error_code": "provider_unavailable",
                     "gateway_error": route.get("reason"),
+                    "gateway_status": "not_submitted",
                     "updated_at": datetime.now(timezone.utc),
                 }},
             )
@@ -1135,11 +1201,29 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
             {"$set": {"auto_dispatch_reason": str(auto_result["detail"])[:300],
                       "updated_at": datetime.now(timezone.utc)}},
         )
+    current_withdrawal = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+    if (method in ("mobile", "mobile_money", "mm")
+            and current_withdrawal
+            and current_withdrawal.get("gateway_status") in ("not_submitted", "refused")):
+        rejection_reason = (
+            current_withdrawal.get("auto_dispatch_reason")
+            or current_withdrawal.get("gateway_error")
+            or "Le prestataire ne peut pas traiter cet opérateur."
+        )
+        await _reject_unsubmitted_withdrawal(db, current_withdrawal, rejection_reason)
     final_withdrawal = await db.withdrawals.find_one(
-        {"id": wd_id}, {"_id": 0, "status": 1},
+        {"id": wd_id}, {"_id": 0, "status": 1, "reject_reason": 1},
     )
     resp = {"id": wd_id, "status": (final_withdrawal or {}).get("status", "pending"),
             "amount": data.amount, "fee": fee, "net_payout": net}
+    if resp["status"] == "rejected":
+        reason = (final_withdrawal or {}).get("reject_reason") or (
+            "Le prestataire ne prend pas en charge cette destination."
+        )
+        resp["message"] = (
+            f"{reason} Votre demande a été rejetée et le montant de "
+            f"{int(data.amount):,} FCFA a été recrédité sur votre solde."
+        ).replace(",", " ")
     if auto_result.get("auto_dispatched"):
         resp["auto_dispatched"] = True
         resp["gateway"] = dispatched_gateway
@@ -4028,6 +4112,105 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
     return items
 
 
+def _withdrawal_requires_provider_verification(wd: dict) -> bool:
+    """Only gate actions when an automatic provider may actually hold the payout."""
+    if wd.get("gateway") not in ("biztranspay", "moneyfusion"):
+        return False
+    if wd.get("admin_provider_verified_at"):
+        return False
+    return bool(
+        wd.get("auto_dispatched")
+        or wd.get("payout_id")
+        or wd.get("btp_submission_claimed")
+        or wd.get("gateway_status") in ("submitting", "pending", "unknown", "processing")
+        or wd.get("status") in ("dispatched", "processing", "unknown")
+    )
+
+
+@admin_router.post("/withdrawals/{wd_id}/verify")
+async def admin_verify_withdrawal(
+    wd_id: str, request: Request, body: dict | None = None,
+    admin=Depends(require_admin),
+):
+    """Poll the original payout, then require an explicit audited attestation if unresolved."""
+    db = request.app.state.db
+    wd = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+    if not wd:
+        raise HTTPException(404, "Retrait introuvable.")
+    if wd.get("status") in ("completed", "validated", "rejected", "failed"):
+        return {"ok": True, "status": wd.get("status"), "already_terminal": True}
+
+    provider_result: dict = {}
+    verification_error = ""
+    try:
+        if wd.get("gateway") == "biztranspay":
+            from biztranspay import reconcile_withdrawal
+            provider_result = await reconcile_withdrawal(db, wd)
+        elif wd.get("gateway") == "moneyfusion":
+            from moneyfusion import reconcile_withdrawal
+            provider_result = await reconcile_withdrawal(db, wd_id)
+    except HTTPException as exc:
+        verification_error = str(exc.detail)[:240]
+    except Exception:
+        log.exception("Admin withdrawal provider verification failed wd=%s", wd_id)
+        verification_error = "Le statut n’a pas pu être récupéré automatiquement."
+
+    current = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Retrait introuvable.")
+    if current.get("status") in ("completed", "validated", "rejected", "failed"):
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"],
+            "action": "verify_withdrawal_provider_terminal", "target": wd_id,
+            "gateway": wd.get("gateway"), "status": current.get("status"),
+            "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True, "status": current.get("status"), "provider_confirmed": True}
+
+    manual_confirmation = bool((body or {}).get("manual_confirmation"))
+    if not manual_confirmation:
+        message = (
+            verification_error
+            or provider_result.get("message")
+            or "Le prestataire n’a pas encore renvoyé de statut final."
+        )
+        return {
+            "ok": False, "requires_manual_confirmation": True,
+            "message": (
+                f"{message} Vérifiez le résultat directement auprès du prestataire. "
+                "Confirmez uniquement après cette vérification."
+            ),
+            "status": current.get("status"),
+        }
+
+    now = datetime.now(timezone.utc)
+    updated = await db.withdrawals.update_one(
+        {"id": wd_id, "status": {"$in": ["pending", "dispatched", "processing", "unknown"]}},
+        {"$set": {
+            "admin_provider_verified_at": now,
+            "admin_provider_verified_by": admin["id"],
+            "admin_provider_verified_status": str(
+                provider_result.get("status")
+                or current.get("gateway_status")
+                or "manual_check"
+            )[:80],
+        }},
+    )
+    if not updated.modified_count:
+        raise HTTPException(409, "Le statut a changé. Actualisez les retraits avant de continuer.")
+    await db.admin_logs.insert_one({
+        "id": str(uuid.uuid4()), "admin_id": admin["id"],
+        "action": "withdrawal_provider_manually_verified", "target": wd_id,
+        "gateway": current.get("gateway"),
+        "provider_status": provider_result.get("status") or current.get("gateway_status"),
+        "at": now,
+    })
+    return {
+        "ok": True, "manual_confirmation_recorded": True,
+        "message": "Vérification enregistrée. Valider ou Rejeter ne renverra pas le retrait au prestataire.",
+    }
+
+
 async def _reconcile_biztranspay_admin_action(db, wd: dict, admin: dict, action: str) -> dict:
     """Verify an already-submitted Biz-transPay transfer before admin actions."""
     from biztranspay import reconcile_withdrawal
@@ -4131,6 +4314,12 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
             raise HTTPException(409, "Ce retrait est déjà rejeté et ne peut pas être validé.")
         if current_status not in active_statuses:
             raise HTTPException(400, "Statut du retrait non pris en charge.")
+        if _withdrawal_requires_provider_verification(wd):
+            raise HTTPException(
+                409,
+                "Ce retrait a peut-être déjà été envoyé. Cliquez sur « Vérifier » "
+                "et confirmez le résultat auprès du prestataire avant de le valider.",
+            )
 
         user = await db.users.find_one({"id": wd.get("user_id")}, {"_id": 0, "id": 1})
         if not user:
@@ -4190,6 +4379,12 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
     reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
+        if _withdrawal_requires_provider_verification(wd):
+            raise HTTPException(
+                409,
+                "Ce retrait a peut-être déjà été envoyé. Cliquez sur « Vérifier » "
+                "et confirmez auprès du prestataire que le transfert n’a pas été payé avant de le rejeter.",
+            )
         btp_submitted = (
             wd.get("gateway") == "biztranspay"
             and wd.get("gateway_status") != "not_submitted"
@@ -4199,16 +4394,16 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
                 or bool(wd.get("btp_submission_claimed"))
             )
         )
-        if btp_submitted:
+        if btp_submitted and not wd.get("admin_provider_verified_at"):
             return await _reconcile_biztranspay_admin_action(db, wd, admin, "reject")
-        if wd.get("gateway") == "moneyfusion":
+        if wd.get("gateway") == "moneyfusion" and not wd.get("admin_provider_verified_at"):
             from moneyfusion import manual_withdrawal_action_allowed
             if not await manual_withdrawal_action_allowed(db, wd_id):
                 raise HTTPException(409, "Impossible de rembourser un transfert MoneyFusion en cours ou au résultat inconnu. Vérifiez d’abord son statut dans les réglages MoneyFusion.")
         # v27ag (2026-03-04) — accept reject on gateway-lifecycle statuses
         # too (dispatched / processing), not just pending. Otherwise stuck
         # auto-retraits are unrejectable from the admin panel.
-        if wd["status"] not in ("pending", "dispatched", "processing"):
+        if wd["status"] not in ("pending", "dispatched", "processing", "unknown"):
             raise HTTPException(400, "Déjà traité.")
         # Claim before refunding. MoneyFusion may have reserved the transfer
         # after this handler read it; never refund a concurrently sent payout.
@@ -4216,12 +4411,42 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
             {"id": wd_id, "status": wd["status"], "$or": [
                 {"gateway": {"$ne": "moneyfusion"}},
                 {"gateway_status": "refused"},
+                {"admin_provider_verified_at": {"$exists": True}},
             ]},
             {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc), "rejected_by": admin["id"], "reject_reason": reason}},
         )
         if not claimed.modified_count:
             raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
-        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"balance_profit": wd["amount"]}})
+        await db.users.update_one(
+            {"id": wd["user_id"], "admin_rejected_withdrawals": {"$ne": wd_id}},
+            {"$inc": {"balance_profit": float(wd.get("amount") or 0)},
+             "$addToSet": {"admin_rejected_withdrawals": wd_id}},
+        )
+        now = datetime.now(timezone.utc)
+        notification_id = f"withdrawal:{wd_id}:rejected"
+        try:
+            await db.notifications.update_one(
+                {"_id": notification_id},
+                {"$setOnInsert": {
+                    "id": notification_id, "user_id": wd["user_id"],
+                    "kind": "withdrawal_status", "title": "Retrait rejeté",
+                    "body": f"Votre retrait de {int(float(wd.get('amount') or 0)):,} FCFA a été rejeté et remboursé.".replace(",", " "),
+                    "meta": {"withdrawal_id": wd_id, "status": "rejected",
+                             "gateway": wd.get("gateway")},
+                    "read": False, "created_at": now,
+                }},
+                upsert=True,
+            )
+            from push_helper import push_to_user
+            await push_to_user(
+                db, wd["user_id"], title="Retrait rejeté",
+                body=f"Votre retrait de {int(float(wd.get('amount') or 0)):,} FCFA a été rejeté et remboursé.".replace(",", " "),
+                link="/(app)/withdrawal",
+                data={"kind": "withdrawal_status", "withdrawal_id": wd_id, "status": "rejected"},
+                tag=notification_id,
+            )
+        except Exception:
+            log.exception("Admin withdrawal rejection notification failed wd=%s", wd_id)
         await db.admin_logs.insert_one({
             "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "reject_withdrawal",
             "target": wd_id, "at": datetime.now(timezone.utc),

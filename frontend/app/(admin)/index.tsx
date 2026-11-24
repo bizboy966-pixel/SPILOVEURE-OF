@@ -504,6 +504,47 @@ export default function AdminHome() {
     }
   };
 
+  const verifyWithdrawal = async (withdrawal: any) => {
+    try {
+      const result = await api.post(`/admin/withdrawals/${withdrawal.id}/verify`, {});
+      if (result?.requires_manual_confirmation) {
+        const warning = `${result.message || "Le prestataire n’a pas confirmé de statut final."}\n\nLa confirmation autorisera les actions manuelles. « Rejeter » recréditera le montant. Ne confirmez qu’après avoir vérifié le résultat auprès du prestataire.`;
+        let confirmed = false;
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          confirmed = window.confirm(warning);
+        } else {
+          confirmed = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              "Vérification manuelle requise",
+              warning,
+              [
+                { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+                { text: "J’ai vérifié", onPress: () => resolve(true) },
+              ],
+              { cancelable: false },
+            );
+          });
+        }
+        if (!confirmed) return;
+        const authorized = await api.post(
+          `/admin/withdrawals/${withdrawal.id}/verify`,
+          { manual_confirmation: true },
+        );
+        notify("Vérification enregistrée", authorized?.message || "Vous pouvez maintenant traiter le retrait.");
+      } else {
+        notify(
+          "Vérification terminée",
+          result?.status
+            ? `Le prestataire a confirmé le statut « ${result.status} ».`
+            : "Le statut du retrait a été actualisé.",
+        );
+      }
+      await load();
+    } catch (e: any) {
+      notify("Erreur de vérification", e?.detail || e?.message || "Impossible de vérifier ce retrait.");
+    }
+  };
+
   const TABS: { key: Tab; label: string; icon: any }[] = [
     { key: "dashboard", label: "Dashboard", icon: "stats-chart" },
     { key: "users", label: "Utilisateurs", icon: "people" },
@@ -1092,6 +1133,14 @@ export default function AdminHome() {
                   ["moneyfusion", "biztranspay"].includes(w.gateway) &&
                   ["pending", "dispatched", "processing", "completed", "failed", "rejected"].includes(w.status)
                 );
+                const activeWithdrawal = ["pending", "dispatched", "processing", "unknown"].includes(w.status);
+                const needsProviderVerification = activeWithdrawal && isAuto
+                  && !w.admin_provider_verified_at
+                  && (
+                    !!w.auto_dispatched || !!w.payout_id || !!w.btp_submission_claimed
+                    || ["submitting", "pending", "unknown", "processing"].includes(w.gateway_status)
+                    || ["dispatched", "processing", "unknown"].includes(w.status)
+                  );
                 const gwLabel = w.gateway === "biztranspay" ? "Biz-transPay"
                               : w.gateway === "moneyfusion" ? "MoneyFusion"
                               : (w.gateway || "");
@@ -1203,30 +1252,32 @@ export default function AdminHome() {
                     <Ionicons name="time" size={14} color="#fff" />
                     <Text style={styles.actT}>📜 Historique</Text>
                   </TouchableOpacity>
-                  {(w.status === "pending" || w.status === "dispatched" || w.status === "processing" || w.status === "unknown") && (
+                  {activeWithdrawal && !isMission && (
                     <>
-                      {/* v27ag (2026-03-04) — for auto-dispatched retraits stuck
-                          in pending/dispatched, offer a Reconcile button that
-                          polls the gateway synchronously. Cheap way to force-move
-                          a "gateway_status: completed" retrait into Validés. */}
-                      {isAuto && (w.gateway === "biztranspay" || w.gateway === "moneyfusion") && (
-                        <TouchableOpacity
-                          style={[styles.actBtn, { backgroundColor: "#0369A1" }]}
-                          onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reconcile`), "Vérification du statut terminée")}
-                          testID={`admin-reconcile-wd-${w.id}`}
-                        >
-                          <Ionicons name="refresh" size={14} color="#fff" />
-                          <Text style={styles.actT}>🔄 Vérifier statut</Text>
-                        </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actBtn, { backgroundColor: "#0369A1" }]}
+                        onPress={() => verifyWithdrawal(w)}
+                        testID={`admin-reconcile-wd-${w.id}`}
+                      >
+                        <Ionicons name="search" size={14} color="#fff" />
+                        <Text style={styles.actT}>Vérifier</Text>
+                      </TouchableOpacity>
+                      {!needsProviderVerification ? (
+                        <>
+                          <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Statut validé (sans nouvel envoi au prestataire)")} testID={`admin-validate-wd-${w.id}`}>
+                            <Ionicons name="checkmark" size={14} color="#fff" />
+                            <Text style={styles.actT}>Valider</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`), "✅ Retrait rejeté")} testID={`admin-reject-wd-${w.id}`}>
+                            <Ionicons name="close" size={14} color="#fff" />
+                            <Text style={styles.actT}>Rejeter</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, alignSelf: "center", flexBasis: "100%" }}>
+                          Vérifiez auprès du prestataire pour débloquer Valider / Rejeter.
+                        </Text>
                       )}
-                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Statut validé (sans nouvel envoi au prestataire)")} testID={`admin-validate-wd-${w.id}`}>
-                        <Ionicons name="checkmark" size={14} color="#fff" />
-                        <Text style={styles.actT}>Valider</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actBtn} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/reject`), "✅ Retrait rejeté")} testID={`admin-reject-wd-${w.id}`}>
-                        <Ionicons name="close" size={14} color="#fff" />
-                        <Text style={styles.actT}>Rejeter</Text>
-                      </TouchableOpacity>
                     </>
                   )}
                 </View>

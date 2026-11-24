@@ -579,11 +579,15 @@ _PAYOUT_FAILURE_MESSAGES = {
 async def _record_dispatch_failure(db, wd_id: str, reason: str, detail: str = "") -> dict:
     message = (detail or _PAYOUT_FAILURE_MESSAGES.get(reason) or
                "Le retrait automatique MoneyFusion n’a pas été lancé.")
+    definitely_not_submitted = reason not in (
+        "submission_reserved", "withdrawal_already_processed",
+    )
     try:
         await db.withdrawals.update_one(
             {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected", "validated"]}},
             {"$set": {
                 "gateway": PAYIN_PROVIDER,
+                "gateway_status": "not_submitted" if definitely_not_submitted else "unknown",
                 "auto_dispatched": False,
                 "auto_dispatch_reason": message[:300],
                 "gateway_error_code": f"moneyfusion_{reason}"[:80],
@@ -593,7 +597,8 @@ async def _record_dispatch_failure(db, wd_id: str, reason: str, detail: str = ""
         )
     except Exception:
         log.exception("MoneyFusion payout failure reason could not be persisted wd=%s", wd_id)
-    return {"auto_dispatched": False, "reason": reason, "detail": message}
+    return {"auto_dispatched": False, "not_submitted": definitely_not_submitted,
+            "reason": reason, "detail": message}
 
 
 def _payout_poll_delay(attempts: int) -> int:
@@ -1160,6 +1165,51 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
             )
         response.raise_for_status()
         result = response.json()
+    except fx_httpx.HTTPStatusError as exc:
+        status_code = int(getattr(exc.response, "status_code", 0) or 0)
+        if 400 <= status_code < 500 and status_code not in (408, 409, 429):
+            try:
+                error_body = exc.response.json()
+            except Exception:
+                error_body = {}
+            detail = str(
+                error_body.get("message") or error_body.get("detail")
+                or "MoneyFusion a refusé le retrait."
+            )[:300] if isinstance(error_body, dict) else "MoneyFusion a refusé le retrait."
+            error_code = str(
+                error_body.get("code") or error_body.get("error_code")
+                or f"http_{status_code}"
+            )[:80] if isinstance(error_body, dict) else f"http_{status_code}"
+            await db.moneyfusion_payouts.update_one(
+                {"wd_id": wd_id, "status": "submitting"},
+                {"$set": {"status": "refused", "error": detail,
+                          "updated_at": _now()}},
+            )
+            await db.withdrawals.update_one(
+                {"id": wd_id, "status": "processing", "gateway_status": "submitting"},
+                {"$set": {
+                    "status": "pending", "gateway_status": "refused",
+                    "auto_dispatch_error": detail, "auto_dispatch_reason": detail,
+                    "gateway_error_code": error_code, "gateway_error": detail,
+                    "auto_dispatched": False,
+                }},
+            )
+            return {"auto_dispatched": False, "not_submitted": True,
+                    "reason": "gateway_refused", "detail": detail}
+        await db.moneyfusion_payouts.update_one(
+            {"wd_id": wd_id, "status": "submitting"},
+            {"$set": {"status": "unknown", "updated_at": _now()}},
+        )
+        await db.withdrawals.update_one(
+            {"id": wd_id},
+            {"$set": {"gateway_status": "unknown",
+                      "auto_dispatch_attempted": True,
+                      "auto_dispatch_error": "MoneyFusion a répondu sans confirmer l’issue du retrait.",
+                      "auto_dispatch_reason": "Résultat incertain; vérification nécessaire avant toute action.",
+                      "auto_dispatch_at": _now()}},
+        )
+        return {"auto_dispatched": False, "reason": "unknown_result",
+                "detail": "Résultat MoneyFusion incertain; ne renvoyez pas le retrait."}
     except Exception:
         await db.moneyfusion_payouts.update_one(
             {"wd_id": wd_id, "status": "submitting"},
@@ -1191,7 +1241,9 @@ async def dispatch_withdrawal(db, withdrawal: dict) -> dict:
                       "gateway_error": str(result.get("message") or "MoneyFusion a refusé la demande.")[:300],
                       "auto_dispatched": False}},
         )
-        return {"auto_dispatched": False, "reason": "gateway_refused"}
+        return {"auto_dispatched": False, "not_submitted": True,
+                "reason": "gateway_refused",
+                "detail": str(result.get("message") or "MoneyFusion a refusé la demande.")[:300]}
     if not _valid_token(token):
         await db.moneyfusion_payouts.update_one(
             {"wd_id": wd_id, "status": "submitting"},

@@ -73,8 +73,15 @@ export default function Withdrawal() {
   const submit = async (token: string) => {
     if (!amt || amt <= 0) return Alert.alert(t("common.error"), t("withdrawal.invalid_amount"));
     try {
-      await api.post("/withdrawals", { amount: amt }, { pwdConfirm: token });
-      Alert.alert("✅", t("withdrawal.request_saved", { amount: formatFCFA(netPreview) }));
+      const result = await api.post<any>("/withdrawals", { amount: amt }, { pwdConfirm: token });
+      if (result?.status === "rejected") {
+        Alert.alert(
+          t("common.error"),
+          result.message || "Le retrait n’a pas pu être envoyé. Le montant a été recrédité sur votre solde.",
+        );
+      } else {
+        Alert.alert("✅", t("withdrawal.request_saved", { amount: formatFCFA(netPreview) }));
+      }
       setAmount("");
       await refresh();
       await load();

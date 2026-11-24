@@ -68,7 +68,7 @@ def test_frontend_shows_buttons_for_lifecycle_statuses():
     assert m, "Frontend must show action buttons for pending/dispatched/processing/unknown"
     assert "Statut validé (sans nouvel envoi au prestataire)" in src
     # The new reconcile button
-    assert '🔄 Vérifier statut' in src
+    assert 'Vérifier</Text>' in src
     assert 'admin-reconcile-wd-' in src
 
 
