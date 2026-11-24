@@ -213,6 +213,7 @@ def test_provider_assignment_stays_exclusive_across_payin_and_payout(monkeypatch
     monkeypatch.setattr("payment_router._provider_ready", ready)
     payin = run(pick_provider(db, kind="payin", country="CM", operator="Orange Money"))
     payout = run(pick_provider(db, kind="payout", country="CM", operator="Orange Money"))
+    assert run(toggle_country(db, "biztranspay", "CM", False, kind="payout"))
     with pytest.raises(HTTPException) as conflict:
         run(toggle_operator(
             db, "moneyfusion", "CM", "orange-cm-misassigned", True, kind="payout",
@@ -221,8 +222,10 @@ def test_provider_assignment_stays_exclusive_across_payin_and_payout(monkeypatch
     assert payin["provider_id"] == "biztranspay"
     assert payout["provider_id"] == "biztranspay"
     assert len(run(mobile_routes(db, kind="payin"))) == 1
-    assert len(run(mobile_routes(db, kind="payout"))) == 1
+    assert len(run(mobile_routes(db, kind="payout"))) == 0
     assert conflict.value.status_code == 409
+    assert "Biz-transPay (Pay-in)" in conflict.value.detail
+    assert "MoneyFusion (Pay-out)" in conflict.value.detail
 
 
 def test_disabling_old_payout_country_allows_moneyfusion_reassignment():
@@ -238,6 +241,14 @@ def test_disabling_old_payout_country_allows_moneyfusion_reassignment():
         await db.app_settings.insert_one({
             "key": "moneyfusion_config", "value": {"payout_enabled": True},
         })
+        await db.payment_provider_countries.insert_one({
+            "provider_id": "biztranspay", "country_code": "CD", "status": "active",
+        })
+        await db.payment_provider_operators.insert_one({
+            "provider_id": "biztranspay", "country_code": "CD",
+            "operator_code": "orange-cd-btp-payin", "operator_label": "Orange Money",
+            "status": "active",
+        })
         await db.payment_provider_payout_countries.insert_many([
             {"provider_id": "biztranspay", "country_code": "CD", "status": "active"},
             {"provider_id": "moneyfusion", "country_code": "CD", "status": "active"},
@@ -251,6 +262,7 @@ def test_disabling_old_payout_country_allows_moneyfusion_reassignment():
              "status": "inactive"},
         ])
 
+        assert await toggle_country(db, "biztranspay", "CD", False, kind="payin")
         assert await toggle_country(db, "biztranspay", "CD", False, kind="payout")
         assert await toggle_operator(
             db, "moneyfusion", "CD", "orange-cd-mf", True, kind="payout",

@@ -172,10 +172,28 @@ async def validate_change(db, *, kind="payin", **changes):
     after = conflicts(after_routes)
     for (cc, identity), owners in after.items():
         if owners != before.get((cc, identity)):
+            owner_details = []
+            for owner in sorted(owners):
+                owner_routes = [
+                    route for route in after_routes
+                    if route["provider_id"] == owner
+                    and route["country_code"] == cc
+                    and route["identity"] == identity
+                ]
+                directions = sorted({
+                    "Pay-in" if route.get("kind") == "payin" else "Pay-out"
+                    for route in owner_routes
+                })
+                provider_name = next(
+                    (route.get("provider", {}).get("name") for route in owner_routes
+                     if route.get("provider", {}).get("name")),
+                    owner,
+                )
+                owner_details.append(f"{provider_name} ({', '.join(directions)})")
             raise HTTPException(
                 409,
                 f"{cc} / {identity} est déjà attribué à un autre prestataire "
-                f"({', '.join(sorted(owners))}) dans le Pay-in ou le Pay-out. "
+                f"({', '.join(owner_details)}). "
                 "Désactivez d’abord cet opérateur dans le catalogue où il est encore actif.",
             )
 
