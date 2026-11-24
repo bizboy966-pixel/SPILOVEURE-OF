@@ -78,23 +78,34 @@ async def login_account(data, request):
 
     users = []
     for query in login_queries(identifier):
-        users = await db.users.find(query).limit(2).to_list(2)
+        users = await db.users.find(query).limit(20).to_list(20)
         if users:
             break
-    # Never select an arbitrary owner when historical phone numbers are shared.
-    if len(users) != 1:
+    if not users:
         await _check_login_limits(db, attempt_keys)
         await _record_invalid_login(db, attempt_keys)
-    user = users[0]
-    # Switching between email, username and phone must not bypass the same
-    # account's failure threshold.
-    user_attempt_key = "login-failed-user:" + user["id"]
-    if not await asyncio.to_thread(verify_password, data.password, user.get("password_hash", "")):
-        await _check_login_limits(db, [user_attempt_key])
-        await _record_invalid_login(db, [user_attempt_key])
-    # A previously accumulated failure lock must not reject the account owner
-    # after they provide the correct password. Reset the account-wide counter.
-    await _clear_login_failures(db, [user_attempt_key])
+
+    # Legacy databases can contain duplicate emails or phone numbers. Resolve
+    # those safely by password: authenticate only when exactly one candidate
+    # matches, never by whichever MongoDB happened to return first.
+    matching_users = []
+    for candidate in users:
+        if await asyncio.to_thread(
+            verify_password, data.password, candidate.get("password_hash", ""),
+        ):
+            matching_users.append(candidate)
+    if len(matching_users) != 1:
+        failure_keys = attempt_keys + [
+            "login-failed-user:" + candidate["id"] for candidate in users
+        ]
+        await _check_login_limits(db, failure_keys)
+        await _record_invalid_login(db, failure_keys)
+    user = matching_users[0]
+    # A successful password must not be blocked by stale failed-attempt state,
+    # whether previous attempts used email, username, or phone.
+    await _clear_login_failures(
+        db, attempt_keys + ["login-failed-user:" + user["id"]],
+    )
     if user.get("status") == "banned":
         raise HTTPException(403, "Compte banni.")
     scope = "main_onboarding" if user.get("auth_flow_version") == 2 and not main_ready(user) else None

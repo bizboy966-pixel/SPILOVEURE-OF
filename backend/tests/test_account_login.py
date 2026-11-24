@@ -70,6 +70,30 @@ def test_duplicate_phone_is_not_assigned_to_an_arbitrary_account(identity_app):
     assert identity_app[1].post("/api/auth/login", json={"identifier": "NewMember", "password": "SignupPassword9!"}).status_code == 200
 
 
+def test_duplicate_email_uses_the_unique_matching_password(identity_app):
+    first = register(identity_app).json()["user"]
+    run(identity_app[0].state.db.users.insert_one({
+        "id": "duplicate-email", "username": "OtherMember",
+        "email": "new@example.com", "phone": "+22890000002",
+        "country": "TG", "status": "active", "max_level": 1, "role": "user",
+        "password_hash": hash_password("OtherPassword9!"),
+    }))
+
+    first_login = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "new@example.com", "password": "SignupPassword9!"},
+    )
+    second_login = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "new@example.com", "password": "OtherPassword9!"},
+    )
+
+    assert first_login.status_code == 200
+    assert first_login.json()["user"]["id"] == first["id"]
+    assert second_login.status_code == 200
+    assert second_login.json()["user"]["id"] == "duplicate-email"
+
+
 def test_historical_phone_format_and_ban_are_respected(identity_app):
     data = register(identity_app).json()
     run(identity_app[0].state.db.users.update_one({"id": data["user"]["id"]}, {"$set": {"phone": "+228 91-11-11-11", "status": "banned"}}))

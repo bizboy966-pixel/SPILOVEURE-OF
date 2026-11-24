@@ -2,6 +2,7 @@
 - [Style professionnel SPILOVEURE](visual-standard.md) — conserver l’identité de marque et le rendu professionnel de la refonte pour toutes les constructions et modifications.
 - [Contextes de dépendances](dependency-contexts.md) — distinguer les dépendances locales de l’application construite sur Hostinger.
 - [Inscription et sessions distinctes](registration-sessions.md) — le Chat vérifié par e-mail doit rester accessible sans activation ni session principale valide.
+- [Identifiants legacy en double](login-duplicate-identifiers.md) — un identifiant partagé n’authentifie qu’un compte si un seul hash correspond au mot de passe.
 - [Validation Resend](resend-validation.md) — distinguer compte connecté, DNS validés et droits d’envoi ; ne pas remplacer les DNS d’un autre compte.
 - [Parrain par défaut et Android](referral-android-policy.md) — invitation prioritaire, administrateur officiel en l’absence de code ; aucune diffusion APK sans validation réelle.
 - [Contrat MoneyFusion](moneyfusion-contract.md) — Mobile Money uniquement ; devise et couverture Pay-in à confirmer, sans les déduire du catalogue Pay-out.

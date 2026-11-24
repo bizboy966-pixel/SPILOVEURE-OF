@@ -128,6 +128,8 @@ export default function Login() {
               placeholder={t("auth.login_identifier_hint")}
               value={email}
               onChangeText={setEmail}
+              autoComplete="username"
+              textContentType="username"
               autoCapitalize="none"
               autoCorrect={false}
               testID="login-email"
@@ -138,6 +140,8 @@ export default function Login() {
               placeholder={t("auth.enter_password")}
               value={password}
               onChangeText={setPassword}
+              autoComplete="current-password"
+              textContentType="password"
               secureTextEntry={!show}
               rightIcon={show ? "eye-off-outline" : "eye-outline"}
               onRightIconPress={() => setShow((s) => !s)}
