@@ -38,20 +38,53 @@ def _norm_flow(raw: dict) -> dict:
     }
 
 
+def _catalog_rows(payload) -> list[dict]:
+    """Unwrap common API envelopes without assuming a fixed provider payload."""
+    if isinstance(payload, list):
+        rows = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            nested = row.get("operators")
+            if isinstance(nested, list):
+                country = row.get("code") or row.get("country_code") or row.get("country")
+                rows.extend({
+                    **operator,
+                    "country": operator.get("country") or operator.get("country_code") or country,
+                    "currency": operator.get("currency") or row.get("currency"),
+                } for operator in nested if isinstance(operator, dict))
+            else:
+                rows.append(row)
+        return rows
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ("operators", "items", "results", "routes"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return _catalog_rows(value)
+        if isinstance(value, dict):
+            rows = _catalog_rows(value)
+            if rows:
+                return rows
+
+    countries = payload.get("countries")
+    if isinstance(countries, list):
+        return _catalog_rows(countries)
+
+    for key in ("data", "result", "response", "payload"):
+        value = payload.get(key)
+        if isinstance(value, (dict, list)):
+            rows = _catalog_rows(value)
+            if rows:
+                return rows
+    return []
+
+
 def parse_catalog(jd) -> list[dict]:
-    items = jd
-    if isinstance(jd, dict):
-        items = next((jd[k] for k in ("operators", "data", "items", "results", "routes")
-                      if isinstance(jd.get(k), list)), None)
-        if items is None and isinstance(jd.get("countries"), list):
-            items = []
-            for c in jd["countries"]:
-                for o in (c.get("operators") or []):
-                    if isinstance(o, dict):
-                        items.append({**o, "country": o.get("country") or c.get("code") or c.get("country"),
-                                      "currency": o.get("currency") or c.get("currency")})
+    items = _catalog_rows(jd)
     out = []
-    for o in items if isinstance(items, list) else []:
+    for o in items:
         if not isinstance(o, dict):
             continue
         code = o.get("code") or o.get("operator") or o.get("operator_code")

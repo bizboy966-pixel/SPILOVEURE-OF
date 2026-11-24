@@ -172,7 +172,12 @@ async def validate_change(db, *, kind="payin", **changes):
     after = conflicts(after_routes)
     for (cc, identity), owners in after.items():
         if owners != before.get((cc, identity)):
-            raise HTTPException(409, f"{cc} / {identity} est déjà attribué à un autre prestataire ({', '.join(sorted(owners))}). Désactivez d’abord cet opérateur chez l’ancien prestataire.")
+            raise HTTPException(
+                409,
+                f"{cc} / {identity} est déjà attribué à un autre prestataire "
+                f"({', '.join(sorted(owners))}) dans le Pay-in ou le Pay-out. "
+                "Désactivez d’abord cet opérateur dans le catalogue où il est encore actif.",
+            )
 
 
 async def assert_assignment(db, provider_id, country, code, label="", *, kind="payin"):

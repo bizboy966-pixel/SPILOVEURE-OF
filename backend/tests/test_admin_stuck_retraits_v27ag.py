@@ -10,8 +10,8 @@ Fixes :
   1. Frontend : boutons Valider / Rejeter + "🔄 Vérifier statut" visibles
      pour statuts pending/dispatched/processing (avant : pending seul).
   2. Backend : /reject accepte pending/dispatched/processing.
-  3. Backend : /validate accepte pending/dispatched/processing. Cas spécial
-     auto-dispatched BTP → override sans re-dispatch, status→completed.
+  3. Backend : /validate change uniquement le statut local, sans renvoyer
+     de retrait au prestataire.
    4. Backend : provider pollers reconcile withdrawals in the background;
       opening a repeatedly refreshed admin tab must not launch extra sweeps.
 """
@@ -38,30 +38,35 @@ def test_reject_accepts_lifecycle_statuses():
 def test_validate_accepts_lifecycle_statuses():
     src = SERVER.read_text()
     m = re.search(
-        r"async def admin_validate_withdrawal\(.*?wd\[\"status\"\]\s+not in\s+\(([^)]+)\)",
+        r"async def admin_validate_withdrawal\(.*?active_statuses = \(([^)]+)\)",
         src, re.S,
     )
     assert m, "validate endpoint status guard not found"
     guard = m.group(1)
-    for s in ("pending", "dispatched", "processing"):
+    for s in ("pending", "dispatched", "processing", "unknown"):
         assert f'"{s}"' in guard, f"validate guard missing '{s}'"
 
 
-def test_biztranspay_admin_actions_reconcile_provider_before_deciding():
+def test_admin_validation_is_status_only_but_rejection_keeps_provider_safeguard():
     src = SERVER.read_text()
     assert "async def _reconcile_biztranspay_admin_action" in src
-    assert '_reconcile_biztranspay_admin_action(db, wd, admin, "validate")' in src
     assert '_reconcile_biztranspay_admin_action(db, wd, admin, "reject")' in src
-    assert "validation_source\": \"admin_override" not in src
+    validate = src.split("async def admin_validate_withdrawal(", 1)[1].split(
+        "async def admin_reject_withdrawal(", 1)[0]
+    assert "_reconcile_biztranspay_admin_action" not in validate
+    assert "create_payout(" not in validate
+    assert '"provider_request_sent": False' in validate
+    assert '"manual_validation_source": "admin_override"' in validate
 
 
 def test_frontend_shows_buttons_for_lifecycle_statuses():
     src = ADMIN_UI.read_text()
     m = re.search(
-        r'w\.status === "pending" \|\| w\.status === "dispatched" \|\| w\.status === "processing"',
+        r'w\.status === "pending" \|\| w\.status === "dispatched" \|\| w\.status === "processing" \|\| w\.status === "unknown"',
         src,
     )
-    assert m, "Frontend must show action buttons for pending/dispatched/processing"
+    assert m, "Frontend must show action buttons for pending/dispatched/processing/unknown"
+    assert "Statut validé (sans nouvel envoi au prestataire)" in src
     # The new reconcile button
     assert '🔄 Vérifier statut' in src
     assert 'admin-reconcile-wd-' in src

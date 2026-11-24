@@ -10,7 +10,7 @@ import biztranspay
 import moneyfusion
 from payment_exclusivity import mobile_routes
 from payment_providers import sync_btp_catalog_rows
-from payment_router import pick_provider, toggle_operator
+from payment_router import pick_provider, toggle_country, toggle_operator
 
 
 def test_btp_country_upsert_does_not_update_country_name_in_two_operators():
@@ -223,3 +223,46 @@ def test_provider_assignment_stays_exclusive_across_payin_and_payout(monkeypatch
     assert len(run(mobile_routes(db, kind="payin"))) == 1
     assert len(run(mobile_routes(db, kind="payout"))) == 1
     assert conflict.value.status_code == 409
+
+
+def test_disabling_old_payout_country_allows_moneyfusion_reassignment():
+    db = _db()
+
+    async def exercise():
+        await db.payment_providers.insert_many([
+            {"id": "biztranspay", "name": "Biz-transPay", "status": "active",
+             "auto_deposit": True, "auto_withdrawal": True},
+            {"id": "moneyfusion", "name": "MoneyFusion", "status": "active",
+             "auto_deposit": True, "auto_withdrawal": True},
+        ])
+        await db.app_settings.insert_one({
+            "key": "moneyfusion_config", "value": {"payout_enabled": True},
+        })
+        await db.payment_provider_payout_countries.insert_many([
+            {"provider_id": "biztranspay", "country_code": "CD", "status": "active"},
+            {"provider_id": "moneyfusion", "country_code": "CD", "status": "active"},
+        ])
+        await db.payment_provider_payout_operators.insert_many([
+            {"provider_id": "biztranspay", "country_code": "CD",
+             "operator_code": "orange-cd-btp", "operator_label": "Orange Money",
+             "status": "active"},
+            {"provider_id": "moneyfusion", "country_code": "CD",
+             "operator_code": "orange-cd-mf", "operator_label": "Orange Money",
+             "status": "inactive"},
+        ])
+
+        assert await toggle_country(db, "biztranspay", "CD", False, kind="payout")
+        assert await toggle_operator(
+            db, "moneyfusion", "CD", "orange-cd-mf", True, kind="payout",
+        )
+        routes = await mobile_routes(db, kind="payout")
+        assert [(route["provider_id"], route["country_code"]) for route in routes] == [
+            ("moneyfusion", "CD"),
+        ]
+        old_route = await db.payment_provider_payout_operators.find_one({
+            "provider_id": "biztranspay", "country_code": "CD",
+            "operator_code": "orange-cd-btp",
+        })
+        assert old_route["status"] == "inactive"
+
+    run(exercise())

@@ -1308,7 +1308,7 @@ async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) 
     now = _now()
     if status == "success":
         result = await db.withdrawals.update_one(
-            {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected"]}},
+            {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected", "validated"]}},
             {"$set": {"status": "completed", "gateway_status": "success",
                       "completed_at": now, "gateway": PAYIN_PROVIDER}},
         )
@@ -1332,7 +1332,7 @@ async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) 
         return {"handled": True, "outcome": "completed", "changed": result.modified_count > 0}
     if status == "failed":
         result = await db.withdrawals.update_one(
-            {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected"]}},
+            {"id": wd_id, "status": {"$nin": ["completed", "failed", "rejected", "validated"]}},
             {"$set": {"status": "failed", "gateway_status": "failed",
                       "failed_at": now, "gateway": PAYIN_PROVIDER}},
         )

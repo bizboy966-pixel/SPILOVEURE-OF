@@ -126,6 +126,23 @@ def test_catalog_and_prices(env):
     assert loop.run_until_complete(bc.activation_amount_for(db, "CDF")) == 12346
 
 
+def test_catalog_parser_keeps_nested_countries_and_all_payout_routes():
+    items = bc.parse_catalog({"data": {"countries": [
+        {"code": "GA", "currency": "XAF", "operators": [
+            {"code": "airtel_ga", "name": "Airtel Money Gabon"},
+            {"code": "moov_ga", "name": "Moov Money Gabon"},
+        ]},
+        {"code": "CD", "currency": "CDF", "operators": [
+            {"code": "orange_cd", "name": "Orange Money RDC"},
+        ]},
+    ]}})
+    assert {(item["country"], item["code"], item["currency"]) for item in items} == {
+        ("GA", "airtel_ga", "XAF"),
+        ("GA", "moov_ga", "XAF"),
+        ("CD", "orange_cd", "CDF"),
+    }
+
+
 def test_push_deposit_receiver_fees(env):
     db, loop = env
     r = loop.run_until_complete(b.biztranspay_activation(
@@ -322,6 +339,34 @@ def test_admin_catalog_directions_and_preserved_toggles(env):
     assert not any(call[0] == "POST" for call in CALLS)
 
 
+def test_admin_catalog_syncs_every_nested_live_payout_route(env, monkeypatch):
+    db, loop = env
+    response = R(200, {"data": {"countries": [
+        {"code": "GA", "currency": "XAF", "operators": [
+            {"code": "airtel_ga", "name": "Airtel Money Gabon"},
+            {"code": "moov_ga", "name": "Moov Money Gabon"},
+        ]},
+        {"code": "CD", "currency": "CDF", "operators": [
+            {"code": "orange_cd", "name": "Orange Money RDC"},
+        ]},
+    ]}})
+
+    async def nested_catalog(path, secret_key, public_key):
+        assert path == "/mobile-money/operators?direction=payout"
+        return response
+
+    monkeypatch.setattr(b, "_get", nested_catalog)
+    result = loop.run_until_complete(b.admin_btp_catalog(_req(db), "payout", USER))
+    assert result["count"] == 3
+    assert {item["country"] for item in result["items"]} == {"GA", "CD"}
+    rows = loop.run_until_complete(db.payment_provider_payout_operators.find(
+        {"provider_id": "biztranspay"}, {"_id": 0, "country_code": 1, "operator_code": 1},
+    ).to_list(None))
+    assert {
+        ("GA", "airtel_ga"), ("GA", "moov_ga"), ("CD", "orange_cd"),
+    } <= {(row["country_code"], row["operator_code"]) for row in rows}
+
+
 def test_admin_refresh_failure_is_explicit(env, monkeypatch):
     db, loop = env
     loop.run_until_complete(bc.fetch_catalog(db, "deposit"))
@@ -454,6 +499,7 @@ def test_ambiguous_payout_blocks_resubmit_and_manual_refund(env, monkeypatch):
         return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
     monkeypatch.setattr(b, "_post", uncertain)
     wd = _wd("TG", "tmoney_tg")
+    loop.run_until_complete(db.users.insert_one({"id": "u1", "total_withdrawn": 0}))
     loop.run_until_complete(db.withdrawals.insert_one(dict(wd)))
     first = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
     second = loop.run_until_complete(b.dispatch_biztranspay_withdrawal(db, wd))
@@ -461,10 +507,19 @@ def test_ambiguous_payout_blocks_resubmit_and_manual_refund(env, monkeypatch):
     assert second["reason"] == "already_submitted"
     assert len([call for call in CALLS if call[1] == "/payouts"]) == 1
     import server
-    for action in (server.admin_validate_withdrawal, server.admin_reject_withdrawal):
-        with pytest.raises(HTTPException) as exc:
-            loop.run_until_complete(action(wd["id"], _req(db), {"id": "admin"}))
-        assert exc.value.status_code == 409
+    with pytest.raises(HTTPException) as exc:
+        loop.run_until_complete(server.admin_reject_withdrawal(wd["id"], _req(db), {"id": "admin"}))
+    assert exc.value.status_code == 409
+    result = loop.run_until_complete(server.admin_validate_withdrawal(
+        wd["id"], _req(db), {"id": "admin"}))
+    assert result == {"ok": True, "status": "validated", "provider_request_sent": False}
+    assert loop.run_until_complete(db.withdrawals.find_one({"id": wd["id"]}))["status"] == "validated"
+    assert len([call for call in CALLS if call[1] == "/payouts"]) == 1
+    assert loop.run_until_complete(db.users.find_one({"id": "u1"}))["total_withdrawn"] == 1000
+    assert loop.run_until_complete(server.admin_validate_withdrawal(
+        wd["id"], _req(db), {"id": "admin"},
+    ))["already_validated"]
+    assert loop.run_until_complete(db.users.find_one({"id": "u1"}))["total_withdrawn"] == 1000
 
 
 def test_wave_redirect_and_duplicate_return_same_url(env, monkeypatch):

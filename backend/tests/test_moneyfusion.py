@@ -678,16 +678,33 @@ def test_unknown_payout_reconciles_without_resubmitting(env):
     assert run(env.db.users.find_one({"id": "member"}))["total_withdrawn"] == 3000
 
 
-def test_admin_actions_cannot_refund_or_validate_unknown_provider_submission(env):
-    from server import admin_validate_withdrawal, admin_reject_withdrawal
-    configure(env)
-    provider_http(env.monkeypatch, {}, fail=True)
-    run(mf.dispatch_withdrawal(env.db, dict(PAYOUT)))
+def test_admin_validation_is_local_and_never_resubmits_unknown_provider_payout(env):
+    from server import admin_validate_withdrawal
+    run(env.db.users.insert_one({
+        "id": "member", "balance_profit": 100, "total_withdrawn": 0,
+    }))
+    run(env.db.withdrawals.insert_one({
+        **PAYOUT, "status": "processing", "gateway": "moneyfusion",
+        "gateway_status": "unknown", "payout_id": "already-submitted",
+    }))
+    run(env.db.moneyfusion_payouts.insert_one({
+        "wd_id": "wd-one", "user_id": "member", "status": "unknown",
+        "tokenPay": "already-submitted",
+    }))
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=env.db)))
-    for handler in (admin_validate_withdrawal, admin_reject_withdrawal):
-        with pytest.raises(HTTPException) as error:
-            run(handler("wd-one", request, admin={"id": "admin"}))
-        assert error.value.status_code == 409
+    result = run(admin_validate_withdrawal("wd-one", request, admin={"id": "admin"}))
+    assert result == {"ok": True, "status": "validated", "provider_request_sent": False}
+    assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "validated"
+    assert env.http == []
+    assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 100
+    assert run(env.db.users.find_one({"id": "member"}))["total_withdrawn"] == 3000
+    assert run(admin_validate_withdrawal("wd-one", request, admin={"id": "admin"}))["already_validated"]
+    assert run(env.db.users.find_one({"id": "member"}))["total_withdrawn"] == 3000
+    late_failure = run(mf._apply_payout_status(
+        env.db, {"wd_id": "wd-one"}, "failed", {"status": "failed"},
+    ))
+    assert late_failure["reason"] == "conflicting_terminal_status"
+    assert run(env.db.withdrawals.find_one({"id": "wd-one"}))["status"] == "validated"
     assert run(env.db.users.find_one({"id": "member"}))["balance_profit"] == 100
 
 

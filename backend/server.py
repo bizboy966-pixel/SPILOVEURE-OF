@@ -4010,7 +4010,7 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
     """
     db = request.app.state.db
     if status_filter == "pending":
-        q = {"status": {"$in": ["pending", "dispatched", "processing"]}}
+        q = {"status": {"$in": ["pending", "dispatched", "processing", "unknown"]}}
     elif status_filter == "validated":
         q = {"status": {"$in": ["validated", "completed"]}}
     elif status_filter == "rejected":
@@ -4105,98 +4105,108 @@ async def _reconcile_biztranspay_admin_action(db, wd: dict, admin: dict, action:
     )
 
 
+async def _finalize_admin_withdrawal_validation(db, wd: dict) -> int:
+    """Apply idempotent local accounting and notification after status claim."""
+    wd_id = str(wd.get("id") or "")
+    user_id = wd.get("user_id")
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(404, "Compte du bénéficiaire introuvable.")
+
+    marker = {
+        "biztranspay": "biztranspay_completed_withdrawals",
+        "moneyfusion": "moneyfusion_completed_withdrawals",
+    }.get(wd.get("gateway"), "admin_validated_withdrawals")
+    amount = float(wd.get("amount") or 0)
+    accounted = await db.users.update_one(
+        {"id": user_id, marker: {"$ne": wd_id}},
+        {"$inc": {"total_withdrawn": amount},
+         "$addToSet": {marker: wd_id}},
+    )
+    now = datetime.now(timezone.utc)
+    notification_id = f"withdrawal:{wd_id}:completed"
+    title = "Retrait validé"
+    body = f"Votre retrait de {int(amount):,} FCFA a été validé.".replace(",", " ")
+    try:
+        await db.notifications.update_one(
+            {"_id": notification_id},
+            {"$setOnInsert": {
+                "id": notification_id, "user_id": user_id,
+                "kind": "withdrawal_status", "title": title, "body": body,
+                "meta": {"withdrawal_id": wd_id, "status": "validated",
+                         "gateway": wd.get("gateway")},
+                "read": False, "created_at": now,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("Manual withdrawal notification persistence failed wd=%s", wd_id)
+    if accounted.modified_count:
+        try:
+            from push_helper import push_to_user
+            await push_to_user(
+                db, user_id, title=title, body=body,
+                link="/(app)/withdrawal",
+                data={"kind": "withdrawal_status", "withdrawal_id": wd_id,
+                      "status": "validated"},
+                tag=notification_id,
+            )
+        except Exception:
+            log.debug("Manual withdrawal push notification failed wd=%s", wd_id)
+    return accounted.modified_count
+
+
 @admin_router.post("/withdrawals/{wd_id}/validate")
 async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
-        btp_submitted = (
-            wd.get("gateway") == "biztranspay"
-            and wd.get("gateway_status") != "not_submitted"
-            and (
-                bool(wd.get("payout_id"))
-                or bool(wd.get("auto_dispatched"))
-                or bool(wd.get("btp_submission_claimed"))
-            )
-        )
-        if btp_submitted:
-            return await _reconcile_biztranspay_admin_action(db, wd, admin, "validate")
-        if wd.get("gateway") == "moneyfusion":
-            from moneyfusion import manual_withdrawal_action_allowed
-            if not await manual_withdrawal_action_allowed(db, wd_id):
-                raise HTTPException(409, "Ce retrait a été soumis à MoneyFusion. Vérifiez son statut dans les réglages MoneyFusion avant toute action manuelle.")
-        # v27ag (2026-03-04) — accept validate on gateway-lifecycle statuses
-        # too (dispatched / processing). Manual validation of an auto-dispatched
-        # retrait means the admin trusts the gateway succeeded even without
-        # webhook — just marks it as validated + credits total_withdrawn.
-        if wd["status"] not in ("pending", "dispatched", "processing"):
-            raise HTTPException(400, "Déjà traité.")
+        active_statuses = ("pending", "dispatched", "processing", "unknown")
+        current_status = wd.get("status") or "pending"
+        if current_status in ("validated", "completed"):
+            if current_status == "validated" and wd.get("manual_validation_source") == "admin_override":
+                await _finalize_admin_withdrawal_validation(db, wd)
+            return {"ok": True, "status": current_status, "already_validated": True}
+        if current_status in ("rejected", "failed"):
+            raise HTTPException(409, "Ce retrait est déjà rejeté et ne peut pas être validé.")
+        if current_status not in active_statuses:
+            raise HTTPException(400, "Statut du retrait non pris en charge.")
 
-        # Auto-payout via IziChangePay if the withdrawal is a crypto one AND
-        # the admin has enabled `auto_withdrawal`. Otherwise fall through to
-        # the classic manual validation (status=validated, admin credits by
-        # hand off-platform).
-        from feature_flags import is_enabled as _flag_on
-        from izichange import create_payout, USDT_XOF_RATE
-        auto_ok = (
-            wd.get("method") == "crypto"
-            and wd.get("wallet_address")
-            and (wd.get("network") or "").upper().replace(" ", "").endswith("BEP20")
-            and await _flag_on(db, "auto_withdrawal")
-        )
-        if auto_ok:
-            net_xof = float(wd.get("net_payout") or wd.get("amount") or 0)
-            usdt_amount = round(net_xof / USDT_XOF_RATE, 6)
-            try:
-                payout = await create_payout(
-                    db,
-                    reference=wd_id,
-                    amount_usdt=usdt_amount,
-                    destination_address=wd["wallet_address"],
-                    metadata={"user_id": wd["user_id"], "network": "BEP20",
-                              "xof_amount": net_xof, "rate": USDT_XOF_RATE},
-                )
-            except HTTPException as e:
-                # Surface the gateway error to the admin — do NOT mark validated.
-                raise
-            await db.withdrawals.update_one(
-                {"id": wd_id},
-                {"$set": {"status": "dispatched",
-                          "gateway": "izichange",
-                          "payout_id": payout.get("id"),
-                          "gateway_status": payout.get("status"),
-                          "usdt_amount": usdt_amount,
-                          "usdt_rate": USDT_XOF_RATE,
-                          "dispatched_at": datetime.now(timezone.utc),
-                          "dispatched_by": admin["id"]}},
-            )
-            await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
-            await db.admin_logs.insert_one({
-                "id": str(uuid.uuid4()), "admin_id": admin["id"],
-                "action": "auto_dispatch_withdrawal",
-                "target": wd_id, "payout_id": payout.get("id"),
-                "at": datetime.now(timezone.utc),
-            })
-            return {"ok": True, "auto_dispatched": True,
-                    "payout_id": payout.get("id"),
-                    "usdt_amount": usdt_amount}
+        user = await db.users.find_one({"id": wd.get("user_id")}, {"_id": 0, "id": 1})
+        if not user:
+            raise HTTPException(404, "Compte du bénéficiaire introuvable.")
 
-        # Classic manual path.
+        now = datetime.now(timezone.utc)
         claimed = await db.withdrawals.update_one(
-            {"id": wd_id, "status": wd["status"], "$or": [
-                {"gateway": {"$ne": "moneyfusion"}},
-                {"gateway_status": "refused"},
-            ]},
-            {"$set": {"status": "validated", "validated_at": datetime.now(timezone.utc), "validated_by": admin["id"]}},
+            {"id": wd_id, "status": {"$in": active_statuses}},
+            {"$set": {
+                "status": "validated",
+                "validated_at": now,
+                "validated_by": admin["id"],
+                "manual_validation_source": "admin_override",
+            }},
         )
         if not claimed.modified_count:
+            current = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0})
+            if current and current.get("status") in ("validated", "completed"):
+                if current.get("status") == "validated" and current.get("manual_validation_source") == "admin_override":
+                    await _finalize_admin_withdrawal_validation(db, current)
+                return {"ok": True, "status": current["status"], "already_validated": True}
             raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
-        await db.users.update_one({"id": wd["user_id"]}, {"$inc": {"total_withdrawn": wd["amount"]}})
+
+        await _finalize_admin_withdrawal_validation(db, wd)
+
         await db.admin_logs.insert_one({
-            "id": str(uuid.uuid4()), "admin_id": admin["id"], "action": "validate_withdrawal",
-            "target": wd_id, "at": datetime.now(timezone.utc),
+            "id": str(uuid.uuid4()), "admin_id": admin["id"],
+            "action": "validate_withdrawal_status_only", "target": wd_id,
+            "gateway": wd.get("gateway"), "previous_status": current_status,
+            "provider_submission_present": bool(
+                wd.get("payout_id") or wd.get("auto_dispatched")
+                or wd.get("btp_submission_claimed")
+            ),
+            "at": now,
         })
-        return {"ok": True}
+        return {"ok": True, "status": "validated", "provider_request_sent": False}
     # Fallback: mission withdrawal (delegate to the missions module's logic)
     mw = await db.mission_withdrawals.find_one({"id": wd_id})
     if not mw:

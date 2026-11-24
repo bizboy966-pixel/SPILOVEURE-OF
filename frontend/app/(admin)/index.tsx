@@ -1051,7 +1051,7 @@ export default function AdminHome() {
             </View>
             <SubTabs
               tabs={[
-                { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending" || w.status === "dispatched" || w.status === "processing").length },
+                { key: "pending", label: "En attente", color: theme.colors.warning, count: withdrawals.filter((w) => w.status === "pending" || w.status === "dispatched" || w.status === "processing" || w.status === "unknown").length },
                 { key: "validated", label: "Validés", color: theme.colors.success, count: withdrawals.filter((w) => w.status === "validated" || w.status === "completed").length },
                 { key: "rejected", label: "Rejetés", color: theme.colors.danger, count: withdrawals.filter((w) => w.status === "rejected" || w.status === "failed").length },
               ]}
@@ -1063,7 +1063,7 @@ export default function AdminHome() {
               const q = wdQ.trim().toLowerCase();
               const filtered = withdrawals.filter((w) => {
                 const statusOk = wdFilter === "pending"
-                  ? (w.status === "pending" || w.status === "dispatched" || w.status === "processing")
+                  ? (w.status === "pending" || w.status === "dispatched" || w.status === "processing" || w.status === "unknown")
                   : wdFilter === "validated"
                     ? (w.status === "validated" || w.status === "completed")
                     : (w.status === "rejected" || w.status === "failed");
@@ -1203,7 +1203,7 @@ export default function AdminHome() {
                     <Ionicons name="time" size={14} color="#fff" />
                     <Text style={styles.actT}>📜 Historique</Text>
                   </TouchableOpacity>
-                  {(w.status === "pending" || w.status === "dispatched" || w.status === "processing") && (
+                  {(w.status === "pending" || w.status === "dispatched" || w.status === "processing" || w.status === "unknown") && (
                     <>
                       {/* v27ag (2026-03-04) — for auto-dispatched retraits stuck
                           in pending/dispatched, offer a Reconcile button that
@@ -1219,7 +1219,7 @@ export default function AdminHome() {
                           <Text style={styles.actT}>🔄 Vérifier statut</Text>
                         </TouchableOpacity>
                       )}
-                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Retrait validé")} testID={`admin-validate-wd-${w.id}`}>
+                      <TouchableOpacity style={[styles.actBtn, { backgroundColor: theme.colors.success }]} onPress={() => action(() => api.post(`/admin/withdrawals/${w.id}/validate`), "✅ Statut validé (sans nouvel envoi au prestataire)")} testID={`admin-validate-wd-${w.id}`}>
                         <Ionicons name="checkmark" size={14} color="#fff" />
                         <Text style={styles.actT}>Valider</Text>
                       </TouchableOpacity>
