@@ -156,51 +156,11 @@ async def lifespan(app: FastAPI):
         await _sync_pp(db)
     except Exception as _e:
         log.warning(f"payment_providers sync failed at boot: {_e}")
-    # seed admin
-    admin_email = os.environ["ADMIN_EMAIL"].lower()
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
-        admin_id = str(uuid.uuid4())
-        await db.users.insert_one({
-            "id": admin_id,
-            "username": os.environ.get("ADMIN_USERNAME", "admin"),
-            "email": admin_email,
-            "phone": os.environ.get("ADMIN_PHONE", "+22890000000"),
-            "country": os.environ.get("ADMIN_COUNTRY", "TG"),
-            "password_hash": hash_password(os.environ["ADMIN_PASSWORD"]),
-            "role": "admin",
-            "status": "active",
-            "max_level": 12,  # admin pre-activated for all levels (helps as root of matrix)
-            "sponsor_id": None,
-            "sponsor_username": None,
-            "balance_profit": 0,
-            "balance_upgrade": 0,
-            "commission_direct": 0,
-            "commission_spillover": 0,
-            "total_earned": 0,
-            "total_withdrawn": 0,
-            "withdrawals_disabled": False,
-            "created_at": datetime.now(timezone.utc),
-        })
-        # Place admin at all levels as root (no parent)
-        for lv in range(1, 13):
-            await db.matrix_placements.insert_one({
-                "user_id": admin_id, "level": lv,
-                "parent_id": None, "leg": None,
-                "sponsor_id": None, "is_spillover": False,
-                "created_at": datetime.now(timezone.utc),
-            })
-        log.info(f"Admin seeded: {admin_email}")
-    else:
-        # ensure role/password match env (idempotent)
-        await db.users.update_one(
-            {"email": admin_email},
-            {"$set": {
-                "role": "admin",
-                "password_hash": hash_password(os.environ["ADMIN_PASSWORD"]),
-                "status": "active",
-            }},
-        )
+    # Seed the bootstrap administrator once; preserve existing password
+    # changes across restarts.
+    from admin_bootstrap import ensure_bootstrap_admin
+    admin_id = await ensure_bootstrap_admin(db, os.environ)
+    log.info("Bootstrap administrator ready: %s", admin_id)
     # Init Emergent Object Storage session once at startup so subsequent
     # uploads/downloads use the cached storage_key. Best-effort — if it fails
     # we still boot and fall back to local disk.
