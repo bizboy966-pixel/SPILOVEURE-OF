@@ -159,8 +159,8 @@ async def lifespan(app: FastAPI):
     # Seed the bootstrap administrator once; preserve existing password
     # changes across restarts.
     from admin_bootstrap import ensure_bootstrap_admin
-    admin_id = await ensure_bootstrap_admin(db, os.environ)
-    log.info("Bootstrap administrator ready: %s", admin_id)
+    await ensure_bootstrap_admin(db, os.environ)
+    log.info("Bootstrap administrator ready")
     # Init Emergent Object Storage session once at startup so subsequent
     # uploads/downloads use the cached storage_key. Best-effort — if it fails
     # we still boot and fall back to local disk.
