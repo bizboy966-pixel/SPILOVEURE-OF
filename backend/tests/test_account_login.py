@@ -209,3 +209,33 @@ def test_email_login_is_not_confused_by_same_value_in_another_users_username(ide
     )
     assert result.status_code == 200
     assert result.json()["user"]["id"] == "legacy"
+    username_login = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "legacy@example.com", "password": "OtherPass9!"},
+    )
+    assert username_login.status_code == 200
+    assert username_login.json()["user"]["id"] == "email-like-username"
+
+
+def test_phone_login_is_not_confused_by_a_numeric_username(identity_app):
+    phone_account = register(identity_app).json()["user"]
+    run(identity_app[0].state.db.users.insert_one({
+        "id": "phone-like-username", "username": "22891111111",
+        "email": "phone-like-username@example.com", "phone": "+22890000004",
+        "country": "TG", "status": "active", "max_level": 1, "role": "user",
+        "password_hash": hash_password("OtherPass9!"),
+    }))
+
+    phone_login = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "22891111111", "password": "SignupPassword9!"},
+    )
+    username_login = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "22891111111", "password": "OtherPass9!"},
+    )
+
+    assert phone_login.status_code == 200
+    assert phone_login.json()["user"]["id"] == phone_account["id"]
+    assert username_login.status_code == 200
+    assert username_login.json()["user"]["id"] == "phone-like-username"

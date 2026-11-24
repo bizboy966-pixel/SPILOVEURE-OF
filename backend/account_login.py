@@ -95,11 +95,13 @@ async def login_account(data, request):
     identifier = data.identifier.strip()
     attempt_keys = ["login-failed-identifier:" + identifier.casefold()]
 
-    users = []
+    users_by_id = {}
     for query in login_queries(identifier):
-        users = await db.users.find(query).limit(20).to_list(20)
-        if users:
-            break
+        matches = await db.users.find(query).limit(20).to_list(20)
+        for candidate in matches:
+            identity = candidate.get("id") or str(candidate.get("_id"))
+            users_by_id.setdefault(identity, candidate)
+    users = list(users_by_id.values())
     if not users:
         log.info(
             "login rejected reason=identifier_not_found identifier_type=%s",
