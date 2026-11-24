@@ -79,6 +79,8 @@ test("provider settings use the separated direction-specific catalogs", () => {
   assert.match(admin, /renderCatalog\(p\.id, "payin", p\.countries \|\| \[\]\)/);
   assert.match(admin, /renderCatalog\(p\.id, "payout", p\.payout_countries \|\| \[\]\)/);
   assert.match(admin, /`\/admin\/payment-providers\/\$\{pid\}\/\$\{kind\}\/countries\/\$\{cc\}`/);
+  assert.match(admin, /api\.get<any>\(`\/admin\/biztranspay\/catalog\?direction=\$\{direction\}`\)/);
+  assert.match(admin, /provider-biztranspay-\$\{kind\}-catalog-refresh/);
 });
 
 test("brand colors remain unchanged by the visual refresh", () => {

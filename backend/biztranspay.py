@@ -1554,15 +1554,15 @@ def register(app):
 # v27m (Phase 5) — Server-side polling worker
 # ═══════════════════════════════════════════════════════════════════════
 async def _poll_once(db) -> dict:
-    """One sweep: look up pending Biz-transPay activations (< 10 min old),
-    ask BTP for their current status, activate on `paid/completed`, mark
-    `failed` on failure, expire past 10 min.
+    """Poll pending Biz-transPay activations until the provider confirms a
+    terminal result. Older pending intents use an increasing poll interval;
+    records without an intent ID become `unknown` after ten minutes.
 
     v27s (2026-02-24) — migrated to Integration API v1: GET /deposits/{id}.
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
-    ten_min_ago = now - timedelta(minutes=30)
+    no_intent_cutoff = now - timedelta(minutes=10)
 
     checked = activated = failed = expired = 0
     secret_key = await _get_secret_key(db)
@@ -1574,8 +1574,12 @@ async def _poll_once(db) -> dict:
         "provider": "biztranspay",
         "status": {"$in": ["pending", "processing"]},
         "activation_done": {"$ne": True},
-        "created_at": {"$gte": ten_min_ago},
-    })
+        "provider_intent_id": {"$exists": True, "$nin": [None, ""]},
+        "$or": [
+            {"biztranspay_next_poll_at": {"$exists": False}},
+            {"biztranspay_next_poll_at": {"$lte": now}},
+        ],
+    }).sort("created_at", 1).limit(100)
     async for p in cursor:
         checked += 1
         intent_id = p.get("provider_intent_id")
@@ -1601,6 +1605,10 @@ async def _poll_once(db) -> dict:
             try:
                 from ashtec_activation import _apply_payment_success
                 await _apply_payment_success(db, p, "paid", source="biztranspay")
+                await db.payments.update_one(
+                    {"reference": p["reference"]},
+                    {"$unset": {"biztranspay_next_poll_at": ""}},
+                )
                 activated += 1
             except Exception as e:
                 log.exception("btp poll activation failed ref=%s: %s", p.get("reference"), _redact(e))
@@ -1608,16 +1616,29 @@ async def _poll_once(db) -> dict:
             await db.payments.update_one(
                 {"reference": p["reference"]},
                 {"$set": {"status": "failed", "biztranspay_status": remote,
-                          "updated_at": now}},
+                          "updated_at": now},
+                 "$unset": {"biztranspay_next_poll_at": ""}},
             )
             failed += 1
+        else:
+            attempts = int(p.get("biztranspay_poll_attempts") or 0)
+            delay_seconds = min(10 * (2 ** min(attempts, 5)), 300)
+            await db.payments.update_one(
+                {"reference": p["reference"],
+                 "status": {"$in": ["pending", "processing"]}},
+                {"$set": {
+                    "biztranspay_status": remote or "pending",
+                    "biztranspay_last_polled_at": now,
+                    "biztranspay_next_poll_at": now + timedelta(seconds=delay_seconds),
+                }, "$inc": {"biztranspay_poll_attempts": 1}},
+            )
 
     exp = await db.payments.update_many(
         {"provider": "biztranspay",
          "status": {"$in": ["pending", "processing"]},
          "activation_done": {"$ne": True},
          "provider_intent_id": {"$in": [None, ""]},
-         "created_at": {"$lt": ten_min_ago}},
+         "created_at": {"$lt": no_intent_cutoff}},
         {"$set": {"status": "unknown", "updated_at": now,
                   "activation_error": "Résultat non confirmé : rapprocher auprès de Biz-transPay."}},
     )
@@ -1748,7 +1769,6 @@ async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
     reconcile does nothing when the remote status is unchanged).
     """
     q = {
-        "auto_dispatched": True,
         "gateway": "biztranspay",
         "payout_id": {"$exists": True, "$nin": [None, ""]},
         "status": {"$in": ["pending", "dispatched", "processing"]},

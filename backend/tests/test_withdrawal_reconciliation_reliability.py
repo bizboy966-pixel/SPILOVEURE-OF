@@ -1,6 +1,7 @@
 """Isolated payout lifecycle regressions. Provider requests are mocked."""
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from mongomock_motor import AsyncMongoMockClient
@@ -131,6 +132,41 @@ def test_biztranspay_settlement_accounts_and_notifies_once():
     assert second["changed"] is False
     assert run(db.users.find_one({"id": "member"}))["total_withdrawn"] == 3000
     assert run(db.notifications.count_documents({"user_id": "member"})) == 1
+
+
+def test_biztranspay_sweep_reconciles_legacy_payout_without_auto_flag(monkeypatch):
+    db = _db()
+
+    async def seed():
+        await db.users.insert_one({
+            "id": "member", "balance_profit": 0, "total_withdrawn": 0,
+        })
+        await db.withdrawals.insert_one({
+            "id": "wd-legacy-btp", "user_id": "member", "amount": 3000,
+            "status": "pending", "gateway": "biztranspay", "payout_id": "btp-po-1",
+            # Older transfers may lack auto_dispatched=True despite having a payout ID.
+        })
+
+    run(seed())
+
+    async def provider_status(path, secret_key, public_key):
+        assert path == "/payouts/btp-po-1"
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {"data": {"payout": {"id": "btp-po-1", "status": "completed"}}},
+        )
+
+    monkeypatch.setattr(biztranspay, "_get", provider_status)
+    monkeypatch.setattr(biztranspay, "_get_secret_key", AsyncMock(return_value="test-secret"))
+    monkeypatch.setattr(biztranspay, "_get_public_key", AsyncMock(return_value="test-public"))
+
+    result = run(biztranspay.reconcile_all_dispatched(db, max_docs=5))
+    withdrawal = run(db.withdrawals.find_one({"id": "wd-legacy-btp"}))
+    user = run(db.users.find_one({"id": "member"}))
+
+    assert result["scanned"] == result["updated"] == 1
+    assert withdrawal["status"] == "completed"
+    assert user["total_withdrawn"] == 3000
 
 
 def test_biztranspay_nested_error_code_is_preserved():

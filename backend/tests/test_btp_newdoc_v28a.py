@@ -342,6 +342,41 @@ def test_deposit_retry_never_creates_second_operation(env):
     assert len([call for call in CALLS if call[1] == "/deposits"]) == 1
 
 
+def test_old_pending_activation_is_reconciled_with_backoff(env, monkeypatch):
+    db, loop = env
+    from datetime import datetime, timedelta, timezone
+    import ashtec_activation
+
+    loop.run_until_complete(db.payments.insert_one({
+        "reference": "old-btp-intent", "user_id": "u1", "kind": "activation",
+        "provider": "biztranspay", "provider_intent_id": "dep-old",
+        "status": "pending", "level": 1,
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=2),
+    }))
+    calls = []
+
+    async def status(path, secret_key, public_key):
+        calls.append(path)
+        return R(200, {"id": "dep-old", "status": "completed"})
+
+    async def activate(database, payment, status, *, source):
+        assert source == "biztranspay"
+        await database.payments.update_one(
+            {"reference": payment["reference"]},
+            {"$set": {"status": "paid", "activation_done": True}},
+        )
+
+    monkeypatch.setattr(b, "_get", status)
+    monkeypatch.setattr(ashtec_activation, "_apply_payment_success", activate)
+
+    result = loop.run_until_complete(b._poll_once(db))
+    payment = loop.run_until_complete(db.payments.find_one({"reference": "old-btp-intent"}))
+    assert result["checked"] == result["activated"] == 1
+    assert calls == ["/deposits/dep-old"]
+    assert payment["status"] == "paid"
+    assert "biztranspay_next_poll_at" not in payment
+
+
 def test_ambiguous_deposit_is_not_replaced(env, monkeypatch):
     db, loop = env
     async def ambiguous(path, body, sk, pk, *, idempotency_key):

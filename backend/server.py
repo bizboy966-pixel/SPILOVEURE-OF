@@ -4068,13 +4068,59 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
     return items
 
 
+async def _reconcile_biztranspay_admin_action(db, wd: dict, admin: dict, action: str) -> dict:
+    """Verify an already-submitted Biz-transPay transfer before admin actions."""
+    from biztranspay import reconcile_withdrawal
+
+    result = await reconcile_withdrawal(db, wd)
+    current = await db.withdrawals.find_one({"id": wd["id"]}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Retrait introuvable.")
+
+    status = current.get("status")
+    success_statuses = ("completed", "validated")
+    expected = success_statuses if action == "validate" else ("rejected", "failed")
+    if status in expected:
+        await db.admin_logs.insert_one({
+            "id": str(uuid.uuid4()), "admin_id": admin["id"],
+            "action": f"reconcile_biztranspay_withdrawal_{action}",
+            "target": wd["id"], "gateway_status": current.get("gateway_status"),
+            "at": datetime.now(timezone.utc),
+        })
+        return {"ok": True, "auto_reconciled": True, "status": status,
+                "gateway_status": current.get("gateway_status")}
+
+    if status in success_statuses and action == "reject":
+        raise HTTPException(409, "Biz-transPay confirme que le retrait est payé. Aucun remboursement n’a été effectué.")
+    if status in ("rejected", "failed") and action == "validate":
+        raise HTTPException(409, "Biz-transPay confirme le rejet du retrait. Actualisez la liste.")
+
+    gateway_status = result.get("gateway_status") or current.get("gateway_status") or "inconnu"
+    if not result.get("ok") and result.get("reason"):
+        gateway_status = result["reason"]
+    raise HTTPException(
+        409,
+        f"Biz-transPay n’a pas encore confirmé un statut final (statut : {gateway_status}). "
+        "Aucune validation ni aucun remboursement manuel n’a été effectué.",
+    )
+
+
 @admin_router.post("/withdrawals/{wd_id}/validate")
 async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(require_admin)):
     db = request.app.state.db
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
-        if wd.get("gateway") == "biztranspay" and wd.get("btp_submission_claimed") and wd.get("gateway_status") != "not_submitted":
-            raise HTTPException(409, "Ce retrait a été envoyé à Biz-transPay. Vérifiez son résultat auprès du prestataire avant toute action manuelle.")
+        btp_submitted = (
+            wd.get("gateway") == "biztranspay"
+            and wd.get("gateway_status") != "not_submitted"
+            and (
+                bool(wd.get("payout_id"))
+                or bool(wd.get("auto_dispatched"))
+                or bool(wd.get("btp_submission_claimed"))
+            )
+        )
+        if btp_submitted:
+            return await _reconcile_biztranspay_admin_action(db, wd, admin, "validate")
         if wd.get("gateway") == "moneyfusion":
             from moneyfusion import manual_withdrawal_action_allowed
             if not await manual_withdrawal_action_allowed(db, wd_id):
@@ -4085,27 +4131,6 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
         # webhook — just marks it as validated + credits total_withdrawn.
         if wd["status"] not in ("pending", "dispatched", "processing"):
             raise HTTPException(400, "Déjà traité.")
-
-        # If the retrait was already auto-dispatched to Biz-transPay, don't
-        # re-dispatch — the admin's click is a manual override that just marks
-        # our internal doc as validated.
-        if wd.get("auto_dispatched") and wd.get("gateway") == "biztranspay":
-            from biztranspay import _settle_withdrawal_status
-            now = datetime.now(timezone.utc)
-            settled = await _settle_withdrawal_status(
-                db, wd, "completed", wd.get("gateway_status") or "admin_confirmed",
-                source="admin_override",
-                extra_fields={"validated_at": now, "validated_by": admin["id"],
-                              "validation_source": "admin_override"},
-            )
-            if not settled.get("ok"):
-                raise HTTPException(409, "Le statut du retrait a changé. Actualisez avant de continuer.")
-            await db.admin_logs.insert_one({
-                "id": str(uuid.uuid4()), "admin_id": admin["id"],
-                "action": "validate_auto_withdrawal_override",
-                "target": wd_id, "at": datetime.now(timezone.utc),
-            })
-            return {"ok": True, "auto_dispatched": True, "override": True}
 
         # Auto-payout via IziChangePay if the withdrawal is a crypto one AND
         # the admin has enabled `auto_withdrawal`. Otherwise fall through to
@@ -4195,8 +4220,17 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
     reason = ((body or {}) if isinstance(body, dict) else {}).get("reason") or ""
     wd = await db.withdrawals.find_one({"id": wd_id})
     if wd:
-        if wd.get("gateway") == "biztranspay" and wd.get("btp_submission_claimed") and wd.get("gateway_status") != "not_submitted":
-            raise HTTPException(409, "Ce retrait a été envoyé à Biz-transPay. Son résultat doit être confirmé avant tout remboursement.")
+        btp_submitted = (
+            wd.get("gateway") == "biztranspay"
+            and wd.get("gateway_status") != "not_submitted"
+            and (
+                bool(wd.get("payout_id"))
+                or bool(wd.get("auto_dispatched"))
+                or bool(wd.get("btp_submission_claimed"))
+            )
+        )
+        if btp_submitted:
+            return await _reconcile_biztranspay_admin_action(db, wd, admin, "reject")
         if wd.get("gateway") == "moneyfusion":
             from moneyfusion import manual_withdrawal_action_allowed
             if not await manual_withdrawal_action_allowed(db, wd_id):

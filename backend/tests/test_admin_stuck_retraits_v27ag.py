@@ -47,10 +47,12 @@ def test_validate_accepts_lifecycle_statuses():
         assert f'"{s}"' in guard, f"validate guard missing '{s}'"
 
 
-def test_validate_btp_auto_override_path():
+def test_biztranspay_admin_actions_reconcile_provider_before_deciding():
     src = SERVER.read_text()
-    assert 'wd.get("auto_dispatched") and wd.get("gateway") == "biztranspay"' in src
-    assert '"validation_source": "admin_override"' in src
+    assert "async def _reconcile_biztranspay_admin_action" in src
+    assert '_reconcile_biztranspay_admin_action(db, wd, admin, "validate")' in src
+    assert '_reconcile_biztranspay_admin_action(db, wd, admin, "reject")' in src
+    assert "validation_source\": \"admin_override" not in src
 
 
 def test_frontend_shows_buttons_for_lifecycle_statuses():

@@ -3787,6 +3787,9 @@ function PaymentProvidersRouterCard({
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [providerLoadError, setProviderLoadError] = useState("");
+  const [catalogRefreshState, setCatalogRefreshState] = useState<Record<string, {
+    busy: boolean; message: string; error?: boolean;
+  }>>({});
 
   const load = async () => {
     setProviderLoadError("");
@@ -3799,6 +3802,40 @@ function PaymentProvidersRouterCard({
     }
   };
   useEffect(() => { load(); }, []);
+
+  const refreshBtpCatalog = async (kind: "payin" | "payout") => {
+    const key = `biztranspay-${kind}`;
+    setCatalogRefreshState((current) => ({
+      ...current, [key]: { busy: true, message: "" },
+    }));
+    try {
+      const direction = kind === "payin" ? "deposit" : "payout";
+      const result = await api.get<any>(`/admin/biztranspay/catalog?direction=${direction}`);
+      await load();
+      const count = Number(result?.count) || 0;
+      setCatalogRefreshState((current) => ({
+        ...current,
+        [key]: {
+          busy: false,
+          message: count
+            ? `Catalogue Biz-transPay synchronisé : ${count} opérateur(s).`
+            : `Biz-transPay n’a renvoyé aucun opérateur pour le catalogue ${kind === "payin" ? "Pay-in" : "Pay-out"}.`,
+          error: count === 0,
+        },
+      }));
+    } catch (e: any) {
+      setCatalogRefreshState((current) => ({
+        ...current,
+        [key]: {
+          busy: false,
+          message: typeof e?.detail === "string"
+            ? e.detail
+            : "Impossible de synchroniser le catalogue Biz-transPay. Vérifiez les clés et les droits du compte.",
+          error: true,
+        },
+      }));
+    }
+  };
 
   const bump = async (pid: string, delta: number, currentPrio: number) => {
     setLoading(true);
@@ -3851,9 +3888,35 @@ function PaymentProvidersRouterCard({
         backgroundColor: theme.colors.surface,
       }}
     >
-      <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 8 }}>
-        {kind === "payin" ? "Pay-in · dépôts et activations" : "Pay-out · retraits automatiques"}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary, flex: 1 }}>
+          {kind === "payin" ? "Pay-in · dépôts et activations" : "Pay-out · retraits automatiques"}
+        </Text>
+        {pid === "biztranspay" && (
+          <TouchableOpacity
+            onPress={() => refreshBtpCatalog(kind)}
+            disabled={loading || catalogRefreshState[`biztranspay-${kind}`]?.busy}
+            style={{ paddingHorizontal: 9, paddingVertical: 7, borderRadius: 8, backgroundColor: "#E0F2FE" }}
+            testID={`provider-biztranspay-${kind}-catalog-refresh`}
+          >
+            <Text style={{ color: "#075985", fontSize: 10, fontWeight: "800" }}>
+              {catalogRefreshState[`biztranspay-${kind}`]?.busy ? "Synchronisation…" : "Synchroniser"}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      {!!catalogRefreshState[`biztranspay-${kind}`]?.message && (
+        <Text
+          accessibilityRole={catalogRefreshState[`biztranspay-${kind}`]?.error ? "alert" : undefined}
+          style={{
+            color: catalogRefreshState[`biztranspay-${kind}`]?.error ? "#9A3412" : "#166534",
+            fontSize: 11,
+            marginBottom: 8,
+          }}
+        >
+          {catalogRefreshState[`biztranspay-${kind}`]?.message}
+        </Text>
+      )}
       {(!countries || countries.length === 0) && (
         <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontStyle: "italic", marginBottom: 8 }}>
           Aucun pays configuré dans ce catalogue.
