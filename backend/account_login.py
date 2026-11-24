@@ -1,5 +1,6 @@
 """Password login with email, username or the account's telephone number."""
 import asyncio
+import logging
 import re
 
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ from auth import create_access_token, verify_password
 from identity_core import digest, now, rate_limit
 from identity_policy import main_ready
 from models import TokenOut
+
+log = logging.getLogger("account_login")
 
 LOGIN_FAILURE_WINDOW_SECONDS = 900
 LOGIN_FAILURE_LIMIT = 3
@@ -31,6 +34,22 @@ def login_queries(identifier):
             pattern = r"^\s*(?:\+|00)?\s*" + r"[\s().-]*".join(digits) + r"\s*$"
             return [{"phone": {"$regex": pattern}}, {"username": exact}]
     return [{"username": exact}]
+
+
+def _identifier_kind(identifier):
+    if "@" in identifier:
+        return "email"
+    if re.fullmatch(r"\+?[\d\s().-]+", identifier):
+        return "phone"
+    return "username"
+
+
+def _password_hash_format(value):
+    if not value:
+        return "missing"
+    if re.fullmatch(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}", str(value)):
+        return "bcrypt"
+    return "unsupported"
 
 
 def _login_bucket_id(key):
@@ -82,6 +101,10 @@ async def login_account(data, request):
         if users:
             break
     if not users:
+        log.info(
+            "login rejected reason=identifier_not_found identifier_type=%s",
+            _identifier_kind(identifier),
+        )
         await _check_login_limits(db, attempt_keys)
         await _record_invalid_login(db, attempt_keys)
 
@@ -95,6 +118,22 @@ async def login_account(data, request):
         ):
             matching_users.append(candidate)
     if len(matching_users) != 1:
+        if len(matching_users) > 1:
+            reason = "multiple_password_matches"
+        else:
+            formats = [_password_hash_format(candidate.get("password_hash")) for candidate in users]
+            reason = (
+                "password_hash_unusable"
+                if any(value != "bcrypt" for value in formats)
+                else "password_mismatch"
+            )
+        log.info(
+            "login rejected reason=%s identifier_type=%s candidates=%d password_hash_formats=%s",
+            reason,
+            _identifier_kind(identifier),
+            len(users),
+            ",".join(_password_hash_format(candidate.get("password_hash")) for candidate in users),
+        )
         failure_keys = attempt_keys + [
             "login-failed-user:" + candidate["id"] for candidate in users
         ]

@@ -94,6 +94,38 @@ def test_duplicate_email_uses_the_unique_matching_password(identity_app):
     assert second_login.json()["user"]["id"] == "duplicate-email"
 
 
+def test_failed_login_logs_only_a_non_sensitive_reason(identity_app, caplog):
+    register(identity_app)
+    response = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "new@example.com", "password": "WrongSecret9!"},
+    )
+
+    assert response.status_code == 401
+    assert "reason=password_mismatch" in caplog.text
+    assert "identifier_type=email" in caplog.text
+    assert "new@example.com" not in caplog.text
+    assert "WrongSecret9!" not in caplog.text
+
+
+def test_unusable_legacy_password_hash_is_distinguished_in_internal_logs(identity_app, caplog):
+    run(identity_app[0].state.db.users.insert_one({
+        "id": "legacy-unsupported-hash", "username": "LegacyHash",
+        "email": "legacy-hash@example.com", "phone": "+22890000003",
+        "country": "TG", "status": "active", "role": "user",
+        "password_hash": "legacy-format-not-supported",
+    }))
+    response = identity_app[1].post(
+        "/api/auth/login",
+        json={"identifier": "legacy-hash@example.com", "password": "Whatever9!"},
+    )
+
+    assert response.status_code == 401
+    assert "reason=password_hash_unusable" in caplog.text
+    assert "password_hash_formats=unsupported" in caplog.text
+    assert "legacy-hash@example.com" not in caplog.text
+
+
 def test_historical_phone_format_and_ban_are_respected(identity_app):
     data = register(identity_app).json()
     run(identity_app[0].state.db.users.update_one({"id": data["user"]["id"]}, {"$set": {"phone": "+228 91-11-11-11", "status": "banned"}}))
