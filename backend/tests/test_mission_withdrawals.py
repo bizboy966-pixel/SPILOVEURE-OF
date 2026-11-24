@@ -6,8 +6,8 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 MISSION_TYPES = ["youtube", "tiktok", "instagram", "facebook", "questionnaire"]
 

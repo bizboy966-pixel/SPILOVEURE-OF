@@ -15,8 +15,8 @@ import requests
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "bizlintl91@gmail.com"
-ADMIN_PASSWORD = "@Emma9197"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 # unique suffix to dodge collisions across runs
 SUFFIX = uuid.uuid4().hex[:6]

@@ -8,8 +8,8 @@ import pytest
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PWD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PWD = get_admin_credentials()
 
 
 def _login(email, pwd):

@@ -14,7 +14,9 @@ load_dotenv("/app/backend/.env")
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "kossikotokou4@gmail.com", "password": "@Emma91972006"}
+from admin_test_credentials import get_admin_credentials
+_admin_email, _admin_password = get_admin_credentials()
+ADMIN = {"email": _admin_email, "password": _admin_password}
 ACTIF = {"email": "testactif@spilovere.com", "password": "TestActif2026!"}
 
 FORCE_TASK = "56cc47b9-5cfb-4587-9a2e-616502300c71"   # pending_payment → force-activate

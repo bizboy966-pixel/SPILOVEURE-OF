@@ -23,8 +23,8 @@ def _load_backend_url():
 
 
 BASE_URL = _load_backend_url()
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PW = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PW = get_admin_credentials()
 
 
 @pytest.fixture(scope="module")

@@ -147,14 +147,15 @@ def test_email_verification_codes_cannot_reset_password_and_vice_versa(recovery)
 
 
 def test_delivery_failure_is_explicit_and_code_cannot_be_used(recovery, caplog):
+    from email_delivery import MailUnavailable
+
     def fail(*args):
-        raise RuntimeError("never expose provider internals")
+        raise MailUnavailable("resend_authorization_rejected")
     recovery[0].state.email_sender.send_password_reset = fail
-    with pytest.raises(AssertionError) if False else __import__("contextlib").nullcontext():
-        result = recovery[1].post("/api/identity/password-reset/request", json={"email": "legacy@example.com"})
+    result = recovery[1].post("/api/identity/password-reset/request", json={"email": "legacy@example.com"})
     assert result.status_code == 503
     assert "provider internals" not in result.text
-    assert "category=unexpected_sender_error" in caplog.text
+    assert "category=resend_authorization_rejected" in caplog.text
     assert "legacy@example.com" not in caplog.text
     assert "never expose provider internals" not in caplog.text
     row = run(recovery[0].state.db.identity_password_resets.find_one({}))

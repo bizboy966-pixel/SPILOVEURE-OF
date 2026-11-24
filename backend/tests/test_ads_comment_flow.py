@@ -23,8 +23,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 API_URL = os.environ.get("REACT_APP_BACKEND_URL") or "http://localhost:8001"
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "spilivere")
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 
 @pytest.fixture

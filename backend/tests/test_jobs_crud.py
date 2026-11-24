@@ -13,8 +13,8 @@ import httpx
 
 
 API_URL = os.environ.get("REACT_APP_BACKEND_URL") or "http://localhost:8001"
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 
 async def _login(client: httpx.AsyncClient) -> str:

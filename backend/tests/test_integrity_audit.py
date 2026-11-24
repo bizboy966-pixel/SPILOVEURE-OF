@@ -14,8 +14,8 @@ import requests
 import pytest
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 
 # ---------- Fixtures ----------

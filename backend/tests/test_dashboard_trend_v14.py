@@ -9,7 +9,9 @@ API = (
     if "REACT_APP_BACKEND_URL" in os.environ
     else "http://localhost:8001/api"
 )
-ADMIN = {"email": "kossikotokou4@gmail.com", "password": "@Emma91972006"}
+from admin_test_credentials import get_admin_credentials
+_admin_email, _admin_password = get_admin_credentials()
+ADMIN = {"email": _admin_email, "password": _admin_password}
 
 
 def _login() -> dict:

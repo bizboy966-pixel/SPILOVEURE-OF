@@ -21,7 +21,8 @@ db = MongoClient(MONGO_URL)[DB_NAME]
 LEADER = ("testactif@spilovere.com", "TestActif2026!")
 ACTIF = ("filleul.actif@spilovere.com", "Filleul2026!")
 PENDING = ("filleul.attente@spilovere.com", "Filleul2026!")
-ADMIN = ("kossikotokou4@gmail.com", "@Emma91972006")
+from admin_test_credentials import get_admin_credentials
+ADMIN = get_admin_credentials()
 
 
 def login(creds):

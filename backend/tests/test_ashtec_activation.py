@@ -21,8 +21,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
            open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].splitlines()[0].strip()
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PWD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PWD = get_admin_credentials()
 
 
 # Ensure Ashtech is enabled before running these tests (the toggle test
@@ -33,9 +33,7 @@ try:
                 if "=" in l and not l.strip().startswith("#"))
     _MC(_env["MONGO_URL"])[_env["DB_NAME"]].app_settings.update_one(
         {"key": "payment_gateway"},
-        {"$set": {"value.ashtec_enabled": True,
-                  "value.ashtec_api_key": "ak_4f0ad8d22b219201d07040dfe5074bbc8839e457d65e99c1",
-                  "key": "payment_gateway"}},
+        {"$set": {"value.ashtec_enabled": True, "key": "payment_gateway"}},
         upsert=True,
     )
 except Exception:

@@ -9,6 +9,9 @@ import uuid
 import pytest
 import requests
 
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
+
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
            open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].splitlines()[0].strip()
 API = f"{BASE_URL}/api"
@@ -36,7 +39,7 @@ def _balance(headers: dict) -> float:
 @pytest.fixture(scope="module")
 def admin_headers():
     r = requests.post(f"{API}/auth/login", json={
-        "email": "kossikotokou4@gmail.com", "password": "@Emma91972006",
+        "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD,
     }, timeout=15)
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

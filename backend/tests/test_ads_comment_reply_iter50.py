@@ -32,8 +32,8 @@ def _load_backend_url():
 
 
 BASE_URL = _load_backend_url()
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 MONGO_URL = "mongodb://localhost:27017"
 DB_NAME = "spilivere"

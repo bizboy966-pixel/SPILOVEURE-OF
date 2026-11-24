@@ -15,7 +15,9 @@ import requests
 
 BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
 API = f"{BASE}/api"
-ADMIN = {"email": "kossikotokou4@gmail.com", "password": "@Emma91972006"}
+from admin_test_credentials import get_admin_credentials
+_admin_email, _admin_password = get_admin_credentials()
+ADMIN = {"email": _admin_email, "password": _admin_password}
 
 
 def H(t): return {"Authorization": f"Bearer {t}"}

@@ -14,8 +14,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
            open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].splitlines()[0].strip()
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PWD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PWD = get_admin_credentials()
 
 
 def _register(prefix: str) -> tuple[dict, str]:

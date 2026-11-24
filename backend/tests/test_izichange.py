@@ -27,8 +27,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
            open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].splitlines()[0].strip()
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PWD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PWD = get_admin_credentials()
 
 WHSEC_RAW = "whsec_1c84623bef87d6444f61a906ea9afbba2af706d9748335b0bde3b4c344ed40de"
 WHSEC_BYTES = bytes.fromhex(WHSEC_RAW.split("whsec_")[1])

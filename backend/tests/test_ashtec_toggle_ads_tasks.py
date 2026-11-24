@@ -6,6 +6,9 @@ from __future__ import annotations
 import os, uuid, pytest, requests
 from pymongo import MongoClient
 
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
+
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
            open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].splitlines()[0].strip()
 API = f"{BASE_URL}/api"
@@ -22,21 +25,18 @@ def db():
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore(db):
+    original = db.app_settings.find_one({"key": "payment_gateway"})
     yield
-    db.app_settings.update_one(
-        {"key": "payment_gateway"},
-        {"$set": {"value.ashtec_enabled": True,
-                  "value.ashtec_api_key": "ak_4f0ad8d22b219201d07040dfe5074bbc8839e457d65e99c1",
-                  "key": "payment_gateway"}},
-        upsert=True,
-    )
+    if original is None:
+        db.app_settings.delete_one({"key": "payment_gateway"})
+    else:
+        db.app_settings.replace_one({"key": "payment_gateway"}, original, upsert=True)
 
 
 def _set_ashtec(db, enabled: bool):
     db.app_settings.update_one(
         {"key": "payment_gateway"},
         {"$set": {"value.ashtec_enabled": enabled,
-                  "value.ashtec_api_key": "ak_test_dummy",
                   "key": "payment_gateway"}},
         upsert=True,
     )
@@ -45,7 +45,7 @@ def _set_ashtec(db, enabled: bool):
 @pytest.fixture(scope="module")
 def admin_headers():
     r = requests.post(f"{API}/auth/login", json={
-        "email": "kossikotokou4@gmail.com", "password": "@Emma91972006",
+        "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD,
     }, timeout=15)
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

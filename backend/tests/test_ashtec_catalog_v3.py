@@ -19,8 +19,8 @@ import pytest
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 OFFICIAL_COUNTRIES = {"BJ", "BF", "CM", "CI", "GA", "ML", "NE", "CD", "SN", "TG"}
 REMOVED_COUNTRIES = {"CF", "CG", "GQ", "GW", "TD"}

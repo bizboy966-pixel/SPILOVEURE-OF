@@ -64,3 +64,26 @@ def test_native_resend_does_not_expose_provider_errors(monkeypatch, capsys):
         VerificationEmailSender().send_verification("recipient@example.invalid", "123456")
     assert str(error.value) == ""
     assert capsys.readouterr() == ("", "")
+
+
+def test_native_resend_classifies_authorization_failure_without_provider_body(monkeypatch):
+    configure(monkeypatch)
+
+    def post(url, *, json, headers):
+        request = email_delivery.httpx.Request("POST", url)
+        response = email_delivery.httpx.Response(
+            401, request=request, text="private response with sensitive details",
+        )
+        raise email_delivery.httpx.HTTPStatusError(
+            "private provider error", request=request, response=response,
+        )
+
+    @contextmanager
+    def client(**kwargs):
+        yield SimpleNamespace(post=post)
+
+    monkeypatch.setattr(email_delivery.httpx, "Client", client)
+    with pytest.raises(MailUnavailable) as error:
+        VerificationEmailSender().send_password_reset("recipient@example.invalid", "123456")
+    assert error.value.category == "resend_authorization_rejected"
+    assert "private" not in str(error.value)

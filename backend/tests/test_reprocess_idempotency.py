@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 sys.path.insert(0, '/app/backend')
 
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 def _run(c):
     return asyncio.get_event_loop().run_until_complete(c)
@@ -20,7 +22,7 @@ def db():
 def admin_token():
     api = os.environ.get("REACT_APP_BACKEND_URL", "https://jobs-badges-fix.preview.emergentagent.com")
     r = requests.post(f"{api}/api/auth/login", json={
-        "email": "kossikotokou4@gmail.com", "password": "@Emma91972006"
+        "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD
     })
     return r.json()["access_token"]
 

@@ -21,8 +21,8 @@ BASE = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 assert BASE, "REACT_APP_BACKEND_URL must be set"
 API = f"{BASE}/api"
 
-ADMIN_EMAIL = "kossikotokou4@gmail.com"
-ADMIN_PASSWORD = "@Emma91972006"
+from admin_test_credentials import get_admin_credentials
+ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 
 # ---------- fixtures ----------------------------------------------------------

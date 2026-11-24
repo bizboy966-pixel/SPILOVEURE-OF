@@ -11,8 +11,8 @@ import requests
 from dotenv import dotenv_values
 
 BASE_URL = (dotenv_values("/app/frontend/.env").get("REACT_APP_BACKEND_URL") or "").rstrip("/")
-EMAIL = "kossikotokou4@gmail.com"
-PASSWORD = "@Emma91972006"
+EMAIL = os.environ["SPILOVEURE_TEST_ADMIN_EMAIL"]
+PASSWORD = os.environ["SPILOVEURE_TEST_ADMIN_PASSWORD"]
 
 
 def wav_data_url(seconds=2, rate=8000):

@@ -14,8 +14,10 @@ API = f"{BASE_URL}/api"
 
 @pytest.fixture(scope="module")
 def admin_headers():
+    from admin_test_credentials import get_admin_credentials
+    email, password = get_admin_credentials()
     r = requests.post(f"{API}/auth/login", json={
-        "email": "kossikotokou4@gmail.com", "password": "@Emma91972006",
+        "email": email, "password": password,
     }, timeout=15)
     assert r.status_code == 200
     tok = r.json().get("access_token") or r.json().get("token")
