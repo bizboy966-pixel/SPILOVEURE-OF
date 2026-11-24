@@ -87,3 +87,28 @@ def test_native_resend_classifies_authorization_failure_without_provider_body(mo
         VerificationEmailSender().send_password_reset("recipient@example.invalid", "123456")
     assert error.value.category == "resend_authorization_rejected"
     assert "private" not in str(error.value)
+
+
+def test_native_resend_preserves_safe_retry_after_for_rate_limits(monkeypatch):
+    configure(monkeypatch)
+
+    def post(url, *, json, headers):
+        request = email_delivery.httpx.Request("POST", url)
+        response = email_delivery.httpx.Response(
+            429, request=request, headers={"Retry-After": "120"},
+            text="private rate-limit response",
+        )
+        raise email_delivery.httpx.HTTPStatusError(
+            "private provider error", request=request, response=response,
+        )
+
+    @contextmanager
+    def client(**kwargs):
+        yield SimpleNamespace(post=post)
+
+    monkeypatch.setattr(email_delivery.httpx, "Client", client)
+    with pytest.raises(MailUnavailable) as error:
+        VerificationEmailSender().send_password_reset("recipient@example.invalid", "123456")
+    assert error.value.category == "resend_rate_limited"
+    assert error.value.retry_after_seconds == 120
+    assert "private" not in str(error.value)

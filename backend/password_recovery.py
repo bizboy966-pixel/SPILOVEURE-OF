@@ -1,6 +1,7 @@
 """Single-use, purpose-isolated password recovery through the configured mail sender."""
 import asyncio
 import logging
+import math
 import re
 import secrets
 from datetime import timedelta
@@ -78,6 +79,16 @@ async def request_reset(body: RequestReset, request: Request):
             "created_at": now(), "expires_at": now() + timedelta(minutes=10),
         })
         return {"challenge_id": challenge, "expires_in": 600, "resend_after": 60}
+    provider_cooldown = await db.identity_rate_limits.find_one({
+        "_id": "password-reset-mail-provider", "next_at": {"$gt": now()},
+    })
+    if provider_cooldown:
+        seconds = max(1, math.ceil((provider_cooldown["next_at"] - now()).total_seconds()))
+        raise HTTPException(
+            429,
+            f"Le service d’envoi est temporairement limité. Réessayez dans {seconds} secondes.",
+            headers={"Retry-After": str(seconds)},
+        )
     sender = getattr(request.app.state, "email_sender", None) or VerificationEmailSender()
     if not await asyncio.to_thread(sender.configured):
         log.warning("password_reset_delivery_unavailable category=mailer_not_configured")
@@ -98,6 +109,31 @@ async def request_reset(body: RequestReset, request: Request):
             category = "unexpected_sender_error"
         log.warning("password_reset_delivery_failed category=%s", category)
         await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "failed"}})
+        if category == "resend_rate_limited":
+            seconds = getattr(exc, "retry_after_seconds", None)
+            if not isinstance(seconds, int) or seconds < 1:
+                seconds = 60
+            seconds = min(seconds, 3600)
+            retry_at = now() + timedelta(seconds=seconds)
+            current = await db.identity_rate_limits.find_one({
+                "_id": "password-reset-mail-provider",
+            })
+            if current and current.get("next_at") and current["next_at"] > retry_at:
+                retry_at = current["next_at"]
+                seconds = max(1, math.ceil((retry_at - now()).total_seconds()))
+            await db.identity_rate_limits.update_one(
+                {"_id": "password-reset-mail-provider"},
+                {"$set": {
+                    "next_at": retry_at,
+                    "expires_at": retry_at + timedelta(hours=1),
+                }},
+                upsert=True,
+            )
+            raise HTTPException(
+                429,
+                f"Le service d’envoi est temporairement limité. Réessayez dans {seconds} secondes.",
+                headers={"Retry-After": str(seconds)},
+            ) from None
         raise HTTPException(503, "L’e-mail n’a pas pu être envoyé. Veuillez réessayer plus tard.") from None
     await db.identity_password_resets.update_one({"id": challenge}, {"$set": {"status": "sent"}})
     await db.identity_password_resets.update_many({

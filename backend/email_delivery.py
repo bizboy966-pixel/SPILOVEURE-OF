@@ -8,15 +8,35 @@ import ssl
 import subprocess
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 from email.message import EmailMessage
+from email.utils import parsedate_to_datetime
 
 import httpx
 
 
 class MailUnavailable(Exception):
-    def __init__(self, category="mail_unavailable"):
+    def __init__(self, category="mail_unavailable", retry_after_seconds=None):
         self.category = category
+        self.retry_after_seconds = retry_after_seconds
         super().__init__()
+
+
+def _retry_after_seconds(response):
+    value = response.headers.get("Retry-After", "").strip()
+    if value:
+        try:
+            return min(max(int(float(value)), 1), 3600)
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                seconds = int((retry_at - datetime.now(timezone.utc)).total_seconds())
+                return min(max(seconds, 1), 3600)
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return 60
 
 
 _connector_ready = (0, False)
@@ -114,7 +134,9 @@ class VerificationEmailSender:
             elif status == 422:
                 category = "resend_request_rejected"
             elif status == 429:
-                category = "resend_rate_limited"
+                raise MailUnavailable(
+                    "resend_rate_limited", _retry_after_seconds(exc.response)
+                ) from None
             elif status >= 500:
                 category = "resend_unavailable"
             else:

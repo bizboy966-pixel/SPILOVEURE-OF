@@ -163,6 +163,36 @@ def test_delivery_failure_is_explicit_and_code_cannot_be_used(recovery, caplog):
     assert confirm(recovery, row["id"], "000000").status_code == 400
 
 
+def test_resend_rate_limit_sets_retry_after_and_blocks_provider_retries(recovery):
+    from email_delivery import MailUnavailable
+
+    app, client = recovery
+    attempts = []
+
+    def rate_limited(*args):
+        attempts.append(True)
+        raise MailUnavailable("resend_rate_limited", retry_after_seconds=120)
+
+    app.state.email_sender.send_password_reset = rate_limited
+    result = client.post("/api/identity/password-reset/request", json={"email": "legacy@example.com"})
+    assert result.status_code == 429
+    assert result.headers["retry-after"] == "120"
+    assert "temporairement limité" in result.json()["detail"]
+    assert len(attempts) == 1
+
+    provider_cooldown = run(app.state.db.identity_rate_limits.find_one({
+        "_id": "password-reset-mail-provider",
+    }))
+    assert provider_cooldown["next_at"] > now()
+    run(app.state.db.identity_rate_limits.delete_one({
+        "_id": "reset-cooldown:" + digest("legacy@example.com"),
+    }))
+    retry = client.post("/api/identity/password-reset/request", json={"email": "legacy@example.com"})
+    assert retry.status_code == 429
+    assert "temporairement limité" in retry.json()["detail"]
+    assert len(attempts) == 1
+
+
 def test_reset_mail_uses_existing_transactional_delivery(monkeypatch):
     from email_delivery import VerificationEmailSender
     sent = []
