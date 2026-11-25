@@ -192,10 +192,11 @@ type Props = {
   onToggleHidden: () => void;
   onAvatarPress: () => void;
   onBalancePress?: () => void;
+  onExchangePress?: () => void;
 };
 
 export const DashboardHero: React.FC<Props> = ({
-  user, stats, balanceHidden, onToggleHidden, onAvatarPress, onBalancePress,
+  user, stats, balanceHidden, onToggleHidden, onAvatarPress, onBalancePress, onExchangePress,
 }) => {
   const { t } = useI18n();
   const trend = stats?.trend || {};
@@ -219,6 +220,11 @@ export const DashboardHero: React.FC<Props> = ({
   const [currency, setCurrency] = useState("XOF");
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const selectedWallet = wallets.find((wallet) => wallet.asset_code === currency) || wallets[0];
+  const cryptoSummary = wallets
+    .filter((wallet) => wallet.asset_code !== "XOF" && wallet.asset_code !== "XAF")
+    .slice(0, 2)
+    .map((wallet) => formatAmount(wallet.balance, wallet.asset_code))
+    .join(" · ") || "Aucun solde";
 
   const formatAmount = (amount: number, asset: string) => {
     const decimals = asset.includes(".") || /^(USDT|USDC|BTC|ETH)/i.test(asset) ? 6 : 0;
@@ -303,6 +309,15 @@ export const DashboardHero: React.FC<Props> = ({
           </View>
           <Text style={styles.walletHint}>{t("dashboard.total_deposits")}</Text>
         </View>
+        <TouchableOpacity
+          style={styles.exchangeCircle}
+          onPress={onExchangePress}
+          accessibilityRole="button"
+          accessibilityLabel="Échanger les soldes"
+          testID="dashboard-exchange-btn"
+        >
+          <Ionicons name="swap-horizontal-outline" size={27} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       {/* 3 stats : Activation | Profit total | Solde disponible */}
@@ -349,7 +364,9 @@ export const DashboardHero: React.FC<Props> = ({
           border="rgba(245,158,11,0.55)"
           label={t("dashboard.available_balance")}
           value={balanceHidden ? "•••" : formatFCFA(balance_profit)}
-          hint="au retrait"
+          hint=""
+          subLabel="Solde crypto"
+          subValue={balanceHidden ? "•••" : cryptoSummary}
           trendPct={trend.balance_pct ?? 0}
           series={trend.balance_series || [0, 0, 0, 0, 0, 0, 0]}
           seriesId="bal"
@@ -484,6 +501,9 @@ const styles = StyleSheet.create({
   },
   currencyPillTxt: { color: "#fff", fontWeight: "800", fontSize: 10 },
   walletHint: { color: "#C7D9FF", fontSize: 10, marginTop: 2, fontWeight: "500" },
+  exchangeCircle: {
+    width: 34, height: 34, alignItems: "center", justifyContent: "center",
+  },
 
   statsGrid: { flexDirection: "row", gap: 6, marginTop: 10 },
   miniStat: {

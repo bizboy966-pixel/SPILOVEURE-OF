@@ -991,7 +991,24 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
 async def get_wallet(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     w = await db.wallets.find_one({"user_id": user["id"]}, {"_id": 0})
-    return w
+    if not w:
+        return None
+    profiles = dict(w.get("profiles") or {})
+    legacy_method = "crypto" if (w.get("method") == "crypto" or w.get("wallet_address")) else "mobile"
+    if legacy_method not in profiles:
+        profiles[legacy_method] = {
+            "country": w.get("country") or "",
+            "full_name": w.get("full_name") or "",
+            "method": legacy_method,
+            "operator": w.get("operator") or "",
+            "phone": w.get("phone") or "",
+            "network": w.get("network") or "",
+            "asset_code": w.get("asset_code") or "",
+            "wallet_address": w.get("wallet_address") or "",
+        }
+    selected_method = w.get("method") if w.get("method") in {"mobile", "crypto"} else legacy_method
+    selected = profiles.get(selected_method) or {}
+    return {**selected, "method": selected_method, "profiles": profiles}
 
 
 @api.post("/wallet")
@@ -1008,20 +1025,42 @@ async def save_wallet(data: WalletIn, request: Request, user=Depends(get_current
     else:  # crypto
         if not (data.wallet_address and len(data.wallet_address.strip()) >= 12):
             raise HTTPException(400, "Adresse wallet invalide.")
-    doc = {
-        "user_id": user["id"],
+        if not (data.asset_code or data.network):
+            raise HTTPException(400, "Choisissez le réseau ou l’actif crypto.")
+    profile = {
         "country": data.country,
         "full_name": data.full_name,
         "method": method,
-        # Mobile Money fields (kept for backward compat — empty when crypto)
         "operator": (data.operator or "") if method == "mobile" else "",
         "phone": (data.phone or "") if method == "mobile" else "",
-        # Crypto fields (empty when mobile)
-        "network": (data.network or "USDT BEP20") if method == "crypto" else "",
+        "network": (data.asset_code or data.network or "").strip() if method == "crypto" else "",
+        "asset_code": (data.asset_code or data.network or "").strip() if method == "crypto" else "",
         "wallet_address": (data.wallet_address or "").strip() if method == "crypto" else "",
         "updated_at": datetime.now(timezone.utc),
     }
-    await db.wallets.update_one({"user_id": user["id"]}, {"$set": doc}, upsert=True)
+    existing = await db.wallets.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    doc = {"user_id": user["id"], **profile}
+    updates = {**doc, f"profiles.{method}": profile}
+    existing_profiles = existing.get("profiles") or {}
+    legacy_method = "crypto" if (
+        existing.get("method") == "crypto" or existing.get("wallet_address")
+    ) else "mobile"
+    if existing and legacy_method != method and legacy_method not in existing_profiles:
+        updates[f"profiles.{legacy_method}"] = {
+            "country": existing.get("country") or "",
+            "full_name": existing.get("full_name") or "",
+            "method": legacy_method,
+            "operator": existing.get("operator") or "",
+            "phone": existing.get("phone") or "",
+            "network": existing.get("network") or "",
+            "asset_code": existing.get("asset_code") or "",
+            "wallet_address": existing.get("wallet_address") or "",
+        }
+    await db.wallets.update_one(
+        {"user_id": user["id"]},
+        {"$set": updates},
+        upsert=True,
+    )
     return {"ok": True}
 
 
@@ -1114,9 +1153,30 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
                 429,
                 "Trop de demandes de retrait. Réessayez dans quelques minutes.",
             )
-    wallet = await db.wallets.find_one({"user_id": user["id"]})
-    if not wallet:
+    wallet_doc = await db.wallets.find_one({"user_id": user["id"]})
+    if not wallet_doc:
         raise HTTPException(400, "Veuillez d’abord enregistrer votre portefeuille de retrait.")
+    requested_method = (data.method or wallet_doc.get("method") or "mobile").lower()
+    if requested_method not in {"mobile", "crypto"}:
+        raise HTTPException(400, "Mode de retrait invalide.")
+    profiles = wallet_doc.get("profiles") or {}
+    wallet = profiles.get(requested_method)
+    if not wallet:
+        legacy_method = "crypto" if (wallet_doc.get("method") == "crypto" or wallet_doc.get("wallet_address")) else "mobile"
+        if legacy_method == requested_method:
+            wallet = wallet_doc
+    if not wallet:
+        raise HTTPException(400, "Enregistrez d’abord un portefeuille pour ce mode de retrait.")
+    if requested_method == "crypto":
+        # Biz-transPay currently documents Mobile Money payout only. Do not
+        # reuse /payouts or guess an asset/address payload: no funds are locked
+        # until the exact crypto payout contract is verified.
+        raise HTTPException(
+            503,
+            "Le retrait crypto est indisponible : le contrat officiel de sortie Biz-transPay n’est pas vérifié. Aucun montant n’a été débité.",
+        )
+    if requested_method != "mobile":
+        raise HTTPException(400, "Ce mode de retrait n’est pas pris en charge.")
     if data.amount <= 0:
         raise HTTPException(400, "Montant invalide.")
 
@@ -3109,6 +3169,9 @@ class WithdrawalSettings(BaseModel):
     fee_flat: float = Field(default=0, ge=0)              # absolute amount in user currency
     min_amount: float = Field(default=0, ge=0)            # minimum withdrawal amount
     max_amount: Optional[float] = Field(default=None, ge=0)
+    crypto_fee_percent: float = Field(default=0, ge=0, le=100)
+    crypto_fee_flat: float = Field(default=0, ge=0)
+    crypto_min_amount: float = Field(default=0, ge=0)
     enabled: bool = True
     # Withdrawal time-window (Africa/Lome timezone)
     allowed_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])  # 0=Mon ... 6=Sun
@@ -3173,6 +3236,14 @@ def _withdrawal_defaults(doc: dict) -> dict:
         "fee_flat": float(doc.get("fee_flat", 0) or 0),
         "min_amount": float(doc.get("min_amount", 0) or 0),
         "max_amount": doc.get("max_amount"),
+        "crypto_fee_percent": float(doc.get("crypto_fee_percent", 0) or 0),
+        "crypto_fee_flat": float(doc.get("crypto_fee_flat", 0) or 0),
+        "crypto_min_amount": float(doc.get("crypto_min_amount", 0) or 0),
+        "crypto_payout_available": False,
+        "crypto_payout_unavailable_reason": (
+            "Le contrat officiel de retrait crypto Biz-transPay n’est pas vérifié. "
+            "Aucun retrait crypto ne sera envoyé."
+        ),
         "enabled": bool(doc.get("enabled", True)),
         "allowed_days": allowed_days or [0, 1, 2, 3, 4, 5, 6],
         "open_time": doc.get("open_time") or "07:00",
@@ -4728,6 +4799,9 @@ async def admin_update_withdrawal_settings(
         "fee_flat": float(data.fee_flat),
         "min_amount": float(data.min_amount),
         "max_amount": float(data.max_amount) if data.max_amount is not None else None,
+        "crypto_fee_percent": float(data.crypto_fee_percent),
+        "crypto_fee_flat": float(data.crypto_fee_flat),
+        "crypto_min_amount": float(data.crypto_min_amount),
         "enabled": bool(data.enabled),
         "allowed_days": sorted({int(d) for d in (data.allowed_days or []) if 0 <= int(d) <= 6}),
         "open_time": data.open_time or "07:00",

@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ScrollView, StyleSheet, Text, View, TouchableOpacity, Image, RefreshControl, Alert, Share,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 
 import { Card } from "@/src/components/Card";
@@ -90,16 +90,18 @@ export default function Dashboard() {
     return () => { clearInterval(id); clearTimeout(stop); };
   }, []);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const d = await api.get("/dashboard");
       setStats(d);
     } catch (e: any) {
       console.log("dashboard error", e);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useFocusEffect(useCallback(() => {
+    void load();
+  }, [load]));
 
   useEffect(() => {
     if (!user?.id) { setChatEmailUnverified(false); return; }
@@ -196,6 +198,7 @@ export default function Dashboard() {
           onToggleHidden={() => setBalanceHidden((v) => !v)}
           onAvatarPress={() => setPhotoModal(true)}
           onBalancePress={() => router.push("/(app)/withdrawal" as any)}
+          onExchangePress={() => router.push("/(app)/echanger" as any)}
         />
         {chatEmailUnverified && <View style={styles.emailVerifyCard} testID="dashboard-chat-email-verification">
           <Ionicons name="mail-unread-outline" size={21} color="#1769e8" />

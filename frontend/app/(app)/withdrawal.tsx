@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Alert, FlatList, ScrollView, StyleSheet, Text, View, TouchableOpacity, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { Card } from "@/src/components/Card";
 import { Input } from "@/src/components/Input";
@@ -20,30 +20,71 @@ export default function Withdrawal() {
   const { user, refresh } = useAuth();
   const { t, lang } = useI18n();
   const [wallet, setWallet] = useState<any>(null);
+  const [selectedMethod, setSelectedMethod] = useState<"mobile" | "crypto">("mobile");
+  const [cryptoBalances, setCryptoBalances] = useState<Record<string, number>>({});
   const [amount, setAmount] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean; allowed_days?: number[]; open_time?: string; close_time?: string; timezone?: string }>({
+  const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean; allowed_days?: number[]; open_time?: string; close_time?: string; timezone?: string; crypto_fee_percent?: number; crypto_fee_flat?: number; crypto_min_amount?: number; crypto_payout_available?: boolean; crypto_payout_unavailable_reason?: string }>({
     fee_percent: 0, fee_flat: 0, min_amount: 0, max_amount: null, enabled: true,
+    crypto_fee_percent: 0, crypto_fee_flat: 0, crypto_min_amount: 0,
+    crypto_payout_available: false,
+    crypto_payout_unavailable_reason: "Le contrat officiel de retrait crypto Biz-transPay n’est pas vérifié.",
     allowed_days: [0,1,2,3,4,5,6], open_time: "07:00", close_time: "20:00", timezone: "Africa/Lome",
   });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const w = await api.get<any>("/wallet");
       setWallet(w);
+      setSelectedMethod(w?.method === "crypto" ? "crypto" : "mobile");
       const h = await api.get<any[]>("/withdrawals/mine");
       setHistory(h);
       const s = await api.get<any>("/settings/withdrawal", { auth: false });
       setWdSettings(s);
+      const catalog = await api.get<any>("/wallet-operations/catalog?direction=send");
+      setCryptoBalances(Object.fromEntries((catalog?.wallets || []).map((item: any) => [
+        String(item.asset_code || "").toUpperCase(), Number(item.balance || 0),
+      ])));
     } catch {}
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useFocusEffect(useCallback(() => {
+    void load();
+  }, [load]));
 
-  const amt = parseInt(amount, 10) || 0;
-  const feePreview = Math.min(amt, Math.round(amt * (wdSettings.fee_percent / 100) + wdSettings.fee_flat));
-  const netPreview = Math.max(0, amt - feePreview);
+  const walletProfiles = wallet?.profiles || {};
+  const activeWallet = walletProfiles[selectedMethod]
+    || (wallet?.method === selectedMethod ? wallet : null);
+  const cryptoAsset = String(activeWallet?.asset_code || activeWallet?.network || "").toUpperCase();
+  const cryptoBalance = cryptoBalances[cryptoAsset] || 0;
+  const amt = selectedMethod === "crypto"
+    ? Number(String(amount).replace(",", ".")) || 0
+    : parseInt(amount, 10) || 0;
+  const feePercent = selectedMethod === "crypto"
+    ? Number(wdSettings.crypto_fee_percent || 0)
+    : Number(wdSettings.fee_percent || 0);
+  const feeFlat = selectedMethod === "crypto"
+    ? Number(wdSettings.crypto_fee_flat || 0)
+    : Number(wdSettings.fee_flat || 0);
+  const feePreviewRaw = Math.min(amt, amt * feePercent / 100 + feeFlat);
+  const feePreview = selectedMethod === "crypto"
+    ? Number(feePreviewRaw.toFixed(6))
+    : Math.round(feePreviewRaw);
+  const netPreview = Math.max(0, selectedMethod === "crypto"
+    ? Number((amt - feePreview).toFixed(6))
+    : amt - feePreview);
+  const minimumAmount = selectedMethod === "crypto"
+    ? Number(wdSettings.crypto_min_amount || 0)
+    : Number(wdSettings.min_amount || 0);
+  const cryptoUnavailable = selectedMethod === "crypto" && !wdSettings.crypto_payout_available;
+
+  const formatWalletAmount = (value: number, asset: string) => {
+    const formatted = new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits: asset === "XOF" ? 0 : 6,
+    }).format(value || 0);
+    return `${formatted} ${asset}`;
+  };
 
   // Withdrawal window helpers (Africa/Lome — UTC+0)
   const DAY_NAMES_FULL = lang === "en"
@@ -71,9 +112,13 @@ export default function Withdrawal() {
   const windowOpen = wdSettings.enabled !== false && dayOk && timeOk;
 
   const submit = async (token: string) => {
+    if (selectedMethod === "crypto") {
+      Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun retrait crypto n’a été envoyé.");
+      return;
+    }
     if (!amt || amt <= 0) return Alert.alert(t("common.error"), t("withdrawal.invalid_amount"));
     try {
-      const result = await api.post<any>("/withdrawals", { amount: amt }, { pwdConfirm: token });
+      const result = await api.post<any>("/withdrawals", { amount: amt, method: selectedMethod }, { pwdConfirm: token });
       if (result?.status === "rejected") {
         Alert.alert(
           t("common.error"),
@@ -97,22 +142,56 @@ export default function Withdrawal() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>{t("withdrawal.title")}</Text>
-        <Text style={styles.sub}>{t("withdrawal.available")} {formatFCFA(user?.balance_profit)}</Text>
+        <Text style={styles.sub}>
+          {t("withdrawal.available")} {selectedMethod === "crypto"
+            ? formatWalletAmount(cryptoBalance, cryptoAsset || "crypto")
+            : formatFCFA(user?.balance_profit)}
+        </Text>
       </LinearGradient>
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); await load(); setRefreshing(false); }} />}
       >
-        {!wallet ? (
+        <Card>
+          <Text style={styles.section}>{t("withdrawal.wallet")}</Text>
+          <View style={styles.methodRow}>
+            {([
+              ["mobile", "Portefeuille CFA", "phone-portrait-outline"],
+              ["crypto", "Portefeuille crypto", "logo-bitcoin"],
+            ] as const).map(([method, label, icon]) => {
+              const active = selectedMethod === method;
+              return (
+                <TouchableOpacity
+                  key={method}
+                  style={[styles.methodChoice, active && styles.methodChoiceActive]}
+                  onPress={() => {
+                    setSelectedMethod(method);
+                    setAmount("");
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  testID={`withdrawal-method-${method}`}
+                >
+                  <Ionicons name={icon} size={18} color={active ? "#fff" : theme.colors.primary} />
+                  <Text style={[styles.methodChoiceText, active && styles.methodChoiceTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Card>
+
+        {!activeWallet ? (
           <Card>
             <View style={{ alignItems: "center", padding: 16 }}>
               <Ionicons name="alert-circle" size={40} color={theme.colors.warning} />
               <Text style={{ marginTop: 8, fontWeight: "700", color: theme.colors.textPrimary }}>
-                {t("withdrawal.no_wallet")}
+                {selectedMethod === "crypto" ? "Aucun portefeuille crypto enregistré" : t("withdrawal.no_wallet")}
               </Text>
               <Text style={{ color: theme.colors.textSecondary, textAlign: "center", marginTop: 4 }}>
-                {t("withdrawal.wallet_required")}
+                {selectedMethod === "crypto"
+                  ? "Enregistrez d’abord l’adresse et le réseau crypto de retrait."
+                  : t("withdrawal.wallet_required")}
               </Text>
               <Button title={t("withdrawal.setup_wallet")} onPress={() => router.push("/(app)/wallet")} style={{ marginTop: 12 }} testID="wd-config-wallet" />
             </View>
@@ -120,15 +199,33 @@ export default function Withdrawal() {
         ) : (
           <>
             <Card>
-              <Text style={styles.section}>{t("withdrawal.wallet")}</Text>
-              <Row label={t("withdrawal.country")} value={wallet.country} />
-              <Row label={t("withdrawal.operator")} value={wallet.operator} />
-              <Row label={t("withdrawal.phone")} value={wallet.phone} />
-              <Row label={t("withdrawal.full_name")} value={wallet.full_name} />
+              <Text style={styles.section}>{selectedMethod === "crypto" ? "Portefeuille crypto enregistré" : t("withdrawal.wallet")}</Text>
+              <Row label={t("withdrawal.country")} value={activeWallet.country || "—"} />
+              {selectedMethod === "mobile" ? (
+                <>
+                  <Row label={t("withdrawal.operator")} value={activeWallet.operator || "—"} />
+                  <Row label={t("withdrawal.phone")} value={activeWallet.phone || "—"} />
+                </>
+              ) : (
+                <>
+                  <Row label="Actif / réseau" value={activeWallet.asset_code || activeWallet.network || "—"} />
+                  <Row label="Adresse" value={activeWallet.wallet_address || "—"} />
+                </>
+              )}
+              <Row label={t("withdrawal.full_name")} value={activeWallet.full_name || "—"} />
               <TouchableOpacity onPress={() => router.push("/(app)/wallet")} style={{ alignSelf: "flex-end" }}>
                 <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>{t("common.edit")}</Text>
               </TouchableOpacity>
             </Card>
+
+            {selectedMethod === "crypto" ? (
+              <View style={styles.cryptoUnavailableBanner} testID="wd-crypto-unavailable">
+                <Ionicons name="lock-closed-outline" size={18} color={theme.colors.warning} />
+                <Text style={styles.cryptoUnavailableText}>
+                  {wdSettings.crypto_payout_unavailable_reason || "Le retrait crypto est indisponible. Aucun montant ne sera débité."}
+                </Text>
+              </View>
+            ) : null}
 
             <Card style={{ marginTop: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -156,36 +253,51 @@ export default function Withdrawal() {
             </Card>
 
             <Card style={{ marginTop: 12 }}>
-              <Text style={styles.section}>{t("withdrawal.amount_fcfa")}</Text>
-              <Input icon="cash-outline" placeholder="Ex: 50000" value={amount} onChangeText={setAmount} keyboardType="numeric" testID="wd-amount" />
+              <Text style={styles.section}>
+                {selectedMethod === "crypto" ? `Montant à retirer (${cryptoAsset || "crypto"})` : t("withdrawal.amount_fcfa")}
+              </Text>
+              <Input
+                icon="cash-outline"
+                placeholder={selectedMethod === "crypto" ? "Ex. 12,50" : "Ex: 50000"}
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType={selectedMethod === "crypto" ? "decimal-pad" : "numeric"}
+                testID="wd-amount"
+              />
               <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
-                {t("withdrawal.profit_only")}
+                {selectedMethod === "crypto"
+                  ? `Solde disponible : ${formatWalletAmount(cryptoBalance, cryptoAsset || "crypto")}`
+                  : t("withdrawal.profit_only")}
               </Text>
 
-              {(wdSettings.fee_percent > 0 || wdSettings.fee_flat > 0 || wdSettings.min_amount > 0) && (
+              {(feePercent > 0 || feeFlat > 0 || minimumAmount > 0) && (
                 <View style={styles.feeBox}>
                   <View style={styles.feeRow}>
                     <Text style={styles.feeLbl}>{t("withdrawal.fee")}</Text>
                     <Text style={styles.feeVal}>
-                      {wdSettings.fee_percent > 0 ? `${wdSettings.fee_percent}% ` : ""}
-                      {wdSettings.fee_flat > 0 ? `+ ${formatFCFA(wdSettings.fee_flat)}` : ""}
+                      {feePercent > 0 ? `${feePercent}% ` : ""}
+                      {feeFlat > 0 ? `+ ${formatWalletAmount(feeFlat, selectedMethod === "crypto" ? cryptoAsset || "crypto" : "XOF")}` : ""}
                     </Text>
                   </View>
-                  {wdSettings.min_amount > 0 && (
+                  {minimumAmount > 0 && (
                     <View style={styles.feeRow}>
                       <Text style={styles.feeLbl}>{t("withdrawal.minimum")}</Text>
-                      <Text style={styles.feeVal}>{formatFCFA(wdSettings.min_amount)}</Text>
+                      <Text style={styles.feeVal}>
+                        {formatWalletAmount(minimumAmount, selectedMethod === "crypto" ? cryptoAsset || "crypto" : "XOF")}
+                      </Text>
                     </View>
                   )}
                   {amt > 0 && (
                     <>
                       <View style={[styles.feeRow, { marginTop: 6 }]}>
                         <Text style={styles.feeLbl}>{t("withdrawal.fee_this")}</Text>
-                        <Text style={[styles.feeVal, { color: theme.colors.danger }]}>− {formatFCFA(feePreview)}</Text>
+                        <Text style={[styles.feeVal, { color: theme.colors.danger }]}>− {formatWalletAmount(feePreview, selectedMethod === "crypto" ? cryptoAsset || "crypto" : "XOF")}</Text>
                       </View>
                       <View style={[styles.feeRow, styles.feeTotal]}>
                         <Text style={[styles.feeLbl, { color: theme.colors.textPrimary, fontWeight: "800" }]}>{t("withdrawal.you_receive")}</Text>
-                        <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 16 }}>{formatFCFA(netPreview)}</Text>
+                        <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 16 }}>
+                          {formatWalletAmount(netPreview, selectedMethod === "crypto" ? cryptoAsset || "crypto" : "XOF")}
+                        </Text>
                       </View>
                     </>
                   )}
@@ -205,9 +317,15 @@ export default function Withdrawal() {
               )}
 
               <Button
-                title={windowOpen ? t("withdrawal.submit_button") : t("withdrawal.closed_button")}
-                icon={<Ionicons name={windowOpen ? "arrow-up-circle" : "lock-closed"} size={18} color="#fff" />}
+                title={selectedMethod === "crypto"
+                  ? "RETRAIT CRYPTO INDISPONIBLE"
+                  : windowOpen ? t("withdrawal.submit_button") : t("withdrawal.closed_button")}
+                icon={<Ionicons name={selectedMethod === "crypto" || !windowOpen ? "lock-closed" : "arrow-up-circle"} size={18} color="#fff" />}
                 onPress={() => {
+                  if (selectedMethod === "crypto") {
+                    Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun montant n’a été débité.");
+                    return;
+                  }
                   if (!windowOpen) {
                     if (typeof window !== "undefined") window.alert(`${t("withdrawal.closed_title")}\n\n${t("withdrawal.allowed")}\n📅 ${prettyDays}\n🕒 ${t("withdrawal.open_time", { open: openTime, close: closeTime })}\n\n${t("withdrawal.closed_note")}`);
                     else Alert.alert(t("withdrawal.closed_alert_title"), t("withdrawal.closed_alert", { days: prettyDays, open: openTime, close: closeTime }));
@@ -215,7 +333,7 @@ export default function Withdrawal() {
                   }
                   setShowPwd(true);
                 }}
-                disabled={!windowOpen}
+                disabled={!windowOpen || cryptoUnavailable}
                 testID="wd-submit"
               />
             </Card>
@@ -250,9 +368,9 @@ export default function Withdrawal() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 }}>
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 6 }}>
       <Text style={{ color: theme.colors.textSecondary }}>{label}</Text>
-      <Text style={{ color: theme.colors.textPrimary, fontWeight: "600" }}>{value}</Text>
+      <Text style={{ flex: 1, textAlign: "right", color: theme.colors.textPrimary, fontWeight: "600" }} numberOfLines={2}>{value}</Text>
     </View>
   );
 }
@@ -278,6 +396,21 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 20, fontWeight: "700", letterSpacing: -0.3 },
   sub: { color: "#C7D9FF" },
   section: { fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 8 },
+  methodRow: { flexDirection: "row", gap: 8 },
+  methodChoice: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 7, minHeight: 44, paddingHorizontal: 8, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface,
+  },
+  methodChoiceActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary },
+  methodChoiceText: { color: theme.colors.textPrimary, fontWeight: "700", fontSize: 11 },
+  methodChoiceTextActive: { color: "#fff" },
+  cryptoUnavailableBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    marginTop: 12, padding: 12, borderRadius: 12,
+    backgroundColor: theme.colors.warningBg,
+  },
+  cryptoUnavailableText: { flex: 1, color: theme.colors.textPrimary, fontSize: 12, lineHeight: 17 },
   hist: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   feeBox: { padding: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceSecondary, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.border },
   feeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 2 },

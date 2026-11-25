@@ -38,7 +38,7 @@ import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
 import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
 import { AdminHeader, AdminMenuModal } from "@/src/components/admin/AdminChrome";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "payment" | "providers" | "fees" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "versions" | "activation_videos";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "payment" | "providers" | "fees" | "rates" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "versions" | "activation_videos";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -271,6 +271,9 @@ export default function AdminHome() {
   const [wdFeeFlat, setWdFeeFlat] = useState("0");
   const [wdMinAmount, setWdMinAmount] = useState("0");
   const [wdMaxAmount, setWdMaxAmount] = useState("");
+  const [wdCryptoFeePercent, setWdCryptoFeePercent] = useState("0");
+  const [wdCryptoFeeFlat, setWdCryptoFeeFlat] = useState("0");
+  const [wdCryptoMinAmount, setWdCryptoMinAmount] = useState("0");
   const [wdAllowedDays, setWdAllowedDays] = useState<number[]>([0,1,2,3,4,5,6]);
   const [wdOpenTime, setWdOpenTime] = useState("07:00");
   const [wdCloseTime, setWdCloseTime] = useState("20:00");
@@ -403,6 +406,9 @@ export default function AdminHome() {
         setWdFeeFlat(String(wd.fee_flat ?? 0));
         setWdMinAmount(String(wd.min_amount ?? 0));
         setWdMaxAmount(wd.max_amount ? String(wd.max_amount) : "");
+        setWdCryptoFeePercent(String(wd.crypto_fee_percent ?? 0));
+        setWdCryptoFeeFlat(String(wd.crypto_fee_flat ?? 0));
+        setWdCryptoMinAmount(String(wd.crypto_min_amount ?? 0));
         // Time-window (days + open/close hours) — previously not hydrated,
         // which made the form silently reset to defaults on every reload
         // and made saved values look "not persisted".
@@ -560,6 +566,7 @@ export default function AdminHome() {
     { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
     { key: "providers", label: "Prestataires paiement", icon: "card" },
     { key: "fees", label: "Frais", icon: "pricetag" },
+    { key: "rates", label: "Taux", icon: "swap-horizontal" },
     { key: "versions", label: "Versions", icon: "git-branch" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
@@ -585,6 +592,7 @@ export default function AdminHome() {
         onSelect={(k) => {
           setMenuOpen(false);
           if (k === "fees") { router.push("/(admin)/fees" as any); return; }
+          if (k === "rates") { router.push("/(admin)/rates" as any); return; }
           setTab(k as Tab);
         }}
         onClose={() => setMenuOpen(false)}
@@ -2503,6 +2511,36 @@ export default function AdminHome() {
               />
 
               <View style={{ height: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, marginBottom: 12 }} />
+              <Text style={[styles.lbl, { fontSize: 14 }]}>Réglages des retraits crypto</Text>
+              <Text style={styles.helperTxt}>
+                Les frais sont exprimés dans l’actif sélectionné. Le retrait reste indisponible tant que le contrat officiel Biz-transPay n’est pas vérifié.
+              </Text>
+              <Input
+                label="Frais crypto en pourcentage (%)"
+                value={wdCryptoFeePercent}
+                onChangeText={setWdCryptoFeePercent}
+                keyboardType="numeric"
+                placeholder="0"
+                testID="wd-crypto-fee-percent"
+              />
+              <Input
+                label="Frais fixes crypto (actif)"
+                value={wdCryptoFeeFlat}
+                onChangeText={setWdCryptoFeeFlat}
+                keyboardType="numeric"
+                placeholder="0"
+                testID="wd-crypto-fee-flat"
+              />
+              <Input
+                label="Montant minimum crypto (actif)"
+                value={wdCryptoMinAmount}
+                onChangeText={setWdCryptoMinAmount}
+                keyboardType="numeric"
+                placeholder="0"
+                testID="wd-crypto-min-amount"
+              />
+
+              <View style={{ height: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, marginBottom: 12 }} />
 
               <Text style={[styles.lbl, { fontSize: 14, marginBottom: 8 }]}>📅 Jours autorisés pour les retraits</Text>
               <View style={styles.daysRow}>
@@ -2589,6 +2627,9 @@ export default function AdminHome() {
                       fee_flat: Number(wdFeeFlat || 0),
                       min_amount: Number(wdMinAmount || 0),
                       max_amount: wdMaxAmount ? Number(wdMaxAmount) : null,
+                      crypto_fee_percent: Number(wdCryptoFeePercent || 0),
+                      crypto_fee_flat: Number(wdCryptoFeeFlat || 0),
+                      crypto_min_amount: Number(wdCryptoMinAmount || 0),
                       allowed_days: wdAllowedDays,
                       open_time: wdOpenTime,
                       close_time: wdCloseTime,

@@ -56,6 +56,7 @@ class WalletIn(BaseModel):
     country: str
     full_name: str
     method: Optional[str] = "mobile"  # "mobile" | "crypto"
+    asset_code: Optional[str] = None
     # Mobile Money fields
     operator: Optional[str] = ""
     phone: Optional[str] = ""
@@ -66,6 +67,8 @@ class WalletIn(BaseModel):
 
 class WithdrawalIn(BaseModel):
     amount: int
+    method: Optional[str] = None
+    asset_code: Optional[str] = None
 
 
 class AnnouncementIn(BaseModel):

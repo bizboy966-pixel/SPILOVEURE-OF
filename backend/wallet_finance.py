@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+from wallet_exchange_math import calculate_exchange_amount
 
 log = logging.getLogger("wallet_finance")
 router = APIRouter()
@@ -44,6 +45,23 @@ class QuoteIn(BaseModel):
 class FeeUpdateIn(BaseModel):
     enabled: bool = False
     rate_percent: float = Field(ge=0, le=100)
+
+
+class ExchangeRateUpdateIn(BaseModel):
+    buy_enabled: bool = False
+    xof_per_unit_buy: float = Field(default=0, ge=0, le=1_000_000_000)
+    sell_enabled: bool = False
+    xof_per_unit_sell: float = Field(default=0, ge=0, le=1_000_000_000)
+
+
+class ExchangeQuoteIn(BaseModel):
+    direction: str
+    asset_code: str = Field(min_length=2, max_length=80)
+    amount: float = Field(gt=0, le=1_000_000_000)
+
+
+class ExchangeExecuteIn(BaseModel):
+    quote_id: str = Field(min_length=16, max_length=64)
 
 
 class SubmitIn(BaseModel):
@@ -175,6 +193,10 @@ async def initialize(db) -> None:
     await db.wallet_sends.create_index("id", unique=True, name="wallet_send_id_unique")
     await db.wallet_sends.create_index("quote_id", unique=True, name="wallet_send_quote_unique")
     await db.wallet_operations.create_index("reference", unique=True, name="wallet_operation_reference_unique")
+    await db.wallet_exchange_rates.create_index("asset_code", unique=True, name="wallet_exchange_asset_unique")
+    await db.wallet_exchange_quotes.create_index("id", unique=True, name="wallet_exchange_quote_id_unique")
+    await db.wallet_exchange_operations.create_index("id", unique=True, name="wallet_exchange_operation_id_unique")
+    await db.wallet_exchange_operations.create_index("quote_id", unique=True, name="wallet_exchange_operation_quote_unique")
     await db.wallet_sends.create_index([("user_id", 1), ("created_at", -1)])
     await db.wallet_sends.create_index([("status", 1), ("provider", 1), ("updated_at", 1)])
 
@@ -1482,6 +1504,9 @@ async def my_wallet_operations(request: Request, user=Depends(get_current_user))
     sends = await db.wallet_sends.find(
         {"user_id": user["id"]}, {"_id": 0},
     ).sort("created_at", -1).limit(30).to_list(30)
+    exchanges = await db.wallet_exchange_operations.find(
+        {"user_id": user["id"], "status": "completed"}, {"_id": 0},
+    ).sort("created_at", -1).limit(30).to_list(30)
     items = [{
         "reference": row.get("reference"), "kind": "deposit",
         "status": row.get("status"), "provider": row.get("provider"),
@@ -1496,6 +1521,14 @@ async def my_wallet_operations(request: Request, user=Depends(get_current_user))
         "amount": row.get("amount"), "fee_amount": row.get("fee_amount"),
         "created_at": row.get("created_at"),
     } for row in sends)
+    items.extend({
+        "reference": row.get("quote_id") or row.get("id"), "kind": "exchange",
+        "status": row.get("status"), "provider": "internal_exchange",
+        "currency": row.get("source_code"), "amount": row.get("amount_in"),
+        "amount_out": row.get("amount_out"), "asset_code": row.get("asset_code"),
+        "destination_code": row.get("destination_code"),
+        "created_at": row.get("created_at"),
+    } for row in exchanges)
     items.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
     return {"items": items[:50]}
 
@@ -1553,3 +1586,350 @@ async def settle_wallet_deposit(db, payment: dict, *, source: str = "provider") 
         }}, upsert=True,
     )
     return {"status": "paid", "activation_done": True, "wallet_credited": True}
+
+
+def _exchange_asset_row(asset: dict, rate: dict | None, balance: float = 0.0) -> dict:
+    code = str(asset.get("asset_code") or asset.get("code") or "").strip()
+    buy_rate = float((rate or {}).get("xof_per_unit_buy") or 0)
+    sell_rate = float((rate or {}).get("xof_per_unit_sell") or 0)
+    return {
+        "asset_code": code,
+        "label": str(asset.get("label") or asset.get("name") or code),
+        "coin": str(asset.get("coin") or code.split(".", 1)[0]).upper(),
+        "network": str(asset.get("network") or "").upper(),
+        "balance": float(balance or 0),
+        "buy_enabled": bool((rate or {}).get("buy_enabled")) and buy_rate > 0,
+        "xof_per_unit_buy": buy_rate,
+        "sell_enabled": bool((rate or {}).get("sell_enabled")) and sell_rate > 0,
+        "xof_per_unit_sell": sell_rate,
+        "updated_at": (rate or {}).get("updated_at"),
+    }
+
+
+async def _exchange_rates_by_asset(db) -> dict[str, dict]:
+    rows = await db.wallet_exchange_rates.find({}, {"_id": 0}).to_list(2000)
+    return {str(row.get("asset_code") or "").upper(): row for row in rows}
+
+
+def _user_crypto_balance(user: dict, asset_code: str) -> float:
+    return float((user.get("wallet_balances") or {}).get(_asset_key(asset_code), 0) or 0)
+
+
+@router.get("/api/admin/wallet-exchange/rates")
+async def admin_wallet_exchange_rates(request: Request, _=Depends(require_admin)):
+    db = request.app.state.db
+    catalog = await _crypto_catalog(db, "deposit")
+    saved = await _exchange_rates_by_asset(db)
+    by_code = {
+        str(row.get("asset_code") or row.get("code") or "").strip().upper(): row
+        for row in catalog
+        if str(row.get("asset_code") or row.get("code") or "").strip()
+    }
+    for code in saved:
+        by_code.setdefault(code, {
+            "asset_code": code, "code": code, "label": code,
+            "coin": code.split(".", 1)[0], "network": "",
+        })
+    live_codes = {
+        str(row.get("asset_code") or row.get("code") or "").strip().upper()
+        for row in catalog
+    }
+    return {"assets": [
+        {
+            **_exchange_asset_row(row, saved.get(code)),
+            "catalog_available": code in live_codes,
+        }
+        for code, row in sorted(by_code.items())
+    ]}
+
+
+@router.put("/api/admin/wallet-exchange/rates/{asset_code}")
+async def update_wallet_exchange_rate(
+    asset_code: str, data: ExchangeRateUpdateIn, request: Request,
+    actor=Depends(require_admin),
+):
+    db = request.app.state.db
+    code = str(asset_code or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9._-]{2,80}", code):
+        raise HTTPException(400, "Code d’actif invalide.")
+    catalog = await _crypto_catalog(db, "deposit")
+    catalog_entry = next(
+        (row for row in catalog if str(
+            row.get("asset_code") or row.get("code") or ""
+        ).strip().upper() == code),
+        None,
+    )
+    existing = await db.wallet_exchange_rates.find_one({"asset_code": code}, {"_id": 0})
+    if not catalog_entry and not existing:
+        raise HTTPException(404, "Cet actif n’est pas dans le catalogue crypto actuel.")
+    if not all(math.isfinite(value) and value >= 0 for value in (
+        data.xof_per_unit_buy, data.xof_per_unit_sell,
+    )):
+        raise HTTPException(400, "Les taux doivent être des nombres finis positifs.")
+    if data.buy_enabled and data.xof_per_unit_buy <= 0:
+        raise HTTPException(400, "Le taux FCFA vers crypto doit être supérieur à zéro.")
+    if data.sell_enabled and data.xof_per_unit_sell <= 0:
+        raise HTTPException(400, "Le taux crypto vers FCFA doit être supérieur à zéro.")
+    now = _now()
+    row = {
+        "asset_code": code,
+        "buy_enabled": bool(data.buy_enabled),
+        "xof_per_unit_buy": float(data.xof_per_unit_buy),
+        "sell_enabled": bool(data.sell_enabled),
+        "xof_per_unit_sell": float(data.xof_per_unit_sell),
+        "updated_at": now,
+        "updated_by": actor.get("id"),
+    }
+    await db.wallet_exchange_rates.update_one(
+        {"asset_code": code},
+        {"$set": row, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    await db.admin_logs.insert_one({
+        "id": _new_id(), "admin_id": actor.get("id"),
+        "action": "wallet_exchange_rate_updated", "target_id": code,
+        "details": {
+            "buy_enabled": row["buy_enabled"],
+            "xof_per_unit_buy": row["xof_per_unit_buy"],
+            "sell_enabled": row["sell_enabled"],
+            "xof_per_unit_sell": row["xof_per_unit_sell"],
+        },
+        "created_at": now,
+    })
+    return {"ok": True, **row}
+
+
+@router.get("/api/wallet-exchange/catalog")
+async def wallet_exchange_catalog(request: Request, user=Depends(get_current_user)):
+    _assert_transaction_user(user)
+    db = request.app.state.db
+    live = await _crypto_catalog(db, "deposit")
+    rates = await _exchange_rates_by_asset(db)
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    live_by_code = {
+        str(row.get("asset_code") or row.get("code") or "").strip().upper(): row
+        for row in live
+        if str(row.get("asset_code") or row.get("code") or "").strip()
+    }
+    wallet_codes = fresh_user.get("wallet_asset_codes") or {}
+    for key, balance in (fresh_user.get("wallet_balances") or {}).items():
+        if float(balance or 0) <= 0:
+            continue
+        code = str(wallet_codes.get(key) or str(key).replace("_", ".")).upper()
+        if code in rates:
+            live_by_code.setdefault(code, {
+                "asset_code": code, "code": code, "label": code,
+                "coin": code.split(".", 1)[0], "network": "",
+            })
+    live_codes = {
+        str(row.get("asset_code") or row.get("code") or "").strip().upper()
+        for row in live
+    }
+    assets = []
+    for code, asset in sorted(live_by_code.items()):
+        row = _exchange_asset_row(
+            asset, rates.get(code), _user_crypto_balance(fresh_user, code),
+        )
+        row["can_buy"] = row["buy_enabled"] and code in live_codes
+        row["can_sell"] = row["sell_enabled"]
+        assets.append(row)
+    return {
+        "xof_balance": float(fresh_user.get("balance_profit") or 0),
+        "assets": assets, "exchange_enabled": bool(assets),
+    }
+
+
+@router.post("/api/wallet-exchange/quote")
+async def create_wallet_exchange_quote(
+    data: ExchangeQuoteIn, request: Request, user=Depends(get_current_user),
+):
+    _assert_transaction_user(user)
+    db = request.app.state.db
+    code = str(data.asset_code or "").strip().upper()
+    direction = str(data.direction or "").strip().lower()
+    if direction not in {"xof_to_crypto", "crypto_to_xof"}:
+        raise HTTPException(400, "Sens d’échange invalide.")
+    if not math.isfinite(data.amount) or data.amount <= 0:
+        raise HTTPException(400, "Montant invalide.")
+    rate_row = (await _exchange_rates_by_asset(db)).get(code)
+    if not rate_row:
+        raise HTTPException(503, "Aucun taux d’échange n’est configuré pour cet actif.")
+    live = await _crypto_catalog(db, "deposit")
+    live_codes = {
+        str(row.get("asset_code") or row.get("code") or "").strip().upper()
+        for row in live
+    }
+    is_buy = direction == "xof_to_crypto"
+    rate = float(rate_row.get("xof_per_unit_buy" if is_buy else "xof_per_unit_sell") or 0)
+    enabled = bool(rate_row.get("buy_enabled" if is_buy else "sell_enabled"))
+    if is_buy and code not in live_codes:
+        enabled = False
+    if not enabled or not math.isfinite(rate) or rate <= 0:
+        raise HTTPException(503, "Ce sens d’échange est désactivé ou son taux n’est pas configuré.")
+    try:
+        amounts = calculate_exchange_amount(direction, data.amount, rate, code)
+        amount_in = amounts["amount_in"]
+        amount_out = amounts["amount_out"]
+        source_code = amounts["source_code"]
+        destination_code = amounts["destination_code"]
+    except ValueError as exc:
+        raise HTTPException(400, "Montant ou taux invalide.") from exc
+    source_field, destination_field = (
+        ("balance_profit", _wallet_field(code)) if is_buy
+        else (_wallet_field(code), "balance_profit")
+    )
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    source_balance = (
+        float(fresh_user.get("balance_profit") or 0)
+        if source_code == "XOF"
+        else _user_crypto_balance(fresh_user, source_code)
+    )
+    if source_balance < amount_in:
+        raise HTTPException(400, f"Solde {source_code} insuffisant.")
+    quote_id = _new_id()
+    now = _now()
+    quote = {
+        "id": quote_id, "user_id": user["id"], "kind": "exchange",
+        "direction": direction, "asset_code": code,
+        "source_code": source_code, "destination_code": destination_code,
+        "source_field": source_field, "destination_field": destination_field,
+        "amount_in": amount_in, "amount_out": amount_out, "rate": rate,
+        "status": "quoted", "expires_at": now + timedelta(minutes=2),
+        "created_at": now, "updated_at": now,
+    }
+    await db.wallet_exchange_quotes.insert_one(quote)
+    return {
+        "quote_id": quote_id, "direction": direction, "asset_code": code,
+        "source_code": source_code, "destination_code": destination_code,
+        "amount_in": amount_in, "amount_out": amount_out, "rate": rate,
+        "fee_amount": 0, "status": "quoted", "expires_at": quote["expires_at"],
+    }
+
+
+@router.post("/api/wallet-exchange/execute")
+async def execute_wallet_exchange(
+    data: ExchangeExecuteIn, request: Request, user=Depends(get_current_user),
+):
+    _assert_transaction_user(user)
+    db = request.app.state.db
+    quote_id = data.quote_id
+    quote = await db.wallet_exchange_quotes.find_one(
+        {"id": quote_id, "user_id": user["id"]}, {"_id": 0},
+    )
+    if not quote:
+        raise HTTPException(404, "Devis d’échange introuvable.")
+    existing = await db.wallet_exchange_operations.find_one(
+        {"quote_id": quote_id}, {"_id": 0},
+    )
+    if existing and existing.get("status") == "completed":
+        return {"ok": True, **existing, "already_completed": True}
+    if existing and existing.get("status") == "rejected":
+        raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")
+    now = _now()
+    if quote.get("expires_at") and quote["expires_at"] <= now:
+        raise HTTPException(410, "Le devis a expiré. Actualisez le taux puis réessayez.")
+    if quote.get("status") == "rejected":
+        raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")
+    rate_row = (await _exchange_rates_by_asset(db)).get(
+        str(quote.get("asset_code") or "").upper(), {},
+    )
+    is_buy = quote.get("direction") == "xof_to_crypto"
+    rate_key = "xof_per_unit_buy" if is_buy else "xof_per_unit_sell"
+    enabled_key = "buy_enabled" if is_buy else "sell_enabled"
+    current_rate = float(rate_row.get(rate_key) or 0)
+    if (
+        not rate_row.get(enabled_key) or current_rate <= 0
+        or Decimal(str(current_rate)) != Decimal(str(quote.get("rate")))
+    ):
+        raise HTTPException(409, "Le taux ou la disponibilité a changé. Créez un nouveau devis.")
+    operation = existing or {
+        "id": quote_id, "quote_id": quote_id, "user_id": user["id"],
+        "kind": "exchange", "direction": quote["direction"],
+        "asset_code": quote["asset_code"],
+        "source_code": quote["source_code"],
+        "destination_code": quote["destination_code"],
+        "amount_in": float(quote["amount_in"]),
+        "amount_out": float(quote["amount_out"]),
+        "rate": float(quote["rate"]), "status": "processing",
+        "created_at": now, "updated_at": now,
+    }
+    if not existing:
+        try:
+            await db.wallet_exchange_operations.insert_one(operation)
+        except Exception:
+            existing = await db.wallet_exchange_operations.find_one(
+                {"quote_id": quote_id}, {"_id": 0},
+            )
+            if not existing:
+                raise
+            if existing.get("status") == "completed":
+                return {"ok": True, **existing, "already_completed": True}
+            if existing.get("status") == "rejected":
+                raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")
+            if existing.get("status") != "processing":
+                raise HTTPException(409, "État de l’échange inconnu; vérifiez le solde avant toute reprise.")
+            operation = existing
+    marker = f"wallet_exchange_refs.{quote_id}"
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    already_debited = bool((fresh_user.get("wallet_exchange_refs") or {}).get(quote_id))
+    if existing and existing.get("status") == "processing" and not already_debited:
+        raise HTTPException(409, "Cet échange est déjà en cours. Actualisez le solde avant de réessayer.")
+    if not already_debited:
+        result = await db.users.update_one(
+            {
+                "id": user["id"], marker: {"$ne": True},
+                quote["source_field"]: {"$gte": float(quote["amount_in"])},
+            },
+            {
+                "$inc": {
+                    quote["source_field"]: -float(quote["amount_in"]),
+                    quote["destination_field"]: float(quote["amount_out"]),
+                },
+                "$set": {
+                    marker: True, "wallet_updated_at": now,
+                    **(
+                        {f"wallet_asset_codes.{_asset_key(quote['asset_code'])}": quote["asset_code"]}
+                        if quote["destination_code"] != "XOF" else {}
+                    ),
+                },
+            },
+        )
+        if result.modified_count == 0:
+            latest = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
+            if not (latest.get("wallet_exchange_refs") or {}).get(quote_id):
+                await db.wallet_exchange_operations.update_one(
+                    {"quote_id": quote_id},
+                    {"$set": {"status": "rejected", "reject_reason": "Solde insuffisant", "updated_at": _now()}},
+                )
+                await db.wallet_exchange_quotes.update_one(
+                    {"id": quote_id}, {"$set": {"status": "rejected", "updated_at": _now()}},
+                )
+                raise HTTPException(400, f"Solde {quote['source_code']} insuffisant.")
+    completed_at = _now()
+    completed = {
+        **operation, "status": "completed",
+        "completed_at": completed_at, "updated_at": completed_at,
+    }
+    await db.wallet_exchange_operations.update_one(
+        {"quote_id": quote_id}, {"$set": completed}, upsert=True,
+    )
+    await db.wallet_exchange_quotes.update_one(
+        {"id": quote_id}, {"$set": {"status": "completed", "updated_at": completed_at}},
+    )
+    await db.wallet_operations.update_one(
+        {"reference": quote_id},
+        {"$set": {
+            "reference": quote_id, "id": quote_id, "user_id": user["id"],
+            "kind": "exchange", "provider": "internal_exchange",
+            "asset_code": quote["asset_code"],
+            "source_code": quote["source_code"],
+            "destination_code": quote["destination_code"],
+            "amount": float(quote["amount_in"]),
+            "amount_out": float(quote["amount_out"]),
+            "rate": float(quote["rate"]), "fee_amount": 0,
+            "currency": quote["source_code"], "status": "completed",
+            "created_at": quote.get("created_at") or completed_at,
+            "updated_at": completed_at,
+        }}, upsert=True,
+    )
+    return {"ok": True, **completed, "already_completed": False}

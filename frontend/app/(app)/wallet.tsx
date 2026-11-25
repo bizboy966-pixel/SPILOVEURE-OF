@@ -23,6 +23,7 @@ type MoneyFusionCountry = {
 };
 type OperatorOption = { value: string; label: string; source: "legacy" | "moneyfusion" };
 type Method = "mobile" | "crypto";
+type CryptoAsset = { asset_code: string; code?: string; label?: string; coin?: string; network?: string; available?: boolean };
 
 export default function Wallet() {
   const router = useRouter();
@@ -35,11 +36,14 @@ export default function Wallet() {
   const [showCP, setShowCP] = useState(false);
 
   const [method, setMethod] = useState<Method>("mobile");
+  const [profilesDraft, setProfilesDraft] = useState<Record<string, any>>({});
   const [legacyOperators, setLegacyOperators] = useState<string[]>([]);
   const [operator, setOperator] = useState<string>("");
   const [phone, setPhone] = useState(user?.phone || "");
   const [fullName, setFullName] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
+  const [cryptoAssets, setCryptoAssets] = useState<CryptoAsset[]>([]);
+  const [cryptoAssetCode, setCryptoAssetCode] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -56,6 +60,8 @@ export default function Wallet() {
         if (w) {
           setCountry(w.country || country);
           setFullName(w.full_name || "");
+          const savedProfiles = w.profiles && typeof w.profiles === "object" ? w.profiles : {};
+          setProfilesDraft(savedProfiles);
           const m: Method = (w.method as Method) || (w.wallet_address ? "crypto" : "mobile");
           setMethod(m);
           if (m === "mobile") {
@@ -63,12 +69,36 @@ export default function Wallet() {
             setPhone(w.phone || "");
           } else {
             setWalletAddress(w.wallet_address || "");
+            setCryptoAssetCode(w.asset_code || w.network || "");
           }
         }
       } catch {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.get<any>("/wallet-operations/catalog?direction=send")
+      .then((response) => {
+        if (!active) return;
+        const assets = Array.isArray(response?.crypto_assets) ? response.crypto_assets : [];
+        setCryptoAssets(assets);
+        setCryptoAssetCode((current) => assets.some((item: any) => (item.asset_code || item.code) === current)
+          ? current : assets[0]?.asset_code || assets[0]?.code || "");
+      })
+      .catch(() => {
+        if (active) setCryptoAssets([]);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!cryptoAssets.length || !cryptoAssetCode) return;
+    if (!cryptoAssets.some((asset) => (asset.asset_code || asset.code) === cryptoAssetCode)) {
+      setCryptoAssetCode(cryptoAssets[0].asset_code || cryptoAssets[0].code || "");
+    }
+  }, [cryptoAssets, cryptoAssetCode]);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +143,26 @@ export default function Wallet() {
     return options;
   }, [legacyOperators, moneyFusionCountries, country]);
 
+  const currentDraft = () => ({
+    country, full_name: fullName, method, operator, phone,
+    wallet_address: walletAddress, asset_code: cryptoAssetCode,
+    network: cryptoAssetCode,
+  });
+
+  const switchMethod = (next: Method) => {
+    if (next === method) return;
+    const nextProfiles = { ...profilesDraft, [method]: currentDraft() };
+    setProfilesDraft(nextProfiles);
+    const target = nextProfiles[next] || {};
+    setMethod(next);
+    setCountry(target.country || user?.country || "TG");
+    setFullName(target.full_name || "");
+    setOperator(target.operator || "");
+    setPhone(target.phone || user?.phone || "");
+    setWalletAddress(target.wallet_address || "");
+    setCryptoAssetCode(target.asset_code || target.network || cryptoAssets[0]?.asset_code || cryptoAssets[0]?.code || "");
+  };
+
   const save = async () => {
     if (!country || !fullName.trim()) {
       Alert.alert(t("wallet.required_title"), t("wallet.required_error"));
@@ -126,6 +176,10 @@ export default function Wallet() {
       Alert.alert(t("wallet.crypto_error_title"), t("wallet.crypto_error"));
       return;
     }
+    if (method === "crypto" && !cryptoAssetCode) {
+      Alert.alert(t("common.error"), "Aucun actif de retrait crypto n’est présent dans le catalogue Biz-transPay.");
+      return;
+    }
     setLoading(true);
     try {
       await api.post("/wallet", {
@@ -134,9 +188,11 @@ export default function Wallet() {
         method,
         operator: method === "mobile" ? operator : "",
         phone: method === "mobile" ? phone : "",
-        network: method === "crypto" ? "USDT BEP20" : "",
+        network: method === "crypto" ? cryptoAssetCode : "",
+        asset_code: method === "crypto" ? cryptoAssetCode : "",
         wallet_address: method === "crypto" ? walletAddress.trim() : "",
       });
+      setProfilesDraft((current) => ({ ...current, [method]: currentDraft() }));
       if (typeof window !== "undefined") window.alert(`✅ ${t("wallet.saved")}`);
       else Alert.alert("✅", t("wallet.saved"));
     } catch (e: any) {
@@ -170,7 +226,7 @@ export default function Wallet() {
           <View style={styles.methodRow}>
             <TouchableOpacity
               style={[styles.methodBox, method === "mobile" && styles.methodBoxOn]}
-              onPress={() => setMethod("mobile")}
+              onPress={() => switchMethod("mobile")}
               testID="wallet-method-mobile"
             >
               <Ionicons name="phone-portrait" size={26} color={method === "mobile" ? "#fff" : theme.colors.primary} />
@@ -178,11 +234,11 @@ export default function Wallet() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.methodBox, method === "crypto" && styles.methodBoxOn]}
-              onPress={() => setMethod("crypto")}
+              onPress={() => switchMethod("crypto")}
               testID="wallet-method-crypto"
             >
               <Ionicons name="logo-bitcoin" size={26} color={method === "crypto" ? "#fff" : "#F59E0B"} />
-              <Text style={[styles.methodTxt, method === "crypto" && { color: "#fff" }]}>Crypto (USDT BEP20)</Text>
+              <Text style={[styles.methodTxt, method === "crypto" && { color: "#fff" }]}>Crypto</Text>
             </TouchableOpacity>
           </View>
         </Card>
@@ -220,9 +276,28 @@ export default function Wallet() {
             </>
           ) : (
             <>
-              <View style={styles.networkChip}>
-                <Ionicons name="logo-bitcoin" size={16} color="#F59E0B" />
-                <Text style={styles.networkTxt}>{t("wallet.network")}</Text>
+              <Text style={styles.lbl}>Actif et réseau de retrait</Text>
+              <View style={styles.opRow}>
+                {cryptoAssets.map((asset) => {
+                  const code = asset.asset_code || asset.code || "";
+                  const selected = code === cryptoAssetCode;
+                  return (
+                    <TouchableOpacity
+                      key={code}
+                      style={[styles.opChip, selected && styles.opChipOn]}
+                      onPress={() => setCryptoAssetCode(code)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      testID={`wallet-crypto-asset-${code}`}
+                    >
+                      <Text style={[styles.opTxt, selected && { color: "#fff" }]}>{asset.label || code}</Text>
+                      <Text style={styles.operatorSource}>{code}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {cryptoAssets.length === 0 ? (
+                  <Text style={styles.hint}>Aucun actif de retrait n’est disponible dans le catalogue Biz-transPay.</Text>
+                ) : null}
               </View>
               <Input
                 label={t("wallet.crypto_address")}
@@ -236,6 +311,12 @@ export default function Wallet() {
               <Text style={styles.hint}>
                 {t("wallet.address_warning")}
               </Text>
+              <View style={styles.cryptoUnavailable}>
+                <Ionicons name="information-circle-outline" size={17} color={theme.colors.warning} />
+                <Text style={styles.hint}>
+                  Le retrait crypto restera indisponible tant que le contrat officiel de sortie Biz-transPay n’est pas vérifié.
+                </Text>
+              </View>
             </>
           )}
         </Card>
@@ -302,6 +383,7 @@ const styles = StyleSheet.create({
   operatorSource: { color: theme.colors.textSecondary, fontSize: 9, fontWeight: "700", marginTop: 3 },
   networkChip: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF3C7", padding: 8, borderRadius: 12, marginBottom: 4 },
   networkTxt: { color: "#92400E", fontWeight: "700", fontSize: 12 },
+  cryptoUnavailable: { flexDirection: "row", alignItems: "flex-start", gap: 6, backgroundColor: theme.colors.warningBg, padding: 9, borderRadius: 12, marginTop: 8 },
   hint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 6, fontStyle: "italic" },
 
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 20 },
