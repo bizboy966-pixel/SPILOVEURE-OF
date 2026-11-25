@@ -59,6 +59,15 @@ test("Marketplace interactions and the existing bottom navigation are wired", ()
   }
 });
 
+test("Marketplace empty states are white while the media feed remains dark", () => {
+  assert.match(marketplace, /<ScreenContainer style=\{\{ flex: 1, backgroundColor: "#fff" \}\}>/);
+  assert.match(marketplace, /loadingState: \{[^}]*backgroundColor: "#fff"/);
+  assert.match(marketplace, /emptyState: \{[^}]*backgroundColor: "#fff"/);
+  assert.match(marketplace, /feedArea: \{ flex: 1, backgroundColor: "#050914" \}/);
+  assert.match(marketplace, /emptyTitle: \{ color: theme\.colors\.textPrimary/);
+  assert.match(marketplace, /emptyText: \{ color: theme\.colors\.textSecondary/);
+});
+
 test("Shared listing URL identifies the selected product", () => {
   const url = flow.marketplaceListingUrl("listing-45", "https://spiloveure.org");
   assert.equal(url, "https://spiloveure.org/marketplace?listing_id=listing-45");

@@ -574,7 +574,7 @@ function MarketplaceScreenInner() {
   };
 
   return (
-    <ScreenContainer style={{ flex: 1, backgroundColor: "#061226" }}>
+    <ScreenContainer style={{ flex: 1, backgroundColor: "#fff" }}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} testID="mk-back" accessibilityLabel="Retour">
           <Ionicons name="arrow-back" size={22} color="#fff" />
@@ -617,10 +617,10 @@ function MarketplaceScreenInner() {
         </View>
       )}
       {loading ? (
-        <View style={styles.loadingState}><ActivityIndicator size="large" color="#fff" /><Text style={styles.loadingText}>Chargement des annonces…</Text></View>
+        <View style={styles.loadingState}><ActivityIndicator size="large" color={theme.colors.primary} /><Text style={styles.loadingText}>Chargement des annonces…</Text></View>
       ) : loadError ? (
         <View style={styles.emptyState}>
-          <Ionicons name="cloud-offline-outline" size={42} color="#fff" />
+          <Ionicons name="cloud-offline-outline" size={42} color={theme.colors.primary} />
           <Text style={styles.emptyTitle}>Marketplace indisponible</Text>
           <Text style={styles.emptyText}>{loadError}</Text>
           <TouchableOpacity onPress={() => { setLoading(true); void load(); }} style={styles.retryButton} testID="mk-retry">
@@ -652,7 +652,7 @@ function MarketplaceScreenInner() {
             viewabilityConfig={viewabilityConfig}
             ListEmptyComponent={
               <View style={[styles.emptyState, { height: pageHeight }]}>
-                <Ionicons name="cart-outline" size={48} color="#fff" />
+                <Ionicons name="cart-outline" size={48} color={theme.colors.primary} />
                 <Text style={styles.emptyTitle}>{searchText ? "Aucune annonce trouvée" : t("marketplace.empty_title")}</Text>
                 <Text style={styles.emptyText}>{searchText ? "Essayez un autre nom ou une autre catégorie." : t("marketplace.empty_hint")}</Text>
               </View>
@@ -853,11 +853,11 @@ const styles = StyleSheet.create({
   detailActions: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 1 },
   detailLink: { color: "#fff", fontSize: 11, fontWeight: "800", textShadowColor: "rgba(0,0,0,.9)", textShadowRadius: 4 },
   whatsappAction: { flexDirection: "row", alignItems: "center", gap: 4 },
-  loadingState: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#061226", gap: 12 },
-  loadingText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#101d32", paddingHorizontal: 28, gap: 9 },
-  emptyTitle: { color: "#fff", fontSize: 17, fontWeight: "900", textAlign: "center", marginTop: 6 },
-  emptyText: { color: "rgba(255,255,255,0.75)", textAlign: "center", fontSize: 13, lineHeight: 19 },
+  loadingState: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", gap: 12 },
+  loadingText: { color: theme.colors.textPrimary, fontSize: 13, fontWeight: "700" },
+  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", paddingHorizontal: 28, gap: 9 },
+  emptyTitle: { color: theme.colors.textPrimary, fontSize: 17, fontWeight: "900", textAlign: "center", marginTop: 6 },
+  emptyText: { color: theme.colors.textSecondary, textAlign: "center", fontSize: 13, lineHeight: 19 },
   retryButton: { marginTop: 8, paddingHorizontal: 22, paddingVertical: 11, backgroundColor: theme.colors.primary, borderRadius: 13 },
   retryText: { color: "#fff", fontWeight: "900" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(5,15,35,0.64)", justifyContent: "center", alignItems: "center", padding: 18 },
