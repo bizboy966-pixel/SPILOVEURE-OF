@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from messenger_core import administrator, chat_user, clean, identifier, member, now
 import messenger_r2 as r2
+from upload_paths import UPLOADS_DIR
 
 api = APIRouter()
 MAX_BYTES = 20 * 1024 * 1024
@@ -43,7 +44,7 @@ class UploadIntent(BaseModel):
 
 
 def upload_root():
-    return Path(os.environ.get("UPLOADS_DIR", str(Path(__file__).parent / "uploads"))) / "messenger"
+    return UPLOADS_DIR / "messenger"
 
 
 def _is_expired(value):

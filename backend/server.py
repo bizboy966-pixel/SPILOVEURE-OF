@@ -21,8 +21,10 @@ from cors_policy import cors_origins
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-# Upload directory — created on first import
-UPLOADS_DIR = ROOT_DIR / "uploads"
+# Hostinger mounts this configured directory to its persistent Docker volume.
+# The local path remains the development/preview fallback.
+from upload_paths import UPLOADS_DIR  # noqa: E402
+
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Whitelisted file extensions per type (lowercase)
@@ -161,9 +163,8 @@ async def lifespan(app: FastAPI):
     from admin_bootstrap import ensure_bootstrap_admin
     await ensure_bootstrap_admin(db, os.environ)
     log.info("Bootstrap administrator ready")
-    # Init Emergent Object Storage session once at startup so subsequent
-    # uploads/downloads use the cached storage_key. Best-effort — if it fails
-    # we still boot and fall back to local disk.
+    # Init Emergent Object Storage session once at startup. The persistent
+    # Docker upload volume remains available if this optional mirror is off.
     try:
         import object_storage as _obj  # noqa: WPS433
         if _obj.is_enabled():
@@ -250,12 +251,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, title="SPILIVERE API")
 
-# Serve uploaded admin media at /api/uploads/<file>.
-# In production the container disk is ephemeral, so we prioritize the Emergent
-# Object Storage backend and only fall back to the local disk for legacy files
-# still hanging around in preview / dev containers. Returning a clear French
-# error message (410 Gone) instead of the default StaticFiles 404 helps admins
-# understand that a file needs to be re-uploaded.
+# Serve uploaded media at /api/uploads/<file>. Hostinger's UPLOADS_DIR points
+# at the persistent Docker volume; object storage is an optional mirror, and
+# the old local directory remains a migration-period fallback. Returning a
+# clear French error message (410 Gone) helps admins identify missing files.
 from fastapi import APIRouter as _UploadsRouter  # noqa: E402
 from fastapi.responses import Response  # noqa: E402
 import object_storage as _obj_storage  # noqa: E402

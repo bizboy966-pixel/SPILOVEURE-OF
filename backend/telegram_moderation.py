@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from auth import require_admin
+from upload_paths import LEGACY_UPLOADS_DIR, UPLOADS_DIR
 
 log = logging.getLogger("telegram_moderation")
 admin = APIRouter(prefix="/api/admin/telegram-bot", tags=["telegram-bot-admin"], dependencies=[Depends(require_admin)])
@@ -42,7 +43,6 @@ ACTION_TTL = timedelta(days=14)
 MAX_TELEGRAM_PHOTO_BYTES = 10 * 1024 * 1024
 MAX_TELEGRAM_FILE_BYTES = 50 * 1024 * 1024
 MAX_TELEGRAM_TOTAL_BYTES = 100 * 1024 * 1024
-UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOAD_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
 
@@ -280,9 +280,12 @@ def _read_stored_upload(filename: str) -> tuple[bytes, str]:
         # The legacy local copy remains usable if persistent storage is
         # temporarily unavailable.
         pass
-    local_path = UPLOADS_DIR / filename
-    if local_path.is_file():
-        return local_path.read_bytes(), mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    local_candidates = [UPLOADS_DIR / filename]
+    if LEGACY_UPLOADS_DIR.resolve() != UPLOADS_DIR.resolve():
+        local_candidates.append(LEGACY_UPLOADS_DIR / filename)
+    for local_path in local_candidates:
+        if local_path.is_file():
+            return local_path.read_bytes(), mimetypes.guess_type(filename)[0] or "application/octet-stream"
     raise FileNotFoundError("upload unavailable")
 
 

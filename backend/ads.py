@@ -29,6 +29,7 @@ from pymongo.errors import DuplicateKeyError
 from auth import get_current_user, require_active_user, require_admin
 from object_storage import is_enabled as _obj_enabled, put_upload as _obj_put
 from feature_flags import is_enabled as feature_enabled
+from upload_paths import UPLOADS_DIR, write_upload
 
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -38,7 +39,6 @@ ALLOWED_AUDIO = {".mp3", ".m4a", ".aac", ".ogg", ".wav"}
 ALLOWED_UPLOAD = ALLOWED_IMAGE | ALLOWED_VIDEO | ALLOWED_AUDIO
 MAX_UPLOAD_MB = 100
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
-UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR") or "/app/backend/uploads")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -147,13 +147,25 @@ async def user_upload_file(
         buf.extend(chunk)
 
     content_type = file.content_type or "application/octet-stream"
-    # Dual write: local (dev preview) + object storage (prod persistence).
-    (UPLOADS_DIR / out_name).write_bytes(bytes(buf))
+    # Persist on the configured Docker volume and optionally mirror remotely.
+    local_storage_ok = False
+    try:
+        write_upload(out_name, bytes(buf), UPLOADS_DIR)
+        local_storage_ok = True
+    except Exception as error:
+        log.warning("configured upload storage write failed for %s: %s", out_name, error)
+    object_storage_ok = False
     if _obj_enabled():
         try:
             _obj_put(out_name, bytes(buf), content_type)
-        except Exception:
-            pass
+            object_storage_ok = True
+        except Exception as error:
+            log.warning("ad media object-storage mirror failed for %s: %s", out_name, error)
+    if not local_storage_ok and not object_storage_ok:
+        raise HTTPException(
+            503,
+            "Le fichier n’a pas pu être enregistré dans un stockage durable. Réessayez plus tard.",
+        )
     return {
         "url": f"/api/uploads/{out_name}",
         "filename": out_name,

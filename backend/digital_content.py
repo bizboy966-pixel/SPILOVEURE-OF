@@ -18,13 +18,10 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
 from apk_validation import InvalidApk, validate_apk, upload_content_type
+from upload_paths import UPLOADS_DIR, write_upload
 
 log = logging.getLogger("digital_content")
 
-
-ROOT_DIR = Path(__file__).parent
-UPLOADS_DIR = ROOT_DIR / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}
 ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
@@ -65,12 +62,9 @@ async def admin_upload_file(
             ),
         )
 
-    # Read all bytes into memory (bounded by MAX_UPLOAD_BYTES) to enable
-    # dual write: local disk (legacy, dev preview) + Emergent Object Storage
-    # (persistent, production-safe). Object storage is authoritative in prod
-    # where the container disk is ephemeral.
+    # Read all bytes into memory (bounded by MAX_UPLOAD_BYTES) to persist on
+    # the configured Docker volume and optionally mirror to object storage.
     out_name = f"{uuid.uuid4().hex}{ext}"
-    out_path = UPLOADS_DIR / out_name
     total = 0
     buf = bytearray()
     try:
@@ -98,24 +92,28 @@ async def admin_upload_file(
             raise HTTPException(status_code=415, detail=str(e)) from None
     content_type = upload_content_type(raw_name, file.content_type)
 
-    # Write to local disk (best-effort — useful in dev / preview).
+    # Hostinger's UPLOADS_DIR points at the persistent Docker volume. A
+    # successful optional object-storage mirror is also durable.
+    local_storage_ok = False
     try:
-        with out_path.open("wb") as f:
-            f.write(buf)
+        write_upload(out_name, bytes(buf), UPLOADS_DIR)
+        local_storage_ok = True
     except Exception as e:
-        log.warning(f"local disk write failed for {out_name}: {e}")
+        log.warning("configured upload storage write failed for %s: %s", out_name, e)
 
-    # Write to persistent object storage. If this fails, we still succeed
-    # (dev fallback) but log a warning — the file will only survive on the
-    # local disk.
-    storage_ok = False
+    object_storage_ok = False
     try:
         import object_storage as _os_mod
         if _os_mod.is_enabled():
             _os_mod.put_upload(out_name, bytes(buf), content_type)
-            storage_ok = True
+            object_storage_ok = True
     except Exception as e:
         log.warning(f"object storage upload failed for {out_name}: {e}")
+    if not local_storage_ok and not object_storage_ok:
+        raise HTTPException(
+            503,
+            "Le fichier n’a pas pu être enregistré dans un stockage durable. Réessayez plus tard.",
+        )
 
     # Persist a thin row in MongoDB so admins can audit uploads
     db = request.app.state.db
@@ -141,7 +139,9 @@ async def admin_upload_file(
         "size": total,
         "content_type": record["content_type"],
         "apk_validated": is_apk,
-        "storage_ok": storage_ok,
+        "storage_ok": local_storage_ok or object_storage_ok,
+        "local_storage_ok": local_storage_ok,
+        "object_storage_ok": object_storage_ok,
     }
 
 
@@ -164,7 +164,10 @@ async def uploads_diagnostic(request: Request, _=Depends(require_admin)):
         filename = url.rsplit("/", 1)[-1]
         if _obj.is_enabled() and _obj.exists(filename):
             return True
-        return (Path(UPLOADS_DIR) / filename).is_file()
+        return (
+            (Path(UPLOADS_DIR) / filename).is_file()
+            or (Path(__file__).resolve().parent / "uploads" / filename).is_file()
+        )
 
     broken = []
     fields_per_coll = {

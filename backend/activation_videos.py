@@ -1,10 +1,8 @@
 """Activation Videos module — admin uploads guide videos shown to new users
 on the payment/activation page.
 
-Storage strategy: same dual-write pattern used by `ads.py.user_upload_file`:
-- Files persisted to Emergent Object Storage (production durability).
-- Copy on local disk (`UPLOADS_DIR`) so preview environments without an
-  Object Storage key still work.
+Storage strategy: write to the configured upload root (the persistent Docker
+volume on Hostinger), then optionally mirror to Emergent Object Storage.
 - Served via the existing `/api/uploads/{filename}` route on server.py.
 
 Order: DB documents carry a `position: int` field. GET endpoints sort by
@@ -25,12 +23,9 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin  # type: ignore
 from object_storage import is_enabled as _obj_enabled, put_upload as _obj_put
+from upload_paths import UPLOADS_DIR, write_upload
 
 log = logging.getLogger("activation_videos")
-
-# Same uploads dir used by ads.py — kept in sync with server.py's static route.
-UPLOADS_DIR = Path(__file__).parent / "uploads"
-UPLOADS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
 # 300 MB per video — enough for a 5-min guide at reasonable quality without
@@ -127,13 +122,25 @@ async def upload_activation_video(
         buf.extend(chunk)
 
     content_type = file.content_type or "video/mp4"
-    # Dual write — local (preview) + object storage (prod persistence).
-    (UPLOADS_DIR / out_name).write_bytes(bytes(buf))
+    # Persist on the configured Docker volume and optionally mirror remotely.
+    local_storage_ok = False
+    try:
+        write_upload(out_name, bytes(buf), UPLOADS_DIR)
+        local_storage_ok = True
+    except Exception as error:
+        log.warning("configured activation-video storage write failed for %s: %s", out_name, error)
+    object_storage_ok = False
     if _obj_enabled():
         try:
             _obj_put(out_name, bytes(buf), content_type)
+            object_storage_ok = True
         except Exception as e:
             log.warning("activation video object_storage put failed: %s", e)
+    if not local_storage_ok and not object_storage_ok:
+        raise HTTPException(
+            503,
+            "La vidéo n’a pas pu être enregistrée dans un stockage durable. Réessayez plus tard.",
+        )
 
     db = request.app.state.db
     # Auto-assign next position = current max + 1 (so first upload = 1).

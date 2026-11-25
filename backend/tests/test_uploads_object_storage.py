@@ -115,7 +115,7 @@ class TestUploadsValidation:
         assert data["url"].startswith("/api/uploads/")
         assert data["size"] == len(payload)
         assert data["content_type"].startswith("image/")
-        assert data["storage_ok"] is True, "Emergent object storage should be enabled and successful"
+        assert data["object_storage_ok"] is True, "Emergent object storage should be enabled and successful"
         # store for reuse
         TestUploadsValidation.last_url = data["url"]
         TestUploadsValidation.last_filename = data["url"].rsplit("/", 1)[-1]
@@ -126,7 +126,7 @@ class TestUploadsValidation:
         r = requests.post(f"{BASE_URL}/api/admin/uploads", files=files, headers=admin_headers, timeout=60)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["storage_ok"] is True
+        assert data["object_storage_ok"] is True
 
     def test_valid_apk_upload(self, admin_headers):
         payload = _signed_apk_test_fixture()
@@ -146,7 +146,7 @@ class TestObjectStoragePersistence:
         assert r.status_code == 200, r.text
         url = r.json()["url"]
         filename = url.rsplit("/", 1)[-1]
-        assert r.json()["storage_ok"] is True
+        assert r.json()["object_storage_ok"] is True
 
         # Ensure it downloads via GET
         g1 = requests.get(f"{BASE_URL}{url}", timeout=60)

@@ -1,8 +1,8 @@
-"""Emergent Managed Object Storage — durable file persistence for uploads.
+"""Optional Emergent Managed Object Storage mirror for uploaded files.
 
-Solves the production bug where `/app/backend/uploads` (local disk) is
-ephemeral and files disappear on container redeploy → download links return
-404 `{"detail": "Not Found"}`.
+Hostinger uses its persistent Docker volume as the primary upload store. This
+integration remains an optional durable mirror and fallback for environments
+that do not have a persistent local volume.
 
 Contract preserved:
   - Existing URL scheme `/api/uploads/{filename}` remains valid.

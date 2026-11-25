@@ -11,7 +11,9 @@ from apk_validation import APK_CONTENT_TYPE, apk_download_headers
 
 
 def serve_uploaded_file(filename: str, uploads_dir: Path, storage) -> Response:
-    """Serve uploads from object storage first, then the legacy local directory."""
+    """Serve from object storage, the persistent volume, then legacy local disk."""
+    if not filename or Path(filename).name != filename or filename in {".", ".."}:
+        raise HTTPException(status_code=404, detail="Fichier introuvable.")
     is_apk = filename.lower().endswith(".apk")
     headers = apk_download_headers(filename) if is_apk else {}
 
@@ -31,13 +33,15 @@ def serve_uploaded_file(filename: str, uploads_dir: Path, storage) -> Response:
                 "object storage GET failed for %s: %s", filename, error,
             )
 
-    local_candidates = [uploads_dir / filename]
-    if is_apk and filename.startswith("spiloveure-official-"):
-        persistent_uploads = (os.environ.get("UPLOADS_DIR") or "").strip()
-        if persistent_uploads:
-            persistent_path = Path(persistent_uploads)
-            if persistent_path.resolve() != Path(uploads_dir).resolve():
-                local_candidates.append(persistent_path / filename)
+    local_candidates = [Path(uploads_dir) / filename]
+    persistent_uploads = (os.environ.get("UPLOADS_DIR") or "").strip()
+    if persistent_uploads:
+        persistent_path = Path(persistent_uploads)
+        if persistent_path.resolve() != Path(uploads_dir).resolve():
+            local_candidates.append(persistent_path / filename)
+    legacy_path = Path(__file__).resolve().parent / "uploads"
+    if legacy_path.resolve() not in {Path(candidate).parent.resolve() for candidate in local_candidates}:
+        local_candidates.append(legacy_path / filename)
     for local in local_candidates:
         if local.is_file():
             return FileResponse(

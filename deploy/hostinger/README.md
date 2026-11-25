@@ -50,8 +50,18 @@ docker compose restart backend
 
 ## Mises à jour
 ```bash
-cd /opt/spiloveure && git pull && cd deploy/hostinger && docker compose up -d --build
+cd /opt/spiloveure && git pull && cd deploy/hostinger
+docker compose exec -T backend python - < ./migrate-uploads.py
+docker compose up -d --build
 ```
+
+La commande de migration doit s’exécuter **avant** la reconstruction, pendant
+que l’ancien backend tourne encore. Elle copie les fichiers de
+`/app/backend/uploads` vers le volume persistant `/data/uploads`, conserve les
+sous-dossiers du Chat et ne remplace jamais un fichier différent. Si elle
+signale un conflit ou une erreur, ne reconstruisez pas le backend avant d’avoir
+résolu le problème. Pour une première installation sans ancien conteneur, passez
+directement à `docker compose up -d --build`.
 
 ## Relier le preview Replit à l’API du VPS
 Le preview peut appeler l’API HTTPS du VPS par le proxy de développement Replit.

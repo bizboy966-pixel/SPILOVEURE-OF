@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin  # type: ignore
 from apk_validation import InvalidApk, validate_apk, upload_content_type
+from upload_paths import configured_uploads_dir, write_upload
 
 log = logging.getLogger("app_versions")
 
@@ -303,23 +304,12 @@ async def publish_official_apk(
     safe_version = version.replace(".", "-")
     stored_name = f"spiloveure-official-{safe_version}.apk"
     url = f"/api/uploads/{stored_name}"
-    uploads_dir = Path(
-        os.environ.get("UPLOADS_DIR") or (Path(__file__).parent / "uploads")
-    )
+    uploads_dir = configured_uploads_dir()
     try:
-        uploads_dir.mkdir(parents=True, exist_ok=True)
-        fd, local_temp_path = tempfile.mkstemp(
-            prefix=".official-apk-", suffix=".tmp", dir=uploads_dir,
+        write_upload(
+            stored_name, bytes(data), uploads_dir,
+            allow_existing_identical=True,
         )
-        try:
-            with os.fdopen(fd, "wb") as local_file:
-                local_file.write(data)
-            os.replace(local_temp_path, uploads_dir / stored_name)
-        finally:
-            try:
-                os.unlink(local_temp_path)
-            except FileNotFoundError:
-                pass
     except Exception as exc:  # noqa: BLE001
         log.warning("Official APK persistent local storage failed: %s", exc)
         raise HTTPException(
