@@ -16,6 +16,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 import digital_content
+import activation_videos
+import ads
 from upload_delivery import serve_uploaded_file
 from upload_paths import write_upload
 
@@ -32,6 +34,17 @@ def _load_migration_script():
 class FakeMediaUploads:
     def __init__(self):
         self.rows = []
+
+    async def insert_one(self, row):
+        self.rows.append(dict(row))
+
+
+class FakeActivationVideos:
+    def __init__(self):
+        self.rows = []
+
+    async def find_one(self, *_args, **_kwargs):
+        return None
 
     async def insert_one(self, row):
         self.rows.append(dict(row))
@@ -138,6 +151,103 @@ async def test_admin_upload_fails_if_no_durable_storage_succeeds(tmp_path, monke
     assert exc.value.status_code == 503
     assert media_rows.rows == []
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_marketplace_media_upload_uses_volume_when_object_mirror_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(ads, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(ads, "_obj_enabled", lambda: True)
+    monkeypatch.setattr(
+        ads, "_obj_put",
+        lambda *_args: (_ for _ in ()).throw(OSError("object mirror unavailable")),
+    )
+    payload = b"marketplace-video"
+    upload = UploadFile(
+        filename="cover.jpg",
+        file=BytesIO(payload),
+        headers=Headers({"content-type": "image/jpeg"}),
+    )
+
+    result = await ads.user_upload_file(
+        SimpleNamespace(), upload, user={"id": "user-1"},
+    )
+
+    filename = result["url"].rsplit("/", 1)[-1]
+    assert (tmp_path / filename).read_bytes() == payload
+
+
+@pytest.mark.asyncio
+async def test_marketplace_media_upload_fails_if_both_stores_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(ads, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(ads, "_obj_enabled", lambda: False)
+    monkeypatch.setattr(
+        ads, "write_upload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("volume unavailable")),
+    )
+    upload = UploadFile(
+        filename="cover.jpg",
+        file=BytesIO(b"image"),
+        headers=Headers({"content-type": "image/jpeg"}),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await ads.user_upload_file(SimpleNamespace(), upload, user={"id": "user-1"})
+
+    assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_activation_video_upload_uses_configured_volume(tmp_path, monkeypatch):
+    monkeypatch.setattr(activation_videos, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(activation_videos, "_obj_enabled", lambda: False)
+    rows = FakeActivationVideos()
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(db=SimpleNamespace(activation_videos=rows)))
+    )
+    payload = b"activation-video"
+    upload = UploadFile(
+        filename="guide.mp4",
+        file=BytesIO(payload),
+        headers=Headers({"content-type": "video/mp4"}),
+    )
+
+    result = await activation_videos.upload_activation_video(
+        request, title="Guide", description="", file=upload,
+        admin_user={"username": "admin"},
+    )
+
+    filename = result["filename"]
+    assert (tmp_path / filename).read_bytes() == payload
+    assert result["url"] == f"/api/uploads/{filename}"
+    assert len(rows.rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_video_upload_fails_if_all_durable_stores_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(activation_videos, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(activation_videos, "_obj_enabled", lambda: False)
+    monkeypatch.setattr(
+        activation_videos, "write_upload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("volume unavailable")),
+    )
+    upload = UploadFile(
+        filename="guide.mp4",
+        file=BytesIO(b"video"),
+        headers=Headers({"content-type": "video/mp4"}),
+    )
+    rows = FakeActivationVideos()
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(db=SimpleNamespace(activation_videos=rows)))
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await activation_videos.upload_activation_video(
+            request, title="Guide", description="", file=upload,
+            admin_user={"username": "admin"},
+        )
+
+    assert exc.value.status_code == 503
+    assert rows.rows == []
 
 
 def test_predeploy_migration_copies_nested_files_and_never_overwrites(tmp_path):
