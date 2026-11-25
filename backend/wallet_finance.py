@@ -28,6 +28,7 @@ log = logging.getLogger("wallet_finance")
 router = APIRouter()
 
 QUOTE_TTL = timedelta(minutes=10)
+WALLET_EXCHANGE_ASSET = "USDT.BEP20"
 ZERO_DECIMAL = {
     "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
     "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF",
@@ -57,7 +58,6 @@ class ExchangeRateUpdateIn(BaseModel):
 class ExchangeQuoteIn(BaseModel):
     direction: str
     asset_code: str = Field(min_length=2, max_length=80)
-    source_asset_code: Optional[str] = Field(default=None, min_length=2, max_length=80)
     amount: float = Field(gt=0, le=1_000_000_000)
 
 
@@ -1619,29 +1619,15 @@ def _user_crypto_balance(user: dict, asset_code: str) -> float:
 @router.get("/api/admin/wallet-exchange/rates")
 async def admin_wallet_exchange_rates(request: Request, _=Depends(require_admin)):
     db = request.app.state.db
-    catalog = await _crypto_catalog(db, "deposit")
     saved = await _exchange_rates_by_asset(db)
-    by_code = {
-        str(row.get("asset_code") or row.get("code") or "").strip().upper(): row
-        for row in catalog
-        if str(row.get("asset_code") or row.get("code") or "").strip()
+    asset = {
+        "asset_code": WALLET_EXCHANGE_ASSET,
+        "code": WALLET_EXCHANGE_ASSET,
+        "label": "USDT BEP20",
+        "coin": "USDT",
+        "network": "BEP20",
     }
-    for code in saved:
-        by_code.setdefault(code, {
-            "asset_code": code, "code": code, "label": code,
-            "coin": code.split(".", 1)[0], "network": "",
-        })
-    live_codes = {
-        str(row.get("asset_code") or row.get("code") or "").strip().upper()
-        for row in catalog
-    }
-    return {"assets": [
-        {
-            **_exchange_asset_row(row, saved.get(code)),
-            "catalog_available": code in live_codes,
-        }
-        for code, row in sorted(by_code.items())
-    ]}
+    return {"assets": [_exchange_asset_row(asset, saved.get(WALLET_EXCHANGE_ASSET))]}
 
 
 @router.put("/api/admin/wallet-exchange/rates/{asset_code}")
@@ -1651,18 +1637,8 @@ async def update_wallet_exchange_rate(
 ):
     db = request.app.state.db
     code = str(asset_code or "").strip().upper()
-    if not re.fullmatch(r"[A-Z0-9._-]{2,80}", code):
-        raise HTTPException(400, "Code d’actif invalide.")
-    catalog = await _crypto_catalog(db, "deposit")
-    catalog_entry = next(
-        (row for row in catalog if str(
-            row.get("asset_code") or row.get("code") or ""
-        ).strip().upper() == code),
-        None,
-    )
-    existing = await db.wallet_exchange_rates.find_one({"asset_code": code}, {"_id": 0})
-    if not catalog_entry and not existing:
-        raise HTTPException(404, "Cet actif n’est pas dans le catalogue crypto actuel.")
+    if code != WALLET_EXCHANGE_ASSET:
+        raise HTTPException(400, f"Seul l’actif {WALLET_EXCHANGE_ASSET} est configuré pour cet échange.")
     if not all(math.isfinite(value) and value >= 0 for value in (
         data.xof_per_unit_buy, data.xof_per_unit_sell,
     )):
@@ -1704,39 +1680,24 @@ async def update_wallet_exchange_rate(
 async def wallet_exchange_catalog(request: Request, user=Depends(get_current_user)):
     _assert_transaction_user(user)
     db = request.app.state.db
-    live = await _crypto_catalog(db, "deposit")
     rates = await _exchange_rates_by_asset(db)
     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
-    live_by_code = {
-        str(row.get("asset_code") or row.get("code") or "").strip().upper(): row
-        for row in live
-        if str(row.get("asset_code") or row.get("code") or "").strip()
+    asset = {
+        "asset_code": WALLET_EXCHANGE_ASSET,
+        "code": WALLET_EXCHANGE_ASSET,
+        "label": "USDT BEP20",
+        "coin": "USDT",
+        "network": "BEP20",
     }
-    wallet_codes = fresh_user.get("wallet_asset_codes") or {}
-    for key, balance in (fresh_user.get("wallet_balances") or {}).items():
-        if float(balance or 0) <= 0:
-            continue
-        code = str(wallet_codes.get(key) or str(key).replace("_", ".")).upper()
-        if code in rates:
-            live_by_code.setdefault(code, {
-                "asset_code": code, "code": code, "label": code,
-                "coin": code.split(".", 1)[0], "network": "",
-            })
-    live_codes = {
-        str(row.get("asset_code") or row.get("code") or "").strip().upper()
-        for row in live
-    }
-    assets = []
-    for code, asset in sorted(live_by_code.items()):
-        row = _exchange_asset_row(
-            asset, rates.get(code), _user_crypto_balance(fresh_user, code),
-        )
-        row["can_buy"] = row["buy_enabled"] and code in live_codes
-        row["can_sell"] = row["sell_enabled"]
-        assets.append(row)
+    row = _exchange_asset_row(
+        asset, rates.get(WALLET_EXCHANGE_ASSET),
+        _user_crypto_balance(fresh_user, WALLET_EXCHANGE_ASSET),
+    )
+    row["can_buy"] = row["buy_enabled"]
+    row["can_sell"] = row["sell_enabled"]
     return {
         "xof_balance": float(fresh_user.get("balance_profit") or 0),
-        "assets": assets, "exchange_enabled": bool(assets),
+        "assets": [row], "exchange_enabled": row["can_buy"] or row["can_sell"],
     }
 
 
@@ -1748,69 +1709,27 @@ async def create_wallet_exchange_quote(
     db = request.app.state.db
     code = str(data.asset_code or "").strip().upper()
     direction = str(data.direction or "").strip().lower()
-    if direction not in {"xof_to_crypto", "crypto_to_xof", "crypto_to_crypto"}:
+    if direction not in {"xof_to_crypto", "crypto_to_xof"}:
         raise HTTPException(400, "Sens d’échange invalide.")
+    if code != WALLET_EXCHANGE_ASSET:
+        raise HTTPException(400, f"Seul l’actif {WALLET_EXCHANGE_ASSET} est disponible.")
     if not math.isfinite(data.amount) or data.amount <= 0:
         raise HTTPException(400, "Montant invalide.")
     rates = await _exchange_rates_by_asset(db)
-    live = await _crypto_catalog(db, "deposit")
-    live_codes = {
-        str(row.get("asset_code") or row.get("code") or "").strip().upper()
-        for row in live
-    }
-    source_rate = 0.0
-    destination_rate = 0.0
-
-    if direction == "crypto_to_crypto":
-        source_code = str(data.source_asset_code or "").strip().upper()
-        destination_code = code
-        if not source_code:
-            raise HTTPException(400, "Choisissez l’actif crypto à convertir.")
-        if source_code == destination_code:
-            raise HTTPException(400, "Choisissez deux actifs crypto différents.")
-        source_rate_row = rates.get(source_code)
-        destination_rate_row = rates.get(destination_code)
-        if not source_rate_row or not destination_rate_row:
-            raise HTTPException(503, "Aucun taux d’échange n’est configuré pour un des actifs.")
-        source_rate = float(source_rate_row.get("xof_per_unit_sell") or 0)
-        destination_rate = float(destination_rate_row.get("xof_per_unit_buy") or 0)
-        if (
-            not source_rate_row.get("sell_enabled")
-            or not destination_rate_row.get("buy_enabled")
-            or destination_code not in live_codes
-            or not math.isfinite(source_rate) or source_rate <= 0
-            or not math.isfinite(destination_rate) or destination_rate <= 0
-        ):
-            raise HTTPException(503, "La conversion entre ces cryptos est désactivée ou non configurée.")
-        asset_code = destination_code
-    else:
-        asset_code = code
-        source_code = code if direction == "crypto_to_xof" else "XOF"
-        destination_code = "XOF" if direction == "crypto_to_xof" else code
-        rate_row = rates.get(code)
-        if not rate_row:
-            raise HTTPException(503, "Aucun taux d’échange n’est configuré pour cet actif.")
-        is_buy = direction == "xof_to_crypto"
-        rate = float(rate_row.get("xof_per_unit_buy" if is_buy else "xof_per_unit_sell") or 0)
-        enabled = bool(rate_row.get("buy_enabled" if is_buy else "sell_enabled"))
-        if is_buy and code not in live_codes:
-            enabled = False
-        if not enabled or not math.isfinite(rate) or rate <= 0:
-            raise HTTPException(503, "Ce sens d’échange est désactivé ou son taux n’est pas configuré.")
-        if is_buy:
-            destination_rate = rate
-        else:
-            source_rate = rate
+    rate_row = rates.get(WALLET_EXCHANGE_ASSET)
+    if not rate_row:
+        raise HTTPException(503, "Les taux de conversion USDT.BEP20 ne sont pas configurés.")
+    is_buy = direction == "xof_to_crypto"
+    rate = float(rate_row.get("xof_per_unit_buy" if is_buy else "xof_per_unit_sell") or 0)
+    enabled = bool(rate_row.get("buy_enabled" if is_buy else "sell_enabled"))
+    if not enabled or not math.isfinite(rate) or rate <= 0:
+        raise HTTPException(503, "Ce sens de conversion USDT.BEP20 n’est pas activé ou son taux est invalide.")
+    source_code = "XOF" if is_buy else WALLET_EXCHANGE_ASSET
+    destination_code = WALLET_EXCHANGE_ASSET if is_buy else "XOF"
+    asset_code = WALLET_EXCHANGE_ASSET
 
     try:
-        amounts = calculate_exchange_amount(
-            direction,
-            data.amount,
-            source_rate if direction == "crypto_to_crypto" else rate,
-            source_code if direction == "crypto_to_crypto" else code,
-            destination_asset_code=destination_code if direction == "crypto_to_crypto" else None,
-            destination_rate=destination_rate if direction == "crypto_to_crypto" else None,
-        )
+        amounts = calculate_exchange_amount(direction, data.amount, rate, WALLET_EXCHANGE_ASSET)
         amount_in = amounts["amount_in"]
         amount_out = amounts["amount_out"]
         source_code = amounts["source_code"]
@@ -1836,7 +1755,6 @@ async def create_wallet_exchange_quote(
         "source_code": source_code, "destination_code": destination_code,
         "source_field": source_field, "destination_field": destination_field,
         "amount_in": amount_in, "amount_out": amount_out, "rate": rate,
-        "source_rate": source_rate, "destination_rate": destination_rate,
         "status": "quoted", "expires_at": now + timedelta(minutes=2),
         "created_at": now, "updated_at": now,
     }
@@ -1845,7 +1763,6 @@ async def create_wallet_exchange_quote(
         "quote_id": quote_id, "direction": direction, "asset_code": asset_code,
         "source_code": source_code, "destination_code": destination_code,
         "amount_in": amount_in, "amount_out": amount_out, "rate": rate,
-        "source_rate": source_rate, "destination_rate": destination_rate,
         "fee_amount": 0, "status": "quoted", "expires_at": quote["expires_at"],
     }
 
@@ -1876,36 +1793,21 @@ async def execute_wallet_exchange(
         raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")
     rates = await _exchange_rates_by_asset(db)
     direction = quote.get("direction")
-    if direction == "crypto_to_crypto":
-        source_rate_row = rates.get(str(quote.get("source_code") or "").upper(), {})
-        destination_rate_row = rates.get(str(quote.get("destination_code") or "").upper(), {})
-        source_rate = float(source_rate_row.get("xof_per_unit_sell") or 0)
-        destination_rate = float(destination_rate_row.get("xof_per_unit_buy") or 0)
-        live = await _crypto_catalog(db, "deposit")
-        live_codes = {
-            str(row.get("asset_code") or row.get("code") or "").strip().upper()
-            for row in live
-        }
-        if (
-            not source_rate_row.get("sell_enabled")
-            or not destination_rate_row.get("buy_enabled")
-            or str(quote.get("destination_code") or "").upper() not in live_codes
-            or source_rate <= 0 or destination_rate <= 0
-            or Decimal(str(source_rate)) != Decimal(str(quote.get("source_rate")))
-            or Decimal(str(destination_rate)) != Decimal(str(quote.get("destination_rate")))
-        ):
-            raise HTTPException(409, "Un taux crypto ou la disponibilité a changé. Recommencez l’échange.")
-    else:
-        rate_row = rates.get(str(quote.get("asset_code") or "").upper(), {})
-        is_buy = direction == "xof_to_crypto"
-        rate_key = "xof_per_unit_buy" if is_buy else "xof_per_unit_sell"
-        enabled_key = "buy_enabled" if is_buy else "sell_enabled"
-        current_rate = float(rate_row.get(rate_key) or 0)
-        if (
-            not rate_row.get(enabled_key) or current_rate <= 0
-            or Decimal(str(current_rate)) != Decimal(str(quote.get("rate")))
-        ):
-            raise HTTPException(409, "Le taux ou la disponibilité a changé. Créez un nouveau devis.")
+    if (
+        quote.get("asset_code") != WALLET_EXCHANGE_ASSET
+        or direction not in {"xof_to_crypto", "crypto_to_xof"}
+    ):
+        raise HTTPException(400, "Ce devis ne correspond pas à l’échange XOF / USDT.BEP20.")
+    rate_row = rates.get(WALLET_EXCHANGE_ASSET, {})
+    is_buy = direction == "xof_to_crypto"
+    rate_key = "xof_per_unit_buy" if is_buy else "xof_per_unit_sell"
+    enabled_key = "buy_enabled" if is_buy else "sell_enabled"
+    current_rate = float(rate_row.get(rate_key) or 0)
+    if (
+        not rate_row.get(enabled_key) or current_rate <= 0
+        or Decimal(str(current_rate)) != Decimal(str(quote.get("rate")))
+    ):
+        raise HTTPException(409, "Le taux ou la disponibilité a changé. Créez un nouveau devis.")
     operation = existing or {
         "id": quote_id, "quote_id": quote_id, "user_id": user["id"],
         "kind": "exchange", "direction": quote["direction"],

@@ -5,9 +5,9 @@ from wallet_exchange_math import calculate_exchange_amount, round_asset_amount
 
 class WalletExchangeMathTests(unittest.TestCase):
     def test_xof_to_crypto_uses_buy_rate_and_six_decimal_precision(self):
-        amounts = calculate_exchange_amount("xof_to_crypto", 12000, 600, "USDT.TRC20")
+        amounts = calculate_exchange_amount("xof_to_crypto", 12000, 600, "USDT.BEP20")
         self.assertEqual(amounts["source_code"], "XOF")
-        self.assertEqual(amounts["destination_code"], "USDT.TRC20")
+        self.assertEqual(amounts["destination_code"], "USDT.BEP20")
         self.assertEqual(amounts["amount_in"], 12000)
         self.assertEqual(amounts["amount_out"], 20)
 
@@ -17,17 +17,6 @@ class WalletExchangeMathTests(unittest.TestCase):
         self.assertEqual(amounts["destination_code"], "XOF")
         self.assertEqual(amounts["amount_in"], 1.234568)
         self.assertEqual(amounts["amount_out"], 728)
-
-    def test_crypto_to_crypto_uses_source_sell_and_destination_buy_rates(self):
-        amounts = calculate_exchange_amount(
-            "crypto_to_crypto", 2, 590, "USDT.TRC20",
-            destination_asset_code="USDC.BEP20", destination_rate=600,
-        )
-        self.assertEqual(amounts["source_code"], "USDT.TRC20")
-        self.assertEqual(amounts["destination_code"], "USDC.BEP20")
-        self.assertEqual(amounts["amount_in"], 2)
-        self.assertEqual(amounts["amount_out"], 1.966667)
-        self.assertAlmostEqual(amounts["rate"], 590 / 600)
 
     def test_xof_is_rounded_to_whole_francs(self):
         self.assertEqual(round_asset_amount(10.7, "XOF"), 11)

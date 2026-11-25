@@ -18,7 +18,6 @@ type RateAsset = {
   label: string;
   coin: string;
   network: string;
-  catalog_available: boolean;
   buy_enabled: boolean;
   xof_per_unit_buy: number;
   sell_enabled: boolean;
@@ -56,7 +55,7 @@ export default function AdminRatesScreen() {
         sell_rate: asset.xof_per_unit_sell ? String(asset.xof_per_unit_sell) : "",
       }])));
     } catch (e: any) {
-      setError(e?.detail || e?.message || "Impossible de charger les actifs crypto.");
+      setError(e?.detail || e?.message || "Impossible de charger le taux USDT.BEP20.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -115,7 +114,7 @@ export default function AdminRatesScreen() {
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>ESPACE ADMINISTRATEUR</Text>
           <Text style={styles.title}>Taux d’échange</Text>
-          <Text style={styles.subtitle}>Configure chaque sens FCFA ↔ crypto.</Text>
+          <Text style={styles.subtitle}>Configure les deux sens entre XOF et USDT.BEP20.</Text>
         </View>
         <TouchableOpacity onPress={() => void load(true)} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Actualiser les taux">
           <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
@@ -141,17 +140,17 @@ export default function AdminRatesScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.introTitle}>Taux définis par l’administration</Text>
             <Text style={styles.introText}>
-              Aucun taux n’est prérempli. Chaque sens reste indisponible tant qu’il n’est pas configuré et activé.
+              Ces conversions internes utilisent uniquement les taux enregistrés ici, sans appel à un prestataire.
             </Text>
           </View>
         </View>
 
         {loading ? (
-          <Card><Text style={styles.body}>Chargement du catalogue crypto Biz-transPay…</Text></Card>
+          <Card><Text style={styles.body}>Chargement des taux USDT.BEP20…</Text></Card>
         ) : assets.length === 0 ? (
           <Card>
-            <Text style={styles.emptyTitle}>Aucun actif crypto disponible</Text>
-            <Text style={styles.body}>Le catalogue de dépôt Biz-transPay doit fournir les actifs avant de pouvoir configurer leurs taux.</Text>
+            <Text style={styles.emptyTitle}>Taux USDT.BEP20 indisponibles</Text>
+            <Text style={styles.body}>Actualisez la page et réessayez.</Text>
           </Card>
         ) : assets.map((asset) => {
           const draft = drafts[asset.asset_code];
@@ -162,13 +161,8 @@ export default function AdminRatesScreen() {
                   <Ionicons name="logo-bitcoin" size={19} color={theme.colors.warning} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.assetName}>{asset.label || asset.asset_code}</Text>
-                  <Text style={styles.assetMeta}>{asset.asset_code}{asset.network ? ` · ${asset.network}` : ""}</Text>
-                </View>
-                <View style={[styles.status, asset.catalog_available ? styles.statusLive : styles.statusOld]}>
-                  <Text style={[styles.statusText, { color: asset.catalog_available ? theme.colors.success : theme.colors.textSecondary }]}>
-                    {asset.catalog_available ? "Catalogue actif" : "Hors catalogue"}
-                  </Text>
+                  <Text style={styles.assetName}>USDT BEP20</Text>
+                  <Text style={styles.assetMeta}>USDT.BEP20 · taux interne</Text>
                 </View>
               </View>
 
@@ -184,7 +178,7 @@ export default function AdminRatesScreen() {
                 <Text style={styles.directionHelp}>Prix d’achat</Text>
               </TouchableOpacity>
               <Input
-                label={`FCFA nécessaires pour obtenir 1 ${asset.coin}`}
+                label="FCFA nécessaires pour obtenir 1 USDT"
                 value={draft?.buy_rate || ""}
                 onChangeText={(value) => patchDraft(asset.asset_code, { buy_rate: value })}
                 keyboardType="decimal-pad"
@@ -204,7 +198,7 @@ export default function AdminRatesScreen() {
                 <Text style={styles.directionHelp}>Montant de vente</Text>
               </TouchableOpacity>
               <Input
-                label={`FCFA crédités pour 1 ${asset.coin}`}
+                label="FCFA crédités pour 1 USDT"
                 value={draft?.sell_rate || ""}
                 onChangeText={(value) => patchDraft(asset.asset_code, { sell_rate: value })}
                 keyboardType="decimal-pad"
@@ -265,10 +259,6 @@ const styles = StyleSheet.create({
   },
   assetName: { color: theme.colors.textPrimary, fontSize: 15, fontWeight: "800" },
   assetMeta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2 },
-  status: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: theme.radius.round },
-  statusLive: { backgroundColor: theme.colors.successBg },
-  statusOld: { backgroundColor: theme.colors.surfaceSecondary },
-  statusText: { fontSize: 10, fontWeight: "700" },
   directionToggle: {
     flexDirection: "row", alignItems: "center", gap: 7,
     paddingVertical: 10, paddingHorizontal: 11, marginBottom: 9,

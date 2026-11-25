@@ -31,47 +31,18 @@ def calculate_exchange_amount(
     amount: float,
     rate: float,
     asset_code: str,
-    *,
-    destination_asset_code: str | None = None,
-    destination_rate: float | None = None,
 ) -> dict:
     """Calculate the user-entered source and rounded destination amount.
 
-    Admin rates mean XOF per one crypto unit:
-    buy = XOF spent for one crypto unit; sell = XOF credited for one crypto unit.
-    Crypto-to-crypto uses the source sell rate and destination buy rate.
+    Admin rates mean XOF per one USDT.BEP20 unit:
+    buy = XOF spent for one USDT; sell = XOF credited for one USDT.
     """
-    if direction not in {"xof_to_crypto", "crypto_to_xof", "crypto_to_crypto"}:
+    if direction not in {"xof_to_crypto", "crypto_to_xof"}:
         raise ValueError("Sens d’échange invalide.")
     if not math.isfinite(float(amount)) or amount <= 0:
         raise ValueError("Montant invalide.")
     if not math.isfinite(float(rate)) or rate <= 0:
         raise ValueError("Taux invalide.")
-    if direction == "crypto_to_crypto":
-        source_code = str(asset_code or "").strip().upper()
-        destination_code = str(destination_asset_code or "").strip().upper()
-        if not source_code or not destination_code or source_code == destination_code:
-            raise ValueError("Choisissez deux actifs crypto différents.")
-        if destination_rate is None or not math.isfinite(float(destination_rate)) or destination_rate <= 0:
-            raise ValueError("Taux de destination invalide.")
-        source_rate = Decimal(str(rate))
-        target_rate = Decimal(str(destination_rate))
-        effective_rate = source_rate / target_rate
-        amount_in = round_asset_amount(amount, source_code)
-        raw_out = Decimal(str(amount_in)) * effective_rate
-        amount_out = round_asset_amount(raw_out, destination_code)
-        if amount_in <= 0 or amount_out <= 0:
-            raise ValueError("Le montant est trop faible après arrondi.")
-        return {
-            "source_code": source_code,
-            "destination_code": destination_code,
-            "amount_in": amount_in,
-            "amount_out": amount_out,
-            "rate": float(effective_rate),
-            "source_rate": float(source_rate),
-            "destination_rate": float(target_rate),
-        }
-
     is_buy = direction == "xof_to_crypto"
     source_code, destination_code = ("XOF", asset_code) if is_buy else (asset_code, "XOF")
     amount_in = round_asset_amount(amount, source_code)

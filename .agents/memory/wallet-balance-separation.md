@@ -9,11 +9,11 @@ Le solde XOF que l’utilisateur peut convertir est le solde disponible de son c
 
 **How to apply:** Pour tout échange XOF ↔ crypto, débiter ou créditer le solde disponible et le portefeuille crypto correspondant; laisser le solde de dépôt inchangé.
 
-Le petit bouton rond de la carte Portefeuille ouvre un parcours indépendant de conversion XOF ↔ crypto et crypto ↔ crypto. Il ne doit pas réutiliser le grand raccourci « Échanger » du tableau de bord; ce parcours général reste distinct.
+Le petit bouton rond de la carte Portefeuille convertit uniquement le solde disponible XOF ↔ USDT.BEP20. Les taux d’achat et de vente sont internes et configurés dans l’admin; aucune route de prestataire ni conversion crypto-crypto ne s’applique. Le solde XOF vient de `balance_profit`, et l’actif crypto de `wallet_balances.USDT_BEP20`.
 
-**Why:** L’utilisateur a explicitement distingué ces deux actions après que le petit bouton a ouvert le même écran que le grand raccourci.
+**Why:** L’utilisateur a précisé que cet échange concerne seulement ses deux soldes disponibles et ne doit pas dépendre des prestataires de paiement.
 
-**How to apply:** Garder des routes et des gestionnaires séparés pour le petit bouton du portefeuille et le grand raccourci général.
+**How to apply:** Garder le parcours petit bouton séparé du grand raccourci général, accepter seulement XOF ↔ USDT.BEP20 et calculer chaque sens avec son taux admin correspondant.
 
 Le sélecteur de devise du portefeuille doit afficher XAF, les actifs crypto du catalogue Biz-transPay et les actifs configurés pour l’échange, même si leur solde est nul.
 
