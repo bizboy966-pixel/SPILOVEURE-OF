@@ -26,7 +26,8 @@ import { useI18n } from "@/src/i18n";
 import { isAndroidApkWebView } from "@/src/utils/isAndroidApkWebView";
 
 /* -------------------------------------------------------------
- * Quick action pills — Depot / Retrait / Envoyer / Echanger.
+ * Quick action pills — Dépôt / Retrait / Envoyer / Échange général.
+ * The small wallet-card exchange icon has its own wallet conversion route.
  * ----------------------------------------------------------- */
 const QUICK_ACTIONS: Array<{
   key: string; label: string; icon: any; color: string; bg: string; route?: string;
@@ -198,7 +199,7 @@ export default function Dashboard() {
           onToggleHidden={() => setBalanceHidden((v) => !v)}
           onAvatarPress={() => setPhotoModal(true)}
           onBalancePress={() => router.push("/(app)/withdrawal" as any)}
-          onExchangePress={() => router.push("/(app)/echanger" as any)}
+          onWalletExchangePress={() => guardedNavigate("/(app)/wallet-exchange")}
         />
         {chatEmailUnverified && <View style={styles.emailVerifyCard} testID="dashboard-chat-email-verification">
           <Ionicons name="mail-unread-outline" size={21} color="#1769e8" />

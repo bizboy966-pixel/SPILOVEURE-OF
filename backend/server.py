@@ -934,16 +934,34 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     total_withdrawn_confirmed = float(_wd_agg[0]["sum"]) if _wd_agg else 0.0
     wallet_balances = dict(user.get("wallet_balances") or {})
     wallet_asset_codes = dict(user.get("wallet_asset_codes") or {})
+
+    def _ensure_wallet_currency(asset_code: str) -> None:
+        code = str(asset_code or "").strip().upper()
+        if not code:
+            return
+        storage_key = code.replace(".", "_")
+        wallet_balances.setdefault(storage_key, 0.0)
+        wallet_asset_codes.setdefault(storage_key, code)
+
+    # Include the CEMAC CFA wallet even before its first credit so it is
+    # available in the portfolio currency selector.
+    _ensure_wallet_currency("XAF")
     try:
         from btp_catalog import fetch_crypto_assets
         for asset in await fetch_crypto_assets(db, "deposit"):
-            code = str(asset.get("code") or asset.get("asset_code") or "").strip()
-            if code:
-                storage_key = code.replace(".", "_")
-                wallet_balances.setdefault(storage_key, 0.0)
-                wallet_asset_codes.setdefault(storage_key, code)
+            _ensure_wallet_currency(asset.get("code") or asset.get("asset_code") or "")
     except Exception:
         # Dashboard balances must still load if the provider catalog is offline.
+        pass
+    try:
+        # Keep admin-configured exchange assets visible even when the provider's
+        # live catalog is temporarily unavailable; never invent an asset code.
+        exchange_assets = await db.wallet_exchange_rates.find(
+            {}, {"_id": 0, "asset_code": 1},
+        ).to_list(2000)
+        for asset in exchange_assets:
+            _ensure_wallet_currency(asset.get("asset_code") or "")
+    except Exception:
         pass
 
     return {

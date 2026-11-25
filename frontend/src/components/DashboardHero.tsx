@@ -192,11 +192,11 @@ type Props = {
   onToggleHidden: () => void;
   onAvatarPress: () => void;
   onBalancePress?: () => void;
-  onExchangePress?: () => void;
+  onWalletExchangePress?: () => void;
 };
 
 export const DashboardHero: React.FC<Props> = ({
-  user, stats, balanceHidden, onToggleHidden, onAvatarPress, onBalancePress, onExchangePress,
+  user, stats, balanceHidden, onToggleHidden, onAvatarPress, onBalancePress, onWalletExchangePress,
 }) => {
   const { t } = useI18n();
   const trend = stats?.trend || {};
@@ -211,11 +211,15 @@ export const DashboardHero: React.FC<Props> = ({
 
   // Each deposit asset has its own balance; never convert one wallet into
   // another currency for display.
+  const currencyBalances = stats?.wallet_balances || {};
   const wallets = [
     { asset_code: "XOF", balance: wallet_deposit },
-    ...Object.entries(stats?.wallet_balances || {}).map(([asset_code, balance]: [string, any]) => ({
-      asset_code, balance: Number(balance) || 0,
-    })),
+    { asset_code: "XAF", balance: Number(currencyBalances.XAF) || 0 },
+    ...Object.entries(currencyBalances)
+      .filter(([asset_code]) => asset_code !== "XAF")
+      .map(([asset_code, balance]: [string, any]) => ({
+        asset_code, balance: Number(balance) || 0,
+      })),
   ].filter((wallet, index, list) => list.findIndex((item) => item.asset_code === wallet.asset_code) === index);
   const [currency, setCurrency] = useState("XOF");
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -311,10 +315,10 @@ export const DashboardHero: React.FC<Props> = ({
         </View>
         <TouchableOpacity
           style={styles.exchangeCircle}
-          onPress={onExchangePress}
+          onPress={onWalletExchangePress}
           accessibilityRole="button"
-          accessibilityLabel="Échanger les soldes"
-          testID="dashboard-exchange-btn"
+          accessibilityLabel="Échanger les soldes du portefeuille"
+          testID="dashboard-wallet-exchange-btn"
         >
           <Ionicons name="swap-horizontal-outline" size={27} color="#fff" />
         </TouchableOpacity>
@@ -502,7 +506,10 @@ const styles = StyleSheet.create({
   currencyPillTxt: { color: "#fff", fontWeight: "800", fontSize: 10 },
   walletHint: { color: "#C7D9FF", fontSize: 10, marginTop: 2, fontWeight: "500" },
   exchangeCircle: {
-    width: 34, height: 34, alignItems: "center", justifyContent: "center",
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center",
   },
 
   statsGrid: { flexDirection: "row", gap: 6, marginTop: 10 },

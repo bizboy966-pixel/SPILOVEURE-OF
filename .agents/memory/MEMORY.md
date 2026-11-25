@@ -24,4 +24,4 @@
 - [Rattachement des catalogues prestataires](payment-provider-admin-layout.md) — garder visibles les réglages et rattacher visuellement chaque configuration API à son catalogue pays/opérateurs.
 - [Icône Android SPILOVEURE](android-launcher-icon.md) — conserver le fond illustré en plein écran tout en gardant le nom et les cinq pictogrammes dans la zone visible.
 - [Builds Android lents](android-build-performance.md) — SDK Nix imbriqué/temporaire, Build Tools 34/35 requis; lancer Gradle en arrière-plan et vérifier signature et version.
-- [Soldes de portefeuille distincts](wallet-balance-separation.md) — l’échange XOF utilise le solde disponible, jamais le solde dédié aux dépôts.
+- [Échanges du portefeuille](wallet-balance-separation.md) — garder les boutons distincts et lister XAF ainsi que les actifs crypto configurés même à solde nul.
