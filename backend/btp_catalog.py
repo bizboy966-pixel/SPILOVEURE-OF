@@ -142,6 +142,97 @@ async def fetch_catalog(db, direction: str, force: bool = False, strict: bool = 
     return items
 
 
+async def fetch_crypto_assets(
+    db, direction: str, force: bool = False, strict: bool = False,
+) -> list[dict]:
+    """Return only crypto assets actually returned by this merchant's live API.
+
+    There is deliberately no environment/default asset fallback here: a stale
+    or missing live catalog must not create a route that the merchant account
+    does not support.
+    """
+    direction = "payout" if direction == "payout" else "deposit"
+    # Keep this full asset list separate from biztranspay._resolve_crypto_asset,
+    # which caches a single legacy activation asset under "crypto_deposit".
+    cache_key = f"crypto_assets_{direction}"
+    now = time.time()
+    hit = _CATALOG.get(cache_key)
+    if hit and not force and not strict and now - hit[0] < CATALOG_TTL:
+        return hit[1]
+    from biztranspay import _get, _get_public_key, _get_secret_key
+    secret, public = await _get_secret_key(db), await _get_public_key(db)
+    if secret and public:
+        try:
+            response = await _get(
+                f"/crypto/assets?direction={direction}", secret, public,
+            )
+            if response.status_code < 400:
+                payload = response.json()
+                if isinstance(payload, list):
+                    raw_assets = payload
+                elif isinstance(payload, dict):
+                    raw_assets = next(
+                        (payload[key] for key in ("assets", "items", "results")
+                         if isinstance(payload.get(key), list)),
+                        [],
+                    )
+                    if not raw_assets and isinstance(payload.get("data"), dict):
+                        raw_assets = next(
+                            (payload["data"][key] for key in ("assets", "items", "results")
+                             if isinstance(payload["data"].get(key), list)),
+                            [],
+                        )
+                    if not raw_assets and isinstance(payload.get("data"), list):
+                        raw_assets = payload["data"]
+                else:
+                    raw_assets = []
+                assets = []
+                seen = set()
+                for row in raw_assets:
+                    if not isinstance(row, dict):
+                        continue
+                    code = str(row.get("code") or row.get("asset_code") or "").strip()
+                    if not code or code in seen:
+                        continue
+                    if any(row.get(key) is False for key in ("active", "enabled", "available")):
+                        continue
+                    seen.add(code)
+                    network = str(
+                        row.get("network") or row.get("network_code") or row.get("chain") or ""
+                    ).upper()
+                    coin = str(row.get("symbol") or row.get("coin") or code.split(".", 1)[0]).upper()
+                    assets.append({
+                        "code": code,
+                        "asset_code": code,
+                        "coin": coin,
+                        "network": network,
+                        "label": str(row.get("name") or row.get("label") or f"{coin} {network}").strip(),
+                        "decimals": row.get("decimals"),
+                    })
+                _CATALOG[cache_key] = (now, assets)
+                await db.app_settings.update_one(
+                    {"key": f"btp_catalog:{cache_key}"},
+                    {"$set": {
+                        "value": assets, "raw_sample": response.text[:6000],
+                        "updated_at": datetime.now(timezone.utc),
+                    }},
+                    upsert=True,
+                )
+                return assets
+            log.warning("BTP crypto catalog %s HTTP %s", direction, response.status_code)
+        except Exception as exc:
+            log.warning("BTP crypto catalog %s error: %s", direction, type(exc).__name__)
+    if strict:
+        from fastapi import HTTPException
+        raise HTTPException(
+            503, f"Catalogue crypto Biz-transPay {direction} indisponible; aucune route nouvelle n’a été créée.",
+        )
+    stored = await db.app_settings.find_one({"key": f"btp_catalog:{cache_key}"}) or {}
+    assets = stored.get("value") or []
+    _CATALOG[cache_key] = (now - CATALOG_TTL + 60, assets)
+    return assets
+
+
 async def find_entry(db, direction: str, cc: str, code: str) -> Optional[dict]:
     cc = (cc or "").upper()
     return next((e for e in await fetch_catalog(db, direction)

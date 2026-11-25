@@ -5,6 +5,7 @@ import { BackHandler, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { KeyboardProvider } from "@/src/components/KeyboardProvider";
 import { AuthProvider } from "@/src/auth";
 import { I18nProvider } from "@/src/i18n";
 import { FeaturesProvider } from "@/src/features";
@@ -120,6 +121,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      <KeyboardProvider>
       {/* Applique Nunito à l'ensemble de la plateforme SPILOVEURE (v11
           typographie globale — s'occupe des Text/TextInput RN et injecte les
           règles CSS Google Fonts côté web). Zéro impact sur les couleurs,
@@ -140,6 +142,7 @@ export default function RootLayout() {
           </ChatProvider>
         </AuthProvider>
       </I18nProvider>
+      </KeyboardProvider>
     </SafeAreaProvider>
   );
 }

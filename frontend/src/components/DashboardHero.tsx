@@ -203,27 +203,29 @@ export const DashboardHero: React.FC<Props> = ({
   const balance_profit = stats?.balance_profit || 0;
   // v18 (2026-02-14) — Portefeuille reflects ONLY confirmed deposits. It
   // is NOT the same as balance_profit (which mixes commissions/rewards).
-  // Backend exposes `wallet_deposit_balance` (defaults to 0 until the
-  // Dépôt flow ships). Never fall back to balance_profit here — the two
+  // Backend exposes `wallet_deposit_balance`. Never fall back to balance_profit here — the two
   // values must remain visually and financially separated.
   const wallet_deposit = stats?.wallet_deposit_balance ?? 0;
   const level = user?.max_level ?? 0;
 
-  // v22 (2026-02-14) — the currency chip on the wallet row is a real
-  // selector: XOF (default) / XAF / USD. Internal identifier stays
-  // "USDT" for backward compatibility with the backend rate, but the
-  // UI displays "USD" per user request (v25, 2026-02-14).
-  const [currency, setCurrency] = useState<"XOF" | "XAF" | "USDT">("XOF");
+  // Each deposit asset has its own balance; never convert one wallet into
+  // another currency for display.
+  const wallets = [
+    { asset_code: "XOF", balance: wallet_deposit },
+    ...Object.entries(stats?.wallet_balances || {}).map(([asset_code, balance]: [string, any]) => ({
+      asset_code, balance: Number(balance) || 0,
+    })),
+  ].filter((wallet, index, list) => list.findIndex((item) => item.asset_code === wallet.asset_code) === index);
+  const [currency, setCurrency] = useState("XOF");
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  const selectedWallet = wallets.find((wallet) => wallet.asset_code === currency) || wallets[0];
 
-  const formatAmount = (fcfa: number) => {
-    if (currency === "USDT") {
-      const usd = (fcfa || 0) / 500;
-      return `${usd.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
-    }
-    // XOF and XAF share the same numeric display — only the suffix changes.
-    const n = Math.round(fcfa || 0).toLocaleString("fr-FR").replace(/,/g, "\u202f");
-    return `${n} ${currency}`;
+  const formatAmount = (amount: number, asset: string) => {
+    const decimals = asset.includes(".") || /^(USDT|USDC|BTC|ETH)/i.test(asset) ? 6 : 0;
+    const n = Number(amount || 0).toLocaleString("fr-FR", {
+      minimumFractionDigits: 0, maximumFractionDigits: decimals,
+    }).replace(/,/g, "\u202f");
+    return `${n} ${asset}`;
   };
 
   return (
@@ -280,7 +282,7 @@ export const DashboardHero: React.FC<Props> = ({
               adjustsFontSizeToFit
               testID="dashboard-wallet-amount"
             >
-              {balanceHidden ? "••••••" : formatAmount(wallet_deposit)}
+              {balanceHidden ? "••••••" : formatAmount(selectedWallet?.balance || 0, selectedWallet?.asset_code || "XOF")}
             </Text>
             <TouchableOpacity
               style={styles.eyeBtn}
@@ -295,7 +297,7 @@ export const DashboardHero: React.FC<Props> = ({
               activeOpacity={0.8}
               testID="dashboard-currency-btn"
             >
-              <Text style={styles.currencyPillTxt}>{currency === "USDT" ? "USD" : currency}</Text>
+              <Text style={styles.currencyPillTxt} numberOfLines={1}>{selectedWallet?.asset_code || "XOF"}</Text>
               <Ionicons name="chevron-down" size={11} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -371,30 +373,31 @@ export const DashboardHero: React.FC<Props> = ({
         <View style={styles.currencySheetWrap} pointerEvents="box-none">
           <View style={styles.currencySheet} testID="dashboard-currency-modal">
             <View style={styles.currencySheetHandle} />
-            <Text style={styles.currencySheetTitle}>Devise d'affichage</Text>
-            {(["XOF", "XAF", "USDT"] as const).map((c) => {
-              const active = c === currency;
+            <Text style={styles.currencySheetTitle}>Devise d&apos;affichage</Text>
+            {wallets.map((wallet) => {
+              const asset = wallet.asset_code;
+              const active = asset === currency;
               return (
                 <TouchableOpacity
-                  key={c}
+                  key={asset}
                   style={[styles.currencyRow, active && styles.currencyRowActive]}
-                  onPress={() => { setCurrency(c); setCurrencyOpen(false); }}
-                  testID={`dashboard-currency-option-${c}`}
+                  onPress={() => { setCurrency(asset); setCurrencyOpen(false); }}
+                  testID={`dashboard-currency-option-${asset}`}
                   activeOpacity={0.88}
                 >
                   <View style={[styles.currencyRowIcon, active && styles.currencyRowIconActive]}>
                     <Ionicons
-                      name={c === "USDT" ? "logo-usd" : "cash"}
+                      name={asset.startsWith("USDT") || asset.startsWith("USDC") ? "logo-usd" : "cash"}
                       size={18}
                       color={active ? "#fff" : "#1B5BFF"}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.currencyRowLabel}>{c === "USDT" ? "USD" : c}</Text>
+                    <Text style={styles.currencyRowLabel}>{asset}</Text>
                     <Text style={styles.currencyRowSub}>
-                      {c === "XOF" && "Franc CFA (UEMOA)"}
-                      {c === "XAF" && "Franc CFA (CEMAC)"}
-                      {c === "USDT" && "Tether (TT)"}
+                      {asset === "XOF" ? "Franc CFA (UEMOA)" :
+                        asset === "XAF" ? "Franc CFA (CEMAC)" :
+                          `${formatAmount(wallet.balance, asset)} disponibles`}
                     </Text>
                   </View>
                   {active ? (

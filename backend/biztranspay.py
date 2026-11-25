@@ -778,6 +778,14 @@ async def _settle_withdrawal_status(
     wd_id = str(wd_doc.get("id") or "")
     if not wd_id or target_status not in ("completed", "rejected"):
         return {"ok": False, "reason": "invalid_terminal_status"}
+    wallet_sends = getattr(db, "wallet_sends", None)
+    wallet_send = await wallet_sends.find_one({"id": wd_id}, {"_id": 0}) if wallet_sends else None
+    if wallet_send:
+        from wallet_finance import settle_wallet_send
+        return await settle_wallet_send(
+            db, wallet_send, target_status, gateway_status,
+            source=source, provider_id=wd_doc.get("payout_id"),
+        )
     now = datetime.now(timezone.utc)
     fields = {
         "status": target_status,
@@ -1168,8 +1176,14 @@ async def biztranspay_webhook(request: Request):
         wd = None
         if provider_id:
             wd = await db.withdrawals.find_one({"payout_id": provider_id})
+            wallet_sends = getattr(db, "wallet_sends", None)
+            if not wd and wallet_sends:
+                wd = await wallet_sends.find_one({"payout_id": provider_id}, {"_id": 0})
         if not wd and ref:
             wd = await db.withdrawals.find_one({"id": ref})
+            wallet_sends = getattr(db, "wallet_sends", None)
+            if not wd and wallet_sends:
+                wd = await wallet_sends.find_one({"id": ref}, {"_id": 0})
         if wd:
             if internal_status == "paid":
                 outcome = await _settle_withdrawal_status(
@@ -1182,12 +1196,20 @@ async def biztranspay_webhook(request: Request):
                     extra_fields={"payout_id": provider_id or wd.get("payout_id")},
                 )
             else:
-                await db.withdrawals.update_one(
-                    {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
-                    {"$set": {"gateway_status": status_raw or event,
-                              "payout_id": provider_id or wd.get("payout_id"),
-                              "updated_at": datetime.now(timezone.utc)}},
-                )
+                if wd.get("kind") == "send" and getattr(db, "wallet_sends", None):
+                    await db.wallet_sends.update_one(
+                        {"id": wd["id"], "status": {"$nin": ["completed", "rejected"]}},
+                        {"$set": {"gateway_status": status_raw or event,
+                                  "payout_id": provider_id or wd.get("payout_id"),
+                                  "updated_at": datetime.now(timezone.utc)}},
+                    )
+                else:
+                    await db.withdrawals.update_one(
+                        {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+                        {"$set": {"gateway_status": status_raw or event,
+                                  "payout_id": provider_id or wd.get("payout_id"),
+                                  "updated_at": datetime.now(timezone.utc)}},
+                    )
                 outcome = {"ok": True, "status": "pending"}
             return {"ok": True, "reconciled": "withdrawal",
                     "status": outcome.get("status") or internal_status,
@@ -1754,11 +1776,20 @@ async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
                 "from_status": from_status, "to_status": to_status,
                 "gateway_status": remote_status}
 
-    await db.withdrawals.update_one(
-        {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
-        {"$set": {"gateway_status": remote_status, "updated_at": now,
-                  "reconciled_at": now}},
-    )
+    wallet_sends = getattr(db, "wallet_sends", None)
+    wallet_send = await wallet_sends.find_one({"id": wd_doc.get("id")}) if wallet_sends else None
+    if wallet_send:
+        await db.wallet_sends.update_one(
+            {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected"]}},
+            {"$set": {"gateway_status": remote_status, "updated_at": now,
+                      "reconciled_at": now}},
+        )
+    else:
+        await db.withdrawals.update_one(
+            {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"gateway_status": remote_status, "updated_at": now,
+                      "reconciled_at": now}},
+        )
     return {"ok": True, "changed": False, "from_status": from_status,
             "to_status": from_status, "gateway_status": remote_status}
 
@@ -1792,4 +1823,25 @@ async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
                 results["errors"] += 1
         except Exception:
             results["errors"] += 1
+    remaining = max(0, max_docs - results["scanned"])
+    wallet_sends = getattr(db, "wallet_sends", None)
+    if wallet_sends:
+        async for send in wallet_sends.find({
+            "provider": "biztranspay",
+            "payout_id": {"$exists": True, "$nin": [None, ""]},
+            "status": {"$in": ["pending", "dispatched", "processing", "unknown"]},
+        }).limit(remaining):
+            results["scanned"] += 1
+            try:
+                r = await reconcile_withdrawal(db, send)
+                if r.get("ok") and r.get("changed"):
+                    results["updated"] += 1
+                    results["changes"].append({
+                        "id": send.get("id"), "from": r.get("from_status"),
+                        "to": r.get("to_status"), "gateway": r.get("gateway_status"),
+                    })
+                elif not r.get("ok"):
+                    results["errors"] += 1
+            except Exception:
+                results["errors"] += 1
     return results

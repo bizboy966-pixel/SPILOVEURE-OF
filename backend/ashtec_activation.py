@@ -859,6 +859,22 @@ async def _apply_payment_success(db, p: dict, sp_status: str, *, source: str):
         except Exception:
             pass
 
+    if kind == "wallet_deposit":
+        try:
+            from wallet_finance import settle_wallet_deposit
+            await settle_wallet_deposit(db, p, source=source)
+        except Exception as exc:
+            log.exception("wallet deposit settlement failed for ref=%s", ref)
+            await db.payments.update_one(
+                {"reference": ref},
+                {"$set": {
+                    "status": "paid", "activation_done": False,
+                    "activation_error": str(exc)[:300],
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+        return
+
     if kind == "ads":
         try:
             await db.ads.update_one(

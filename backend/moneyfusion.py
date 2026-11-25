@@ -720,6 +720,29 @@ async def _apply_paid_activation(db, payment: dict, verified: dict) -> dict:
             "message": "Le numéro de paiement ne correspond pas à la demande. Ne payez pas une seconde fois ; contactez le support avec la référence.",
         }
 
+    # Wallet deposits use a currency-specific atomic credit marker rather than
+    # the purchase dispatcher. The user balance marker and increment happen in
+    # one Mongo update, so webhook/poll retries cannot double-credit.
+    if (payment.get("kind") or "activation") == "wallet_deposit":
+        try:
+            from wallet_finance import settle_wallet_deposit
+            outcome = await settle_wallet_deposit(db, payment, source="moneyfusion")
+            return {
+                "status": "paid", "activation_done": True,
+                "wallet_credited": True, **outcome,
+            }
+        except Exception as exc:
+            log.exception("MoneyFusion wallet deposit settlement failed ref=%s", payment["reference"])
+            await db.payments.update_one(
+                {"reference": payment["reference"]},
+                {"$set": {"status": "paid", "activation_error": str(exc)[:300],
+                          "updated_at": _now()}},
+            )
+            return {
+                "status": "paid", "activation_done": False,
+                "message": "Paiement reçu; le crédit du portefeuille sera réessayé. Ne payez pas une seconde fois.",
+            }
+
     claim = await db.payments.update_one(
         {"reference": payment["reference"], "activation_done": {"$ne": True},
          "activation_claimed": {"$ne": True}},
@@ -1349,6 +1372,49 @@ async def _notify_payout_terminal(db, withdrawal: dict, status: str, *, push: bo
 
 async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) -> dict:
     wd_id = payout.get("wd_id")
+    wallet_sends = getattr(db, "wallet_sends", None)
+    wallet_send = await wallet_sends.find_one({"id": wd_id}, {"_id": 0}) if wallet_sends else None
+    if wallet_send:
+        normalized = str(status or "").lower()
+        if normalized in {"success", "completed", "paid", "confirmed"}:
+            outcome = await __import__("wallet_finance").settle_wallet_send(
+                db, wallet_send, "completed", normalized,
+                source="moneyfusion", provider_id=payout.get("tokenPay"),
+            )
+            terminal = "completed"
+        elif normalized in {"failed", "rejected", "declined", "canceled", "cancelled", "expired"}:
+            outcome = await __import__("wallet_finance").settle_wallet_send(
+                db, wallet_send, "rejected", normalized,
+                source="moneyfusion", provider_id=payout.get("tokenPay"),
+            )
+            terminal = "failed"
+        else:
+            await __import__("wallet_finance").settle_wallet_send(
+                db, wallet_send, "pending", normalized,
+                source="moneyfusion", provider_id=payout.get("tokenPay"),
+            )
+            terminal = ""
+            outcome = {"ok": True, "status": "pending", "changed": False}
+        if terminal:
+            await db.moneyfusion_payouts.update_one(
+                {"wd_id": wd_id},
+                {"$set": {
+                    "status": terminal, "verified_status": normalized,
+                    "verified_data": event_data, "updated_at": _now(),
+                    f"{terminal}_at": _now(),
+                }},
+            )
+        else:
+            await db.moneyfusion_payouts.update_one(
+                {"wd_id": wd_id},
+                {"$set": {"verified_status": normalized,
+                          "verified_data": event_data, "updated_at": _now()}},
+            )
+        return {
+            "handled": bool(outcome.get("ok")),
+            "outcome": outcome.get("status") or ("failed" if terminal else "pending"),
+            "changed": bool(outcome.get("changed")),
+        }
     wd = await db.withdrawals.find_one({"id": wd_id})
     if not wd:
         return {"handled": False, "reason": "withdrawal_not_found"}
@@ -1539,6 +1605,16 @@ async def reconcile_all_dispatched(db, max_docs: int = 50) -> dict:
         )
         if changed.modified_count:
             stale_count += 1
+            wallet_sends = getattr(db, "wallet_sends", None)
+            if wallet_sends:
+                await wallet_sends.update_one(
+                    {"id": payout.get("wd_id"), "status": "submitting"},
+                    {"$set": {
+                        "status": "unknown", "gateway_status": "unknown",
+                        "gateway_error": "Soumission interrompue; résultat non confirmé. Aucun nouvel envoi automatique.",
+                        "updated_at": now,
+                    }},
+                )
             await db.withdrawals.update_one(
                 {"id": payout.get("wd_id"),
                  "status": {"$in": ["pending", "dispatched", "processing"]}},

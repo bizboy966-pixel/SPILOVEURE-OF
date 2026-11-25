@@ -87,6 +87,8 @@ async def lifespan(app: FastAPI):
     await initialize_identity(db)
     from marketplace import initialize as initialize_marketplace
     await initialize_marketplace(db)
+    from wallet_finance import initialize as initialize_wallet_finance
+    await initialize_wallet_finance(db)
     # Bind DB to modules that need it for observability (BizTransPay API logs).
     try:
         from biztranspay import _bind_db as _biztranspay_bind_db
@@ -930,6 +932,19 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
     ]).to_list(1)
     total_withdrawn_confirmed = float(_wd_agg[0]["sum"]) if _wd_agg else 0.0
+    wallet_balances = dict(user.get("wallet_balances") or {})
+    wallet_asset_codes = dict(user.get("wallet_asset_codes") or {})
+    try:
+        from btp_catalog import fetch_crypto_assets
+        for asset in await fetch_crypto_assets(db, "deposit"):
+            code = str(asset.get("code") or asset.get("asset_code") or "").strip()
+            if code:
+                storage_key = code.replace(".", "_")
+                wallet_balances.setdefault(storage_key, 0.0)
+                wallet_asset_codes.setdefault(storage_key, code)
+    except Exception:
+        # Dashboard balances must still load if the provider catalog is offline.
+        pass
 
     return {
         "user": user,
@@ -939,8 +954,12 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         # v18 (2026-02-14) — wallet_deposit_balance is a NEW field that
         # tracks ONLY confirmed deposit/recharge amounts. It MUST stay
         # separated from commissions/rewards which live in balance_profit.
-        # Default to 0 until the Dépôt flow ships.
+        # Keep confirmed deposit funds separate from commissions/rewards.
         "wallet_deposit_balance": float(user.get("wallet_deposit_balance", 0) or 0),
+        "wallet_balances": {
+            wallet_asset_codes.get(code, code.replace("_", ".")): float(amount or 0)
+            for code, amount in wallet_balances.items()
+        },
         "commission_direct": user.get("commission_direct", 0),
         "commission_spillover": user.get("commission_spillover", 0),
         "admin_credit_total": float(user.get("admin_credit_total", 0) or 0),
@@ -5267,3 +5286,7 @@ app.include_router(purchase_payment_router)
 from telegram_moderation import admin as telegram_moderation_admin, webhook as telegram_moderation_webhook  # noqa: E402
 app.include_router(telegram_moderation_admin)
 app.include_router(telegram_moderation_webhook)
+
+# Wallet pay-in/pay-out screens and provider-specific percentage fee schedules.
+from wallet_finance import router as wallet_finance_router  # noqa: E402
+app.include_router(wallet_finance_router)

@@ -38,7 +38,7 @@ import MoneyFusionSettings from "@/src/components/MoneyFusionSettings";
 import AdminTelegramBotSettings from "@/src/components/AdminTelegramBotSettings";
 import { AdminHeader, AdminMenuModal } from "@/src/components/admin/AdminChrome";
 
-type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "payment" | "providers" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "versions" | "activation_videos";
+type Tab = "dashboard" | "users" | "admins" | "activations" | "withdrawals" | "announcements" | "payment" | "providers" | "fees" | "challenges" | "ads" | "special_tasks" | "marketplace" | "features" | "versions" | "activation_videos";
 
 export default function AdminHome() {
   const router = useRouter();
@@ -559,6 +559,7 @@ export default function AdminHome() {
     { key: "announcements", label: "Annonces", icon: "megaphone" },
     { key: "activation_videos", label: "Vidéos activation", icon: "videocam" },
     { key: "providers", label: "Prestataires paiement", icon: "card" },
+    { key: "fees", label: "Frais", icon: "pricetag" },
     { key: "versions", label: "Versions", icon: "git-branch" },
     { key: "payment", label: "Réglages", icon: "settings" },
   ];
@@ -581,7 +582,11 @@ export default function AdminHome() {
         visible={menuOpen}
         tabs={TABS}
         active={tab}
-        onSelect={(k) => { setTab(k as Tab); setMenuOpen(false); }}
+        onSelect={(k) => {
+          setMenuOpen(false);
+          if (k === "fees") { router.push("/(admin)/fees" as any); return; }
+          setTab(k as Tab);
+        }}
         onClose={() => setMenuOpen(false)}
       />
 

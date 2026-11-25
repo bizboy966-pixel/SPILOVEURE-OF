@@ -635,6 +635,7 @@ function MarketplaceScreenInner() {
           <FlatList
             ref={listRef}
             data={filteredItems}
+            contentContainerStyle={{ flexGrow: 1, backgroundColor: "#fff" }}
             keyExtractor={row => row.id}
             renderItem={renderItem}
             getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
@@ -647,7 +648,7 @@ function MarketplaceScreenInner() {
             decelerationRate="fast"
             disableIntervalMomentum
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} tintColor="#fff" />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} tintColor={theme.colors.primary} />}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             ListEmptyComponent={
