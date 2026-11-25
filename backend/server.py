@@ -974,6 +974,9 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         # separated from commissions/rewards which live in balance_profit.
         # Keep confirmed deposit funds separate from commissions/rewards.
         "wallet_deposit_balance": float(user.get("wallet_deposit_balance", 0) or 0),
+        # Dedicated, internal USDT.BEP20 balance available for crypto withdrawal.
+        # It is independent from the crypto deposit wallets in wallet_balances.
+        "balance_crypto": float(user.get("balance_crypto", 0) or 0),
         "wallet_balances": {
             wallet_asset_codes.get(code, code.replace("_", ".")): float(amount or 0)
             for code, amount in wallet_balances.items()

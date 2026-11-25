@@ -21,7 +21,7 @@ export default function Withdrawal() {
   const { t, lang } = useI18n();
   const [wallet, setWallet] = useState<any>(null);
   const [selectedMethod, setSelectedMethod] = useState<"mobile" | "crypto">("mobile");
-  const [cryptoBalances, setCryptoBalances] = useState<Record<string, number>>({});
+  const [cryptoWithdrawalBalance, setCryptoWithdrawalBalance] = useState(0);
   const [amount, setAmount] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,10 +43,12 @@ export default function Withdrawal() {
       setHistory(h);
       const s = await api.get<any>("/settings/withdrawal", { auth: false });
       setWdSettings(s);
-      const catalog = await api.get<any>("/wallet-operations/catalog?direction=send");
-      setCryptoBalances(Object.fromEntries((catalog?.wallets || []).map((item: any) => [
-        String(item.asset_code || "").toUpperCase(), Number(item.balance || 0),
-      ])));
+      try {
+        const exchange = await api.get<{ crypto_balance?: number }>("/wallet-exchange/catalog");
+        setCryptoWithdrawalBalance(Number(exchange?.crypto_balance || 0));
+      } catch {
+        setCryptoWithdrawalBalance(0);
+      }
     } catch {}
   }, []);
   useFocusEffect(useCallback(() => {
@@ -56,8 +58,8 @@ export default function Withdrawal() {
   const walletProfiles = wallet?.profiles || {};
   const activeWallet = walletProfiles[selectedMethod]
     || (wallet?.method === selectedMethod ? wallet : null);
-  const cryptoAsset = String(activeWallet?.asset_code || activeWallet?.network || "").toUpperCase();
-  const cryptoBalance = cryptoBalances[cryptoAsset] || 0;
+  const cryptoAsset = "USDT.BEP20";
+  const cryptoBalance = cryptoWithdrawalBalance;
   const amt = selectedMethod === "crypto"
     ? Number(String(amount).replace(",", ".")) || 0
     : parseInt(amount, 10) || 0;

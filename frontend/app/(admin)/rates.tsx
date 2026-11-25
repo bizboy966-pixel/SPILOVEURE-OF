@@ -114,7 +114,7 @@ export default function AdminRatesScreen() {
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>ESPACE ADMINISTRATEUR</Text>
           <Text style={styles.title}>Taux d’échange</Text>
-          <Text style={styles.subtitle}>Configure les deux sens entre XOF et USDT.BEP20.</Text>
+          <Text style={styles.subtitle}>Configure les deux conversions disponibles entre XOF et USDT.BEP20.</Text>
         </View>
         <TouchableOpacity onPress={() => void load(true)} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Actualiser les taux">
           <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
@@ -174,11 +174,11 @@ export default function AdminRatesScreen() {
                 testID={`rate-buy-toggle-${asset.asset_code}`}
               >
                 <Ionicons name={draft?.buy_enabled ? "checkmark-circle" : "ellipse-outline"} size={19} color={draft?.buy_enabled ? theme.colors.success : theme.colors.textMuted} />
-                <Text style={styles.directionText}>FCFA vers crypto</Text>
+                <Text style={styles.directionText}>XOF vers USDT.BEP20</Text>
                 <Text style={styles.directionHelp}>Prix d’achat</Text>
               </TouchableOpacity>
               <Input
-                label="FCFA nécessaires pour obtenir 1 USDT"
+                label="FCFA nécessaires pour obtenir 1 USDT.BEP20"
                 value={draft?.buy_rate || ""}
                 onChangeText={(value) => patchDraft(asset.asset_code, { buy_rate: value })}
                 keyboardType="decimal-pad"
@@ -194,11 +194,11 @@ export default function AdminRatesScreen() {
                 testID={`rate-sell-toggle-${asset.asset_code}`}
               >
                 <Ionicons name={draft?.sell_enabled ? "checkmark-circle" : "ellipse-outline"} size={19} color={draft?.sell_enabled ? theme.colors.success : theme.colors.textMuted} />
-                <Text style={styles.directionText}>Crypto vers FCFA</Text>
+                <Text style={styles.directionText}>USDT.BEP20 vers XOF</Text>
                 <Text style={styles.directionHelp}>Montant de vente</Text>
               </TouchableOpacity>
               <Input
-                label="FCFA crédités pour 1 USDT"
+                label="FCFA crédités pour 1 USDT.BEP20"
                 value={draft?.sell_rate || ""}
                 onChangeText={(value) => patchDraft(asset.asset_code, { sell_rate: value })}
                 keyboardType="decimal-pad"
@@ -207,7 +207,7 @@ export default function AdminRatesScreen() {
               />
 
               <Button
-                title={saving === asset.asset_code ? "ENREGISTREMENT…" : "ENREGISTRER LES TAUX"}
+                title={saving === asset.asset_code ? "ENREGISTREMENT…" : "ENREGISTRER LES DEUX TAUX"}
                 icon={<Ionicons name="save-outline" size={18} color="#fff" />}
                 loading={saving === asset.asset_code}
                 disabled={saving !== null}

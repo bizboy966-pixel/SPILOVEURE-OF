@@ -224,11 +224,7 @@ export const DashboardHero: React.FC<Props> = ({
   const [currency, setCurrency] = useState("XOF");
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const selectedWallet = wallets.find((wallet) => wallet.asset_code === currency) || wallets[0];
-  const cryptoSummary = wallets
-    .filter((wallet) => wallet.asset_code !== "XOF" && wallet.asset_code !== "XAF")
-    .slice(0, 2)
-    .map((wallet) => formatAmount(wallet.balance, wallet.asset_code))
-    .join(" · ") || "Aucun solde";
+  const cryptoWithdrawalBalance = Number(stats?.balance_crypto || 0);
 
   const formatAmount = (amount: number, asset: string) => {
     const decimals = asset.includes(".") || /^(USDT|USDC|BTC|ETH)/i.test(asset) ? 6 : 0;
@@ -370,7 +366,7 @@ export const DashboardHero: React.FC<Props> = ({
           value={balanceHidden ? "•••" : formatFCFA(balance_profit)}
           hint=""
           subLabel="Solde crypto"
-          subValue={balanceHidden ? "•••" : cryptoSummary}
+          subValue={balanceHidden ? "•••" : formatAmount(cryptoWithdrawalBalance, "USDT.BEP20")}
           trendPct={trend.balance_pct ?? 0}
           series={trend.balance_series || [0, 0, 0, 0, 0, 0, 0]}
           seriesId="bal"

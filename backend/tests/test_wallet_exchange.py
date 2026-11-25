@@ -21,7 +21,8 @@ async def _setup(*, xof=15000, crypto=0):
     await db.users.insert_one({
         "id": "user-1", "role": "user", "status": "active", "max_level": 1,
         "balance_profit": xof, "wallet_deposit_balance": 321,
-        "wallet_balances": {"USDT_BEP20": crypto},
+        "balance_crypto": crypto,
+        "wallet_balances": {"USDT_BEP20": 7},
     })
 
     request = _request(db)
@@ -61,7 +62,8 @@ async def test_xof_to_crypto_executes_once_and_keeps_deposit_wallet_separate():
     assert second["already_completed"] is True
     assert saved["balance_profit"] == 3000
     assert saved["wallet_deposit_balance"] == 321
-    assert saved["wallet_balances"]["USDT_BEP20"] == 20
+    assert saved["balance_crypto"] == 20
+    assert saved["wallet_balances"]["USDT_BEP20"] == 7
     assert await db.wallet_operations.count_documents({"reference": quote["quote_id"]}) == 1
 
 
@@ -81,7 +83,8 @@ async def test_crypto_to_xof_uses_sell_rate_and_credits_available_balance():
     )
     saved = await db.users.find_one({"id": user["id"]})
     assert saved["balance_profit"] == 690
-    assert saved["wallet_balances"]["USDT_BEP20"] == 1
+    assert saved["balance_crypto"] == 1
+    assert saved["wallet_balances"]["USDT_BEP20"] == 7
     assert saved["wallet_deposit_balance"] == 321
 
 
@@ -129,6 +132,7 @@ async def test_exchange_catalog_and_conversion_do_not_call_a_provider(monkeypatc
     catalog = await wallet_finance.wallet_exchange_catalog(request, user)
     assert [asset["asset_code"] for asset in catalog["assets"]] == [ASSET]
     assert catalog["xof_balance"] == 12000
+    assert catalog["crypto_balance"] == 0
 
     quote = await wallet_finance.create_wallet_exchange_quote(
         wallet_finance.ExchangeQuoteIn(
@@ -143,7 +147,8 @@ async def test_exchange_catalog_and_conversion_do_not_call_a_provider(monkeypatc
     )
     saved = await db.users.find_one({"id": user["id"]})
     assert saved["balance_profit"] == 0
-    assert saved["wallet_balances"]["USDT_BEP20"] == 20
+    assert saved["balance_crypto"] == 20
+    assert saved["wallet_balances"]["USDT_BEP20"] == 7
     assert saved["wallet_deposit_balance"] == 321
 
 
@@ -168,7 +173,8 @@ async def test_exchange_with_insufficient_balance_is_rejected_without_debit():
     operation = await db.wallet_exchange_operations.find_one({"quote_id": quote["quote_id"]})
     assert error.value.status_code == 400
     assert saved["balance_profit"] == 9000
-    assert saved["wallet_balances"].get("USDT_BEP20", 0) == 0
+    assert saved["balance_crypto"] == 0
+    assert saved["wallet_balances"]["USDT_BEP20"] == 7
     assert operation["status"] == "rejected"
 
 

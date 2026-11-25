@@ -215,10 +215,10 @@ export default function WalletExchangeScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.assetName}>
-                {direction === "xof_to_crypto" ? "Solde disponible (commissions)" : "Portefeuille USDT BEP20"}
+                {direction === "xof_to_crypto" ? "Solde disponible (commissions)" : "Solde crypto dédié aux retraits"}
               </Text>
               <Text style={styles.assetMeta}>
-                {direction === "xof_to_crypto" ? "Le portefeuille de dépôt est exclu." : "Solde crypto disponible."}
+                {direction === "xof_to_crypto" ? "Le portefeuille de dépôt est exclu." : "Solde USDT.BEP20, distinct du portefeuille de dépôt."}
               </Text>
             </View>
             <Text style={styles.balanceValue}>{formatAmount(availableBalance, sourceCodeShown)}</Text>
@@ -236,7 +236,7 @@ export default function WalletExchangeScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.assetName}>{destinationCodeShown === "XOF" ? "Solde disponible" : "USDT BEP20"}</Text>
+              <Text style={styles.assetName}>{destinationCodeShown === "XOF" ? "Solde disponible" : "Solde crypto dédié aux retraits"}</Text>
               <Text style={styles.assetMeta}>{destinationCodeShown}</Text>
             </View>
           </View>

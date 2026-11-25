@@ -1613,7 +1613,10 @@ async def _exchange_rates_by_asset(db) -> dict[str, dict]:
 
 
 def _user_crypto_balance(user: dict, asset_code: str) -> float:
-    return float((user.get("wallet_balances") or {}).get(_asset_key(asset_code), 0) or 0)
+    if str(asset_code or "").upper() != WALLET_EXCHANGE_ASSET:
+        return 0.0
+    # This is the dedicated USDT withdrawal balance, not the crypto deposit wallet.
+    return float(user.get("balance_crypto") or 0)
 
 
 @router.get("/api/admin/wallet-exchange/rates")
@@ -1644,9 +1647,9 @@ async def update_wallet_exchange_rate(
     )):
         raise HTTPException(400, "Les taux doivent être des nombres finis positifs.")
     if data.buy_enabled and data.xof_per_unit_buy <= 0:
-        raise HTTPException(400, "Le taux FCFA vers crypto doit être supérieur à zéro.")
+        raise HTTPException(400, "Le taux XOF vers USDT.BEP20 doit être supérieur à zéro.")
     if data.sell_enabled and data.xof_per_unit_sell <= 0:
-        raise HTTPException(400, "Le taux crypto vers FCFA doit être supérieur à zéro.")
+        raise HTTPException(400, "Le taux USDT.BEP20 vers XOF doit être supérieur à zéro.")
     now = _now()
     row = {
         "asset_code": code,
@@ -1697,6 +1700,7 @@ async def wallet_exchange_catalog(request: Request, user=Depends(get_current_use
     row["can_sell"] = row["sell_enabled"]
     return {
         "xof_balance": float(fresh_user.get("balance_profit") or 0),
+        "crypto_balance": _user_crypto_balance(fresh_user, WALLET_EXCHANGE_ASSET),
         "assets": [row], "exchange_enabled": row["can_buy"] or row["can_sell"],
     }
 
@@ -1718,12 +1722,12 @@ async def create_wallet_exchange_quote(
     rates = await _exchange_rates_by_asset(db)
     rate_row = rates.get(WALLET_EXCHANGE_ASSET)
     if not rate_row:
-        raise HTTPException(503, "Les taux de conversion USDT.BEP20 ne sont pas configurés.")
+        raise HTTPException(503, "Les taux XOF ↔ USDT.BEP20 ne sont pas configurés.")
     is_buy = direction == "xof_to_crypto"
     rate = float(rate_row.get("xof_per_unit_buy" if is_buy else "xof_per_unit_sell") or 0)
     enabled = bool(rate_row.get("buy_enabled" if is_buy else "sell_enabled"))
     if not enabled or not math.isfinite(rate) or rate <= 0:
-        raise HTTPException(503, "Ce sens de conversion USDT.BEP20 n’est pas activé ou son taux est invalide.")
+        raise HTTPException(503, "Ce sens XOF ↔ USDT.BEP20 n’est pas activé ou son taux est invalide.")
     source_code = "XOF" if is_buy else WALLET_EXCHANGE_ASSET
     destination_code = WALLET_EXCHANGE_ASSET if is_buy else "XOF"
     asset_code = WALLET_EXCHANGE_ASSET
@@ -1737,8 +1741,8 @@ async def create_wallet_exchange_quote(
         rate = float(amounts["rate"])
     except ValueError as exc:
         raise HTTPException(400, "Montant ou taux invalide.") from exc
-    source_field = "balance_profit" if source_code == "XOF" else _wallet_field(source_code)
-    destination_field = "balance_profit" if destination_code == "XOF" else _wallet_field(destination_code)
+    source_field = "balance_profit" if source_code == "XOF" else "balance_crypto"
+    destination_field = "balance_profit" if destination_code == "XOF" else "balance_crypto"
     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
     source_balance = (
         float(fresh_user.get("balance_profit") or 0)
@@ -1853,10 +1857,6 @@ async def execute_wallet_exchange(
                 },
                 "$set": {
                     marker: True, "wallet_updated_at": now,
-                    **(
-                        {f"wallet_asset_codes.{_asset_key(quote['destination_code'])}": quote["destination_code"]}
-                        if quote["destination_code"] != "XOF" else {}
-                    ),
                 },
             },
         )
