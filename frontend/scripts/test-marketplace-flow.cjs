@@ -68,6 +68,28 @@ test("Marketplace empty states are white while the media feed remains dark", () 
   assert.match(marketplace, /emptyText: \{ color: theme\.colors\.textSecondary/);
 });
 
+test("Marketplace media swipes horizontally and details stay folded until requested", () => {
+  assert.match(marketplace, /<ScrollView[\s\S]*?horizontal[\s\S]*?pagingEnabled[\s\S]*?nestedScrollEnabled/);
+  assert.match(marketplace, /onMomentumScrollEnd=\{event =>/);
+  assert.match(marketplace, /testID=\{`mk-media-carousel-/);
+  assert.match(marketplace, /media\.length > 1 && \([\s\S]*?mediaCount/);
+  assert.doesNotMatch(marketplace, /mk-media-(?:prev|next)-/);
+  assert.doesNotMatch(marketplace, /mediaNav:/);
+  assert.match(marketplace, /const \[expanded, setExpanded\] = useState<Record<string, boolean>>\(\{\}\)/);
+  assert.match(marketplace, /const detailsExpanded = Boolean\(expanded\[item\.id\]\)/);
+  assert.match(marketplace, /detailsExpanded \? "Voir moins" : "Voir plus"/);
+  assert.match(marketplace, /\{detailsExpanded && \([\s\S]*?testID=\{`mk-desc-/);
+});
+
+test("Marketplace actions remain in the bottom row above navigation", () => {
+  assert.match(marketplace, /actionRail: \{ minHeight: 68, flexDirection: "row"/);
+  for (const action of ["like", "comments", "chat", "share"]) {
+    assert.match(marketplace, new RegExp(`testID=\\{\\x60mk-${action}-`));
+  }
+  assert.match(marketplace, /mediaStageExpanded: \{ minHeight: 170 \}/);
+  assert.match(marketplace, /listingDetails: \{ paddingHorizontal:/);
+});
+
 test("Shared listing URL identifies the selected product", () => {
   const url = flow.marketplaceListingUrl("listing-45", "https://spiloveure.org");
   assert.equal(url, "https://spiloveure.org/marketplace?listing_id=listing-45");

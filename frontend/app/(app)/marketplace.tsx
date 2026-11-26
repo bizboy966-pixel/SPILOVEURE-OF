@@ -59,6 +59,7 @@ function MarketplaceScreenInner() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
   const [pageHeight, setPageHeight] = useState(620);
+  const [mediaWidth, setMediaWidth] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [contactTarget, setContactTarget] = useState<Listing | null>(null);
@@ -72,6 +73,7 @@ function MarketplaceScreenInner() {
   const [commentBusy, setCommentBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState<Record<string, boolean>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+  const mediaScrollRefs = useRef<Record<string, ScrollView | null>>({});
   const listRef = useRef<FlatList<Listing> | null>(null);
   const handledAction = useRef<string | null>(null);
   const lightbox = useMediaLightbox();
@@ -375,7 +377,6 @@ function MarketplaceScreenInner() {
       ...(item.videos || []).map(url => ({ kind: "video" as const, url })),
     ];
     const index = Math.min(mediaIdx[item.id] || 0, Math.max(media.length - 1, 0));
-    const current = media[index];
     const seller = item.seller_profile;
     const username = seller?.username || item.seller_username || "Vendeur";
     const avatar = seller?.avatar || "";
@@ -385,89 +386,173 @@ function MarketplaceScreenInner() {
     const average = item.reviews?.length
       ? (item.reviews.reduce((sum, review) => sum + review.rating, 0) / item.reviews.length).toFixed(1)
       : null;
+    const detailsExpanded = Boolean(expanded[item.id]);
 
     return (
       <View style={[styles.feedPage, { height: pageHeight }]} testID={`mk-card-${item.id}`}>
-        {current?.kind === "video" && Platform.OS === "web" ? (
-          // @ts-ignore raw HTML video is supported by the Android WebView build.
-          <video
-            src={resolveMediaUrl(current.url)}
-            autoPlay muted loop playsInline controls
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", background: "#050914" }}
-            data-testid={`mk-video-${item.id}`}
-          />
-        ) : current?.kind === "image" ? (
-          <Image
-            source={{ uri: resolveMediaUrl(current.url) }}
-            resizeMode="cover"
+        <View
+          style={[styles.mediaStage, detailsExpanded && styles.mediaStageExpanded]}
+          onLayout={event => {
+            const width = Math.round(event.nativeEvent.layout.width);
+            if (width > 0 && width !== mediaWidth) setMediaWidth(width);
+            if (width > 0 && index > 0) {
+              mediaScrollRefs.current[item.id]?.scrollTo({ x: width * index, animated: false });
+            }
+          }}
+          testID={`mk-media-stage-${item.id}`}
+        >
+          <ScrollView
+            ref={ref => { mediaScrollRefs.current[item.id] = ref; }}
+            horizontal
+            pagingEnabled
+            nestedScrollEnabled
+            directionalLockEnabled
+            alwaysBounceVertical={false}
+            showsHorizontalScrollIndicator={false}
             style={StyleSheet.absoluteFill}
-            testID={`mk-image-${item.id}`}
-          />
-        ) : (
-          <View style={styles.noMedia}>
-            <Ionicons name="image-outline" size={48} color="rgba(255,255,255,0.65)" />
-            <Text style={styles.noMediaText}>Média indisponible</Text>
-          </View>
-        )}
-        {current?.kind !== "video" && (
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => media.length > 0 && lightbox.openAt(
-              media, index, { title: item.name, description: item.description },
+            onMomentumScrollEnd={event => {
+              const width = mediaWidth || event.nativeEvent.layoutMeasurement.width;
+              if (!width) return;
+              const nextIndex = Math.max(0, Math.min(media.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
+              setMediaIdx(previous => previous[item.id] === nextIndex
+                ? previous
+                : { ...previous, [item.id]: nextIndex });
+            }}
+            testID={`mk-media-carousel-${item.id}`}
+          >
+            {media.length ? media.map((entry, mediaIndex) => (
+              <View
+                key={`${entry.kind}-${entry.url}-${mediaIndex}`}
+                style={[styles.mediaSlide, { width: mediaWidth || "100%" }]}
+              >
+                {entry.kind === "video" && Platform.OS === "web" && mediaIndex === index ? (
+                  // @ts-ignore raw HTML video is supported by the Android WebView build.
+                  <video
+                    src={resolveMediaUrl(entry.url)}
+                    autoPlay muted loop playsInline controls
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#050914" }}
+                    data-testid={`mk-video-${item.id}`}
+                  />
+                ) : entry.kind === "image" ? (
+                  <>
+                    <Image
+                      source={{ uri: resolveMediaUrl(entry.url) }}
+                      resizeMode="contain"
+                      style={StyleSheet.absoluteFill}
+                      testID={`mk-image-${item.id}-${mediaIndex}`}
+                    />
+                    <Pressable
+                      style={StyleSheet.absoluteFill}
+                      onPress={() => lightbox.openAt(
+                        media, mediaIndex, { title: item.name, description: item.description },
+                      )}
+                      accessibilityLabel="Afficher le média en plein écran"
+                      testID={`mk-open-media-${item.id}`}
+                    />
+                  </>
+                ) : (
+                  <View style={styles.noMedia}>
+                    <Ionicons name="image-outline" size={48} color="rgba(255,255,255,0.65)" />
+                    <Text style={styles.noMediaText}>Média indisponible</Text>
+                  </View>
+                )}
+              </View>
+            )) : (
+              <View style={[styles.mediaSlide, { width: mediaWidth || "100%" }]}>
+                <View style={styles.noMedia}>
+                  <Ionicons name="image-outline" size={48} color="rgba(255,255,255,0.65)" />
+                  <Text style={styles.noMediaText}>Média indisponible</Text>
+                </View>
+              </View>
             )}
-            accessibilityLabel="Afficher le média en plein écran"
-            testID={`mk-open-media-${item.id}`}
+          </ScrollView>
+          <LinearGradient
+            colors={["rgba(5,14,34,0.24)", "transparent", "rgba(5,14,34,0.35)"]}
+            locations={[0, 0.55, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
           />
-        )}
-        <LinearGradient
-          colors={["rgba(5,14,34,0.24)", "transparent", "rgba(5,14,34,0.86)"]}
-          locations={[0, 0.38, 1]}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <View style={styles.topOverlay} pointerEvents="box-none">
-          {!!item.audio && Platform.OS === "web" && (
+          <View style={styles.topOverlay} pointerEvents="box-none">
+            {!!item.audio && Platform.OS === "web" && (
+              <>
+                <TouchableOpacity style={styles.audioButton} onPress={() => toggleAudio(item)} testID={`mk-audio-toggle-${item.id}`}>
+                  <Ionicons name={isPlaying ? "pause" : "musical-notes"} size={15} color="#fff" />
+                  <Text style={styles.audioText}>{isPlaying ? "Pause" : "Musique"}</Text>
+                </TouchableOpacity>
+                {/* @ts-ignore RN Web audio element */}
+                <audio
+                  ref={(element: HTMLAudioElement | null) => { audioRefs.current[item.id] = element; }}
+                  src={resolveMediaUrl(item.audio || "")}
+                  loop
+                  onEnded={() => setAudioPlaying(null)}
+                  style={{ display: "none" }}
+                />
+              </>
+            )}
+            {media.length > 1 && (
+              <View style={styles.mediaCount}>
+                <Text style={styles.mediaCountText}>{index + 1} / {media.length}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.listingDetails} testID={`mk-details-${item.id}`}>
+          <View style={styles.listingSummary}>
+            <View style={styles.sellerLine}>
+              <Text style={styles.sellerName} numberOfLines={1}>{username}</Text>
+              {seller?.verified && <Ionicons name="checkmark-circle" size={17} color="#68b4ff" />}
+              <View style={styles.categoryPill}><Text style={styles.categoryText}>{item.category}</Text></View>
+            </View>
+            <Text style={styles.productName} numberOfLines={detailsExpanded ? 2 : 1}>{item.name}</Text>
+            <View style={styles.priceLine}>
+              <Text style={styles.price}>
+                {item.promo_price ?? item.price} {item.currency}
+              </Text>
+              {item.promo_price != null && (
+                <Text style={styles.oldPrice}>{item.price} {item.currency}</Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.detailActions}>
+            <TouchableOpacity
+              onPress={() => setExpanded(previous => ({ ...previous, [item.id]: !previous[item.id] }))}
+              testID={`mk-desc-toggle-${item.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={detailsExpanded ? "Voir moins de détails" : "Voir plus de détails"}
+            >
+              <Text style={styles.detailLink}>{detailsExpanded ? "Voir moins" : "Voir plus"}</Text>
+            </TouchableOpacity>
+            {detailsExpanded && (
+              <>
+                <TouchableOpacity onPress={() => rate(item.id)} style={styles.whatsappAction} testID={`mk-rate-${item.id}`}>
+                  <Ionicons name="star-outline" size={15} color="#fff" />
+                  <Text style={styles.detailLink}>Avis</Text>
+                </TouchableOpacity>
+                {!!item.whatsapp && (
+                  <TouchableOpacity onPress={() => openWhatsapp(item.whatsapp)} style={styles.whatsappAction} testID={`mk-whatsapp-${item.id}`}>
+                    <Ionicons name="logo-whatsapp" size={15} color="#fff" />
+                    <Text style={styles.detailLink}>WhatsApp</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
+          {detailsExpanded && (
             <>
-              <TouchableOpacity style={styles.audioButton} onPress={() => toggleAudio(item)} testID={`mk-audio-toggle-${item.id}`}>
-                <Ionicons name={isPlaying ? "pause" : "musical-notes"} size={15} color="#fff" />
-                <Text style={styles.audioText}>{isPlaying ? "Pause" : "Musique"}</Text>
-              </TouchableOpacity>
-              {/* @ts-ignore RN Web audio element */}
-              <audio
-                ref={(element: HTMLAudioElement | null) => { audioRefs.current[item.id] = element; }}
-                src={resolveMediaUrl(item.audio || "")}
-                loop
-                onEnded={() => setAudioPlaying(null)}
-                style={{ display: "none" }}
-              />
+              {!!item.description && (
+                <Text style={styles.description} numberOfLines={5} testID={`mk-desc-${item.id}`}>
+                  {item.description}
+                </Text>
+              )}
+              <View style={styles.productMeta}>
+                <Text style={styles.metaText}>📍 {item.city}</Text>
+                {average && <Text style={styles.metaText}>⭐ {average}</Text>}
+                {media.length > 1 && <Text style={styles.metaText}>• {media.length} médias</Text>}
+              </View>
             </>
           )}
-          {media.length > 1 && (
-            <View style={styles.mediaCount}>
-              <Text style={styles.mediaCountText}>{index + 1} / {media.length}</Text>
-            </View>
-          )}
         </View>
-        {media.length > 1 && (
-          <>
-            <TouchableOpacity
-              style={[styles.mediaNav, { left: 10 }]}
-              onPress={() => setMediaIdx(previous => ({ ...previous, [item.id]: (index - 1 + media.length) % media.length }))}
-              testID={`mk-media-prev-${item.id}`}
-              accessibilityLabel="Média précédent"
-            >
-              <Ionicons name="chevron-back" size={22} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.mediaNav, { right: 72 }]}
-              onPress={() => setMediaIdx(previous => ({ ...previous, [item.id]: (index + 1) % media.length }))}
-              testID={`mk-media-next-${item.id}`}
-              accessibilityLabel="Média suivant"
-            >
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
-            </TouchableOpacity>
-          </>
-        )}
 
         <View style={styles.actionRail}>
           <View style={styles.sellerAvatarWrap}>
@@ -517,57 +602,6 @@ function MarketplaceScreenInner() {
             testID={`mk-share-${item.id}`}
             onPress={() => void shareListing(item)}
           />
-        </View>
-
-        <View style={styles.listingDetails}>
-          <View style={styles.sellerLine}>
-            <Text style={styles.sellerName} numberOfLines={1}>{username}</Text>
-            {seller?.verified && <Ionicons name="checkmark-circle" size={17} color="#68b4ff" />}
-            <View style={styles.categoryPill}><Text style={styles.categoryText}>{item.category}</Text></View>
-          </View>
-          <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-          {!!item.description && (
-            <Text
-              style={styles.description}
-              numberOfLines={expanded[item.id] ? 5 : 2}
-              testID={`mk-desc-${item.id}`}
-            >
-              {item.description}
-            </Text>
-          )}
-          <View style={styles.productMeta}>
-            <Text style={styles.metaText}>📍 {item.city}</Text>
-            {average && <Text style={styles.metaText}>⭐ {average}</Text>}
-            {media.length > 1 && <Text style={styles.metaText}>• {media.length} médias</Text>}
-          </View>
-          <View style={styles.priceLine}>
-            <Text style={styles.price}>
-              {item.promo_price ?? item.price} {item.currency}
-            </Text>
-            {item.promo_price != null && (
-              <Text style={styles.oldPrice}>{item.price} {item.currency}</Text>
-            )}
-          </View>
-          <View style={styles.detailActions}>
-            {!!item.description && item.description.length > 80 && (
-              <TouchableOpacity
-                onPress={() => setExpanded(previous => ({ ...previous, [item.id]: !previous[item.id] }))}
-                testID={`mk-desc-toggle-${item.id}`}
-              >
-                <Text style={styles.detailLink}>{expanded[item.id] ? "Voir moins" : "Voir plus"}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={() => rate(item.id)} style={styles.whatsappAction} testID={`mk-rate-${item.id}`}>
-              <Ionicons name="star-outline" size={15} color="#fff" />
-              <Text style={styles.detailLink}>Avis</Text>
-            </TouchableOpacity>
-            {!!item.whatsapp && (
-              <TouchableOpacity onPress={() => openWhatsapp(item.whatsapp)} style={styles.whatsappAction} testID={`mk-whatsapp-${item.id}`}>
-                <Ionicons name="logo-whatsapp" size={15} color="#fff" />
-                <Text style={styles.detailLink}>WhatsApp</Text>
-              </TouchableOpacity>
-            )}
-          </View>
         </View>
       </View>
     );
@@ -819,7 +853,10 @@ const styles = StyleSheet.create({
   noticeError: { backgroundColor: "#a62e3d" },
   noticeText: { flex: 1, color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 17 },
   feedArea: { flex: 1, backgroundColor: "#050914" },
-  feedPage: { width: "100%", overflow: "hidden", backgroundColor: "#050914" },
+  feedPage: { width: "100%", overflow: "hidden", backgroundColor: "#050914", flexDirection: "column" },
+  mediaStage: { flex: 1, minHeight: 220, position: "relative", overflow: "hidden", backgroundColor: "#050914" },
+  mediaStageExpanded: { minHeight: 170 },
+  mediaSlide: { height: "100%", position: "relative", overflow: "hidden", backgroundColor: "#050914" },
   noMedia: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center", backgroundColor: "#111c32" },
   noMediaText: { color: "rgba(255,255,255,0.75)", marginTop: 8, fontWeight: "700" },
   topOverlay: { position: "absolute", top: 12, left: 12, right: 12, zIndex: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -827,20 +864,20 @@ const styles = StyleSheet.create({
   audioText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   mediaCount: { marginLeft: "auto", backgroundColor: "rgba(0,0,0,0.48)", borderRadius: 15, paddingHorizontal: 10, paddingVertical: 5 },
   mediaCountText: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  mediaNav: { position: "absolute", top: "48%", zIndex: 3, width: 38, height: 38, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.42)", alignItems: "center", justifyContent: "center" },
-  actionRail: { position: "absolute", right: 10, bottom: 136, zIndex: 3, alignItems: "center", gap: 15 },
-  sellerAvatarWrap: { width: 52, height: 58, alignItems: "center", marginBottom: 2 },
-  avatarButton: { width: 48, height: 48, borderRadius: 25, borderWidth: 2, borderColor: "#fff", overflow: "hidden", backgroundColor: "#dbeafe" },
+  actionRail: { minHeight: 68, flexDirection: "row", alignItems: "center", justifyContent: "space-around", gap: 2, paddingHorizontal: 5, paddingTop: 4, paddingBottom: 5, backgroundColor: "#050914" },
+  sellerAvatarWrap: { width: 42, height: 46, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  avatarButton: { width: 38, height: 38, borderRadius: 20, borderWidth: 2, borderColor: "#fff", overflow: "hidden", backgroundColor: "#dbeafe" },
   sellerAvatar: { width: "100%", height: "100%" },
   avatarFallback: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.primary },
-  avatarLetter: { color: "#fff", fontWeight: "900", fontSize: 20 },
-  addContactBadge: { position: "absolute", bottom: 0, width: 23, height: 23, borderRadius: 12, backgroundColor: "#ee3d65", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },
+  avatarLetter: { color: "#fff", fontWeight: "900", fontSize: 17 },
+  addContactBadge: { position: "absolute", bottom: -1, width: 19, height: 19, borderRadius: 10, backgroundColor: "#ee3d65", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },
   savedContactBadge: { backgroundColor: "#10B981" },
-  actionButton: { minWidth: 48, alignItems: "center", gap: 2 },
-  actionIcon: { width: 44, height: 44, borderRadius: 23, backgroundColor: "rgba(0,0,0,0.28)", alignItems: "center", justifyContent: "center" },
-  actionLabel: { color: "#fff", textAlign: "center", fontSize: 10, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.7)", textShadowRadius: 4, maxWidth: 54 },
-  listingDetails: { position: "absolute", left: 16, right: 76, bottom: 112, zIndex: 2, gap: 5 },
-  sellerLine: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 2 },
+  actionButton: { flex: 1, minWidth: 0, alignItems: "center", gap: 1 },
+  actionIcon: { width: 36, height: 36, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.09)", alignItems: "center", justifyContent: "center" },
+  actionLabel: { color: "#fff", textAlign: "center", fontSize: 9, fontWeight: "800", maxWidth: "100%" },
+  listingDetails: { paddingHorizontal: 16, paddingTop: 7, paddingBottom: 5, gap: 4, backgroundColor: "#050914" },
+  listingSummary: { gap: 2 },
+  sellerLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   sellerName: { color: "#fff", fontSize: 15, fontWeight: "900", maxWidth: "72%", textShadowColor: "rgba(0,0,0,.65)", textShadowRadius: 5 },
   categoryPill: { marginLeft: "auto", backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   categoryText: { color: "#fff", fontSize: 9, fontWeight: "800" },
@@ -848,10 +885,10 @@ const styles = StyleSheet.create({
   description: { color: "rgba(255,255,255,0.96)", fontSize: 12, lineHeight: 17, textShadowColor: "rgba(0,0,0,.85)", textShadowRadius: 4 },
   productMeta: { flexDirection: "row", alignItems: "center", gap: 9, marginTop: 1 },
   metaText: { color: "rgba(255,255,255,0.92)", fontSize: 10, fontWeight: "700", textShadowColor: "rgba(0,0,0,.8)", textShadowRadius: 4 },
-  priceLine: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 1 },
-  price: { color: "#fff", fontSize: 18, fontWeight: "900", textShadowColor: "rgba(0,0,0,.9)", textShadowRadius: 5 },
+  priceLine: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 0 },
+  price: { color: "#fff", fontSize: 16, fontWeight: "900", textShadowColor: "rgba(0,0,0,.9)", textShadowRadius: 5 },
   oldPrice: { color: "rgba(255,255,255,0.72)", fontSize: 12, textDecorationLine: "line-through" },
-  detailActions: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 1 },
+  detailActions: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 1, minHeight: 18 },
   detailLink: { color: "#fff", fontSize: 11, fontWeight: "800", textShadowColor: "rgba(0,0,0,.9)", textShadowRadius: 4 },
   whatsappAction: { flexDirection: "row", alignItems: "center", gap: 4 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", gap: 12 },
