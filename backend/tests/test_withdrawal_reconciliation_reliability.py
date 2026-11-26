@@ -45,9 +45,9 @@ def test_moneyfusion_poll_reconciles_success_once_without_submission(monkeypatch
 
     async def verified(token, private_key):
         calls.append((token, private_key))
-        return {"success": True, "data": {
-            "tokenPay": token, "amount": 2650, "phone": "90123456",
-            "method": "tmoney-tg", "status": "success",
+        return {"statut": True, "data": {
+            "tokenPay": token, "Montant": 2650, "phone": "90123456",
+            "withdraw_mode": "tmoney-tg", "statut": "paid",
         }}
 
     monkeypatch.setattr(moneyfusion, "load_credentials",
@@ -65,6 +65,32 @@ def test_moneyfusion_poll_reconciles_success_once_without_submission(monkeypatch
     assert user["total_withdrawn"] == 3000
     assert len(calls) == 1
     assert run(db.notifications.count_documents({"user_id": "member"})) == 1
+
+
+def test_moneyfusion_webhook_applies_native_confirmation_format(monkeypatch):
+    db = _db()
+    _moneyfusion_rows(db)
+
+    class Request:
+        app = SimpleNamespace(state=SimpleNamespace(db=db))
+
+        async def json(self):
+            return {"tokenPay": "mf-token"}
+
+    monkeypatch.setattr(moneyfusion, "load_credentials",
+                        AsyncMock(return_value={"payout_private_key": "test-only"}))
+
+    async def verified(token, private_key):
+        return {"statut": True, "data": {
+            "tokenPay": token, "Montant": 2650, "phone": "90123456",
+            "withdraw_mode": "tmoney-tg", "statut": "paid",
+        }}
+
+    monkeypatch.setattr(moneyfusion, "_verify_payout", verified)
+    result = run(moneyfusion.payout_webhook(Request()))
+    withdrawal = run(db.withdrawals.find_one({"id": "wd-mf"}))
+    assert result == {"received": True, "verified": True, "status": "completed"}
+    assert withdrawal["status"] == "completed"
 
 
 def test_moneyfusion_failure_refunds_once_and_appears_as_terminal_failure(monkeypatch):

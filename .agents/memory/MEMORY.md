@@ -25,3 +25,4 @@
 - [Icône Android SPILOVEURE](android-launcher-icon.md) — conserver le fond illustré en plein écran tout en gardant le nom et les cinq pictogrammes dans la zone visible.
 - [Builds Android lents](android-build-performance.md) — SDK Nix imbriqué/temporaire, Build Tools 34/35 requis; lancer Gradle en arrière-plan et vérifier signature et version.
 - [Échanges du portefeuille](wallet-balance-separation.md) — le petit bouton convertit XOF ↔ solde USDT.BEP20 dédié aux retraits, distinct des dépôts.
+- [Exécution des tests Python](python-test-runner.md) — vérifier l’alignement interpréteur/site-packages avant de réinstaller pytest.

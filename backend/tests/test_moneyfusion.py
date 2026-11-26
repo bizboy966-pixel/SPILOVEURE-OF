@@ -574,9 +574,9 @@ def test_payout_reserves_once_and_only_verification_completes(env):
     assert run(env.db.users.find_one({"id": "member"}))["total_withdrawn"] == 0
     assert run(mf.manual_withdrawal_action_allowed(env.db, "wd-one")) is False
     payout = run(env.db.moneyfusion_payouts.find_one({"wd_id": "wd-one"}))
-    data = {"tokenPay": "out-token", "amount": 2650, "phone": "90123456",
-            "method": "tmoney-tg", "status": "success"}
-    provider_http(env.monkeypatch, {mf.PAYOUT_STATUS_URL + "/out-token": {"success": True, "data": data}})
+    data = {"tokenPay": "out-token", "Montant": 2650, "phone": "90123456",
+            "withdraw_mode": "tmoney-tg", "statut": "paid"}
+    provider_http(env.monkeypatch, {mf.PAYOUT_STATUS_URL + "/out-token": {"statut": True, "data": data}})
     for _ in range(2):
         r = env.client.post("/api/webhooks/moneyfusion/payout", json={"tokenPay": "out-token"})
         assert r.json()["verified"] is True

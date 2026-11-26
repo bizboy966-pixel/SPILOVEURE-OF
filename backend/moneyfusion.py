@@ -1316,16 +1316,47 @@ async def _verify_payout(token: str, private_key: str) -> dict:
         return response.json()
 
 
+def _verified_payout_data(verified: dict) -> Optional[dict]:
+    """Accept MoneyFusion's French `statut` envelope and legacy `success`."""
+    if not isinstance(verified, dict):
+        return None
+    if verified.get("statut") is not True and verified.get("success") is not True:
+        return None
+    data = verified.get("data")
+    return data if isinstance(data, dict) else None
+
+
+def _payout_status_value(data: dict) -> str:
+    """MoneyFusion uses `statut` in its native API; keep legacy `status` support."""
+    for key in ("statut", "status"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return ""
+
+
+def _payout_field(data: dict, *keys: str):
+    for key in keys:
+        value = data.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def _payout_details_match(payout: dict, data: dict) -> bool:
     try:
-        amount = float(data.get("amount"))
+        amount = float(_payout_field(data, "amount", "Montant"))
         if not math.isfinite(amount) or abs(amount - float(payout["amount"])) > 0.01:
             return False
     except (KeyError, ValueError, TypeError):
         return False
     return (
-        str(data.get("method") or "") == payout["operator_code"]
-        and _local_phone(str(data.get("phone") or ""), payout["country_code"]) == payout["phone"]
+        str(_payout_field(data, "method", "withdraw_mode", "operator") or "")
+        == payout["operator_code"]
+        and _local_phone(
+            str(_payout_field(data, "phone", "numero", "numeroSend") or ""),
+            payout["country_code"],
+        ) == payout["phone"]
     )
 
 
@@ -1499,12 +1530,12 @@ async def payout_webhook(request: Request):
         verified = await _verify_payout(token, credentials["payout_private_key"])
     except Exception:
         return {"received": True, "verified": False}
-    data = (verified or {}).get("data") or {}
-    if verified.get("success") is not True or str(data.get("tokenPay") or "") != token:
+    data = _verified_payout_data(verified)
+    if data is None or str(data.get("tokenPay") or "") != token:
         return {"received": True, "verified": False}
     if not _payout_details_match(payout, data):
         return {"received": True, "verified": False}
-    outcome = await _apply_payout_status(db, payout, str(data.get("status") or ""), data)
+    outcome = await _apply_payout_status(db, payout, _payout_status_value(data), data)
     return {"received": True, "verified": True, "status": outcome.get("outcome")}
 
 
@@ -1575,8 +1606,8 @@ async def reconcile_withdrawal(
                       "last_reconcile_error_at": _now()}},
         )
         raise HTTPException(502, "Vérification MoneyFusion indisponible. Ne renvoyez pas le retrait.")
-    data = (verified or {}).get("data") or {}
-    if (verified.get("success") is not True or str(data.get("tokenPay") or "") != verify_token
+    data = _verified_payout_data(verified)
+    if (data is None or str(data.get("tokenPay") or "") != verify_token
             or not _payout_details_match(payout, data)):
         await db.moneyfusion_payouts.update_one(
             {"wd_id": wd_id},
@@ -1584,7 +1615,7 @@ async def reconcile_withdrawal(
                       "last_reconcile_error_at": _now()}},
         )
         raise HTTPException(400, "Le token ne correspond pas au montant, numéro et opérateur du retrait.")
-    outcome = await _apply_payout_status(db, payout, str(data.get("status") or ""), data)
+    outcome = await _apply_payout_status(db, payout, _payout_status_value(data), data)
     return {"ok": bool(outcome.get("handled")),
             "status": outcome.get("outcome") or outcome.get("reason"),
             "changed": outcome.get("changed", False)}
