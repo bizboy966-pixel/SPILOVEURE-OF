@@ -190,7 +190,7 @@ async def test_replies_must_target_a_root_comment_on_the_same_listing(marketplac
 
 
 @pytest.mark.asyncio
-async def test_only_listing_owner_can_delete_comments_and_root_deletion_cascades(marketplace_db):
+async def test_comment_author_can_delete_own_root_and_cascade_replies(marketplace_db):
     request = request_for(marketplace_db)
     root = await add_listing_comment(
         "listing-1", ListingComment(text="Commentaire de départ."), request,
@@ -198,37 +198,117 @@ async def test_only_listing_owner_can_delete_comments_and_root_deletion_cascades
     )
     reply = await add_listing_comment(
         "listing-1",
-        ListingComment(text="Réponse à conserver sauf suppression du parent.", parent_comment_id=root["id"]),
+        ListingComment(text="Cette réponse sera supprimée avec le parent.", parent_comment_id=root["id"]),
         request,
-        user={"id": "seller", "username": "Shop"},
+        user={"id": "another-user", "username": "Autre membre"},
     )
 
     with pytest.raises(Exception) as unauthorized:
         await delete_listing_comment(
-            "listing-1", root["id"], request, user={"id": "buyer"},
+            "listing-1", root["id"], request, user={"id": "outsider"},
         )
     assert getattr(unauthorized.value, "status_code", None) == 403
 
     deleted = await delete_listing_comment(
-        "listing-1", root["id"], request, user={"id": "seller"},
+        "listing-1", root["id"], request, user={"id": "buyer"},
     )
     assert deleted == {"deleted": True, "deleted_count": 2}
     assert await listing_comments("listing-1", request, user={"id": "buyer"}) == []
+    feed = await public_feed(request, user={"id": "buyer"})
+    assert feed["items"][0]["comments_count"] == 0
+    assert await marketplace_db.marketplace_listing_comments.count_documents({
+        "id": {"$in": [root["id"], reply["id"]]},
+    }) == 0
 
-    remaining = await add_listing_comment(
-        "listing-1", ListingComment(text="Nouveau commentaire."), request,
+
+@pytest.mark.asyncio
+async def test_comment_author_can_delete_own_reply_without_deleting_root(marketplace_db):
+    request = request_for(marketplace_db)
+    root = await add_listing_comment(
+        "listing-1", ListingComment(text="Commentaire d’un autre membre."), request,
+        user={"id": "another-user", "username": "Autre membre"},
+    )
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Ma réponse.", parent_comment_id=root["id"]),
+        request,
         user={"id": "buyer", "username": "Buyer"},
     )
-    remaining_reply = await add_listing_comment(
-        "listing-1",
-        ListingComment(text="Réponse isolée.", parent_comment_id=remaining["id"]),
-        request,
-        user={"id": "seller", "username": "Shop"},
+    deleted = await delete_listing_comment(
+        "listing-1", reply["id"], request, user={"id": "buyer"},
     )
-    deleted_reply = await delete_listing_comment(
-        "listing-1", remaining_reply["id"], request, user={"id": "seller"},
-    )
-    assert deleted_reply == {"deleted": True, "deleted_count": 1}
+
+    assert deleted == {"deleted": True, "deleted_count": 1}
     threads = await listing_comments("listing-1", request, user={"id": "buyer"})
-    assert len(threads) == 1 and threads[0]["id"] == remaining["id"]
+    assert len(threads) == 1 and threads[0]["id"] == root["id"]
     assert threads[0]["replies"] == []
+    feed = await public_feed(request, user={"id": "buyer"})
+    assert feed["items"][0]["comments_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_listing_seller_and_admin_can_delete_any_comments(marketplace_db):
+    request = request_for(marketplace_db)
+    root = await add_listing_comment(
+        "listing-1", ListingComment(text="Commentaire d’un tiers."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Réponse d’un tiers.", parent_comment_id=root["id"]),
+        request,
+        user={"id": "another-user", "username": "Autre membre"},
+    )
+
+    seller_deleted_root = await delete_listing_comment(
+        "listing-1", root["id"], request, user={"id": "seller", "role": "user"},
+    )
+    assert seller_deleted_root == {"deleted": True, "deleted_count": 2}
+
+    admin_root = await add_listing_comment(
+        "listing-1", ListingComment(text="Commentaire pour l’admin."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    admin_reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Réponse pour l’admin.", parent_comment_id=admin_root["id"]),
+        request,
+        user={"id": "another-user", "username": "Autre membre"},
+    )
+    admin_deleted_reply = await delete_listing_comment(
+        "listing-1", admin_reply["id"], request,
+        user={"id": "admin", "role": "admin"},
+    )
+    assert admin_deleted_reply == {"deleted": True, "deleted_count": 1}
+    admin_deleted_root = await delete_listing_comment(
+        "listing-1", admin_root["id"], request,
+        user={"id": "admin", "role": "admin"},
+    )
+    assert admin_deleted_root == {"deleted": True, "deleted_count": 1}
+    assert await listing_comments("listing-1", request, user={"id": "buyer"}) == []
+
+
+@pytest.mark.asyncio
+async def test_other_users_cannot_delete_comments_or_replies(marketplace_db):
+    request = request_for(marketplace_db)
+    root = await add_listing_comment(
+        "listing-1", ListingComment(text="Commentaire."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Réponse.", parent_comment_id=root["id"]),
+        request,
+        user={"id": "another-user", "username": "Autre membre"},
+    )
+
+    for comment_id in (root["id"], reply["id"]):
+        with pytest.raises(Exception) as unauthorized:
+            await delete_listing_comment(
+                "listing-1", comment_id, request,
+                user={"id": "outsider", "role": "user"},
+            )
+        assert getattr(unauthorized.value, "status_code", None) == 403
+    assert await marketplace_db.marketplace_listing_comments.count_documents({
+        "listing_id": "listing-1",
+    }) == 2

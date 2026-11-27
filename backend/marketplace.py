@@ -305,9 +305,6 @@ async def delete_listing_comment(
 ):
     db = request.app.state.db
     listing = await _approved_listing(db, listing_id)
-    if listing.get("seller_id") != user.get("id"):
-        raise HTTPException(403, "Seul le propriétaire de l’annonce peut supprimer les commentaires.")
-
     comments = db.marketplace_listing_comments
     comment = await comments.find_one(
         {"id": comment_id, "listing_id": listing_id},
@@ -315,6 +312,14 @@ async def delete_listing_comment(
     )
     if not comment:
         raise HTTPException(404, "Commentaire introuvable pour cette annonce.")
+
+    can_delete = (
+        listing.get("seller_id") == user.get("id")
+        or comment.get("user_id") == user.get("id")
+        or user.get("role") == "admin"
+    )
+    if not can_delete:
+        raise HTTPException(403, "Vous ne pouvez pas supprimer ce commentaire.")
 
     if comment.get("parent_comment_id"):
         result = await comments.delete_one({"id": comment_id, "listing_id": listing_id})

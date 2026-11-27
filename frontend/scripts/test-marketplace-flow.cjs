@@ -91,12 +91,20 @@ test("Marketplace users can reply to a comment thread", () => {
   assert.match(marketplace, /testID=\{replyTarget \? "mk-reply-send" : "mk-comment-send"\}/);
 });
 
-test("Only the Marketplace listing owner sees comment deletion controls", () => {
-  assert.match(marketplace, /commentsTarget\?\.seller_id === mainUser\?\.id/);
+test("Comment authors, listing owners, and admins see deletion controls", () => {
+  assert.match(marketplace, /mainUser\.role === "admin"/);
+  assert.match(marketplace, /commentsTarget\?\.seller_id === mainUser\.id/);
+  assert.match(marketplace, /comment\.user_id === mainUser\.id/);
   assert.match(marketplace, /testID=\{`mk-comment-delete-\$\{comment\.id\}`\}/);
+  assert.match(marketplace, /testID=\{`mk-comment-delete-\$\{reply\.id\}`\}/);
   assert.match(marketplace, /api\.delete<\{ deleted_count\?: number \}>/);
   assert.match(marketplace, /comments\/\$\{encodeURIComponent\(comment\.id\)\}/);
   assert.match(marketplace, /Les réponses associées seront également supprimées/);
+});
+
+test("Only the Marketplace share action is raised above the bottom navigation", () => {
+  assert.match(marketplace, /label="Partager"[\s\S]*?lifted/);
+  assert.match(marketplace, /actionButtonLifted: \{ transform: \[\{ translateY: -10 \}\] \}/);
 });
 
 test("Marketplace profile and social actions stay in a right-side vertical rail", () => {

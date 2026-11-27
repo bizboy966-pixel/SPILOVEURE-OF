@@ -377,6 +377,14 @@ function MarketplaceScreenInner() {
     ]);
   };
 
+  const canDeleteComment = (comment: ListingComment) => Boolean(
+    mainUser && (
+      mainUser.role === "admin"
+      || commentsTarget?.seller_id === mainUser.id
+      || comment.user_id === mainUser.id
+    ),
+  );
+
   const shareListing = async (listing: Listing) => {
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://spiloveure.org";
@@ -667,6 +675,7 @@ function MarketplaceScreenInner() {
             testID={`mk-share-${item.id}`}
             onPress={() => void shareListing(item)}
             compact={compactActions}
+            lifted
           />
         </View>
       </View>
@@ -857,7 +866,7 @@ function MarketplaceScreenInner() {
                         <Text style={styles.commentName}>{comment.username}</Text>
                         <Text style={styles.commentText}>{comment.text}</Text>
                       </View>
-                      {commentsTarget?.seller_id === mainUser?.id && (
+                      {canDeleteComment(comment) && (
                         <TouchableOpacity
                           onPress={() => confirmDeleteComment(comment)}
                           disabled={!!deletingCommentId}
@@ -897,7 +906,7 @@ function MarketplaceScreenInner() {
                               <Text style={styles.commentName}>{reply.username}</Text>
                               <Text style={styles.commentText}>{reply.text}</Text>
                             </View>
-                            {commentsTarget?.seller_id === mainUser?.id && (
+                            {canDeleteComment(reply) && (
                               <TouchableOpacity
                                 onPress={() => confirmDeleteComment(reply)}
                                 disabled={!!deletingCommentId}
@@ -965,13 +974,13 @@ function MarketplaceScreenInner() {
 }
 
 function ActionButton({
-  icon, label, color = "#fff", onPress, testID, busy = false, compact = false,
+  icon, label, color = "#fff", onPress, testID, busy = false, compact = false, lifted = false,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
-  label: string; color?: string; onPress: () => void; testID: string; busy?: boolean; compact?: boolean;
+  label: string; color?: string; onPress: () => void; testID: string; busy?: boolean; compact?: boolean; lifted?: boolean;
 }) {
   return (
-    <TouchableOpacity style={[styles.actionButton, compact && styles.actionButtonCompact]} onPress={onPress} testID={testID} accessibilityRole="button" accessibilityLabel={`${label}`}>
+    <TouchableOpacity style={[styles.actionButton, compact && styles.actionButtonCompact, lifted && styles.actionButtonLifted]} onPress={onPress} testID={testID} accessibilityRole="button" accessibilityLabel={`${label}`}>
       <View style={[styles.actionIcon, compact && styles.actionIconCompact]}>
         {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name={icon} size={compact ? 21 : 25} color={color} />}
       </View>
@@ -1010,6 +1019,7 @@ const styles = StyleSheet.create({
   addContactBadge: { position: "absolute", bottom: -1, width: 19, height: 19, borderRadius: 10, backgroundColor: "#ee3d65", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },
   savedContactBadge: { backgroundColor: "#10B981" },
   actionButton: { width: 54, minHeight: 45, alignItems: "center", justifyContent: "center", gap: 1 },
+  actionButtonLifted: { transform: [{ translateY: -10 }] },
   actionIcon: { width: 36, height: 36, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.09)", alignItems: "center", justifyContent: "center" },
   actionIconCompact: { width: 32, height: 32 },
   actionButtonCompact: { minHeight: 0 },
