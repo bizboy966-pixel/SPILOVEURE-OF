@@ -81,13 +81,24 @@ test("Marketplace media swipes horizontally and details stay folded until reques
   assert.match(marketplace, /\{detailsExpanded && \([\s\S]*?testID=\{`mk-desc-/);
 });
 
-test("Marketplace actions remain in the bottom row above navigation", () => {
-  assert.match(marketplace, /actionRail: \{ minHeight: 68, flexDirection: "row"/);
+test("Marketplace profile and social actions stay in a right-side vertical rail", () => {
+  assert.match(marketplace, /actionRail: \{ position: "absolute", right: 8, bottom: 116, width: 56, flexDirection: "column"/);
+  assert.match(marketplace, /const compactActions = pageHeight < 500/);
+  assert.match(marketplace, /actionRailCompact: \{ bottom: 90, gap: 4 \}/);
+  assert.match(marketplace, /actionButtonCompact: \{ minHeight: 0 \}/);
+  assert.match(marketplace, /actionIconCompact: \{ width: 32, height: 32 \}/);
+  assert.match(marketplace, /sellerAvatarWrap/);
   for (const action of ["like", "comments", "chat", "share"]) {
     assert.match(marketplace, new RegExp(`testID=\\{\\x60mk-${action}-`));
   }
-  assert.match(marketplace, /mediaStageExpanded: \{ minHeight: 170 \}/);
-  assert.match(marketplace, /listingDetails: \{ paddingHorizontal:/);
+});
+
+test("Marketplace product summary sits above navigation without shrinking media", () => {
+  assert.match(marketplace, /listingDetails: \{ position: "absolute", left: 0, right: 72, bottom: 96,/);
+  assert.match(marketplace, /mediaStage: \{ flex: 1, minHeight: 220,/);
+  assert.doesNotMatch(marketplace, /mediaStageExpanded/);
+  assert.match(marketplace, /detailsExpanded \? "Voir moins" : "Voir plus"/);
+  assert.match(marketplace, /\{detailsExpanded && \([\s\S]*?testID=\{`mk-desc-/);
 });
 
 test("Shared listing URL identifies the selected product", () => {

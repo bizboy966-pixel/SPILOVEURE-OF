@@ -387,11 +387,12 @@ function MarketplaceScreenInner() {
       ? (item.reviews.reduce((sum, review) => sum + review.rating, 0) / item.reviews.length).toFixed(1)
       : null;
     const detailsExpanded = Boolean(expanded[item.id]);
+    const compactActions = pageHeight < 500;
 
     return (
       <View style={[styles.feedPage, { height: pageHeight }]} testID={`mk-card-${item.id}`}>
         <View
-          style={[styles.mediaStage, detailsExpanded && styles.mediaStageExpanded]}
+          style={styles.mediaStage}
           onLayout={event => {
             const width = Math.round(event.nativeEvent.layout.width);
             if (width > 0 && width !== mediaWidth) setMediaWidth(width);
@@ -554,7 +555,7 @@ function MarketplaceScreenInner() {
           )}
         </View>
 
-        <View style={styles.actionRail}>
+        <View style={[styles.actionRail, compactActions && styles.actionRailCompact]}>
           <View style={styles.sellerAvatarWrap}>
             <TouchableOpacity
               style={styles.avatarButton}
@@ -582,12 +583,14 @@ function MarketplaceScreenInner() {
             testID={`mk-like-${item.id}`}
             onPress={() => void toggleLike(item)}
             busy={socialBusy[`like:${item.id}`]}
+            compact={compactActions}
           />
           <ActionButton
             icon="chatbubble-ellipses"
             label={`${item.comments_count || 0}`}
             testID={`mk-comments-${item.id}`}
             onPress={() => void openComments(item)}
+            compact={compactActions}
           />
           <ActionButton
             icon="chatbubbles"
@@ -595,12 +598,14 @@ function MarketplaceScreenInner() {
             testID={`mk-chat-${item.id}`}
             onPress={() => void openChat(item)}
             busy={socialBusy[`chat:${item.id}`]}
+            compact={compactActions}
           />
           <ActionButton
             icon="arrow-redo"
             label="Partager"
             testID={`mk-share-${item.id}`}
             onPress={() => void shareListing(item)}
+            compact={compactActions}
           />
         </View>
       </View>
@@ -828,17 +833,17 @@ function MarketplaceScreenInner() {
 }
 
 function ActionButton({
-  icon, label, color = "#fff", onPress, testID, busy = false,
+  icon, label, color = "#fff", onPress, testID, busy = false, compact = false,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
-  label: string; color?: string; onPress: () => void; testID: string; busy?: boolean;
+  label: string; color?: string; onPress: () => void; testID: string; busy?: boolean; compact?: boolean;
 }) {
   return (
-    <TouchableOpacity style={styles.actionButton} onPress={onPress} testID={testID} accessibilityRole="button" accessibilityLabel={`${label}`}>
-      <View style={styles.actionIcon}>
-        {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name={icon} size={25} color={color} />}
+    <TouchableOpacity style={[styles.actionButton, compact && styles.actionButtonCompact]} onPress={onPress} testID={testID} accessibilityRole="button" accessibilityLabel={`${label}`}>
+      <View style={[styles.actionIcon, compact && styles.actionIconCompact]}>
+        {busy ? <ActivityIndicator size="small" color={color} /> : <Ionicons name={icon} size={compact ? 21 : 25} color={color} />}
       </View>
-      <Text style={styles.actionLabel}>{label}</Text>
+      <Text style={[styles.actionLabel, compact && styles.actionLabelCompact]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -853,9 +858,8 @@ const styles = StyleSheet.create({
   noticeError: { backgroundColor: "#a62e3d" },
   noticeText: { flex: 1, color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 17 },
   feedArea: { flex: 1, backgroundColor: "#050914" },
-  feedPage: { width: "100%", overflow: "hidden", backgroundColor: "#050914", flexDirection: "column" },
+  feedPage: { width: "100%", overflow: "hidden", backgroundColor: "#050914", position: "relative" },
   mediaStage: { flex: 1, minHeight: 220, position: "relative", overflow: "hidden", backgroundColor: "#050914" },
-  mediaStageExpanded: { minHeight: 170 },
   mediaSlide: { height: "100%", position: "relative", overflow: "hidden", backgroundColor: "#050914" },
   noMedia: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center", backgroundColor: "#111c32" },
   noMediaText: { color: "rgba(255,255,255,0.75)", marginTop: 8, fontWeight: "700" },
@@ -864,7 +868,8 @@ const styles = StyleSheet.create({
   audioText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   mediaCount: { marginLeft: "auto", backgroundColor: "rgba(0,0,0,0.48)", borderRadius: 15, paddingHorizontal: 10, paddingVertical: 5 },
   mediaCountText: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  actionRail: { minHeight: 68, flexDirection: "row", alignItems: "center", justifyContent: "space-around", gap: 2, paddingHorizontal: 5, paddingTop: 4, paddingBottom: 5, backgroundColor: "#050914" },
+  actionRail: { position: "absolute", right: 8, bottom: 116, width: 56, flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 10, zIndex: 3 },
+  actionRailCompact: { bottom: 90, gap: 4 },
   sellerAvatarWrap: { width: 42, height: 46, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   avatarButton: { width: 38, height: 38, borderRadius: 20, borderWidth: 2, borderColor: "#fff", overflow: "hidden", backgroundColor: "#dbeafe" },
   sellerAvatar: { width: "100%", height: "100%" },
@@ -872,10 +877,13 @@ const styles = StyleSheet.create({
   avatarLetter: { color: "#fff", fontWeight: "900", fontSize: 17 },
   addContactBadge: { position: "absolute", bottom: -1, width: 19, height: 19, borderRadius: 10, backgroundColor: "#ee3d65", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#fff" },
   savedContactBadge: { backgroundColor: "#10B981" },
-  actionButton: { flex: 1, minWidth: 0, alignItems: "center", gap: 1 },
+  actionButton: { width: 54, minHeight: 45, alignItems: "center", justifyContent: "center", gap: 1 },
   actionIcon: { width: 36, height: 36, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.09)", alignItems: "center", justifyContent: "center" },
+  actionIconCompact: { width: 32, height: 32 },
+  actionButtonCompact: { minHeight: 0 },
   actionLabel: { color: "#fff", textAlign: "center", fontSize: 9, fontWeight: "800", maxWidth: "100%" },
-  listingDetails: { paddingHorizontal: 16, paddingTop: 7, paddingBottom: 5, gap: 4, backgroundColor: "#050914" },
+  actionLabelCompact: { fontSize: 8 },
+  listingDetails: { position: "absolute", left: 0, right: 72, bottom: 96, paddingHorizontal: 16, paddingTop: 7, paddingBottom: 5, gap: 4, backgroundColor: "#050914", zIndex: 2 },
   listingSummary: { gap: 2 },
   sellerLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   sellerName: { color: "#fff", fontSize: 15, fontWeight: "900", maxWidth: "72%", textShadowColor: "rgba(0,0,0,.65)", textShadowRadius: 5 },
