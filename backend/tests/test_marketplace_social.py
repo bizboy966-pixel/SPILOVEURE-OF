@@ -102,12 +102,22 @@ async def test_listing_likes_and_comments_work_without_mutating_saved_listing(ma
     )
     assert created["text"] == "Je suis intéressé."
     assert created["username"] == "Buyer"
-    assert len(await listing_comments("listing-1", request, user={"id": "buyer"})) == 1
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Je vous ai répondu.", parent_comment_id=created["id"]),
+        request,
+        user={"id": "seller", "username": "Shop"},
+    )
+    assert reply["parent_comment_id"] == created["id"]
+    threads = await listing_comments("listing-1", request, user={"id": "buyer"})
+    assert len(threads) == 1
+    assert threads[0]["id"] == created["id"]
+    assert [entry["text"] for entry in threads[0]["replies"]] == ["Je vous ai répondu."]
 
     feed = await public_feed(request, user={"id": "buyer"})
     row = feed["items"][0]
     assert row["likes_count"] == 0 and row["liked_by_me"] is False
-    assert row["comments_count"] == 1
+    assert row["comments_count"] == 2
     assert row["seller_profile"] == {
         "username": "Shop", "avatar": "data:image/png;base64,profile", "verified": True,
     }
@@ -128,3 +138,52 @@ async def test_interactions_are_rejected_for_unavailable_listings(marketplace_db
             user={"id": "buyer", "username": "Buyer"},
         )
     assert getattr(error.value, "status_code", None) == 404
+
+
+@pytest.mark.asyncio
+async def test_replies_must_target_a_root_comment_on_the_same_listing(marketplace_db):
+    request = request_for(marketplace_db)
+    root = await add_listing_comment(
+        "listing-1", ListingComment(text="Question initiale."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Première réponse.", parent_comment_id=root["id"]),
+        request,
+        user={"id": "seller", "username": "Shop"},
+    )
+
+    with pytest.raises(Exception) as missing_parent:
+        await add_listing_comment(
+            "listing-1",
+            ListingComment(text="Réponse invalide.", parent_comment_id="missing"),
+            request,
+            user={"id": "buyer", "username": "Buyer"},
+        )
+    assert getattr(missing_parent.value, "status_code", None) == 404
+    await marketplace_db.marketplace_listing_comments.insert_one({
+        "id": "comment-from-another-listing",
+        "listing_id": "another-listing",
+        "user_id": "buyer",
+        "username": "Buyer",
+        "text": "Commentaire ailleurs.",
+        "created_at": datetime.now(timezone.utc),
+    })
+    with pytest.raises(Exception) as foreign_parent:
+        await add_listing_comment(
+            "listing-1",
+            ListingComment(text="Réponse sur la mauvaise annonce.", parent_comment_id="comment-from-another-listing"),
+            request,
+            user={"id": "buyer", "username": "Buyer"},
+        )
+    assert getattr(foreign_parent.value, "status_code", None) == 404
+
+    with pytest.raises(Exception) as nested_reply:
+        await add_listing_comment(
+            "listing-1",
+            ListingComment(text="Réponse imbriquée.", parent_comment_id=reply["id"]),
+            request,
+            user={"id": "buyer", "username": "Buyer"},
+        )
+    assert getattr(nested_reply.value, "status_code", None) == 400

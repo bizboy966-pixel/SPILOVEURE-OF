@@ -59,6 +59,7 @@ class Review(BaseModel):
 
 class ListingComment(BaseModel):
     text: str = Field(..., min_length=1, max_length=1000)
+    parent_comment_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class ConfigUpdate(BaseModel):
@@ -235,11 +236,32 @@ async def listing_comments(
     if limit < 1 or limit > 100:
         raise HTTPException(422, "Choisissez entre 1 et 100 commentaires.")
     await _approved_listing(request.app.state.db, listing_id)
-    rows = await request.app.state.db.marketplace_listing_comments.find(
-        {"listing_id": listing_id},
-    ).sort("created_at", -1).limit(limit).to_list(limit)
-    rows.reverse()
-    return [_serialize(row) for row in rows]
+    comments = request.app.state.db.marketplace_listing_comments
+    roots = await comments.find({
+        "listing_id": listing_id,
+        "$or": [
+            {"parent_comment_id": {"$exists": False}},
+            {"parent_comment_id": None},
+        ],
+    }).sort("created_at", -1).limit(limit).to_list(limit)
+    roots.reverse()
+    root_ids = [row["id"] for row in roots]
+    replies_by_parent: dict[str, list[dict]] = {}
+    if root_ids:
+        replies = await comments.find({
+            "listing_id": listing_id,
+            "parent_comment_id": {"$in": root_ids},
+        }).sort("created_at", 1).to_list(500)
+        for reply in replies:
+            replies_by_parent.setdefault(reply["parent_comment_id"], []).append(
+                _serialize(reply),
+            )
+    result = []
+    for root in roots:
+        serialized = _serialize(root)
+        serialized["replies"] = replies_by_parent.get(root["id"], [])
+        result.append(serialized)
+    return result
 
 
 @public.post("/marketplace/{listing_id}/comments")
@@ -255,11 +277,23 @@ async def add_listing_comment(
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "Votre commentaire est vide.")
+    parent_comment_id = (body.parent_comment_id or "").strip() or None
+    if parent_comment_id:
+        parent = await comments.find_one(
+            {"id": parent_comment_id, "listing_id": listing_id},
+            {"_id": 0},
+        )
+        if not parent:
+            raise HTTPException(404, "Commentaire introuvable pour cette annonce.")
+        if parent.get("parent_comment_id"):
+            raise HTTPException(400, "Répondez au commentaire principal.")
     row = {
         "id": str(uuid.uuid4()), "listing_id": listing_id,
         "user_id": user["id"], "username": user.get("username") or "Membre",
         "text": text, "created_at": datetime.now(timezone.utc),
     }
+    if parent_comment_id:
+        row["parent_comment_id"] = parent_comment_id
     await comments.insert_one(row)
     return _serialize(row)
 

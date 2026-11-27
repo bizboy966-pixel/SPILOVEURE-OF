@@ -82,6 +82,14 @@ test("Marketplace media swipes horizontally and details stay folded until reques
   assert.match(marketplace, /\{detailsExpanded && \([\s\S]*?testID=\{`mk-desc-/);
 });
 
+test("Marketplace users can reply to a comment thread", () => {
+  assert.match(marketplace, /parent_comment_id: parentCommentId/);
+  assert.match(marketplace, /testID=\{`mk-comment-reply-/);
+  assert.match(marketplace, /comment\.replies\.map\(reply =>/);
+  assert.match(marketplace, /Répondre à \$\{replyTarget\.username\}/);
+  assert.match(marketplace, /testID=\{replyTarget \? "mk-reply-send" : "mk-comment-send"\}/);
+});
+
 test("Marketplace profile and social actions stay in a right-side vertical rail", () => {
   assert.match(marketplace, /actionRail: \{ position: "absolute", right: 8, bottom: 10, width: 56, flexDirection: "column"/);
   assert.match(marketplace, /const compactActions = pageHeight < 500/);

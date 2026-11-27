@@ -23,7 +23,11 @@ import {
 } from "@/src/marketplace/marketplaceFlow";
 
 type Review = { id: string; user_id: string; username: string; rating: number; comment: string; at: string };
-type ListingComment = { id: string; listing_id: string; user_id: string; username: string; text: string; created_at: string };
+type ListingComment = {
+  id: string; listing_id: string; user_id: string; username: string;
+  text: string; created_at: string; parent_comment_id?: string;
+  replies?: ListingComment[];
+};
 type SellerProfile = { username: string; avatar: string; verified: boolean };
 type Listing = {
   id: string; seller_id: string; seller_username: string;
@@ -69,6 +73,7 @@ function MarketplaceScreenInner() {
   const [comments, setComments] = useState<ListingComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [replyTarget, setReplyTarget] = useState<ListingComment | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState<Record<string, boolean>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
@@ -282,6 +287,7 @@ function MarketplaceScreenInner() {
     setCommentsTarget(listing);
     setComments([]);
     setCommentText("");
+    setReplyTarget(null);
     setCommentsLoading(true);
     try {
       const result = await api.get<ListingComment[]>(
@@ -297,17 +303,28 @@ function MarketplaceScreenInner() {
 
   const submitComment = async () => {
     if (!commentsTarget || !commentText.trim() || commentBusy) return;
+    const parentCommentId = replyTarget?.id;
     setCommentBusy(true);
     try {
       const created = await api.post<ListingComment>(
         `/marketplace/${encodeURIComponent(commentsTarget.id)}/comments`,
-        { text: commentText.trim() },
+        {
+          text: commentText.trim(),
+          ...(parentCommentId ? { parent_comment_id: parentCommentId } : {}),
+        },
       );
-      setComments(previous => [...previous, created]);
+      if (parentCommentId) {
+        setComments(previous => previous.map(comment => comment.id === parentCommentId
+          ? { ...comment, replies: [...(comment.replies || []), created] }
+          : comment));
+      } else {
+        setComments(previous => [...previous, { ...created, replies: [] }]);
+      }
       setItems(previous => previous.map(row => row.id === commentsTarget.id
         ? { ...row, comments_count: (row.comments_count || 0) + 1 }
         : row));
       setCommentText("");
+      setReplyTarget(null);
     } catch (error: any) {
       setNotice({ text: error?.detail || "Impossible de publier le commentaire.", error: true });
     } finally {
@@ -788,37 +805,80 @@ function MarketplaceScreenInner() {
             {commentsLoading ? <ActivityIndicator color={theme.colors.primary} style={{ padding: 22 }} /> : (
               <ScrollView style={styles.commentsList} contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
                 {comments.length ? comments.map(comment => (
-                  <View key={comment.id} style={styles.commentRow}>
-                    <View style={styles.commentAvatar}><Text style={styles.commentAvatarText}>{comment.username.slice(0, 1).toUpperCase()}</Text></View>
-                    <View style={styles.commentBody}>
-                      <Text style={styles.commentName}>{comment.username}</Text>
-                      <Text style={styles.commentText}>{comment.text}</Text>
+                  <View key={comment.id} style={styles.commentThread} testID={`mk-comment-thread-${comment.id}`}>
+                    <View style={styles.commentRow}>
+                      <View style={styles.commentAvatar}><Text style={styles.commentAvatarText}>{comment.username.slice(0, 1).toUpperCase()}</Text></View>
+                      <View style={styles.commentBody}>
+                        <Text style={styles.commentName}>{comment.username}</Text>
+                        <Text style={styles.commentText}>{comment.text}</Text>
+                      </View>
                     </View>
+                    <TouchableOpacity
+                      onPress={() => { setReplyTarget(comment); setCommentText(""); }}
+                      style={styles.replyButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Répondre à ${comment.username}`}
+                      testID={`mk-comment-reply-${comment.id}`}
+                    >
+                      <Text style={styles.replyButtonText}>Répondre</Text>
+                      {!!comment.replies?.length && (
+                        <Text style={styles.replyCount}>
+                          {comment.replies.length} {comment.replies.length > 1 ? "réponses" : "réponse"}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                    {!!comment.replies?.length && (
+                      <View style={styles.replyThread}>
+                        {comment.replies.map(reply => (
+                          <View key={reply.id} style={styles.replyRow} testID={`mk-comment-reply-row-${reply.id}`}>
+                            <View style={styles.replyAvatar}>
+                              <Text style={styles.replyAvatarText}>{reply.username.slice(0, 1).toUpperCase()}</Text>
+                            </View>
+                            <View style={styles.commentBody}>
+                              <Text style={styles.commentName}>{reply.username}</Text>
+                              <Text style={styles.commentText}>{reply.text}</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
                 )) : (
                   <View style={styles.noComments}><Ionicons name="chatbubble-ellipses-outline" size={30} color={theme.colors.textMuted} /><Text style={styles.noCommentsText}>Soyez le premier à commenter.</Text></View>
                 )}
               </ScrollView>
             )}
+            {replyTarget && (
+              <View style={styles.replyingTo} testID="mk-replying-to">
+                <Text style={styles.replyingToText}>Réponse à {replyTarget.username}</Text>
+                <TouchableOpacity
+                  onPress={() => { setReplyTarget(null); setCommentText(""); }}
+                  accessibilityLabel="Annuler la réponse"
+                  testID="mk-reply-cancel"
+                >
+                  <Ionicons name="close" size={17} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.commentComposer}>
               <TextInput
                 value={commentText}
                 onChangeText={setCommentText}
-                placeholder="Écrire un commentaire…"
+                placeholder={replyTarget ? `Répondre à ${replyTarget.username}…` : "Écrire un commentaire…"}
                 placeholderTextColor={theme.colors.textMuted}
                 style={styles.commentInput}
                 maxLength={1000}
                 multiline
                 returnKeyType="send"
                 onSubmitEditing={() => void submitComment()}
-                testID="mk-comment-input"
+                testID={replyTarget ? "mk-reply-input" : "mk-comment-input"}
               />
               <TouchableOpacity
                 onPress={() => void submitComment()}
                 disabled={!commentText.trim() || commentBusy}
                 style={[styles.commentSend, (!commentText.trim() || commentBusy) && { opacity: 0.45 }]}
-                accessibilityLabel="Publier le commentaire"
-                testID="mk-comment-send"
+                accessibilityLabel={replyTarget ? "Publier la réponse" : "Publier le commentaire"}
+                testID={replyTarget ? "mk-reply-send" : "mk-comment-send"}
               >
                 {commentBusy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={17} color="#fff" />}
               </TouchableOpacity>
@@ -933,9 +993,19 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, paddingVertical: 10 },
   commentAvatar: { width: 32, height: 32, borderRadius: 17, backgroundColor: theme.colors.primaryBg, alignItems: "center", justifyContent: "center" },
   commentAvatarText: { color: theme.colors.primary, fontSize: 13, fontWeight: "900" },
+  commentThread: { paddingVertical: 4 },
   commentBody: { flex: 1 },
   commentName: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "900", marginBottom: 2 },
   commentText: { color: theme.colors.textPrimary, fontSize: 13, lineHeight: 18 },
+  replyButton: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: 41, paddingVertical: 6, alignSelf: "flex-start" },
+  replyButtonText: { color: theme.colors.primary, fontSize: 11, fontWeight: "800" },
+  replyCount: { color: theme.colors.textMuted, fontSize: 10, fontWeight: "600" },
+  replyThread: { marginLeft: 18, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginBottom: 8 },
+  replyRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 8 },
+  replyAvatar: { width: 26, height: 26, borderRadius: 14, backgroundColor: theme.colors.primaryBg, alignItems: "center", justifyContent: "center" },
+  replyAvatarText: { color: theme.colors.primary, fontSize: 11, fontWeight: "900" },
+  replyingTo: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 7, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.primaryBg },
+  replyingToText: { color: theme.colors.primary, fontSize: 11, fontWeight: "800" },
   noComments: { alignItems: "center", justifyContent: "center", paddingVertical: 34, gap: 8 },
   noCommentsText: { color: theme.colors.textSecondary, fontSize: 13 },
   commentComposer: { flexDirection: "row", alignItems: "flex-end", gap: 9, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border },
