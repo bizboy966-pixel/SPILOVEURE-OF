@@ -310,12 +310,14 @@ export default function Wallet() {
               <Text style={styles.hint}>
                 {t("wallet.address_warning")}
               </Text>
-              <View style={styles.cryptoUnavailable}>
-                <Ionicons name="information-circle-outline" size={17} color={theme.colors.warning} />
-                <Text style={styles.hint}>
-                  Le retrait crypto restera indisponible tant que sa disponibilité n’est pas confirmée.
-                </Text>
-              </View>
+              {cryptoAssets.length === 0 ? (
+                <View style={styles.cryptoUnavailable}>
+                  <Ionicons name="information-circle-outline" size={17} color={theme.colors.warning} />
+                  <Text style={styles.hint}>
+                    Aucun actif de retrait crypto n’est actuellement disponible pour ce compte.
+                  </Text>
+                </View>
+              ) : null}
             </>
           )}
         </Card>

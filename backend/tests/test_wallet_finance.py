@@ -5,6 +5,7 @@ from fastapi import HTTPException
 import btp_catalog
 import biztranspay
 import feature_flags
+import izichange
 import wallet_finance
 from mongomock_motor import AsyncMongoMockClient
 from wallet_finance import (
@@ -178,6 +179,10 @@ async def test_public_catalog_hides_disabled_routes_and_provider_names(monkeypat
         ],
     ]
     monkeypatch.setattr(wallet_finance, "_catalog_rows", lambda _db: _async_value(rows))
+    monkeypatch.setattr(
+        izichange, "withdrawal_assets",
+        lambda _db: _async_value([{"asset_code": "USDT.BEP20"}]),
+    )
 
     result = await wallet_finance.wallet_operations_catalog(request, "deposit", user)
 
@@ -238,6 +243,13 @@ async def test_wallet_profile_catalog_includes_gabon_and_congo_without_provider_
         },
     ]
     monkeypatch.setattr(wallet_finance, "_catalog_rows", lambda _db: _async_value(rows))
+    monkeypatch.setattr(
+        izichange, "withdrawal_assets",
+        lambda _db: _async_value([{
+            "asset_code": "USDT.BEP20", "code": "USDT.BEP20",
+            "coin": "USDT", "network": "BEP20", "label": "USDT BEP20",
+        }]),
+    )
 
     result = await wallet_finance.wallet_profile_catalog(request, user)
 
@@ -250,6 +262,85 @@ async def test_wallet_profile_catalog_includes_gabon_and_congo_without_provider_
     assert "provider_name" not in repr(result)
     assert "Biz-transPay" not in repr(result)
     assert "MoneyFusion" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_payout_profile_merges_operational_routes_and_omits_disabled_countries(monkeypatch):
+    db = AsyncMongoMockClient().wallet_multi_provider_profile_catalog
+    await feature_flags.ensure_default_flags(db)
+    request = type("Request", (), {
+        "app": type("App", (), {"state": type("State", (), {"db": db})()})(),
+    })()
+    user = {"id": "user-1", "role": "user", "status": "active", "max_level": 1}
+    await db.payment_providers.insert_many([
+        {"id": "biztranspay", "name": "Biz-transPay", "status": "active",
+         "auto_deposit": True, "auto_withdrawal": True, "priority": 1},
+        {"id": "moneyfusion", "name": "MoneyFusion", "status": "active",
+         "auto_deposit": True, "auto_withdrawal": True, "priority": 4},
+    ])
+    await db.payment_provider_payout_countries.insert_many([
+        {"provider_id": "biztranspay", "country_code": "GA", "status": "active"},
+        {"provider_id": "moneyfusion", "country_code": "GA", "status": "active"},
+        {"provider_id": "biztranspay", "country_code": "CM", "status": "inactive"},
+        {"provider_id": "moneyfusion", "country_code": "CM", "status": "inactive"},
+    ])
+    await db.payment_provider_payout_operators.insert_many([
+        {"provider_id": "biztranspay", "country_code": "GA",
+         "operator_code": "mtn-ga", "operator_label": "MTN Mobile Money", "status": "active"},
+        {"provider_id": "biztranspay", "country_code": "GA",
+         "operator_code": "orange-ga", "operator_label": "Orange Money", "status": "inactive"},
+        {"provider_id": "moneyfusion", "country_code": "GA",
+         "operator_code": "airtel-ga", "operator_label": "Airtel Money", "status": "active"},
+        {"provider_id": "moneyfusion", "country_code": "GA",
+         "operator_code": "moov-ga", "operator_label": "Moov Money", "status": "inactive"},
+        {"provider_id": "biztranspay", "country_code": "CM",
+         "operator_code": "mtn-cm", "operator_label": "MTN Mobile Money", "status": "active"},
+        {"provider_id": "moneyfusion", "country_code": "CM",
+         "operator_code": "orange-cm", "operator_label": "Orange Money", "status": "active"},
+    ])
+
+    async def mf_catalog(_db):
+        return [{
+            "country_code": "GA", "country": "Gabon", "currency": "XAF",
+            "operators": [
+                {"code": "airtel-ga", "label": "Airtel Money"},
+                {"code": "moov-ga", "label": "Moov Money"},
+            ],
+        }, {
+            "country_code": "CM", "country": "Cameroun", "currency": "XAF",
+            "operators": [{"code": "orange-cm", "label": "Orange Money"}],
+        }]
+
+    async def btp_catalog(_db, direction):
+        if direction == "deposit":
+            return []
+        return [
+            {"country": "GA", "code": "mtn-ga", "label": "MTN Mobile Money", "currency": "XAF"},
+            {"country": "GA", "code": "orange-ga", "label": "Orange Money", "currency": "XAF"},
+            {"country": "CM", "code": "mtn-cm", "label": "MTN Mobile Money", "currency": "XAF"},
+        ]
+
+    async def ready(_db, _provider, _direction, _route_type):
+        return True
+
+    async def provider_ready(_db, _provider, _kind):
+        return True, None
+
+    monkeypatch.setattr("moneyfusion.refresh_catalog", mf_catalog)
+    monkeypatch.setattr("btp_catalog.fetch_catalog", btp_catalog)
+    monkeypatch.setattr(wallet_finance, "_provider_runtime_ready", ready)
+    monkeypatch.setattr("payment_router._provider_ready", provider_ready)
+    monkeypatch.setattr(izichange, "withdrawal_assets", lambda _db: _async_value([]))
+
+    result = await wallet_finance.wallet_profile_catalog(request, user)
+
+    assert [country["code"] for country in result["countries"]] == ["GA"]
+    assert {item["code"] for item in result["countries"][0]["operators"]} == {
+        "mtn-ga", "airtel-ga",
+    }
+    assert "MoneyFusion" not in repr(result)
+    assert "Biz-transPay" not in repr(result)
+    assert "provider" not in repr(result)
 
 
 async def _async_value(value):

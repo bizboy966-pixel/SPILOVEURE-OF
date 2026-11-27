@@ -31,6 +31,11 @@ type Filter = "all" | "commission" | "activation" | "withdrawal" | "mission";
 
 const STATUS_LABEL: Record<string, { txt: string; bg: string; fg: string }> = {
   pending: { txt: "En attente", bg: "#FEF3C7", fg: "#92400E" },
+  unknown: { txt: "Vérification en cours", bg: "#FEF3C7", fg: "#92400E" },
+  dispatched: { txt: "En cours", bg: "#FEF3C7", fg: "#92400E" },
+  processing: { txt: "En cours", bg: "#FEF3C7", fg: "#92400E" },
+  settling_completed: { txt: "Finalisation", bg: "#FEF3C7", fg: "#92400E" },
+  settling_rejected: { txt: "Remboursement en cours", bg: "#FEF3C7", fg: "#92400E" },
   paid: { txt: "Payé", bg: "#DCFCE7", fg: "#166534" },
   validated: { txt: "Validé", bg: "#DCFCE7", fg: "#166534" },
   active: { txt: "Validé", bg: "#DCFCE7", fg: "#166534" },
@@ -45,6 +50,11 @@ function fmtDate(s?: string, language: "fr" | "en" = "fr") {
   try {
     return new Date(s).toLocaleString(language === "en" ? "en-US" : "fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch { return s; }
+}
+
+function formatAmount(value: number, currency: string) {
+  if (!currency || currency === "XOF") return formatFCFA(value);
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 }).format(value || 0)} ${currency}`;
 }
 
 export default function Transactions() {
@@ -149,6 +159,8 @@ export default function Transactions() {
               theme.colors.textPrimary;
             const st = STATUS_LABEL[item.status] || { txt: item.status, bg: "#E5E7EB", fg: "#374151" };
             const statusKey = item.status === "active" ? "validated" : item.status;
+            const statusText = ["unknown", "dispatched", "processing", "settling_completed", "settling_rejected"]
+              .includes(item.status) ? st.txt : t(`status.${statusKey}`);
             const iconBg =
               isCommission ? "#DCFCE7" :
               isMission ? "#FEF3C7" :
@@ -177,10 +189,10 @@ export default function Transactions() {
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={[styles.txAmt, { color }]}>
-                      {sign} {formatFCFA(item.amount)}
+                      {sign} {formatAmount(item.amount, item.currency)}
                     </Text>
                     <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
-                      <Text style={[styles.statusTxt, { color: st.fg }]}>{t(`status.${statusKey}`)}</Text>
+                      <Text style={[styles.statusTxt, { color: st.fg }]}>{statusText}</Text>
                     </View>
                   </View>
                 </View>
@@ -229,13 +241,13 @@ export default function Transactions() {
                     {item.fee != null && (
                       <View style={styles.kvRow}>
                         <Text style={styles.kvLbl}>{t("transactions.fee")}</Text>
-                        <Text style={[styles.kvVal, { color: theme.colors.danger }]}>− {formatFCFA(item.fee)}</Text>
+                        <Text style={[styles.kvVal, { color: theme.colors.danger }]}>− {formatAmount(item.fee, item.currency)}</Text>
                       </View>
                     )}
                     {item.net != null && (
                       <View style={styles.kvRow}>
                         <Text style={styles.kvLbl}>{t("transactions.net_amount")}</Text>
-                        <Text style={[styles.kvVal, { color: theme.colors.success, fontWeight: "800" }]}>{formatFCFA(item.net)}</Text>
+                        <Text style={[styles.kvVal, { color: theme.colors.success, fontWeight: "800" }]}>{formatAmount(item.net, item.currency)}</Text>
                       </View>
                     )}
                     {!!item.meta?.operator && (

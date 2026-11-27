@@ -35,6 +35,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -94,6 +95,51 @@ async def _api_get(path: str, *, timeout: int = 20):
                                 headers={"Authorization": f"Bearer {API_KEY}"})
 
 
+class PayoutSubmissionError(Exception):
+    def __init__(self, message: str, *, uncertain: bool):
+        super().__init__(message)
+        self.uncertain = uncertain
+
+
+async def withdrawal_assets(db) -> list[dict]:
+    """Return only active merchant assets supported by the verified payout API."""
+    if not API_KEY or not await feature_enabled(db, "auto_withdrawal"):
+        return []
+    try:
+        response = await _api_get("/v1/merchant-assets")
+        if response.status_code >= 400:
+            return []
+        payload = response.json()
+        if isinstance(payload, dict):
+            payload = payload.get("data") or payload.get("assets") or []
+        if not isinstance(payload, list):
+            return []
+        assets = []
+        seen = set()
+        for row in payload:
+            if not isinstance(row, dict) or row.get("isActive") is not True:
+                continue
+            code = str(row.get("assetCode") or "").strip().upper()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            raw_network = row.get("network") or (
+                code.split(".", 1)[1] if "." in code else ""
+            )
+            assets.append({
+                "asset_code": code,
+                "code": code,
+                "coin": str(row.get("coinCode") or code.split(".", 1)[0]).upper(),
+                "network": str(raw_network).upper(),
+                "label": f"{row.get('coinCode') or code.split('.', 1)[0]} "
+                         f"{raw_network}".strip(),
+            })
+        return assets
+    except Exception as exc:
+        log.info("IziChange payout asset catalog unavailable (%s)", type(exc).__name__)
+        return []
+
+
 async def _public_post(path: str, json_body: dict, *, timeout: int = 30):
     """POST to a /v1/public endpoint (no auth). Used for select-crypto."""
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -129,8 +175,9 @@ def _verify_webhook_signature(raw_body: bytes, headers: dict) -> tuple[bool, str
 
 
 async def create_payout(db, *, reference: str, amount_usdt: float, destination_address: str,
-                        metadata: dict | None = None) -> dict:
-    """Create a USDT.BEP20 payout on IziChangePay. Returns the payout dict.
+                        metadata: dict | None = None, asset_code: str = ASSET_CODE,
+                        destination_memo: str | None = None) -> dict:
+    """Create a crypto payout through the verified IziChange merchant API.
 
     Raises HTTPException on API error.
     """
@@ -140,26 +187,84 @@ async def create_payout(db, *, reference: str, amount_usdt: float, destination_a
         raise HTTPException(400, "Adresse de retrait invalide.")
     body = {
         "amount": f"{amount_usdt:.6f}".rstrip("0").rstrip("."),
-        "assetCode": ASSET_CODE,
+        "amountType": "crypto",
+        "assetCode": asset_code,
         "destinationAddress": destination_address,
-        "destinationType": "blockchain_address",
-        "feeBearer": "customer",
+        "feeBearer": "merchant",
         "merchantReference": reference,
     }
+    if destination_memo:
+        body["destinationMemo"] = destination_memo
     if metadata:
         body["metadata"] = metadata
     idem = f"payout-{reference}"
     try:
         r = await _api_post("/v1/payouts", body, timeout=30, idempotency_key=idem)
     except Exception as e:
-        log.exception(f"izichange payout failed: {e}")
-        raise HTTPException(400, "Impossible de contacter la passerelle Crypto pour le retrait.")
+        log.warning("izichange payout result uncertain ref=%s (%s)", reference, type(e).__name__)
+        raise PayoutSubmissionError(
+            "Résultat de soumission incertain; vérifiez le statut avant toute nouvelle action.",
+            uncertain=True,
+        ) from e
     if r.status_code >= 400:
-        log.error(f"izichange payout {r.status_code} ref={reference}: {r.text[:300]}")
-        raise HTTPException(400, "La passerelle Crypto a refusé le retrait.")
-    payout = r.json()
+        log.warning("izichange payout %s ref=%s", r.status_code, reference)
+        uncertain = r.status_code >= 500 or r.status_code in (408, 409, 429)
+        raise PayoutSubmissionError(
+            "Résultat de soumission incertain; vérifiez le statut avant toute nouvelle action."
+            if uncertain else "La passerelle Crypto a refusé le retrait.",
+            uncertain=uncertain,
+        )
+    try:
+        payout = r.json()
+    except Exception as exc:
+        raise PayoutSubmissionError(
+            "Réponse illisible; vérifiez le statut avant toute nouvelle action.",
+            uncertain=True,
+        ) from exc
+    if isinstance(payout, dict) and isinstance(payout.get("data"), dict):
+        payout = payout["data"]
+    if not isinstance(payout, dict):
+        raise PayoutSubmissionError(
+            "Réponse illisible; vérifiez le statut avant toute nouvelle action.",
+            uncertain=True,
+        )
     log.info(f"izichange payout OK ref={reference} id={payout.get('id')} status={payout.get('status')}")
     return payout
+
+
+async def get_payout(payout_id: str) -> dict:
+    """Read one payout's status without creating or retrying a transfer."""
+    response = await _api_get(f"/v1/payouts/{payout_id}")
+    if response.status_code >= 400:
+        return {"ok": False, "reason": "provider_status_unavailable"}
+    payload = response.json()
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    return payload if isinstance(payload, dict) else {"ok": False, "reason": "invalid_status_response"}
+
+
+async def get_payout_by_reference(reference: str) -> dict:
+    """Find an uncertain payout by merchant reference using the documented list GET."""
+    query = urlencode({"payoutType": "crypto", "merchantReference": reference})
+    response = await _api_get(f"/v1/payouts?{query}")
+    if response.status_code >= 400:
+        return {"ok": False, "reason": "provider_status_unavailable"}
+    payload = response.json()
+    if isinstance(payload, dict):
+        payload = payload.get("data") or payload.get("items") or payload.get("results") or []
+    if not isinstance(payload, list):
+        return {"ok": False, "reason": "invalid_status_response"}
+    for payout in payload:
+        if not isinstance(payout, dict):
+            continue
+        merchant_reference = payout.get("merchantReference")
+        if isinstance(merchant_reference, dict):
+            merchant_reference = (
+                merchant_reference.get("reference") or merchant_reference.get("value")
+            )
+        if merchant_reference == reference or payout.get("reference") == reference:
+            return payout
+    return {"ok": False, "reason": "payout_not_found"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -640,6 +745,31 @@ async def _handle_payout_event(db, event_type: str, data: dict):
         return {"ok": True, "ignored": True, "reason": "unknown_reference"}
     now = datetime.now(timezone.utc)
     status = (data.get("status") or "").lower()
+    if wd.get("gateway") == "izichange" and wd.get("method") == "crypto":
+        await db.withdrawals.update_one(
+            {"id": ref, "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"payout_id": payout_id or wd.get("payout_id"),
+                      "tx_hash": data.get("txid") or data.get("txHash") or data.get("tx_hash"),
+                      "updated_at": now}},
+        )
+        current = await db.withdrawals.find_one({"id": ref}, {"_id": 0}) or wd
+        if event_type in ("payout.completed",) or status in ("confirmed", "completed", "succeeded", "paid"):
+            from server import _settle_crypto_withdrawal
+            return await _settle_crypto_withdrawal(
+                db, current, "completed", status or event_type, source="webhook",
+            )
+        if event_type in ("payout.failed", "payout.cancelled") or status in (
+            "failed", "cancelled", "canceled", "rejected", "expired",
+        ):
+            from server import _settle_crypto_withdrawal
+            return await _settle_crypto_withdrawal(
+                db, current, "rejected", status or event_type, source="webhook",
+            )
+        await db.withdrawals.update_one(
+            {"id": ref, "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"gateway_status": status or event_type, "updated_at": now}},
+        )
+        return {"ok": True, "pending": True}
     if event_type in ("payout.completed",) or status in ("confirmed", "completed"):
         await db.withdrawals.update_one(
             {"id": ref},

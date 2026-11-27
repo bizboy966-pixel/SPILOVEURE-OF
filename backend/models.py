@@ -66,9 +66,10 @@ class WalletIn(BaseModel):
 
 
 class WithdrawalIn(BaseModel):
-    amount: int
+    amount: float
     method: Optional[str] = None
     asset_code: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 class AnnouncementIn(BaseModel):

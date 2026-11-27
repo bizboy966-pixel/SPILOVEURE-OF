@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from "react";
-import { Alert, FlatList, ScrollView, StyleSheet, Text, View, TouchableOpacity, RefreshControl } from "react-native";
+import React, { useCallback, useRef, useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, View, TouchableOpacity, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +15,17 @@ import { theme } from "@/src/theme";
 import { formatFCFA, formatDateTime } from "@/src/utils/format";
 import { useI18n } from "@/src/i18n";
 
+const CRYPTO_STATUS_LABEL: Record<string, string> = {
+  pending: "En attente",
+  processing: "En cours",
+  dispatched: "En cours",
+  unknown: "Vérification en cours",
+  settling_completed: "Finalisation",
+  settling_rejected: "Remboursement en cours",
+  completed: "Complété",
+  rejected: "Rejeté",
+};
+
 export default function Withdrawal() {
   const router = useRouter();
   const { user, refresh } = useAuth();
@@ -26,6 +37,7 @@ export default function Withdrawal() {
   const [history, setHistory] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
+  const cryptoRequestId = useRef("");
   const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean; allowed_days?: number[]; open_time?: string; close_time?: string; timezone?: string; crypto_fee_percent?: number; crypto_fee_flat?: number; crypto_min_amount?: number; crypto_payout_available?: boolean; crypto_payout_unavailable_reason?: string }>({
     fee_percent: 0, fee_flat: 0, min_amount: 0, max_amount: null, enabled: true,
     crypto_fee_percent: 0, crypto_fee_flat: 0, crypto_min_amount: 0,
@@ -58,7 +70,7 @@ export default function Withdrawal() {
   const walletProfiles = wallet?.profiles || {};
   const activeWallet = walletProfiles[selectedMethod]
     || (wallet?.method === selectedMethod ? wallet : null);
-  const cryptoAsset = "USDT.BEP20";
+  const cryptoAsset = activeWallet?.asset_code || activeWallet?.network || "USDT.BEP20";
   const cryptoBalance = cryptoWithdrawalBalance;
   const amt = selectedMethod === "crypto"
     ? Number(String(amount).replace(",", ".")) || 0
@@ -115,16 +127,38 @@ export default function Withdrawal() {
 
   const submit = async (token: string) => {
     if (selectedMethod === "crypto") {
-      Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun retrait crypto n’a été envoyé.");
-      return;
+      if (cryptoUnavailable) {
+        Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun montant n’a été débité.");
+        return;
+      }
+      if (!amt || amt <= 0) return Alert.alert(t("common.error"), "Saisissez un montant crypto valide.");
+      if (amt > cryptoBalance) return Alert.alert(t("common.error"), "Solde crypto USDT.BEP20 insuffisant.");
     }
     if (!amt || amt <= 0) return Alert.alert(t("common.error"), t("withdrawal.invalid_amount"));
     try {
-      const result = await api.post<any>("/withdrawals", { amount: amt, method: selectedMethod }, { pwdConfirm: token });
+      if (selectedMethod === "crypto" && !cryptoRequestId.current) {
+        cryptoRequestId.current = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      }
+      const result = await api.post<any>("/withdrawals", {
+        amount: amt,
+        method: selectedMethod,
+        ...(selectedMethod === "crypto" ? {
+          asset_code: cryptoAsset,
+          request_id: cryptoRequestId.current,
+        } : {}),
+      }, { pwdConfirm: token });
+      if (selectedMethod === "crypto" && result?.status !== "unknown") {
+        cryptoRequestId.current = "";
+      }
       if (result?.status === "rejected") {
         Alert.alert(
           t("common.error"),
           result.message || "Le retrait n’a pas pu être envoyé. Le montant a été recrédité sur votre solde.",
+        );
+      } else if (selectedMethod === "crypto") {
+        Alert.alert(
+          "Demande de retrait envoyée",
+          `Statut : ${CRYPTO_STATUS_LABEL[result?.status] || result?.status || "en cours"}. Montant net : ${formatWalletAmount(result?.net_payout ?? netPreview, cryptoAsset)}.`,
         );
       } else {
         Alert.alert("✅", t("withdrawal.request_saved", { amount: formatFCFA(netPreview) }));
@@ -170,6 +204,7 @@ export default function Withdrawal() {
                   onPress={() => {
                     setSelectedMethod(method);
                     setAmount("");
+                    cryptoRequestId.current = "";
                   }}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: active }}
@@ -222,9 +257,11 @@ export default function Withdrawal() {
 
             {selectedMethod === "crypto" ? (
               <View style={styles.cryptoUnavailableBanner} testID="wd-crypto-unavailable">
-                <Ionicons name="lock-closed-outline" size={18} color={theme.colors.warning} />
+                <Ionicons name={cryptoUnavailable ? "lock-closed-outline" : "shield-checkmark-outline"} size={18} color={theme.colors.warning} />
                 <Text style={styles.cryptoUnavailableText}>
-                  {wdSettings.crypto_payout_unavailable_reason || "Le retrait crypto est indisponible. Aucun montant ne sera débité."}
+                  {cryptoUnavailable
+                    ? (wdSettings.crypto_payout_unavailable_reason || "Le retrait crypto est indisponible. Aucun montant ne sera débité.")
+                    : "Le montant sera débité une seule fois et recrédité si le transfert échoue définitivement."}
                 </Text>
               </View>
             ) : null}
@@ -320,13 +357,15 @@ export default function Withdrawal() {
 
               <Button
                 title={selectedMethod === "crypto"
-                  ? "RETRAIT CRYPTO INDISPONIBLE"
+                  ? cryptoUnavailable ? "RETRAIT CRYPTO INDISPONIBLE" : "CONFIRMER LE RETRAIT CRYPTO"
                   : windowOpen ? t("withdrawal.submit_button") : t("withdrawal.closed_button")}
-                icon={<Ionicons name={selectedMethod === "crypto" || !windowOpen ? "lock-closed" : "arrow-up-circle"} size={18} color="#fff" />}
+                icon={<Ionicons name={(selectedMethod === "crypto" && cryptoUnavailable) || !windowOpen ? "lock-closed" : "arrow-up-circle"} size={18} color="#fff" />}
                 onPress={() => {
                   if (selectedMethod === "crypto") {
-                    Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun montant n’a été débité.");
-                    return;
+                    if (cryptoUnavailable) {
+                      Alert.alert("Retrait crypto indisponible", wdSettings.crypto_payout_unavailable_reason || "Aucun montant n’a été débité.");
+                      return;
+                    }
                   }
                   if (!windowOpen) {
                     if (typeof window !== "undefined") window.alert(`${t("withdrawal.closed_title")}\n\n${t("withdrawal.allowed")}\n📅 ${prettyDays}\n🕒 ${t("withdrawal.open_time", { open: openTime, close: closeTime })}\n\n${t("withdrawal.closed_note")}`);
@@ -352,8 +391,14 @@ export default function Withdrawal() {
             history.map((h) => (
               <View key={h.id} style={styles.hist}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: "700", color: theme.colors.textPrimary }}>{formatFCFA(h.amount)}</Text>
-                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{h.operator} • {h.phone}</Text>
+                    <Text style={{ fontWeight: "700", color: theme.colors.textPrimary }}>
+                      {h.method === "crypto"
+                        ? formatWalletAmount(h.amount, h.asset_code || h.network || "USDT.BEP20")
+                        : formatFCFA(h.amount)}
+                    </Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                      {h.method === "crypto" ? "Retrait crypto" : `${h.operator} • ${h.phone}`}
+                    </Text>
                   <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{formatDateTime(h.created_at)}</Text>
                 </View>
                 <StatusBadge status={h.status} />
@@ -381,7 +426,13 @@ function StatusBadge({ status }: { status: string }) {
   const { t } = useI18n();
   const cfg: any = {
     pending: { bg: theme.colors.warningBg, color: theme.colors.warning, label: t("status.pending") },
+    processing: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "En cours" },
+    dispatched: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "En cours" },
+    unknown: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "Vérification en cours" },
+    settling_completed: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "Finalisation" },
+    settling_rejected: { bg: theme.colors.warningBg, color: theme.colors.warning, label: "Remboursement en cours" },
     validated: { bg: theme.colors.successBg, color: theme.colors.success, label: t("status.validated") },
+    completed: { bg: theme.colors.successBg, color: theme.colors.success, label: "Complété" },
     rejected: { bg: theme.colors.dangerBg, color: theme.colors.danger, label: t("status.rejected") },
   }[status] || { bg: "#eee", color: "#666", label: status };
   return (

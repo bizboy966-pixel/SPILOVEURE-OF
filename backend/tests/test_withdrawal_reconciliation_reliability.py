@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 from mongomock_motor import AsyncMongoMockClient
 
 import biztranspay
+import izichange
 import moneyfusion
 
 
@@ -362,6 +363,281 @@ def test_biztranspay_sweep_handles_non_truthy_wallet_sends_collection():
     ))
 
     assert result == {"scanned": 0, "updated": 0, "errors": 0, "changes": []}
+
+
+def test_crypto_withdrawal_uses_idempotent_payout_and_refunds_final_failure_once(monkeypatch):
+    import server
+    from models import WithdrawalIn
+
+    db = _db()
+    run(db.users.insert_one({"id": "member", "balance_crypto": 3.0}))
+    monkeypatch.setattr(
+        izichange, "withdrawal_assets",
+        AsyncMock(return_value=[{"asset_code": "USDT.BEP20"}]),
+    )
+    submit = AsyncMock(return_value={"id": "izi-po-1", "status": "pending"})
+    monkeypatch.setattr(izichange, "create_payout", submit)
+    wallet = {
+        "country": "TG", "full_name": "Member", "method": "crypto",
+        "asset_code": "USDT.BEP20", "wallet_address": "0x" + "a" * 40,
+    }
+    data = WithdrawalIn(
+        amount=1.25, method="crypto", asset_code="USDT.BEP20",
+        request_id="client-request-1",
+    )
+    settings = {"crypto_min_amount": 0, "crypto_fee_percent": 0, "crypto_fee_flat": 0}
+
+    first = run(server._request_crypto_withdrawal(
+        db, {"id": "member", "username": "member"}, wallet, data, settings,
+    ))
+    duplicate = run(server._request_crypto_withdrawal(
+        db, {"id": "member", "username": "member"}, wallet, data, settings,
+    ))
+    user = run(db.users.find_one({"id": "member"}))
+    wd = run(db.withdrawals.find_one({"id": first["id"]}))
+
+    assert first["status"] == duplicate["status"] == "dispatched"
+    assert user["balance_crypto"] == 1.75
+    assert wd["payout_id"] == "izi-po-1"
+    assert submit.await_count == 1
+
+    event = {"merchantReference": wd["id"], "id": "izi-po-1", "status": "failed"}
+    first_failure = run(izichange._handle_payout_event(db, "payout.failed", event))
+    second_failure = run(izichange._handle_payout_event(db, "payout.failed", event))
+    current = run(db.withdrawals.find_one({"id": wd["id"]}))
+    user = run(db.users.find_one({"id": "member"}))
+    assert first_failure["status"] == second_failure["status"] == "rejected"
+    assert current["status"] == "rejected"
+    assert user["balance_crypto"] == 3.0
+
+
+def test_crypto_withdrawal_uncertain_submission_is_not_refunded_or_retried(monkeypatch):
+    import server
+    from models import WithdrawalIn
+
+    db = _db()
+    run(db.users.insert_one({"id": "member", "balance_crypto": 3.0}))
+    monkeypatch.setattr(
+        izichange, "withdrawal_assets",
+        AsyncMock(return_value=[{"asset_code": "USDT.BEP20"}]),
+    )
+    submit = AsyncMock(side_effect=izichange.PayoutSubmissionError(
+        "uncertain", uncertain=True,
+    ))
+    monkeypatch.setattr(izichange, "create_payout", submit)
+    wallet = {
+        "country": "GA", "full_name": "Member", "method": "crypto",
+        "asset_code": "USDT.BEP20", "wallet_address": "0x" + "b" * 40,
+    }
+    data = WithdrawalIn(
+        amount=1, method="crypto", asset_code="USDT.BEP20",
+        request_id="uncertain-request",
+    )
+    settings = {"crypto_min_amount": 0, "crypto_fee_percent": 0, "crypto_fee_flat": 0}
+
+    result = run(server._request_crypto_withdrawal(
+        db, {"id": "member"}, wallet, data, settings,
+    ))
+    replay = run(server._request_crypto_withdrawal(
+        db, {"id": "member"}, wallet, data, settings,
+    ))
+    wd = run(db.withdrawals.find_one({"id": result["id"]}))
+    user = run(db.users.find_one({"id": "member"}))
+
+    assert result["status"] == replay["status"] == "unknown"
+    assert wd["gateway_status"] == "unknown"
+    assert user["balance_crypto"] == 2.0
+    assert submit.await_count == 1
+
+
+def test_crypto_withdrawal_resumes_unclaimed_record_without_double_debit(monkeypatch):
+    import uuid
+    import server
+    from models import WithdrawalIn
+
+    db = _db()
+    run(db.users.insert_one({"id": "member", "balance_crypto": 3.0}))
+    request_id = "resume-request"
+    wd_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL, f"spiloveure:crypto-withdrawal:member:{request_id}",
+    ))
+    run(db.withdrawals.insert_one({
+        "_id": wd_id, "id": wd_id, "client_request_id": request_id,
+        "user_id": "member", "amount": 1.0, "wallet_debit": 1.0,
+        "fee": 0.0, "net_payout": 1.0, "asset_code": "USDT.BEP20",
+        "method": "crypto", "wallet_address": "0x" + "d" * 40,
+        "gateway": "izichange", "status": "pending",
+    }))
+    monkeypatch.setattr(
+        izichange, "withdrawal_assets",
+        AsyncMock(return_value=[{"asset_code": "USDT.BEP20"}]),
+    )
+    submit = AsyncMock(return_value={"id": "izi-resume-1", "status": "pending"})
+    monkeypatch.setattr(izichange, "create_payout", submit)
+
+    result = run(server._request_crypto_withdrawal(
+        db, {"id": "member"}, {
+            "country": "TG", "method": "crypto", "asset_code": "USDT.BEP20",
+            "wallet_address": "0x" + "d" * 40,
+        }, WithdrawalIn(
+            amount=1.0, method="crypto", asset_code="USDT.BEP20",
+            request_id=request_id,
+        ), {"crypto_min_amount": 0, "crypto_fee_percent": 0, "crypto_fee_flat": 0},
+    ))
+    user = run(db.users.find_one({"id": "member"}))
+
+    assert result["status"] == "dispatched"
+    assert user["balance_crypto"] == 2.0
+    assert submit.await_count == 1
+
+
+def test_crypto_withdrawal_status_poll_resolves_uncertain_reference_until_final(monkeypatch):
+    import server
+
+    db = _db()
+    run(db.users.insert_one({
+        "id": "member", "balance_crypto": 2.0,
+        "crypto_withdrawal_debits": ["wd-crypto-poll"],
+    }))
+    wd = {
+        "id": "wd-crypto-poll", "user_id": "member", "method": "crypto",
+        "gateway": "izichange", "status": "unknown", "gateway_status": "unknown",
+        "asset_code": "USDT.BEP20", "amount": 1.0, "wallet_debit": 1.0,
+        "net_payout": 0.98,
+    }
+    run(db.withdrawals.insert_one(wd))
+    find_by_reference = AsyncMock(return_value={
+        "id": "izi-poll-1", "merchantReference": "wd-crypto-poll", "status": "pending",
+    })
+    get_by_id = AsyncMock(return_value={
+        "id": "izi-poll-1", "merchantReference": "wd-crypto-poll", "status": "confirmed",
+        "txid": "0xconfirmed",
+    })
+    monkeypatch.setattr(izichange, "get_payout_by_reference", find_by_reference)
+    monkeypatch.setattr(izichange, "get_payout", get_by_id)
+
+    first = run(server._reconcile_izichange_withdrawal(db, wd))
+    saved = run(db.withdrawals.find_one({"id": wd["id"]}))
+    second = run(server._reconcile_izichange_withdrawal(db, saved))
+    final = run(db.withdrawals.find_one({"id": wd["id"]}))
+    user = run(db.users.find_one({"id": "member"}))
+
+    assert first["gateway_status"] == "pending"
+    assert saved["payout_id"] == "izi-poll-1"
+    assert second["status"] == "completed"
+    assert final["status"] == "completed"
+    assert user["balance_crypto"] == 2.0
+    assert user["total_withdrawn_crypto"] == 1.0
+    find_by_reference.assert_awaited_once()
+    get_by_id.assert_awaited_once_with("izi-poll-1")
+
+
+def test_izichange_payout_request_matches_documented_payload_without_network(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(izichange, "API_KEY", "test-only")
+    calls = []
+
+    async def fake_post(path, body, *, timeout, idempotency_key):
+        calls.append((path, body, idempotency_key))
+        return SimpleNamespace(status_code=201, json=lambda: {
+            "id": "payout-test", "status": "pending",
+        })
+
+    monkeypatch.setattr(izichange, "_api_post", fake_post)
+    result = run(izichange.create_payout(
+        None, reference="withdrawal-test", amount_usdt=1.25,
+        destination_address="0x" + "c" * 40, asset_code="USDT.BEP20",
+    ))
+
+    assert result["id"] == "payout-test"
+    assert calls[0][0] == "/v1/payouts"
+    assert calls[0][1]["amount"] == "1.25"
+    assert calls[0][1]["amountType"] == "crypto"
+    assert calls[0][1]["assetCode"] == "USDT.BEP20"
+    assert calls[0][1]["destinationAddress"] == "0x" + "c" * 40
+    assert calls[0][1]["merchantReference"] == "withdrawal-test"
+    assert calls[0][1]["feeBearer"] == "merchant"
+    assert calls[0][2] == "payout-withdrawal-test"
+
+
+def test_izichange_withdrawal_assets_use_active_merchant_assets_only(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(izichange, "API_KEY", "test-only")
+    monkeypatch.setattr(izichange, "feature_enabled", AsyncMock(return_value=True))
+    response = SimpleNamespace(
+        status_code=200,
+        json=lambda: {"data": [
+            {"assetCode": "USDT.BEP20", "coinCode": "USDT", "network": "BEP20", "isActive": True},
+            {"assetCode": "USDT.ERC20", "coinCode": "USDT", "network": "ERC20", "isActive": False},
+        ]},
+    )
+    get = AsyncMock(return_value=response)
+    monkeypatch.setattr(izichange, "_api_get", get)
+
+    assets = run(izichange.withdrawal_assets(None))
+
+    assert [item["asset_code"] for item in assets] == ["USDT.BEP20"]
+    assert assets[0]["network"] == "BEP20"
+    get.assert_awaited_once_with("/v1/merchant-assets")
+
+
+def test_izichange_uncertain_payout_can_be_found_by_reference_with_get_only(monkeypatch):
+    from types import SimpleNamespace
+
+    response = SimpleNamespace(
+        status_code=200,
+        json=lambda: {"data": [{
+            "id": "payout-lookup",
+            "merchantReference": {"reference": "withdrawal-lookup"},
+            "status": "pending",
+        }]},
+    )
+    get = AsyncMock(return_value=response)
+    monkeypatch.setattr(izichange, "_api_get", get)
+
+    payout = run(izichange.get_payout_by_reference("withdrawal-lookup"))
+
+    assert payout["id"] == "payout-lookup"
+    assert payout["status"] == "pending"
+    get.assert_awaited_once_with(
+        "/v1/payouts?payoutType=crypto&merchantReference=withdrawal-lookup",
+    )
+
+
+def test_user_withdrawal_history_does_not_expose_provider_names():
+    import server
+
+    db = _db()
+    run(db.withdrawals.insert_one({
+        "id": "mobile-wd", "user_id": "member", "amount": 1000,
+        "method": "mobile", "status": "pending", "gateway": "moneyfusion",
+        "provider_name": "MoneyFusion", "created_at": datetime.now(timezone.utc),
+    }))
+    run(db.withdrawals.insert_one({
+        "id": "crypto-wd", "user_id": "member", "amount": 1.25, "fee": 0.02,
+        "net_payout": 1.23, "method": "crypto", "asset_code": "USDT.BEP20",
+        "status": "unknown", "gateway": "izichange", "provider_name": "IziChange",
+        "created_at": datetime.now(timezone.utc),
+    }))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db)))
+
+    history = run(server.my_withdrawals(request, {"id": "member"}))
+    transactions = run(server._build_transaction_history(db, "member"))
+    crypto_transaction = next(item for item in transactions if item.get("ref") == "crypto-wd")
+
+    assert len(history) == 2
+    mobile_history = next(item for item in history if item["id"] == "mobile-wd")
+    assert "gateway" not in mobile_history
+    assert "provider_name" not in mobile_history
+    assert "MoneyFusion" not in repr(history)
+    assert "IziChange" not in repr(history)
+    assert crypto_transaction["currency"] == "USDT.BEP20"
+    assert crypto_transaction["label"] == "Retrait crypto"
+    assert crypto_transaction["amount"] == 1.25
+    assert crypto_transaction["net"] == 1.23
+    assert crypto_transaction["meta"]["withdrawal_type"] == "crypto"
 
 
 def test_biztranspay_nested_error_code_is_preserved():

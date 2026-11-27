@@ -7,6 +7,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Optional, List
 
@@ -123,6 +124,15 @@ async def lifespan(app: FastAPI):
     await db.matrix_placements.create_index("sponsor_id")
     await db.commissions.create_index("user_id")
     await db.withdrawals.create_index("user_id")
+    try:
+        await db.withdrawals.create_index(
+            [("user_id", 1), ("client_request_id", 1)],
+            unique=True,
+            partialFilterExpression={"client_request_id": {"$exists": True}},
+            name="crypto_withdrawal_request_unique",
+        )
+    except Exception as _idx_e:
+        log.warning("crypto withdrawal idempotency index skipped: %s", _idx_e)
     await db.activations.create_index("user_id")
     await db.payments.create_index("user_id")
     # v27l (Phase 4) — idempotency: reference must be globally unique across
@@ -1149,6 +1159,303 @@ async def _reject_unsubmitted_withdrawal(db, wd: dict, reason: str) -> bool:
     return True
 
 
+async def _settle_crypto_withdrawal(
+    db, wd: dict, target_status: str, gateway_status: str, *, source: str,
+) -> dict:
+    """Finalize an IziChange crypto withdrawal with one-time refund/accounting."""
+    wd_id = str(wd.get("id") or "")
+    user_id = wd.get("user_id")
+    if not wd_id or not user_id or target_status not in {"completed", "rejected"}:
+        return {"ok": False, "reason": "invalid_terminal_status"}
+    finalizing = f"settling_{target_status}"
+    claim = await db.withdrawals.update_one(
+        {"id": wd_id, "status": {"$nin": [
+            "completed", "rejected", "validated", "settling_completed", "settling_rejected",
+        ]}},
+        {"$set": {
+            "status": finalizing, "gateway_status": gateway_status,
+            "settlement_source": source, "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    current = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or wd
+    if current.get("status") in {"completed", "rejected", "validated"}:
+        return {"ok": True, "status": current["status"], "changed": False}
+    if not claim.modified_count and current.get("status") != finalizing:
+        return {"ok": False, "reason": "conflicting_terminal_status"}
+
+    now = datetime.now(timezone.utc)
+    if target_status == "rejected":
+        amount = float(current.get("wallet_debit") or current.get("amount") or 0)
+        refund = await db.users.update_one(
+            {"id": user_id, "crypto_withdrawal_refunds": {"$ne": wd_id}},
+            {"$inc": {"balance_crypto": amount},
+             "$addToSet": {"crypto_withdrawal_refunds": wd_id}},
+        )
+        if not refund.modified_count:
+            user = await db.users.find_one(
+                {"id": user_id}, {"_id": 0, "crypto_withdrawal_refunds": 1},
+            )
+            if not user or wd_id not in (user.get("crypto_withdrawal_refunds") or []):
+                raise RuntimeError("Retrait crypto non remboursé : marqueur idempotent absent.")
+        fields = {"status": "rejected", "rejected_at": now}
+    else:
+        await db.users.update_one(
+            {"id": user_id, "crypto_withdrawal_completed": {"$ne": wd_id}},
+            {"$inc": {"total_withdrawn_crypto": float(current.get("amount") or 0)},
+             "$addToSet": {"crypto_withdrawal_completed": wd_id}},
+        )
+        fields = {"status": "completed", "completed_at": now}
+    fields.update({
+        "gateway_status": gateway_status, "settled_at": now,
+        "settlement_source": source, "updated_at": now,
+    })
+    result = await db.withdrawals.update_one(
+        {"id": wd_id, "status": finalizing}, {"$set": fields},
+    )
+    notification_id = f"withdrawal:{wd_id}:{target_status}"
+    try:
+        await db.notifications.update_one(
+            {"_id": notification_id},
+            {"$setOnInsert": {
+                "id": notification_id, "user_id": user_id,
+                "kind": "withdrawal_status",
+                "title": "Retrait crypto confirmé" if target_status == "completed" else "Retrait crypto refusé",
+                "body": (
+                    f"Votre retrait de {current.get('net_payout')} {current.get('asset_code')} est confirmé."
+                    if target_status == "completed" else
+                    f"Votre retrait crypto a échoué; {current.get('wallet_debit') or current.get('amount')} "
+                    f"{current.get('asset_code')} ont été recrédités."
+                ),
+                "meta": {"withdrawal_id": wd_id, "status": target_status},
+                "read": False, "created_at": now,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("Crypto withdrawal notification persistence failed wd=%s", wd_id)
+    return {"ok": True, "status": target_status, "changed": bool(result.modified_count)}
+
+
+async def _reconcile_izichange_withdrawal(db, wd: dict) -> dict:
+    """Read the original IziChange payout; this function never submits a payout."""
+    payout_id = wd.get("payout_id")
+    try:
+        from izichange import get_payout, get_payout_by_reference
+        payout = (
+            await get_payout(str(payout_id)) if payout_id
+            else await get_payout_by_reference(str(wd.get("id") or ""))
+        )
+    except Exception as exc:
+        log.info("IziChange payout status unavailable wd=%s (%s)", wd.get("id"), type(exc).__name__)
+        return {"ok": False, "reason": "provider_status_unavailable"}
+    if payout.get("ok") is False:
+        return payout
+    payout_id = str(payout.get("id") or payout_id or "").strip()
+    if payout_id:
+        await db.withdrawals.update_one(
+            {"id": wd.get("id"), "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"payout_id": payout_id, "provider_intent_id": payout_id,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    status = str(payout.get("status") or "").strip().lower()
+    if status in {"completed", "confirmed", "succeeded", "paid", "success"}:
+        outcome = await _settle_crypto_withdrawal(
+            db, wd, "completed", status, source="poll",
+        )
+        return {**outcome, "gateway_status": status}
+    if status in {"failed", "declined", "cancelled", "canceled", "rejected", "expired"}:
+        outcome = await _settle_crypto_withdrawal(
+            db, wd, "rejected", status, source="poll",
+        )
+        return {**outcome, "gateway_status": status}
+    if status:
+        await db.withdrawals.update_one(
+            {"id": wd.get("id"), "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": {"gateway_status": status, "updated_at": datetime.now(timezone.utc)}},
+        )
+    return {"ok": True, "changed": False, "gateway_status": status or "pending"}
+
+
+async def _request_crypto_withdrawal(
+    db, user: dict, wallet: dict, data: WithdrawalIn, settings: dict,
+) -> dict:
+    from izichange import (
+        ASSET_CODE, PayoutSubmissionError, create_payout, withdrawal_assets,
+    )
+    asset = str(wallet.get("asset_code") or wallet.get("network") or "").strip().upper()
+    if asset in {"USDT BEP20", "USDT_BEP20", "BEP20"}:
+        asset = ASSET_CODE
+    requested_asset = str(data.asset_code or asset).strip().upper()
+    if requested_asset in {"USDT BEP20", "USDT_BEP20", "BEP20"}:
+        requested_asset = ASSET_CODE
+    if asset != ASSET_CODE or requested_asset != asset:
+        raise HTTPException(400, "L’actif sélectionné ne correspond pas au portefeuille crypto enregistré.")
+    if not await withdrawal_assets(db):
+        raise HTTPException(503, "Le retrait crypto automatique n’est pas disponible pour le moment.")
+    if not wallet.get("wallet_address") or len(str(wallet["wallet_address"]).strip()) < 12:
+        raise HTTPException(400, "Adresse de retrait crypto invalide.")
+
+    request_id = str(data.request_id or uuid.uuid4().hex).strip()
+    if len(request_id) > 120 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", request_id):
+        raise HTTPException(400, "Identifiant de demande invalide.")
+    existing = await db.withdrawals.find_one(
+        {"user_id": user["id"], "client_request_id": request_id}, {"_id": 0},
+    )
+    if existing and (
+        existing.get("status") != "pending"
+        or existing.get("crypto_submission_claimed")
+    ):
+        return {
+            "id": existing["id"], "status": existing.get("status", "pending"),
+            "amount": existing.get("amount"), "fee": existing.get("fee"),
+            "net_payout": existing.get("net_payout"),
+        }
+
+    quantum = Decimal("0.000001")
+    raw_amount = Decimal(str(data.amount))
+    if not raw_amount.is_finite() or raw_amount <= 0:
+        raise HTTPException(400, "Montant crypto invalide.")
+    try:
+        amount = raw_amount.quantize(quantum, rounding=ROUND_HALF_UP)
+    except InvalidOperation as exc:
+        raise HTTPException(400, "Montant crypto invalide.") from exc
+    minimum = Decimal(str(settings.get("crypto_min_amount") or 0))
+    if minimum and amount < minimum:
+        raise HTTPException(400, f"Montant minimum de retrait : {minimum} {ASSET_CODE}.")
+    rate = Decimal(str(settings.get("crypto_fee_percent") or 0))
+    fixed = Decimal(str(settings.get("crypto_fee_flat") or 0))
+    fee = min(amount, (amount * rate / Decimal(100) + fixed).quantize(
+        quantum, rounding=ROUND_HALF_UP,
+    ))
+    net = (amount - fee).quantize(quantum, rounding=ROUND_HALF_UP)
+    if net <= 0:
+        raise HTTPException(400, "Les frais sont supérieurs ou égaux au montant.")
+
+    wd_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL, f"spiloveure:crypto-withdrawal:{user['id']}:{request_id}",
+    ))
+    now = datetime.now(timezone.utc)
+    wd = {
+        "_id": wd_id, "id": wd_id, "client_request_id": request_id,
+        "user_id": user["id"], "username": user.get("username"),
+        "amount": float(amount), "wallet_debit": float(amount),
+        "fee": float(fee), "net_payout": float(net),
+        "asset_code": ASSET_CODE, "method": "crypto",
+        "wallet_address": str(wallet["wallet_address"]).strip(),
+        "network": ASSET_CODE, "country": wallet.get("country") or "",
+        "full_name": wallet.get("full_name") or user.get("full_name") or "",
+        "gateway": "izichange", "gateway_status": "not_submitted",
+        "status": "pending", "created_at": now, "updated_at": now,
+    }
+    try:
+        await db.withdrawals.insert_one(wd)
+    except Exception:
+        existing = await db.withdrawals.find_one(
+            {"user_id": user["id"], "client_request_id": request_id}, {"_id": 0},
+        )
+        if not existing:
+            raise
+        wd = existing
+        amount = Decimal(str(wd.get("amount") or amount))
+        fee = Decimal(str(wd.get("fee") or fee))
+        net = Decimal(str(wd.get("net_payout") or net))
+    debited = await db.users.update_one(
+        {"id": user["id"], "balance_crypto": {"$gte": float(amount)},
+         "crypto_withdrawal_debits": {"$ne": wd_id}},
+        {"$inc": {"balance_crypto": -float(amount)},
+         "$addToSet": {"crypto_withdrawal_debits": wd_id}},
+    )
+    if not debited.modified_count:
+        current_user = await db.users.find_one(
+            {"id": user["id"]}, {"_id": 0, "crypto_withdrawal_debits": 1},
+        ) or {}
+        if wd_id not in (current_user.get("crypto_withdrawal_debits") or []):
+            await db.withdrawals.delete_one({
+                "id": wd_id, "status": "pending",
+                "crypto_submission_claimed": {"$ne": True},
+            })
+            raise HTTPException(400, "Solde crypto USDT.BEP20 insuffisant.")
+    claimed = await db.withdrawals.update_one(
+        {"id": wd_id, "status": "pending", "crypto_submission_claimed": {"$ne": True}},
+        {"$set": {
+            "status": "processing", "gateway_status": "submitting",
+            "crypto_submission_claimed": True, "auto_dispatched": True,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    if not claimed.modified_count:
+        current = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or {}
+        return {"id": wd_id, "status": current.get("status", "processing"),
+                "amount": current.get("amount", float(amount)),
+                "fee": current.get("fee", float(fee)),
+                "net_payout": current.get("net_payout", float(net))}
+
+    try:
+        payout = await create_payout(
+            db, reference=wd_id, amount_usdt=float(net),
+            destination_address=wd["wallet_address"], asset_code=ASSET_CODE,
+        )
+    except PayoutSubmissionError as exc:
+        if exc.uncertain:
+            await db.withdrawals.update_one(
+                {"id": wd_id, "status": "processing"},
+                {"$set": {"status": "unknown", "gateway_status": "unknown",
+                          "auto_dispatch_reason": str(exc)[:240],
+                          "updated_at": datetime.now(timezone.utc)}},
+            )
+            return {"id": wd_id, "status": "unknown", "amount": float(amount),
+                    "fee": float(fee), "net_payout": float(net)}
+        current = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or wd
+        await _settle_crypto_withdrawal(
+            db, current, "rejected", "refused", source="provider",
+        )
+        return {"id": wd_id, "status": "rejected", "amount": float(amount),
+                "fee": float(fee), "net_payout": float(net),
+                "message": "Le retrait a été refusé et le solde a été recrédité."}
+    except Exception as exc:
+        log.warning("IziChange payout dispatch uncertain wd=%s (%s)", wd_id, type(exc).__name__)
+        await db.withdrawals.update_one(
+            {"id": wd_id, "status": "processing"},
+            {"$set": {"status": "unknown", "gateway_status": "unknown",
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+        return {"id": wd_id, "status": "unknown", "amount": float(amount),
+                "fee": float(fee), "net_payout": float(net)}
+
+    payout_id = str(payout.get("id") or "").strip()
+    remote_status = str(payout.get("status") or "").strip().lower()
+    if not payout_id:
+        await db.withdrawals.update_one(
+            {"id": wd_id, "status": {"$nin": ["completed", "rejected"]}},
+            {"$set": {
+                "status": "unknown", "gateway_status": "unknown",
+                "auto_dispatch_reason": "Réponse sans identifiant; vérification par référence requise.",
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        return {"id": wd_id, "status": "unknown", "amount": float(amount),
+                "fee": float(fee), "net_payout": float(net)}
+    await db.withdrawals.update_one(
+        {"id": wd_id, "status": {"$nin": ["completed", "rejected"]}},
+        {"$set": {
+            "status": "dispatched", "gateway_status": remote_status or "pending",
+            "payout_id": payout_id or None, "provider_intent_id": payout_id or None,
+            "tx_hash": payout.get("txid"), "dispatched_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    latest = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or wd
+    if remote_status in {"completed", "confirmed", "succeeded", "paid", "success"}:
+        await _settle_crypto_withdrawal(db, latest, "completed", remote_status, source="dispatch")
+    elif remote_status in {"failed", "declined", "cancelled", "canceled", "rejected", "expired"}:
+        await _settle_crypto_withdrawal(db, latest, "rejected", remote_status, source="dispatch")
+    latest = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or latest
+    return {
+        "id": wd_id, "status": latest.get("status", "dispatched"),
+        "amount": float(amount), "fee": float(fee), "net_payout": float(net),
+    }
+
+
 @api.post("/withdrawals")
 async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(require_pwd_confirm)):
     db = request.app.state.db
@@ -1159,6 +1466,19 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
         raise HTTPException(403, "ACTIVATION_REQUIRED")
     if user.get("withdrawals_disabled"):
         raise HTTPException(403, "Retraits désactivés par l’administrateur.")
+    if str(data.method or "").lower() == "crypto" and data.request_id:
+        request_id = str(data.request_id).strip()
+        if len(request_id) > 120 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", request_id):
+            raise HTTPException(400, "Identifiant de demande invalide.")
+        existing = await db.withdrawals.find_one(
+            {"user_id": user["id"], "client_request_id": request_id}, {"_id": 0},
+        )
+        if existing:
+            return {
+                "id": existing["id"], "status": existing.get("status", "pending"),
+                "amount": existing.get("amount"), "fee": existing.get("fee"),
+                "net_payout": existing.get("net_payout"),
+            }
     # R2 (2026-03-04) — rate-limit: max 5 withdrawal attempts per rolling 5 min
     # per user. Defends against automated abuse of the Biz-transPay payout
     # gateway (each PayOut hits the provider quota + costs real money). Admin
@@ -1188,16 +1508,6 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
             wallet = wallet_doc
     if not wallet:
         raise HTTPException(400, "Enregistrez d’abord un portefeuille pour ce mode de retrait.")
-    if requested_method == "crypto":
-        # Biz-transPay currently documents Mobile Money payout only. Do not
-        # reuse /payouts or guess an asset/address payload: no funds are locked
-        # until the exact crypto payout contract is verified.
-        raise HTTPException(
-            503,
-            "Le retrait crypto est indisponible : le contrat officiel de sortie Biz-transPay n’est pas vérifié. Aucun montant n’a été débité.",
-        )
-    if requested_method != "mobile":
-        raise HTTPException(400, "Ce mode de retrait n’est pas pris en charge.")
     if data.amount <= 0:
         raise HTTPException(400, "Montant invalide.")
 
@@ -1208,6 +1518,10 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
     window_err = _check_withdrawal_window(wd_settings)
     if window_err:
         raise HTTPException(403, window_err)
+    if requested_method == "crypto":
+        return await _request_crypto_withdrawal(db, user, wallet, data, wd_settings)
+    if not float(data.amount).is_integer():
+        raise HTTPException(400, "Le montant Mobile Money doit être un nombre entier.")
     if wd_settings["min_amount"] and data.amount < wd_settings["min_amount"]:
         raise HTTPException(400, f"Montant minimum de retrait : {wd_settings['min_amount']:.0f} FCFA.")
     if wd_settings["max_amount"] and data.amount > wd_settings["max_amount"]:
@@ -1333,7 +1647,19 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
 async def my_withdrawals(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     items = await db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    return items
+    for wd in items[:30]:
+        if (wd.get("gateway") == "izichange" and wd.get("method") == "crypto"
+                and wd.get("status") not in ("completed", "rejected", "validated")):
+            await _reconcile_izichange_withdrawal(db, wd)
+    if items:
+        items = await db.withdrawals.find(
+            {"user_id": user["id"]}, {"_id": 0},
+        ).sort("created_at", -1).to_list(200)
+    public_fields = (
+        "id", "amount", "fee", "net_payout", "status", "method", "operator",
+        "phone", "network", "asset_code", "wallet_address", "created_at",
+    )
+    return [{key: item[key] for key in public_fields if key in item} for item in items]
 
 
 
@@ -1459,18 +1785,23 @@ async def _build_transaction_history(db, user_id: str) -> list[dict]:
 
     # Withdrawals (MLM commissions)
     async for w in db.withdrawals.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1):
+        is_crypto_withdrawal = w.get("method") == "crypto"
+        withdrawal_asset = (
+            w.get("asset_code") or w.get("network") or "USDT.BEP20"
+            if is_crypto_withdrawal else "XOF"
+        )
         out.append({
             "type": "withdrawal",
             "status": w.get("status", "pending"),
             "amount": float(w.get("amount", 0) or 0),
             "fee": float(w.get("fee", 0) or 0) if w.get("fee") is not None else None,
             "net": float(w.get("net_payout", 0) or 0) if w.get("net_payout") is not None else None,
-            "currency": "XOF",
-            "label": "Retrait Commissions",
+            "currency": withdrawal_asset,
+            "label": "Retrait crypto" if is_crypto_withdrawal else "Retrait Commissions",
             "ref": w.get("id"),
             "date": w.get("created_at"),
             "meta": {
-                "withdrawal_type": "commissions",
+                "withdrawal_type": "crypto" if is_crypto_withdrawal else "commissions",
                 "operator": w.get("operator"),
                 "phone": w.get("phone"),
                 "country": w.get("country"),
@@ -3262,8 +3593,7 @@ def _withdrawal_defaults(doc: dict) -> dict:
         "crypto_min_amount": float(doc.get("crypto_min_amount", 0) or 0),
         "crypto_payout_available": False,
         "crypto_payout_unavailable_reason": (
-            "Le contrat officiel de retrait crypto Biz-transPay n’est pas vérifié. "
-            "Aucun retrait crypto ne sera envoyé."
+            "Le retrait crypto automatique n’est pas disponible pour le moment. Aucun montant ne sera débité."
         ),
         "enabled": bool(doc.get("enabled", True)),
         "allowed_days": allowed_days or [0, 1, 2, 3, 4, 5, 6],
@@ -3382,7 +3712,18 @@ def _compute_withdrawal_fee(amount: float, settings: dict) -> tuple[float, float
 async def get_withdrawal_settings(request: Request):
     """Public read of withdrawal fee settings (used by /withdrawal screen)."""
     db = request.app.state.db
-    return await _get_withdrawal_settings(db)
+    settings = await _get_withdrawal_settings(db)
+    try:
+        from izichange import ASSET_CODE, withdrawal_assets
+        settings["crypto_payout_available"] = any(
+            item.get("asset_code") == ASSET_CODE
+            for item in await withdrawal_assets(db)
+        )
+    except Exception:
+        settings["crypto_payout_available"] = False
+    if settings["crypto_payout_available"]:
+        settings["crypto_payout_unavailable_reason"] = ""
+    return settings
 
 
 @api.get("/settings/support")
@@ -4259,6 +4600,8 @@ async def admin_verify_withdrawal(
         elif wd.get("gateway") == "moneyfusion":
             from moneyfusion import reconcile_withdrawal
             provider_result = await reconcile_withdrawal(db, wd_id)
+        elif wd.get("gateway") == "izichange" and wd.get("method") == "crypto":
+            provider_result = await _reconcile_izichange_withdrawal(db, wd)
     except HTTPException as exc:
         verification_error = str(exc.detail)[:240]
     except Exception:
@@ -4664,6 +5007,8 @@ async def admin_reconcile_withdrawal(wd_id: str, request: Request, admin=Depends
     if wd.get("gateway") == "moneyfusion":
         from moneyfusion import reconcile_withdrawal as _mf_recon
         return await _mf_recon(db, wd_id)
+    if wd.get("gateway") == "izichange" and wd.get("method") == "crypto":
+        return await _reconcile_izichange_withdrawal(db, wd)
     raise HTTPException(400, f"Vérification non prise en charge pour la passerelle '{wd.get('gateway')}'.")
 
 

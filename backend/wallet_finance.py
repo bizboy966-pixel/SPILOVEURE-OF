@@ -290,7 +290,8 @@ async def _provider_route_rows(db, direction: str) -> list[dict]:
                         and runtime_ready
                     ),
                     "hosted_operator_selection_required": (
-                        provider_id == "moneyfusion" and len(operators) != 1
+                        direction == "deposit" and provider_id == "moneyfusion"
+                        and len(operators) != 1
                     ),
                 })
     return all_routes
@@ -506,21 +507,21 @@ async def wallet_profile_catalog(request: Request, _=Depends(get_current_user)):
             "name": name,
         })
 
+    # The legacy crypto-withdrawal balance is a dedicated USDT.BEP20 balance,
+    # so expose only this asset and only when IziChange confirms it is enabled
+    # on the merchant account. This catalog is universal, not country-scoped.
     crypto_assets = []
-    for row in rows:
-        if row.get("route_type") != "crypto":
-            continue
-        asset_code = str(row.get("asset_code") or "").strip()
-        if not asset_code:
-            continue
-        crypto_assets.append({
-            "asset_code": asset_code,
-            "code": asset_code,
-            "label": asset_code,
-            "coin": row.get("coin") or "",
-            "network": row.get("network") or "",
-            "available": bool(row.get("available")),
-        })
+    try:
+        from izichange import ASSET_CODE, withdrawal_assets
+        if any(row.get("asset_code") == ASSET_CODE
+               for row in await withdrawal_assets(db)):
+            crypto_assets.append({
+                "asset_code": ASSET_CODE, "code": ASSET_CODE,
+                "label": "USDT BEP20", "coin": "USDT",
+                "network": "BEP20", "available": True,
+            })
+    except Exception as exc:
+        log.info("Crypto withdrawal profile catalog unavailable (%s)", type(exc).__name__)
 
     return {
         "countries": sorted(countries.values(), key=lambda item: item["name"]),
