@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +19,7 @@ type PayoutOperator = { code: string; name: string };
 type PayoutCountry = { code: string; name: string; currency: string; operators: PayoutOperator[] };
 type OperatorOption = { value: string; label: string };
 type Method = "mobile" | "crypto";
-type CryptoAsset = { asset_code: string; code?: string; label?: string; coin?: string; network?: string; available?: boolean };
+const CRYPTO_ASSET_CODE = "USDT.BEP20";
 
 function availableOperators(countries: PayoutCountry[], code: string): PayoutOperator[] {
   return countries.find((item) => item.code === code)?.operators || [];
@@ -42,8 +42,6 @@ export default function Wallet() {
   const [phone, setPhone] = useState(user?.phone || "");
   const [fullName, setFullName] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const [cryptoAssets, setCryptoAssets] = useState<CryptoAsset[]>([]);
-  const [cryptoAssetCode, setCryptoAssetCode] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -66,7 +64,6 @@ export default function Wallet() {
             setPhone(w.phone || "");
           } else {
             setWalletAddress(w.wallet_address || "");
-            setCryptoAssetCode(w.asset_code || w.network || "");
           }
         }
       } catch {}
@@ -80,16 +77,11 @@ export default function Wallet() {
       .then((response) => {
         if (!active) return;
         setPayoutCountries(Array.isArray(response?.countries) ? response.countries : []);
-        const assets = Array.isArray(response?.crypto_assets) ? response.crypto_assets : [];
-        setCryptoAssets(assets);
-        setCryptoAssetCode((current) => assets.some((item: any) => (item.asset_code || item.code) === current)
-          ? current : assets[0]?.asset_code || assets[0]?.code || "");
         setPayoutCatalogError("");
       })
       .catch(() => {
         if (active) {
           setPayoutCountries([]);
-          setCryptoAssets([]);
           setPayoutCatalogError("Impossible de vérifier les moyens de retrait pour le moment.");
         }
       })
@@ -98,13 +90,6 @@ export default function Wallet() {
       });
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    if (!cryptoAssets.length || !cryptoAssetCode) return;
-    if (!cryptoAssets.some((asset) => (asset.asset_code || asset.code) === cryptoAssetCode)) {
-      setCryptoAssetCode(cryptoAssets[0].asset_code || cryptoAssets[0].code || "");
-    }
-  }, [cryptoAssets, cryptoAssetCode]);
 
   const countries = useMemo(() => {
     const merged = [...baseCountries];
@@ -124,9 +109,12 @@ export default function Wallet() {
   }, [payoutCountries, country]);
 
   const currentDraft = () => ({
-    country, full_name: fullName, method, operator, phone,
-    wallet_address: walletAddress, asset_code: cryptoAssetCode,
-    network: cryptoAssetCode,
+    country, full_name: fullName, method,
+    operator: method === "mobile" ? operator : "",
+    phone: method === "mobile" ? phone : "",
+    wallet_address: method === "crypto" ? walletAddress : "",
+    asset_code: method === "crypto" ? CRYPTO_ASSET_CODE : "",
+    network: method === "crypto" ? CRYPTO_ASSET_CODE : "",
   });
 
   const switchMethod = useCallback((next: Method) => {
@@ -135,9 +123,12 @@ export default function Wallet() {
     const nextProfiles = {
       ...profilesDraft,
       [method]: {
-        country, full_name: fullName, method, operator, phone,
-        wallet_address: walletAddress, asset_code: cryptoAssetCode,
-        network: cryptoAssetCode,
+        country, full_name: fullName, method,
+        operator: method === "mobile" ? operator : "",
+        phone: method === "mobile" ? phone : "",
+        wallet_address: method === "crypto" ? walletAddress : "",
+        asset_code: method === "crypto" ? CRYPTO_ASSET_CODE : "",
+        network: method === "crypto" ? CRYPTO_ASSET_CODE : "",
       },
     };
     setProfilesDraft(nextProfiles);
@@ -149,8 +140,7 @@ export default function Wallet() {
       : target.operator || "");
     setPhone(target.phone || user?.phone || "");
     setWalletAddress(target.wallet_address || "");
-    setCryptoAssetCode(target.asset_code || target.network || cryptoAssets[0]?.asset_code || cryptoAssets[0]?.code || "");
-  }, [country, cryptoAssetCode, cryptoAssets, fullName, method, operator, operators, phone, profilesDraft, user?.phone, walletAddress]);
+  }, [country, fullName, method, operator, operators, phone, profilesDraft, user?.phone, walletAddress]);
 
   useEffect(() => {
     if (payoutCatalogLoaded && method === "mobile" && operators.length === 0) {
@@ -171,10 +161,6 @@ export default function Wallet() {
       Alert.alert(t("wallet.crypto_error_title"), t("wallet.crypto_error"));
       return;
     }
-    if (method === "crypto" && !cryptoAssetCode) {
-      Alert.alert(t("common.error"), "Aucun actif de retrait crypto n’est disponible pour le moment.");
-      return;
-    }
     setLoading(true);
     try {
       await api.post("/wallet", {
@@ -183,16 +169,20 @@ export default function Wallet() {
         method,
         operator: method === "mobile" ? operator : "",
         phone: method === "mobile" ? phone : "",
-        network: method === "crypto" ? cryptoAssetCode : "",
-        asset_code: method === "crypto" ? cryptoAssetCode : "",
+        network: method === "crypto" ? CRYPTO_ASSET_CODE : "",
+        asset_code: method === "crypto" ? CRYPTO_ASSET_CODE : "",
         wallet_address: method === "crypto" ? walletAddress.trim() : "",
       });
       setProfilesDraft((current) => ({ ...current, [method]: currentDraft() }));
-      if (typeof window !== "undefined") window.alert(`✅ ${t("wallet.saved")}`);
-      else Alert.alert("✅", t("wallet.saved"));
     } catch (e: any) {
       Alert.alert(t("common.error"), e?.detail || t("wallet.save_error"));
+      return;
     } finally { setLoading(false); }
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert(`✅ ${t("wallet.saved")}`);
+    } else {
+      Alert.alert("Portefeuille enregistré", t("wallet.saved"));
+    }
   };
 
   const selectedCountry = countries.find((c) => c.code === country);
@@ -278,31 +268,8 @@ export default function Wallet() {
             </>
           ) : (
             <>
-              <Text style={styles.lbl}>Actif et réseau de retrait</Text>
-              <View style={styles.opRow}>
-                {cryptoAssets.map((asset) => {
-                  const code = asset.asset_code || asset.code || "";
-                  const selected = code === cryptoAssetCode;
-                  return (
-                    <TouchableOpacity
-                      key={code}
-                      style={[styles.opChip, selected && styles.opChipOn]}
-                      onPress={() => setCryptoAssetCode(code)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}
-                      testID={`wallet-crypto-asset-${code}`}
-                    >
-                      <Text style={[styles.opTxt, selected && { color: "#fff" }]}>{asset.label || code}</Text>
-                      <Text style={styles.operatorSource}>{code}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                {cryptoAssets.length === 0 ? (
-                  <Text style={styles.hint}>Aucun actif de retrait n’est disponible pour le moment.</Text>
-                ) : null}
-              </View>
               <Input
-                label={t("wallet.crypto_address")}
+                label="Adresse de retrait USDT BEP20"
                 value={walletAddress}
                 onChangeText={setWalletAddress}
                 placeholder="0x..."
@@ -313,14 +280,6 @@ export default function Wallet() {
               <Text style={styles.hint}>
                 {t("wallet.address_warning")}
               </Text>
-              {cryptoAssets.length === 0 ? (
-                <View style={styles.cryptoUnavailable}>
-                  <Ionicons name="information-circle-outline" size={17} color={theme.colors.warning} />
-                  <Text style={styles.hint}>
-                    Aucun actif de retrait crypto n’est actuellement disponible pour ce compte.
-                  </Text>
-                </View>
-              ) : null}
             </>
           )}
         </Card>
@@ -391,10 +350,8 @@ const styles = StyleSheet.create({
   opChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, backgroundColor: theme.colors.surfaceSecondary, borderWidth: 1, borderColor: theme.colors.border },
   opChipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   opTxt: { color: theme.colors.textPrimary, fontWeight: "600", fontSize: 12 },
-  operatorSource: { color: theme.colors.textSecondary, fontSize: 9, fontWeight: "700", marginTop: 3 },
   networkChip: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF3C7", padding: 8, borderRadius: 12, marginBottom: 4 },
   networkTxt: { color: "#92400E", fontWeight: "700", fontSize: 12 },
-  cryptoUnavailable: { flexDirection: "row", alignItems: "flex-start", gap: 6, backgroundColor: theme.colors.warningBg, padding: 9, borderRadius: 12, marginTop: 8 },
   hint: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 6, fontStyle: "italic" },
 
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 20 },

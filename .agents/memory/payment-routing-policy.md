@@ -32,3 +32,14 @@ et que les prestataires restent absents de ces écrans.
 **How to apply:** Masquer les badges, sous-titres et messages d’erreur qui
 nomment un prestataire dans les parcours utilisateurs; les réglages internes
 de l’administration peuvent conserver leurs libellés de gestion.
+
+Les portefeuilles de retrait crypto des utilisateurs utilisent une adresse
+fixe USDT.BEP20. L’enregistrement de cette adresse ne dépend pas du catalogue
+de retrait actif d’un prestataire.
+
+**Why:** L’utilisateur a demandé un seul réseau USDT BEP20 sans sélecteur
+d’actif, même lorsque le retrait automatique est désactivé.
+
+**How to apply:** Garder le profil portefeuille indépendant de l’activation
+des paiements; ne pas afficher d’erreur « aucun actif disponible » pendant
+l’enregistrement de l’adresse fixe.
