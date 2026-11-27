@@ -579,6 +579,43 @@ def test_btp_crypto_withdrawal_poll_completes_without_resubmitting(monkeypatch):
     assert get_status.await_count == 2
 
 
+def test_btp_crypto_background_sweep_settles_delivered_payout_without_resubmitting(monkeypatch):
+    db = _db()
+    wd = {
+        "id": "wd-btp-background", "user_id": "member", "method": "crypto",
+        "gateway": "biztranspay_crypto", "status": "dispatched",
+        "gateway_status": "sent", "payout_id": "btp-background-1",
+        "asset_code": "USDT.BEP20", "amount": 1.0, "wallet_debit": 1.0,
+        "net_payout": 0.98,
+    }
+    run(db.users.insert_one({
+        "id": "member", "balance_crypto": 0.0,
+        "crypto_withdrawal_debits": [wd["id"]],
+    }))
+    run(db.withdrawals.insert_one(wd))
+    get_status = AsyncMock(return_value={
+        "ok": True, "id": "btp-background-1", "status": "delivered",
+        "tx_hash": "0xdelivered",
+    })
+    submit_payout = AsyncMock(side_effect=AssertionError("polling must never submit a payout"))
+    monkeypatch.setattr(biztranspay, "get_crypto_payout", get_status)
+    monkeypatch.setattr(biztranspay, "create_crypto_payout", submit_payout)
+
+    first = run(biztranspay.reconcile_all_crypto_dispatched(db, max_docs=5))
+    second = run(biztranspay.reconcile_all_crypto_dispatched(db, max_docs=5))
+    final = run(db.withdrawals.find_one({"id": wd["id"]}))
+    user = run(db.users.find_one({"id": "member"}))
+
+    assert first == {"scanned": 1, "updated": 1, "errors": 0}
+    assert second == {"scanned": 0, "updated": 0, "errors": 0}
+    assert final["status"] == "completed"
+    assert final["gateway_status"] == "delivered"
+    assert final["tx_hash"] == "0xdelivered"
+    assert user["total_withdrawn_crypto"] == 1.0
+    get_status.assert_awaited_once_with(db, "btp-background-1")
+    submit_payout.assert_not_awaited()
+
+
 def test_admin_crypto_validation_uses_crypto_accounting_after_manual_provider_check(monkeypatch):
     import server
 

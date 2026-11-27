@@ -1264,6 +1264,8 @@ async def biztranspay_webhook(request: Request):
         internal_status = "failed"
     else:
         internal_status = "pending"
+    if is_crypto_payout_event and status_raw in {"sent", "delivered"}:
+        internal_status = "paid"
 
     if not ref and not provider_id:
         return {"ok": True, "ignored": "no_reference"}
@@ -2154,6 +2156,12 @@ async def polling_loop(db):
                 log.info("btp polling withdrawals: %s", wd_r)
         except Exception as e:
             log.exception("btp polling loop error (withdrawals): %s", _redact(e))
+        try:
+            crypto_wd_r = await reconcile_all_crypto_dispatched(db, max_docs=50)
+            if crypto_wd_r.get("updated"):
+                log.info("btp polling crypto withdrawals: %s", crypto_wd_r)
+        except Exception as e:
+            log.exception("btp polling loop error (crypto withdrawals): %s", _redact(e))
         # v27be — recover stuck activations (any provider).
         try:
             from ashtec_activation import _reconcile_stuck_activations
@@ -2299,4 +2307,30 @@ async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
                     results["errors"] += 1
             except Exception:
                 results["errors"] += 1
+    return results
+
+
+async def reconcile_all_crypto_dispatched(db, max_docs: int = 50) -> dict:
+    """Poll dispatched crypto withdrawals in the background; this only uses GET."""
+    from server import _reconcile_biztranspay_crypto_withdrawal
+
+    results = {"scanned": 0, "updated": 0, "errors": 0}
+    query = {
+        "gateway": "biztranspay_crypto",
+        "method": "crypto",
+        "payout_id": {"$exists": True, "$nin": [None, ""]},
+        "status": {"$in": ["pending", "processing", "dispatched", "unknown"]},
+    }
+    async for withdrawal in db.withdrawals.find(query).sort("created_at", 1).limit(max_docs):
+        results["scanned"] += 1
+        try:
+            outcome = await _reconcile_biztranspay_crypto_withdrawal(db, withdrawal)
+            if outcome.get("status") in {"completed", "rejected"}:
+                results["updated"] += 1
+        except Exception:
+            results["errors"] += 1
+            log.exception(
+                "BTP crypto withdrawal reconciliation failed wd=%s",
+                withdrawal.get("id"),
+            )
     return results

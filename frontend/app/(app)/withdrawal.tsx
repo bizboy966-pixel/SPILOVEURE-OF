@@ -38,6 +38,7 @@ export default function Withdrawal() {
   const [refreshing, setRefreshing] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const cryptoRequestId = useRef("");
+  const hasPendingHistory = useRef(false);
   const [wdSettings, setWdSettings] = useState<{ fee_percent: number; fee_flat: number; min_amount: number; max_amount: number | null; enabled: boolean; allowed_days?: number[]; open_time?: string; close_time?: string; timezone?: string; crypto_fee_percent?: number; crypto_fee_flat?: number; crypto_min_amount?: number; crypto_payout_available?: boolean; crypto_payout_unavailable_reason?: string }>({
     fee_percent: 0, fee_flat: 0, min_amount: 0, max_amount: null, enabled: true,
     crypto_fee_percent: 0, crypto_fee_flat: 0, crypto_min_amount: 0,
@@ -52,7 +53,11 @@ export default function Withdrawal() {
       setWallet(w);
       setSelectedMethod(w?.method === "crypto" ? "crypto" : "mobile");
       const h = await api.get<any[]>("/withdrawals/mine");
-      setHistory(h);
+      const rows = Array.isArray(h) ? h : [];
+      setHistory(rows);
+      hasPendingHistory.current = rows.some((item) =>
+        !["completed", "rejected", "validated", "failed"].includes(String(item.status || "").toLowerCase()),
+      );
       const s = await api.get<any>("/settings/withdrawal", { auth: false });
       setWdSettings(s);
       try {
@@ -63,9 +68,25 @@ export default function Withdrawal() {
       }
     } catch {}
   }, []);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const h = await api.get<any[]>("/withdrawals/mine?refresh_provider=false");
+      const rows = Array.isArray(h) ? h : [];
+      setHistory(rows);
+      hasPendingHistory.current = rows.some((item) =>
+        !["completed", "rejected", "validated", "failed"].includes(String(item.status || "").toLowerCase()),
+      );
+    } catch {}
+  }, []);
+
   useFocusEffect(useCallback(() => {
     void load();
-  }, [load]));
+    const timer = setInterval(() => {
+      if (hasPendingHistory.current) void refreshHistory();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [load, refreshHistory]));
 
   const walletProfiles = wallet?.profiles || {};
   const activeWallet = walletProfiles[selectedMethod]

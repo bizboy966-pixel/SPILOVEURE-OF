@@ -1318,7 +1318,7 @@ async def _reconcile_biztranspay_crypto_withdrawal(db, wd: dict) -> dict:
             {"id": wd.get("id"), "status": {"$nin": ["completed", "rejected", "validated"]}},
             {"$set": updates},
         )
-    if status in {"completed", "confirmed", "succeeded", "paid", "success"}:
+    if status in {"completed", "confirmed", "succeeded", "paid", "success", "sent", "delivered"}:
         outcome = await _settle_crypto_withdrawal(
             db, wd, "completed", status, source="poll",
         )
@@ -1505,7 +1505,7 @@ async def _request_crypto_withdrawal(
         }},
     )
     latest = await db.withdrawals.find_one({"id": wd_id}, {"_id": 0}) or wd
-    if remote_status in {"completed", "confirmed", "succeeded", "paid", "success"}:
+    if remote_status in {"completed", "confirmed", "succeeded", "paid", "success", "sent", "delivered"}:
         await _settle_crypto_withdrawal(db, latest, "completed", remote_status, source="dispatch")
     elif remote_status in {"failed", "declined", "cancelled", "canceled", "rejected", "expired"}:
         await _settle_crypto_withdrawal(db, latest, "rejected", remote_status, source="dispatch")
@@ -1704,19 +1704,22 @@ async def request_withdrawal(data: WithdrawalIn, request: Request, user=Depends(
 
 
 @api.get("/withdrawals/mine")
-async def my_withdrawals(request: Request, user=Depends(get_current_user)):
+async def my_withdrawals(
+    request: Request, user=Depends(get_current_user), refresh_provider: bool = True,
+):
     db = request.app.state.db
     items = await db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    for wd in items[:30]:
-        if (
-            wd.get("gateway") == "biztranspay_crypto"
-            and wd.get("method") == "crypto"
-            and wd.get("status") not in ("completed", "rejected", "validated")
-        ):
-            await _reconcile_biztranspay_crypto_withdrawal(db, wd)
-        elif (wd.get("gateway") == "izichange" and wd.get("method") == "crypto"
-              and wd.get("status") not in ("completed", "rejected", "validated")):
-            await _reconcile_izichange_withdrawal(db, wd)
+    if refresh_provider:
+        for wd in items[:30]:
+            if (
+                wd.get("gateway") == "biztranspay_crypto"
+                and wd.get("method") == "crypto"
+                and wd.get("status") not in ("completed", "rejected", "validated")
+            ):
+                await _reconcile_biztranspay_crypto_withdrawal(db, wd)
+            elif (wd.get("gateway") == "izichange" and wd.get("method") == "crypto"
+                  and wd.get("status") not in ("completed", "rejected", "validated")):
+                await _reconcile_izichange_withdrawal(db, wd)
     if items:
         items = await db.withdrawals.find(
             {"user_id": user["id"]}, {"_id": 0},
