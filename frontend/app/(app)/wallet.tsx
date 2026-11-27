@@ -205,7 +205,10 @@ export default function Wallet() {
         <Text style={styles.sub}>{t("wallet.subtitle")}</Text>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <Card>
           <Text style={styles.step}>{t("wallet.step_country")}</Text>
           <TouchableOpacity style={styles.field} onPress={() => setShowCP(true)} testID="wallet-country-btn">
