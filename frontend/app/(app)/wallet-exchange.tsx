@@ -134,7 +134,11 @@ export default function WalletExchangeScreen() {
         `${formatAmount(quote.amount_in, quote.source_code)} convertis en ${formatAmount(quote.amount_out, quote.destination_code)}.`,
       );
     } catch (e: any) {
-      const detail = e?.detail || e?.message || "Erreur serveur.";
+      const detail = e?.detail || e?.message || (
+        stage === "execute"
+          ? "Le serveur n’a pas confirmé la conversion. Actualisez les soldes puis réessayez."
+          : "Le serveur n’a pas pu créer le devis."
+      );
       setError(stage === "quote"
         ? `Échec lors de la création du devis : ${detail}`
         : `Le devis a été créé, mais son exécution a échoué : ${detail}`);

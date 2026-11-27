@@ -1873,27 +1873,59 @@ async def execute_wallet_exchange(
     marker = f"wallet_exchange_refs.{quote_id}"
     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
     already_debited = bool((fresh_user.get("wallet_exchange_refs") or {}).get(quote_id))
-    if existing and existing.get("status") == "processing" and not already_debited:
-        raise HTTPException(409, "Cet échange est déjà en cours. Actualisez le solde avant de réessayer.")
     if not already_debited:
-        result = await db.users.update_one(
-            {
-                "id": user["id"], marker: {"$ne": True},
-                quote["source_field"]: {"$gte": float(quote["amount_in"])},
-            },
-            {
-                "$inc": {
-                    quote["source_field"]: -float(quote["amount_in"]),
-                    quote["destination_field"]: float(quote["amount_out"]),
+        amount_in = float(quote["amount_in"])
+        amount_out = float(quote["amount_out"])
+        movement_filter = {
+            "id": user["id"],
+            marker: {"$ne": True},
+            quote["source_field"]: {"$gte": amount_in},
+        }
+        try:
+            # Legacy accounts may have a missing or null destination balance.
+            # Initialize that field and debit the source in the same atomic update.
+            result = await db.users.update_one(
+                {**movement_filter, quote["destination_field"]: None},
+                {
+                    "$inc": {quote["source_field"]: -amount_in},
+                    "$set": {
+                        quote["destination_field"]: amount_out,
+                        marker: True, "wallet_updated_at": now,
+                    },
                 },
-                "$set": {
-                    marker: True, "wallet_updated_at": now,
-                },
-            },
-        )
+            )
+            if result.modified_count == 0:
+                # Existing numeric balances can safely be incremented normally.
+                result = await db.users.update_one(
+                    {
+                        **movement_filter,
+                        quote["destination_field"]: {"$type": "number"},
+                    },
+                    {
+                        "$inc": {
+                            quote["source_field"]: -amount_in,
+                            quote["destination_field"]: amount_out,
+                        },
+                        "$set": {marker: True, "wallet_updated_at": now},
+                    },
+                )
+        except Exception as exc:
+            log.exception("Wallet exchange balance movement failed for quote %s", quote_id)
+            raise HTTPException(
+                503,
+                "Le serveur n’a pas pu confirmer le mouvement des soldes. "
+                "Actualisez les soldes puis réessayez; la reprise ne débitera pas deux fois.",
+            ) from exc
         if result.modified_count == 0:
             latest = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or {}
             if not (latest.get("wallet_exchange_refs") or {}).get(quote_id):
+                source_balance = latest.get(quote["source_field"])
+                if isinstance(source_balance, (int, float)) and source_balance >= amount_in:
+                    raise HTTPException(
+                        409,
+                        "Le solde de destination est invalide. Contactez le support; "
+                        "aucun débit n’a été effectué.",
+                    )
                 await db.wallet_exchange_operations.update_one(
                     {"quote_id": quote_id},
                     {"$set": {"status": "rejected", "reject_reason": "Solde insuffisant", "updated_at": _now()}},
