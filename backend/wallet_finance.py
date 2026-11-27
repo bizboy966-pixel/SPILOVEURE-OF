@@ -479,6 +479,55 @@ async def wallet_operations_catalog(
     }
 
 
+@router.get("/api/wallet/profile-catalog")
+async def wallet_profile_catalog(request: Request, _=Depends(get_current_user)):
+    """Return active payout destinations for the saved wallet profile form."""
+    db = request.app.state.db
+    rows = [row for row in await _catalog_rows(db) if row.get("direction") == "send"]
+    countries: dict[str, dict] = {}
+    for row in rows:
+        if row.get("route_type") != "mobile" or not row.get("route_enabled"):
+            continue
+        name = str(row.get("operator_name") or "").strip()
+        if name.lower() in {"", "undefined", "none", "null"}:
+            continue
+        code = str(row.get("country_code") or "").upper()
+        operator_code = str(row.get("operator_code") or "").strip()
+        if not code or not operator_code:
+            continue
+        country = countries.setdefault(code, {
+            "code": code,
+            "name": row.get("country_name") or code,
+            "currency": row.get("currency") or "",
+            "operators": [],
+        })
+        country["operators"].append({
+            "code": operator_code,
+            "name": name,
+        })
+
+    crypto_assets = []
+    for row in rows:
+        if row.get("route_type") != "crypto":
+            continue
+        asset_code = str(row.get("asset_code") or "").strip()
+        if not asset_code:
+            continue
+        crypto_assets.append({
+            "asset_code": asset_code,
+            "code": asset_code,
+            "label": asset_code,
+            "coin": row.get("coin") or "",
+            "network": row.get("network") or "",
+            "available": bool(row.get("available")),
+        })
+
+    return {
+        "countries": sorted(countries.values(), key=lambda item: item["name"]),
+        "crypto_assets": crypto_assets,
+    }
+
+
 @router.post("/api/wallet-operations/quote")
 async def create_wallet_quote(data: QuoteIn, request: Request, user=Depends(get_current_user)):
     _assert_transaction_user(user)

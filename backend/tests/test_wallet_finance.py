@@ -194,6 +194,64 @@ async def test_public_catalog_hides_disabled_routes_and_provider_names(monkeypat
     assert "Biz-transPay" not in repr(result)
 
 
+@pytest.mark.asyncio
+async def test_wallet_profile_catalog_includes_gabon_and_congo_without_provider_names(monkeypatch):
+    db = AsyncMongoMockClient().wallet_payout_profile_catalog
+    await feature_flags.ensure_default_flags(db)
+    request = type("Request", (), {
+        "app": type("App", (), {"state": type("State", (), {"db": db})()})(),
+    })()
+    await feature_flags.update_flag(
+        "wallet_send", feature_flags.FlagUpdate(enabled=False), request,
+    )
+    user = {"id": "user-1", "role": "user", "status": "active", "max_level": 1}
+    rows = [
+        {
+            "route_id": "ga-airtel", "direction": "send", "route_type": "mobile",
+            "country_code": "GA", "country_name": "Gabon", "currency": "XAF",
+            "operator_code": "airtel_ga", "operator_name": "Airtel Money",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "route_enabled": True, "available": True, "fee_enabled": True,
+            "fee_percent": 2, "unavailable_reason": "",
+        },
+        {
+            "route_id": "ga-disabled", "direction": "send", "route_type": "mobile",
+            "country_code": "GA", "country_name": "Gabon", "currency": "XAF",
+            "operator_code": "inactive_ga", "operator_name": "Opérateur désactivé",
+            "provider": "moneyfusion", "provider_name": "MoneyFusion",
+            "route_enabled": False, "available": False, "fee_enabled": False,
+            "fee_percent": 0, "unavailable_reason": "Pays désactivé.",
+        },
+        {
+            "route_id": "cg-mtn", "direction": "send", "route_type": "mobile",
+            "country_code": "CG", "country_name": "Congo", "currency": "XAF",
+            "operator_code": "mtn_cg", "operator_name": "MTN Mobile Money",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "route_enabled": True, "available": True, "fee_enabled": True,
+            "fee_percent": 2, "unavailable_reason": "",
+        },
+        {
+            "route_id": "crypto-usdt", "direction": "send", "route_type": "crypto",
+            "asset_code": "USDT.BEP20", "coin": "USDT", "network": "BEP20",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "available": False,
+        },
+    ]
+    monkeypatch.setattr(wallet_finance, "_catalog_rows", lambda _db: _async_value(rows))
+
+    result = await wallet_finance.wallet_profile_catalog(request, user)
+
+    countries = {item["code"]: item for item in result["countries"]}
+    assert set(countries) == {"GA", "CG"}
+    assert [item["code"] for item in countries["GA"]["operators"]] == ["airtel_ga"]
+    assert [item["code"] for item in countries["CG"]["operators"]] == ["mtn_cg"]
+    assert [item["asset_code"] for item in result["crypto_assets"]] == ["USDT.BEP20"]
+    assert "provider" not in repr(result)
+    assert "provider_name" not in repr(result)
+    assert "Biz-transPay" not in repr(result)
+    assert "MoneyFusion" not in repr(result)
+
+
 async def _async_value(value):
     return value
 

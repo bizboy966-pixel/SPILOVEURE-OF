@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,15 +15,15 @@ import { useI18n } from "@/src/i18n";
 import { localizedCountryName } from "@/src/identity/countrySearch";
 
 type Country = { code: string; name: string; flag?: string };
-type MoneyFusionCountry = {
-  country_code: string;
-  country: string;
-  currency: string;
-  operators: { code: string; label: string }[];
-};
-type OperatorOption = { value: string; label: string; source: "legacy" | "moneyfusion" };
+type PayoutOperator = { code: string; name: string };
+type PayoutCountry = { code: string; name: string; currency: string; operators: PayoutOperator[] };
+type OperatorOption = { value: string; label: string };
 type Method = "mobile" | "crypto";
 type CryptoAsset = { asset_code: string; code?: string; label?: string; coin?: string; network?: string; available?: boolean };
+
+function availableOperators(countries: PayoutCountry[], code: string): PayoutOperator[] {
+  return countries.find((item) => item.code === code)?.operators || [];
+}
 
 export default function Wallet() {
   const router = useRouter();
@@ -31,13 +31,13 @@ export default function Wallet() {
   const { t, lang } = useI18n();
   const [country, setCountry] = useState(user?.country || "TG");
   const [baseCountries, setBaseCountries] = useState<Country[]>([]);
-  const [moneyFusionCountries, setMoneyFusionCountries] = useState<MoneyFusionCountry[]>([]);
-  const [moneyFusionCatalogError, setMoneyFusionCatalogError] = useState("");
+  const [payoutCountries, setPayoutCountries] = useState<PayoutCountry[]>([]);
+  const [payoutCatalogLoaded, setPayoutCatalogLoaded] = useState(false);
+  const [payoutCatalogError, setPayoutCatalogError] = useState("");
   const [showCP, setShowCP] = useState(false);
 
   const [method, setMethod] = useState<Method>("mobile");
   const [profilesDraft, setProfilesDraft] = useState<Record<string, any>>({});
-  const [legacyOperators, setLegacyOperators] = useState<string[]>([]);
   const [operator, setOperator] = useState<string>("");
   const [phone, setPhone] = useState(user?.phone || "");
   const [fullName, setFullName] = useState("");
@@ -49,11 +49,8 @@ export default function Wallet() {
   useEffect(() => {
     (async () => {
       try {
-        const cfg = await api.get<{ countries: Country[]; operators_by_country: Record<string, string[]> }>(
-          "/config", { auth: false },
-        );
+        const cfg = await api.get<{ countries: Country[] }>("/config", { auth: false });
         setBaseCountries(cfg.countries);
-        setLegacyOperators(cfg.operators_by_country[country] || []);
       } catch {}
       try {
         const w = await api.get<any>("/wallet");
@@ -79,16 +76,25 @@ export default function Wallet() {
 
   useEffect(() => {
     let active = true;
-    api.get<any>("/wallet-operations/catalog?direction=send")
+    api.get<any>("/wallet/profile-catalog")
       .then((response) => {
         if (!active) return;
+        setPayoutCountries(Array.isArray(response?.countries) ? response.countries : []);
         const assets = Array.isArray(response?.crypto_assets) ? response.crypto_assets : [];
         setCryptoAssets(assets);
         setCryptoAssetCode((current) => assets.some((item: any) => (item.asset_code || item.code) === current)
           ? current : assets[0]?.asset_code || assets[0]?.code || "");
+        setPayoutCatalogError("");
       })
       .catch(() => {
-        if (active) setCryptoAssets([]);
+        if (active) {
+          setPayoutCountries([]);
+          setCryptoAssets([]);
+          setPayoutCatalogError("Impossible de vérifier les moyens de retrait pour le moment.");
+        }
+      })
+      .finally(() => {
+        if (active) setPayoutCatalogLoaded(true);
       });
     return () => { active = false; };
   }, []);
@@ -100,48 +106,22 @@ export default function Wallet() {
     }
   }, [cryptoAssets, cryptoAssetCode]);
 
-  useEffect(() => {
-    let active = true;
-    api.get<{ countries: MoneyFusionCountry[] }>("/payments/moneyfusion/payout-catalog")
-      .then((result) => {
-        if (active) {
-          setMoneyFusionCountries(Array.isArray(result?.countries) ? result.countries : []);
-        }
-      })
-      .catch((e: any) => {
-        if (active) {
-          setMoneyFusionCatalogError(e?.detail || t("wallet.catalog_error"));
-        }
-      });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    api.get<{ operators_by_country: Record<string, string[]> }>("/config", { auth: false })
-      .then((cfg) => setLegacyOperators(cfg.operators_by_country[country] || []))
-      .catch(() => {});
-  }, [country]);
-
   const countries = useMemo(() => {
     const merged = [...baseCountries];
-    for (const item of moneyFusionCountries) {
-      if (!merged.some((existing) => existing.code === item.country_code)) {
-        merged.push({ code: item.country_code, name: item.country || item.country_code });
+    for (const item of payoutCountries) {
+      if (!merged.some((existing) => existing.code === item.code)) {
+        merged.push({ code: item.code, name: item.name || item.code });
       }
     }
     return merged;
-  }, [baseCountries, moneyFusionCountries]);
+  }, [baseCountries, payoutCountries]);
 
   const operators = useMemo<OperatorOption[]>(() => {
-    const options: OperatorOption[] = legacyOperators.map((label) => ({ value: label, label, source: "legacy" }));
-    const countryCatalog = moneyFusionCountries.find((item) => item.country_code === country);
-    for (const item of countryCatalog?.operators || []) {
-      if (!options.some((option) => option.value === item.code)) {
-        options.push({ value: item.code, label: item.label || item.code, source: "moneyfusion" });
-      }
-    }
-    return options;
-  }, [legacyOperators, moneyFusionCountries, country]);
+    return availableOperators(payoutCountries, country).map((item) => ({
+      value: item.code,
+      label: item.name || item.code,
+    }));
+  }, [payoutCountries, country]);
 
   const currentDraft = () => ({
     country, full_name: fullName, method, operator, phone,
@@ -149,19 +129,34 @@ export default function Wallet() {
     network: cryptoAssetCode,
   });
 
-  const switchMethod = (next: Method) => {
+  const switchMethod = useCallback((next: Method) => {
     if (next === method) return;
-    const nextProfiles = { ...profilesDraft, [method]: currentDraft() };
+    if (next === "mobile" && operators.length === 0) return;
+    const nextProfiles = {
+      ...profilesDraft,
+      [method]: {
+        country, full_name: fullName, method, operator, phone,
+        wallet_address: walletAddress, asset_code: cryptoAssetCode,
+        network: cryptoAssetCode,
+      },
+    };
     setProfilesDraft(nextProfiles);
     const target = nextProfiles[next] || {};
     setMethod(next);
-    setCountry(target.country || user?.country || "TG");
     setFullName(target.full_name || "");
-    setOperator(target.operator || "");
+    setOperator(next === "mobile" && !operators.some((item) => item.value === target.operator)
+      ? operators[0]?.value || ""
+      : target.operator || "");
     setPhone(target.phone || user?.phone || "");
     setWalletAddress(target.wallet_address || "");
     setCryptoAssetCode(target.asset_code || target.network || cryptoAssets[0]?.asset_code || cryptoAssets[0]?.code || "");
-  };
+  }, [country, cryptoAssetCode, cryptoAssets, fullName, method, operator, operators, phone, profilesDraft, user?.phone, walletAddress]);
+
+  useEffect(() => {
+    if (payoutCatalogLoaded && method === "mobile" && operators.length === 0) {
+      switchMethod("crypto");
+    }
+  }, [method, operators.length, payoutCatalogLoaded, switchMethod]);
 
   const save = async () => {
     if (!country || !fullName.trim()) {
@@ -177,7 +172,7 @@ export default function Wallet() {
       return;
     }
     if (method === "crypto" && !cryptoAssetCode) {
-      Alert.alert(t("common.error"), "Aucun actif de retrait crypto n’est présent dans le catalogue Biz-transPay.");
+      Alert.alert(t("common.error"), "Aucun actif de retrait crypto n’est disponible pour le moment.");
       return;
     }
     setLoading(true);
@@ -223,15 +218,20 @@ export default function Wallet() {
 
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.step}>{t("wallet.step_method")}</Text>
+          {!payoutCatalogLoaded ? (
+            <Text style={styles.hint}>Vérification des modes de retrait disponibles…</Text>
+          ) : null}
           <View style={styles.methodRow}>
-            <TouchableOpacity
-              style={[styles.methodBox, method === "mobile" && styles.methodBoxOn]}
-              onPress={() => switchMethod("mobile")}
-              testID="wallet-method-mobile"
-            >
-              <Ionicons name="phone-portrait" size={26} color={method === "mobile" ? "#fff" : theme.colors.primary} />
-              <Text style={[styles.methodTxt, method === "mobile" && { color: "#fff" }]}>Mobile Money</Text>
-            </TouchableOpacity>
+            {operators.length > 0 ? (
+              <TouchableOpacity
+                style={[styles.methodBox, method === "mobile" && styles.methodBoxOn]}
+                onPress={() => switchMethod("mobile")}
+                testID="wallet-method-mobile"
+              >
+                <Ionicons name="phone-portrait" size={26} color={method === "mobile" ? "#fff" : theme.colors.primary} />
+                <Text style={[styles.methodTxt, method === "mobile" && { color: "#fff" }]}>Mobile Money</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={[styles.methodBox, method === "crypto" && styles.methodBoxOn]}
               onPress={() => switchMethod("crypto")}
@@ -241,6 +241,7 @@ export default function Wallet() {
               <Text style={[styles.methodTxt, method === "crypto" && { color: "#fff" }]}>Crypto</Text>
             </TouchableOpacity>
           </View>
+          {payoutCatalogError ? <Text style={styles.hint}>{payoutCatalogError}</Text> : null}
         </Card>
 
         <Card style={{ marginTop: 12 }}>
@@ -254,7 +255,7 @@ export default function Wallet() {
               <View style={styles.opRow}>
                 {operators.map((op) => (
                   <TouchableOpacity
-                    key={`${op.source}-${op.value}`}
+                    key={op.value}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: operator === op.value }}
                     style={[styles.opChip, operator === op.value && styles.opChipOn]}
@@ -262,16 +263,14 @@ export default function Wallet() {
                     testID={`wallet-operator-${op.value}`}
                   >
                     <Text style={[styles.opTxt, operator === op.value && { color: "#fff" }]}>{op.label}</Text>
-                    {op.source === "moneyfusion" ? <Text style={styles.operatorSource}>MoneyFusion</Text> : null}
                   </TouchableOpacity>
                 ))}
-                {operators.length === 0 && (
+                {!payoutCatalogLoaded && operators.length === 0 && (
                   <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                    {t("wallet.no_operator")}
+                    Vérification des opérateurs disponibles…
                   </Text>
                 )}
               </View>
-              {moneyFusionCatalogError ? <Text style={styles.hint}>{moneyFusionCatalogError} {t("wallet.legacy_operators_note")}</Text> : null}
               <Input label={t("wallet.phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Ex: +22890000000" testID="wallet-phone" />
             </>
           ) : (
@@ -296,7 +295,7 @@ export default function Wallet() {
                   );
                 })}
                 {cryptoAssets.length === 0 ? (
-                  <Text style={styles.hint}>Aucun actif de retrait n’est disponible dans le catalogue Biz-transPay.</Text>
+                  <Text style={styles.hint}>Aucun actif de retrait n’est disponible pour le moment.</Text>
                 ) : null}
               </View>
               <Input
@@ -314,7 +313,7 @@ export default function Wallet() {
               <View style={styles.cryptoUnavailable}>
                 <Ionicons name="information-circle-outline" size={17} color={theme.colors.warning} />
                 <Text style={styles.hint}>
-                  Le retrait crypto restera indisponible tant que le contrat officiel de sortie Biz-transPay n’est pas vérifié.
+                  Le retrait crypto restera indisponible tant que sa disponibilité n’est pas confirmée.
                 </Text>
               </View>
             </>
@@ -344,7 +343,14 @@ export default function Wallet() {
                   key={c.code}
                   style={styles.countryRow}
                   onPress={() => {
-                    if (c.code !== country) setOperator("");
+                    if (c.code !== country) {
+                      if (payoutCatalogLoaded && method === "mobile"
+                        && availableOperators(payoutCountries, c.code).length === 0) {
+                        switchMethod("crypto");
+                      } else {
+                        setOperator("");
+                      }
+                    }
                     setCountry(c.code);
                     setShowCP(false);
                   }}
