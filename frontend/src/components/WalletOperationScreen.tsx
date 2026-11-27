@@ -18,11 +18,10 @@ import { theme } from "@/src/theme";
 type Direction = "deposit" | "send";
 type Route = {
   route_id: string;
-  provider: string;
-  provider_name: string;
   country_code: string;
   country_name: string;
   operator_code?: string;
+  name?: string;
   operator_name?: string;
   currency: string;
   asset_code?: string;
@@ -30,6 +29,7 @@ type Route = {
   available: boolean;
   unavailable_reason?: string;
   fee_percent: number;
+  fee_enabled?: boolean;
 };
 type CatalogCountry = {
   code: string;
@@ -53,6 +53,13 @@ function fmt(value: number, currency: string) {
   return `${Number(value || 0).toLocaleString("fr-FR", {
     minimumFractionDigits: 0, maximumFractionDigits: decimals,
   })} ${currency}`;
+}
+
+function operatorLabel(route: Route) {
+  const label = String(route.operator_name || route.name || "").trim();
+  return label && !["undefined", "none", "null"].includes(label.toLowerCase())
+    ? label
+    : "Opérateur";
 }
 
 export default function WalletOperationScreen({ direction }: { direction: Direction }) {
@@ -98,7 +105,14 @@ export default function WalletOperationScreen({ direction }: { direction: Direct
     () => catalog?.countries?.find((row) => row.code === countryCode) || null,
     [catalog, countryCode],
   );
-  const mobileRoutes = useMemo(() => country?.operators || [], [country]);
+  const mobileRoutes = useMemo(
+    () => (country?.operators || []).filter((route) => (
+      route.available === true
+      || (route.fee_enabled === false && route.name?.trim()
+        && !["undefined", "none", "null"].includes(route.name.trim().toLowerCase()))
+    )),
+    [country],
+  );
   const cryptoRoutes = useMemo(() => catalog?.crypto_assets || [], [catalog]);
   const selectedRoute = useMemo(() => {
     const routes = [...mobileRoutes, ...cryptoRoutes];
@@ -122,8 +136,8 @@ export default function WalletOperationScreen({ direction }: { direction: Direct
   const createQuote = async () => {
     setError("");
     setResult(null);
-    if (!countryCode) return setError("Choisissez un pays.");
     if (!selectedRoute) return setError("Choisissez un opérateur ou un réseau crypto.");
+    if (selectedRoute.route_type === "mobile" && !countryCode) return setError("Choisissez un pays.");
     if (enteredAmount <= 0) return setError("Saisissez un montant supérieur à zéro.");
     setBusy(true);
     try {
@@ -196,8 +210,8 @@ export default function WalletOperationScreen({ direction }: { direction: Direct
 
   const routeLabel = (route: Route | null) => route
     ? route.route_type === "crypto"
-      ? `${route.asset_code} · ${route.provider_name}`
-      : `${route.operator_name} · ${route.provider_name}`
+      ? `${route.asset_code}`
+      : `${operatorLabel(route)} · ${route.currency}`
     : "Choisir";
 
   return (
@@ -246,14 +260,16 @@ export default function WalletOperationScreen({ direction }: { direction: Direct
             <Card>
               <Text style={styles.sectionTitle}>{isDeposit ? "Informations du dépôt" : "Informations de l’envoi"}</Text>
               <Text style={styles.helper}>
-                Le pays, l’opérateur et le prestataire sont vérifiés ensemble. Les routes désactivées restent visibles avec leur motif.
+                Les opérateurs activés et les actifs crypto du catalogue sont affichés ici.
               </Text>
-              <Selector
-                label="Pays"
-                value={country?.name || ""}
-                onPress={() => setPicker("country")}
-                testID="wallet-country-picker"
-              />
+              {selectedRoute?.route_type !== "crypto" ? (
+                <Selector
+                  label="Pays"
+                  value={country?.name || ""}
+                  onPress={() => setPicker("country")}
+                  testID="wallet-country-picker"
+                />
+              ) : null}
               <Selector
                 label={isDeposit ? "Opérateur ou réseau" : "Opérateur"}
                 value={routeLabel(selectedRoute)}
@@ -326,7 +342,7 @@ export default function WalletOperationScreen({ direction }: { direction: Direct
               </View>
               {selectedRoute ? (
                 <Text style={styles.feeRate}>
-                  Frais configurés : {selectedRoute.fee_percent}% · {selectedRoute.provider_name}
+                  Frais configurés : {selectedRoute.fee_percent}%
                 </Text>
               ) : null}
             </Card>
@@ -501,15 +517,19 @@ function RouteOption({ route, selected, onPress }: {
       disabled={!route.available}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled: !route.available }}
-      accessibilityLabel={`${route.route_type === "crypto" ? route.asset_code : route.operator_name} · ${route.provider_name}${route.available ? "" : ` · Indisponible : ${route.unavailable_reason || "Indisponible"}`}`}
+      accessibilityLabel={`${route.route_type === "crypto" ? route.asset_code : `${operatorLabel(route)} · ${route.currency}`}${route.available ? "" : ` · ${route.unavailable_reason || "Indisponible"}`}`}
       testID={`wallet-route-option-${route.route_id}`}
     >
       <View style={{ flex: 1 }}>
         <Text style={styles.optionTitle}>
-          {route.route_type === "crypto" ? route.asset_code : `${route.operator_name} · ${route.currency}`}
+          {route.route_type === "crypto" ? route.asset_code : `${operatorLabel(route)} · ${route.currency}`}
         </Text>
-        <Text style={styles.optionSub}>{route.provider_name} · {route.fee_percent}%</Text>
-        {!route.available ? <Text style={styles.optionError}>{route.unavailable_reason || "Indisponible"}</Text> : null}
+        <Text style={styles.optionSub}>{route.fee_percent}% de frais</Text>
+        {!route.available ? (
+          <Text style={styles.optionError}>
+            {route.unavailable_reason || "Cette route n’est pas disponible pour le moment."}
+          </Text>
+        ) : null}
       </View>
       <Ionicons
         name={route.available ? selected ? "checkmark-circle" : "chevron-forward" : "close-circle"}

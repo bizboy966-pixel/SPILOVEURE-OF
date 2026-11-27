@@ -1,8 +1,10 @@
 import pytest
 import time
+from fastapi import HTTPException
 
 import btp_catalog
 import biztranspay
+import wallet_finance
 from mongomock_motor import AsyncMongoMockClient
 from wallet_finance import (
     _wallet_field, calculate_fee_quote, settle_wallet_deposit, settle_wallet_send,
@@ -128,3 +130,172 @@ async def test_definitive_send_failure_refunds_reserved_wallet_once():
     assert second["changed"] is False
     assert user["wallet_deposit_balance"] == 110
     assert saved["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_hides_disabled_routes_and_provider_names(monkeypatch):
+    db = AsyncMongoMockClient().wallet_public_catalog
+    request = type("Request", (), {"app": type("App", (), {"state": type("State", (), {"db": db})()})()})()
+    user = {"id": "user-1", "role": "user", "status": "active", "max_level": 1}
+    rows = [
+        {
+            "route_id": "disabled", "direction": "deposit", "route_type": "mobile",
+            "country_code": "TG", "country_name": "Togo", "currency": "XOF",
+            "operator_code": "disabled-op", "operator_name": "Moov",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "route_enabled": False, "available": False, "fee_enabled": False,
+            "fee_percent": 0, "unavailable_reason": "Pays ou opérateur désactivé.",
+        },
+        {
+            "route_id": "unreadable", "direction": "deposit", "route_type": "mobile",
+            "country_code": "TG", "country_name": "Togo", "currency": "XOF",
+            "operator_code": "undefined-op", "operator_name": "undefined",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "route_enabled": True, "available": False, "fee_enabled": False,
+            "fee_percent": 0, "unavailable_reason": "Frais non configurés ou désactivés.",
+        },
+        {
+            "route_id": "enabled-no-fees", "direction": "deposit", "route_type": "mobile",
+            "country_code": "TG", "country_name": "Togo", "currency": "XOF",
+            "operator_code": "tmoney", "operator_name": "T-Money",
+            "provider": "biztranspay", "provider_name": "Biz-transPay",
+            "route_enabled": True, "available": False, "fee_enabled": False,
+            "fee_percent": 0, "unavailable_reason": "Frais non configurés ou désactivés.",
+        },
+        *[
+            {
+                "route_id": f"crypto-{asset}", "direction": "deposit",
+                "route_type": "crypto", "country_code": "*", "country_name": "Tous les pays",
+                "currency": asset, "asset_code": asset, "coin": asset.split(".")[0],
+                "network": asset.split(".")[1], "provider": "biztranspay",
+                "provider_name": "Biz-transPay", "route_enabled": True,
+                "available": False, "fee_enabled": False, "fee_percent": 0,
+                "unavailable_reason": "Frais crypto non configurés.",
+            }
+            for asset in ("USDT.BEP20", "USDC.ERC20")
+        ],
+    ]
+    monkeypatch.setattr(wallet_finance, "_catalog_rows", lambda _db: _async_value(rows))
+
+    result = await wallet_finance.wallet_operations_catalog(request, "deposit", user)
+
+    assert [country["code"] for country in result["countries"]] == ["TG"]
+    operators = result["countries"][0]["operators"]
+    assert [operator["name"] for operator in operators] == ["T-Money"]
+    assert operators[0]["available"] is False
+    assert "provider" not in operators[0] and "provider_name" not in operators[0]
+    assert [asset["asset_code"] for asset in result["crypto_assets"]] == [
+        "USDT.BEP20", "USDC.ERC20",
+    ]
+    assert all(asset["country_code"] == "*" for asset in result["crypto_assets"])
+    assert all("provider_name" not in asset and "provider" not in asset for asset in result["crypto_assets"])
+    assert "Biz-transPay" not in repr(result)
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_fee_warning_is_attached_only_to_an_admin_enabled_route(monkeypatch):
+    db = AsyncMongoMockClient().wallet_route_activation
+    routes = [
+        {
+            "route_id": "inactive-route", "provider": "biztranspay",
+            "provider_name": "Biz-transPay", "direction": "deposit",
+            "route_type": "mobile", "country_code": "TG", "country_name": "Togo",
+            "currency": "XOF", "operator_code": "moov", "operator_name": "Moov",
+            "country_enabled": False, "operator_enabled": True, "provider_enabled": True,
+            "hosted_operator_selection_required": False,
+        },
+        {
+            "route_id": "active-route", "provider": "biztranspay",
+            "provider_name": "Biz-transPay", "direction": "deposit",
+            "route_type": "mobile", "country_code": "TG", "country_name": "Togo",
+            "currency": "XOF", "operator_code": "tmoney", "operator_name": "T-Money",
+            "country_enabled": True, "operator_enabled": True, "provider_enabled": True,
+            "hosted_operator_selection_required": False,
+        },
+    ]
+
+    async def route_rows(_db, direction):
+        return [row for row in routes if row["direction"] == direction]
+
+    async def crypto_assets(_db, _direction):
+        return []
+
+    async def selected_route(_db, *, kind, country, operator):
+        return {"provider_id": "biztranspay"} if operator == "tmoney" else None
+
+    monkeypatch.setattr(wallet_finance, "_provider_route_rows", route_rows)
+    monkeypatch.setattr(wallet_finance, "_crypto_catalog", crypto_assets)
+    monkeypatch.setattr("payment_router.pick_provider", selected_route)
+
+    catalog = await wallet_finance._catalog_rows(db)
+    mobile = [row for row in catalog if row["route_type"] == "mobile" and row["direction"] == "deposit"]
+    inactive = next(row for row in mobile if row["route_id"] == "inactive-route")
+    active = next(row for row in mobile if row["route_id"] == "active-route")
+    assert inactive["route_enabled"] is False
+    assert "Frais" not in inactive["unavailable_reason"]
+    assert active["route_enabled"] is True
+    assert active["unavailable_reason"] == "Frais non configurés ou désactivés."
+
+
+@pytest.mark.asyncio
+async def test_admin_fee_catalog_uses_direction_catalogs_and_keeps_crypto_payout_closed(monkeypatch):
+    db = AsyncMongoMockClient().wallet_admin_catalog
+    request = type("Request", (), {"app": type("App", (), {"state": type("State", (), {"db": db})()})()})()
+    actor = {"id": "admin-1"}
+
+    async def no_mobile_routes(_db, _direction):
+        return []
+
+    async def crypto_catalog(_db, direction):
+        assets = {
+            "deposit": ["USDT.BEP20", "BTC.BTC"],
+            "payout": ["USDT.TRC20", "USDC.ERC20"],
+        }
+        return [{"code": code, "asset_code": code} for code in assets[direction]]
+
+    async def ready(_db, _provider, _direction, _route_type):
+        return True
+
+    monkeypatch.setattr(wallet_finance, "_provider_route_rows", no_mobile_routes)
+    monkeypatch.setattr(wallet_finance, "_crypto_catalog", crypto_catalog)
+    monkeypatch.setattr(wallet_finance, "_provider_runtime_ready", ready)
+
+    before = await wallet_finance.admin_wallet_fees(request, actor)
+    rows = before["routes"]
+    assert {(row["direction"], row["asset_code"]) for row in rows} == {
+        ("deposit", "USDT.BEP20"), ("deposit", "BTC.BTC"),
+        ("send", "USDT.TRC20"), ("send", "USDC.ERC20"),
+    }
+    payout = next(row for row in rows if row["direction"] == "send")
+    assert payout["available"] is False
+    await wallet_finance.update_wallet_fee(
+        payout["route_id"],
+        wallet_finance.FeeUpdateIn(enabled=True, rate_percent=2.5, fixed_amount=0.75),
+        request,
+        actor,
+    )
+    after = await wallet_finance.admin_wallet_fees(request, actor)
+    saved = next(row for row in after["routes"] if row["route_id"] == payout["route_id"])
+    assert saved["enabled"] is True
+    assert saved["rate_percent"] == 2.5
+    assert saved["fixed_amount"] == 0.75
+    assert saved["available"] is False
+    await db.users.insert_one({
+        "id": "user-1", "role": "user", "status": "active", "max_level": 1,
+        "wallet_deposit_balance": 100, "wallet_balances": {},
+    })
+    with pytest.raises(HTTPException) as error:
+        await wallet_finance.create_wallet_quote(
+            wallet_finance.QuoteIn(
+                direction="send", route_id=payout["route_id"], amount=1,
+                fee_payer="client", wallet_asset="USDT.TRC20",
+            ),
+            request,
+            {"id": "user-1", "role": "user", "status": "active", "max_level": 1},
+        )
+    assert error.value.status_code == 503
+    assert await db.wallet_quotes.count_documents({}) == 0

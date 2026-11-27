@@ -46,6 +46,7 @@ class QuoteIn(BaseModel):
 class FeeUpdateIn(BaseModel):
     enabled: bool = False
     rate_percent: float = Field(ge=0, le=100)
+    fixed_amount: float = Field(default=0, ge=0, le=1_000_000_000)
 
 
 class ExchangeRateUpdateIn(BaseModel):
@@ -77,6 +78,11 @@ class SubmitIn(BaseModel):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Mongo clients may return UTC datetimes without tzinfo by default."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _new_id() -> str:
@@ -262,13 +268,13 @@ async def _provider_route_rows(db, direction: str) -> list[dict]:
             ) or {}
             for operator in operators:
                 code = str(operator.get("code") or "").strip()
-                label = str(operator.get("label") or code).strip()
                 if not code:
                     continue
                 operator_row = await provider_operator.find_one(
                     {"provider_id": provider_id, "country_code": cc, "operator_code": code},
                     {"_id": 0},
                 ) or {}
+                label = str(operator.get("label") or operator_row.get("operator_label") or code).strip()
                 rid = _route_id(provider_id, direction, "mobile", cc, code)
                 all_routes.append({
                     "route_id": rid, "provider": provider_id, "provider_name": provider_name,
@@ -308,32 +314,32 @@ async def _catalog_rows(db) -> list[dict]:
         routes = await _provider_route_rows(db, direction)
         for row in routes:
             fee = fees.get(row["route_id"]) or {}
-            available = (
+            route_enabled = bool(
                 row["country_enabled"] and row["operator_enabled"] and row["provider_enabled"]
-                and bool(fee.get("enabled"))
                 and not row["hosted_operator_selection_required"]
             )
-            reason = ""
-            if not fee.get("enabled"):
-                reason = "Frais non configurés ou désactivés."
-            elif row["hosted_operator_selection_required"]:
-                reason = "MoneyFusion ne permet pas de présélectionner cet opérateur."
-            elif not row["country_enabled"] or not row["operator_enabled"]:
-                reason = "Pays ou opérateur désactivé dans le catalogue prestataire."
-            elif not row["provider_enabled"]:
-                reason = "Prestataire désactivé, sans clés valides ou sans accord de devise confirmé."
-            if available:
+            if route_enabled:
                 from payment_router import pick_provider
                 selected = await pick_provider(
                     db, kind="payin" if direction == "deposit" else "payout",
                     country=row["country_code"], operator=row["operator_code"],
                 )
-                if not selected or selected.get("provider_id") != row["provider"]:
-                    available = False
-                    reason = "Cette route n’est pas celle sélectionnée par le routage prestataire."
+                route_enabled = bool(selected and selected.get("provider_id") == row["provider"])
+            available = route_enabled and bool(fee.get("enabled"))
+            reason = ""
+            if not route_enabled and row["hosted_operator_selection_required"]:
+                reason = "MoneyFusion ne permet pas de présélectionner cet opérateur."
+            elif not route_enabled and (not row["country_enabled"] or not row["operator_enabled"]):
+                reason = "Pays ou opérateur désactivé dans le catalogue prestataire."
+            elif not route_enabled:
+                reason = "Prestataire désactivé, sans clés valides ou sans accord de devise confirmé."
+            elif not fee.get("enabled"):
+                reason = "Frais non configurés ou désactivés."
             rows.append({
                 **row, "fee_enabled": bool(fee.get("enabled")),
                 "fee_percent": float(fee.get("rate_percent") or 0),
+                "fixed_fee_amount": float(fee.get("fixed_amount") or 0),
+                "route_enabled": route_enabled,
                 "available": available, "unavailable_reason": reason,
             })
 
@@ -361,11 +367,11 @@ async def _catalog_rows(db) -> list[dict]:
             )
             reason = ""
             if direction == "send":
-                reason = "Le retrait crypto Biz-transPay n’est pas activé tant que son contrat API n’est pas vérifié."
+                reason = "Le retrait crypto n’est pas activé tant que son contrat API n’est pas vérifié."
+            elif not enabled_crypto:
+                reason = "Le dépôt crypto est désactivé ou incomplet."
             elif not fee.get("enabled"):
                 reason = "Frais crypto non configurés ou désactivés."
-            elif not enabled_crypto:
-                reason = "Biz-transPay Crypto est désactivé ou incomplet."
             rows.append({
                 "route_id": rid, "provider": "biztranspay",
                 "provider_name": "Biz-transPay", "direction": direction,
@@ -376,6 +382,8 @@ async def _catalog_rows(db) -> list[dict]:
                 "country_enabled": True, "operator_enabled": True,
                 "provider_enabled": enabled_crypto, "fee_enabled": bool(fee.get("enabled")),
                 "fee_percent": float(fee.get("rate_percent") or 0),
+                "fixed_fee_amount": float(fee.get("fixed_amount") or 0),
+                "route_enabled": bool(enabled_crypto),
                 "available": available, "unavailable_reason": reason,
             })
     return rows
@@ -392,6 +400,8 @@ async def _active_route(db, route_id: str, direction: str) -> dict:
                 if r.get("route_id") == route_id and r.get("direction") == direction), None)
     if not row:
         raise HTTPException(400, "Cette route n’existe pas dans le catalogue des prestataires.")
+    if row.get("route_type") == "mobile" and not row.get("route_enabled"):
+        raise HTTPException(503, row.get("unavailable_reason") or "Cette route est désactivée.")
     if not row.get("available"):
         raise HTTPException(503, row.get("unavailable_reason") or "Cette route est indisponible.")
     return row
@@ -414,7 +424,10 @@ async def wallet_operations_catalog(
     selected = [row for row in rows if row["direction"] == direction]
     countries: dict[str, dict] = {}
     for row in selected:
-        if row["route_type"] != "mobile":
+        if row["route_type"] != "mobile" or not row.get("route_enabled"):
+            continue
+        operator_name = str(row.get("operator_name") or "").strip()
+        if operator_name.lower() in {"", "undefined", "none", "null"}:
             continue
         code = row["country_code"]
         country = countries.setdefault(code, {
@@ -423,27 +436,26 @@ async def wallet_operations_catalog(
         })
         country["operators"].append({
             "route_id": row["route_id"], "code": row["operator_code"],
-            "name": row["operator_name"], "provider": row["provider"],
-            "provider_name": row["provider_name"], "available": row["available"],
+            "name": operator_name, "available": row["available"],
             "unavailable_reason": row["unavailable_reason"],
             "currency": row["currency"], "fee_percent": row["fee_percent"],
+            "fee_enabled": row["fee_enabled"],
         })
-    if direction == "deposit":
-        try:
-            from levels import COUNTRIES
-            for entry in COUNTRIES:
-                code = str(entry.get("code") or "").upper()
-                if code:
-                    countries.setdefault(code, {
-                        "code": code, "name": entry.get("name") or code,
-                        "currency": "", "operators": [],
-                    })
-        except Exception:
-            pass
+    crypto_assets = []
+    for row in selected:
+        if row["route_type"] != "crypto":
+            continue
+        crypto_assets.append({
+            key: row[key] for key in (
+                "route_id", "direction", "route_type", "country_code", "country_name",
+                "currency", "asset_code", "coin", "network", "available",
+                "unavailable_reason", "fee_percent", "fee_enabled",
+            ) if key in row
+        })
     return {
         "direction": direction,
         "countries": sorted(countries.values(), key=lambda item: item["name"]),
-        "crypto_assets": [row for row in selected if row["route_type"] == "crypto"],
+        "crypto_assets": crypto_assets,
         "wallets": [
             {"asset_code": "XOF", "balance": _wallet_balance(user, "XOF")},
             *[
@@ -501,7 +513,7 @@ async def create_wallet_quote(data: QuoteIn, request: Request, user=Depends(get_
     await db.wallet_quotes.insert_one(quote)
     return {
         "quote_id": quote_id, "direction": data.direction,
-        "provider": route["provider_name"], "country": route["country_name"],
+        "country": route["country_name"],
         "operator": route.get("operator_name") or route.get("asset_code"),
         "currency": asset, "fee_percent": rate,
         "fee_payer": data.fee_payer, **amounts,
@@ -521,7 +533,8 @@ async def admin_wallet_fees(request: Request, _=Depends(require_admin)):
     fee_rows = await _fee_map(db)
     return {"routes": [
         {**row, "enabled": bool(fee_rows.get(row["route_id"], {}).get("enabled")),
-         "rate_percent": float(fee_rows.get(row["route_id"], {}).get("rate_percent") or 0)}
+         "rate_percent": float(fee_rows.get(row["route_id"], {}).get("rate_percent") or 0),
+         "fixed_amount": float(fee_rows.get(row["route_id"], {}).get("fixed_amount") or 0)}
         for row in rows
     ]}
 
@@ -544,6 +557,7 @@ async def update_wallet_fee(
             "operator_code": route.get("operator_code") or "",
             "asset_code": route.get("asset_code") or "",
             "enabled": bool(data.enabled), "rate_percent": float(data.rate_percent),
+            "fixed_amount": float(data.fixed_amount),
             "updated_at": now, "updated_by": actor.get("id"),
         }, "$setOnInsert": {"created_at": now}},
         upsert=True,
@@ -551,11 +565,14 @@ async def update_wallet_fee(
     await db.admin_logs.insert_one({
         "id": _new_id(), "admin_id": actor.get("id"),
         "action": "wallet_fee_updated", "target_id": route_id,
-        "details": {"enabled": bool(data.enabled), "rate_percent": float(data.rate_percent)},
+        "details": {
+            "enabled": bool(data.enabled), "rate_percent": float(data.rate_percent),
+            "fixed_amount": float(data.fixed_amount),
+        },
         "created_at": now,
     })
     return {"ok": True, "route_id": route_id, "enabled": bool(data.enabled),
-            "rate_percent": float(data.rate_percent)}
+            "rate_percent": float(data.rate_percent), "fixed_amount": float(data.fixed_amount)}
 
 
 async def _claim_quote(db, quote_id: str, user_id: str, direction: str) -> dict:
@@ -564,7 +581,7 @@ async def _claim_quote(db, quote_id: str, user_id: str, direction: str) -> dict:
         raise HTTPException(404, "Devis introuvable.")
     if quote.get("direction") != direction:
         raise HTTPException(400, "Le devis ne correspond pas à cette opération.")
-    if quote.get("expires_at") and quote["expires_at"] < _now():
+    if quote.get("expires_at") and _as_utc(quote["expires_at"]) < _now():
         raise HTTPException(410, "Le devis a expiré. Créez-en un nouveau.")
     return quote
 
@@ -1274,7 +1291,7 @@ async def submit_wallet_operation(data: SubmitIn, request: Request, user=Depends
     direction = quote.get("direction")
     if direction not in {"deposit", "send"}:
         raise HTTPException(400, "Devis invalide.")
-    if quote.get("expires_at") and quote["expires_at"] < _now():
+    if quote.get("expires_at") and _as_utc(quote["expires_at"]) < _now():
         raise HTTPException(410, "Le devis a expiré. Recommencez.")
     if quote.get("status") not in {"quoted", "submitting"}:
         if quote.get("transaction_reference"):
@@ -1791,7 +1808,7 @@ async def execute_wallet_exchange(
     if existing and existing.get("status") == "rejected":
         raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")
     now = _now()
-    if quote.get("expires_at") and quote["expires_at"] <= now:
+    if quote.get("expires_at") and _as_utc(quote["expires_at"]) <= now:
         raise HTTPException(410, "Le devis a expiré. Actualisez le taux puis réessayez.")
     if quote.get("status") == "rejected":
         raise HTTPException(400, "Cet échange a déjà été refusé faute de solde suffisant.")

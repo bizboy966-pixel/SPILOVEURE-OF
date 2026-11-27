@@ -25,7 +25,7 @@ type Asset = {
   xof_per_unit_sell: number;
 };
 
-const DIRECTIONS: Array<{ value: Direction; label: string; icon: any }> = [
+const DIRECTIONS: { value: Direction; label: string; icon: any }[] = [
   { value: "xof_to_crypto", label: "XOF → USDT.BEP20", icon: "arrow-forward" },
   { value: "crypto_to_xof", label: "USDT.BEP20 → XOF", icon: "arrow-back" },
 ];
@@ -114,6 +114,7 @@ export default function WalletExchangeScreen() {
     if (!canSubmit || executing) return;
     setExecuting(true);
     setError("");
+    let stage: "quote" | "execute" = "quote";
     try {
       const quote = await api.post<{ quote_id: string; amount_in: number; amount_out: number; source_code: string; destination_code: string }>(
         "/wallet-exchange/quote",
@@ -123,6 +124,7 @@ export default function WalletExchangeScreen() {
           amount: entered,
         },
       );
+      stage = "execute";
       await api.post("/wallet-exchange/execute", { quote_id: quote.quote_id });
       setAmount("");
       await refresh();
@@ -132,7 +134,10 @@ export default function WalletExchangeScreen() {
         `${formatAmount(quote.amount_in, quote.source_code)} convertis en ${formatAmount(quote.amount_out, quote.destination_code)}.`,
       );
     } catch (e: any) {
-      setError(e?.detail || e?.message || "La conversion n’a pas pu être effectuée.");
+      const detail = e?.detail || e?.message || "Erreur serveur.";
+      setError(stage === "quote"
+        ? `Échec lors de la création du devis : ${detail}`
+        : `Le devis a été créé, mais son exécution a échoué : ${detail}`);
     } finally {
       setExecuting(false);
     }

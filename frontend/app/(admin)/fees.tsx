@@ -28,10 +28,12 @@ type FeeRoute = {
   unavailable_reason?: string;
   fee_percent?: number;
   rate_percent?: number;
+  fixed_amount?: number;
+  fixed_fee_amount?: number;
   enabled?: boolean;
 };
 
-type Draft = { enabled: boolean; rate: string };
+type Draft = { enabled: boolean; rate: string; fixedAmount: string };
 type DirectionFilter = "deposit" | "send";
 type ProviderFilter = "all" | "moneyfusion" | "biztranspay";
 
@@ -98,6 +100,7 @@ export default function AdminFeesScreen() {
       setDrafts(Object.fromEntries(joined.map((route) => [route.route_id, {
         enabled: route.enabled !== false,
         rate: String(route.rate_percent ?? route.fee_percent ?? 0),
+        fixedAmount: String(route.fixed_amount ?? route.fixed_fee_amount ?? 0),
       }])));
     } catch (e: any) {
       setError(e?.detail || e?.message || "Impossible de charger les frais des routes.");
@@ -126,8 +129,9 @@ export default function AdminFeesScreen() {
   const save = async (route: FeeRoute) => {
     const draft = drafts[route.route_id];
     const rate = Number(String(draft?.rate ?? "").replace(",", "."));
-    if (!Number.isFinite(rate) || rate < 0) {
-      setError("Saisissez un taux valide, égal ou supérieur à zéro.");
+    const fixedAmount = Number(String(draft?.fixedAmount ?? "0").replace(",", "."));
+    if (!Number.isFinite(rate) || rate < 0 || !Number.isFinite(fixedAmount) || fixedAmount < 0) {
+      setError("Saisissez des frais valides, égaux ou supérieurs à zéro.");
       return;
     }
     setSavingId(route.route_id);
@@ -137,6 +141,7 @@ export default function AdminFeesScreen() {
       await api.put(`/admin/wallet-fees/${encodeURIComponent(route.route_id)}`, {
         enabled: draft.enabled,
         rate_percent: rate,
+        fixed_amount: fixedAmount,
       });
       setSavedId(route.route_id);
       await load(true);
@@ -239,7 +244,7 @@ export default function AdminFeesScreen() {
         ) : filteredRoutes.length ? (
           <View style={styles.routeList}>
             {filteredRoutes.map((route) => {
-              const draft = drafts[route.route_id] || { enabled: true, rate: "0" };
+              const draft = drafts[route.route_id] || { enabled: true, rate: "0", fixedAmount: "0" };
               const available = route.available === true;
               return (
                 <Card key={route.route_id} style={styles.routeCard}>
@@ -273,8 +278,28 @@ export default function AdminFeesScreen() {
                   ) : null}
 
                   <View style={styles.configRow}>
+                    {route.direction === "send" && route.route_type === "crypto" ? (
+                      <View style={styles.rateField}>
+                        <Text style={styles.fieldLabel}>Frais fixes ({route.currency || route.asset_code})</Text>
+                        <View style={styles.rateInputWrap}>
+                          <TextInput
+                            value={draft.fixedAmount}
+                            onChangeText={(value) => setDraft(route.route_id, { fixedAmount: value })}
+                            keyboardType="decimal-pad"
+                            accessibilityLabel={`Frais fixes pour ${routeTitle(route)}`}
+                            style={styles.rateInput}
+                            placeholder="0"
+                            placeholderTextColor={theme.colors.textMuted}
+                          />
+                          <Text style={styles.percentSign}>{route.currency || route.asset_code}</Text>
+                        </View>
+                      </View>
+                    ) : null}
                     <View style={styles.rateField}>
-                      <Text style={styles.fieldLabel}>Taux de frais</Text>
+                      <Text style={styles.fieldLabel}>
+                        {route.direction === "send" && route.route_type === "crypto"
+                          ? "Frais en pourcentage" : "Taux de frais"}
+                      </Text>
                       <View style={styles.rateInputWrap}>
                         <TextInput
                           value={draft.rate}
