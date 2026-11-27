@@ -26,4 +26,5 @@
 - [Builds Android lents](android-build-performance.md) — SDK Nix imbriqué/temporaire, Build Tools 34/35 requis; lancer Gradle en arrière-plan et vérifier signature et version.
 - [Échanges du portefeuille](wallet-balance-separation.md) — le petit bouton convertit XOF ↔ solde USDT.BEP20 dédié aux retraits, distinct des dépôts.
 - [Exécution des tests Python](python-test-runner.md) — vérifier l’alignement interpréteur/site-packages avant de réinstaller pytest.
+- [Collections Mongo non booléennes](mongo-collection-truthiness.md) — vérifier la présence d’une collection avec `is not None`, jamais par sa valeur booléenne.
 - [Dates MongoDB et fuseaux horaires](mongodb-datetime-comparisons.md) — normaliser les dates relues sans fuseau avant toute comparaison avec une date UTC.

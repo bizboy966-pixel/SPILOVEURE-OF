@@ -1404,7 +1404,10 @@ async def _notify_payout_terminal(db, withdrawal: dict, status: str, *, push: bo
 async def _apply_payout_status(db, payout: dict, status: str, event_data: dict) -> dict:
     wd_id = payout.get("wd_id")
     wallet_sends = getattr(db, "wallet_sends", None)
-    wallet_send = await wallet_sends.find_one({"id": wd_id}, {"_id": 0}) if wallet_sends else None
+    wallet_send = (
+        await wallet_sends.find_one({"id": wd_id}, {"_id": 0})
+        if wallet_sends is not None else None
+    )
     if wallet_send:
         normalized = str(status or "").lower()
         if normalized in {"success", "completed", "paid", "confirmed"}:

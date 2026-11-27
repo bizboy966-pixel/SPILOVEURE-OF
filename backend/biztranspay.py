@@ -35,7 +35,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -878,7 +878,10 @@ async def _settle_withdrawal_status(
     if not wd_id or target_status not in ("completed", "rejected"):
         return {"ok": False, "reason": "invalid_terminal_status"}
     wallet_sends = getattr(db, "wallet_sends", None)
-    wallet_send = await wallet_sends.find_one({"id": wd_id}, {"_id": 0}) if wallet_sends else None
+    wallet_send = (
+        await wallet_sends.find_one({"id": wd_id}, {"_id": 0})
+        if wallet_sends is not None else None
+    )
     if wallet_send:
         from wallet_finance import settle_wallet_send
         return await settle_wallet_send(
@@ -1323,12 +1326,12 @@ async def biztranspay_webhook(request: Request):
         if provider_id:
             wd = await db.withdrawals.find_one({"payout_id": provider_id})
             wallet_sends = getattr(db, "wallet_sends", None)
-            if not wd and wallet_sends:
+            if not wd and wallet_sends is not None:
                 wd = await wallet_sends.find_one({"payout_id": provider_id}, {"_id": 0})
         if not wd and ref:
             wd = await db.withdrawals.find_one({"id": ref})
             wallet_sends = getattr(db, "wallet_sends", None)
-            if not wd and wallet_sends:
+            if not wd and wallet_sends is not None:
                 wd = await wallet_sends.find_one({"id": ref}, {"_id": 0})
         if wd:
             if internal_status == "paid":
@@ -2240,7 +2243,10 @@ async def reconcile_withdrawal(db, wd_doc: dict) -> dict:
                 "gateway_status": remote_status}
 
     wallet_sends = getattr(db, "wallet_sends", None)
-    wallet_send = await wallet_sends.find_one({"id": wd_doc.get("id")}) if wallet_sends else None
+    wallet_send = (
+        await wallet_sends.find_one({"id": wd_doc.get("id")})
+        if wallet_sends is not None else None
+    )
     if wallet_send:
         await db.wallet_sends.update_one(
             {"id": wd_doc["id"], "status": {"$nin": ["completed", "rejected"]}},
@@ -2315,18 +2321,44 @@ async def reconcile_all_crypto_dispatched(db, max_docs: int = 50) -> dict:
     from server import _reconcile_biztranspay_crypto_withdrawal
 
     results = {"scanned": 0, "updated": 0, "errors": 0}
+    now = datetime.now(timezone.utc)
     query = {
         "gateway": "biztranspay_crypto",
         "method": "crypto",
         "payout_id": {"$exists": True, "$nin": [None, ""]},
         "status": {"$in": ["pending", "processing", "dispatched", "unknown"]},
+        "$or": [
+            {"crypto_next_reconcile_at": {"$exists": False}},
+            {"crypto_next_reconcile_at": {"$lte": now}},
+        ],
     }
     async for withdrawal in db.withdrawals.find(query).sort("created_at", 1).limit(max_docs):
+        attempts = int(withdrawal.get("crypto_reconcile_attempts") or 0) + 1
+        delay = min(10 * (2 ** min(attempts - 1, 5)), 300)
+        claim = await db.withdrawals.update_one(
+            {
+                "id": withdrawal.get("id"),
+                "status": withdrawal.get("status"),
+                "$or": [
+                    {"crypto_next_reconcile_at": {"$exists": False}},
+                    {"crypto_next_reconcile_at": {"$lte": now}},
+                ],
+            },
+            {"$set": {
+                "crypto_last_reconcile_at": now,
+                "crypto_next_reconcile_at": now + timedelta(seconds=delay),
+                "crypto_reconcile_attempts": attempts,
+            }},
+        )
+        if not claim.modified_count:
+            continue
         results["scanned"] += 1
         try:
             outcome = await _reconcile_biztranspay_crypto_withdrawal(db, withdrawal)
             if outcome.get("status") in {"completed", "rejected"}:
                 results["updated"] += 1
+            elif not outcome.get("ok"):
+                results["errors"] += 1
         except Exception:
             results["errors"] += 1
             log.exception(

@@ -35,11 +35,15 @@ class _MongoCollectionWithoutTruthiness:
 
 
 def _db_with_non_truthy_wallet_sends(db):
-    return SimpleNamespace(
-        moneyfusion_payouts=db.moneyfusion_payouts,
-        withdrawals=db.withdrawals,
-        wallet_sends=_MongoCollectionWithoutTruthiness(db.wallet_sends),
-    )
+    class DatabaseProxy:
+        def __init__(self, inner):
+            self._inner = inner
+            self.wallet_sends = _MongoCollectionWithoutTruthiness(inner.wallet_sends)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    return DatabaseProxy(db)
 
 
 def _moneyfusion_rows(db, *, status="dispatched", token="mf-token", withdrawal_status="processing"):
@@ -88,6 +92,20 @@ def test_moneyfusion_poll_reconciles_success_once_without_submission(monkeypatch
     assert user["total_withdrawn"] == 3000
     assert len(calls) == 1
     assert run(db.notifications.count_documents({"user_id": "member"})) == 1
+
+
+def test_moneyfusion_settlement_supports_non_truthy_wallet_collection():
+    db = _db()
+    _moneyfusion_rows(db)
+    payout = run(db.moneyfusion_payouts.find_one({"wd_id": "wd-mf"}, {"_id": 0}))
+
+    outcome = run(moneyfusion._apply_payout_status(
+        _db_with_non_truthy_wallet_sends(db), payout, "paid", {},
+    ))
+    withdrawal = run(db.withdrawals.find_one({"id": "wd-mf"}))
+
+    assert outcome["outcome"] == "completed"
+    assert withdrawal["status"] == "completed"
 
 
 def test_moneyfusion_webhook_applies_native_confirmation_format(monkeypatch):
@@ -200,11 +218,12 @@ def test_biztranspay_settlement_accounts_and_notifies_once():
 
     withdrawal = run(seed())
     run(db.withdrawals.insert_one(dict(withdrawal)))
+    safe_db = _db_with_non_truthy_wallet_sends(db)
     first = run(biztranspay._settle_withdrawal_status(
-        db, withdrawal, "completed", "completed", source="test",
+        safe_db, withdrawal, "completed", "completed", source="test",
     ))
     second = run(biztranspay._settle_withdrawal_status(
-        db, withdrawal, "completed", "completed", source="test",
+        safe_db, withdrawal, "completed", "completed", source="test",
     ))
 
     assert first["changed"] is True
@@ -347,7 +366,9 @@ def test_biztranspay_sweep_reconciles_legacy_payout_without_auto_flag(monkeypatc
     monkeypatch.setattr(biztranspay, "_get_secret_key", AsyncMock(return_value="test-secret"))
     monkeypatch.setattr(biztranspay, "_get_public_key", AsyncMock(return_value="test-public"))
 
-    result = run(biztranspay.reconcile_all_dispatched(db, max_docs=5))
+    result = run(biztranspay.reconcile_all_dispatched(
+        _db_with_non_truthy_wallet_sends(db), max_docs=5,
+    ))
     withdrawal = run(db.withdrawals.find_one({"id": "wd-legacy-btp"}))
     user = run(db.users.find_one({"id": "member"}))
 
