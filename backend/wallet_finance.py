@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from auth import get_current_user, require_admin
+from feature_flags import is_enabled
 from wallet_exchange_math import calculate_exchange_amount
 
 log = logging.getLogger("wallet_finance")
@@ -414,13 +415,24 @@ def _assert_transaction_user(user: dict) -> None:
         raise HTTPException(403, "ACTIVATION_REQUIRED")
 
 
+async def _require_wallet_operation_enabled(db, direction: str) -> None:
+    feature_key = {
+        "deposit": "wallet_deposit",
+        "send": "wallet_send",
+    }.get(direction)
+    if not feature_key or not await is_enabled(db, feature_key):
+        raise HTTPException(503, "Bientôt disponible.")
+
+
 @router.get("/api/wallet-operations/catalog")
 async def wallet_operations_catalog(
     request: Request, direction: str = "deposit", user=Depends(get_current_user),
 ):
     if direction not in {"deposit", "send"}:
         raise HTTPException(400, "Sens invalide.")
-    rows = await _catalog_rows(request.app.state.db)
+    db = request.app.state.db
+    await _require_wallet_operation_enabled(db, direction)
+    rows = await _catalog_rows(db)
     selected = [row for row in rows if row["direction"] == direction]
     countries: dict[str, dict] = {}
     for row in selected:
@@ -473,6 +485,7 @@ async def create_wallet_quote(data: QuoteIn, request: Request, user=Depends(get_
     db = request.app.state.db
     if data.direction not in {"deposit", "send"}:
         raise HTTPException(400, "Sens invalide.")
+    await _require_wallet_operation_enabled(db, data.direction)
     if data.fee_payer not in {"client", "sender"}:
         raise HTTPException(400, "Choisissez qui paie les frais.")
     route = await _active_route(db, data.route_id, data.direction)
@@ -1291,6 +1304,7 @@ async def submit_wallet_operation(data: SubmitIn, request: Request, user=Depends
     direction = quote.get("direction")
     if direction not in {"deposit", "send"}:
         raise HTTPException(400, "Devis invalide.")
+    await _require_wallet_operation_enabled(db, direction)
     if quote.get("expires_at") and _as_utc(quote["expires_at"]) < _now():
         raise HTTPException(410, "Le devis a expiré. Recommencez.")
     if quote.get("status") not in {"quoted", "submitting"}:

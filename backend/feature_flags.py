@@ -21,9 +21,11 @@ from pydantic import BaseModel
 
 # ─── Default catalog ───────────────────────────────────────────────────────────
 # key → (label, category). Every feature added after Feb 2026 SHOULD be listed
-# here so it inherits the "disabled after next deploy" policy requested by the
-# product owner.
+# here so it inherits the default policy. Wallet deposit/send are intentionally
+# enabled initially to preserve the existing flows; admins can turn them off.
 DEFAULT_FLAGS: List[Dict[str, str]] = [
+    {"key": "wallet_deposit",    "label": "Dépôt",                            "category": "paiements"},
+    {"key": "wallet_send",       "label": "Envoi",                            "category": "paiements"},
     {"key": "landing_page",       "label": "Landing Page publique",          "category": "public"},
     {"key": "crypto_auto",        "label": "Auto-activation Crypto (USDT BEP20)", "category": "activation"},
     {"key": "auto_withdrawal",    "label": "Retraits automatiques (IziChangePay USDT BEP20)", "category": "withdrawal"},
@@ -38,13 +40,15 @@ DEFAULT_FLAGS: List[Dict[str, str]] = [
 ]
 
 _ALLOWED_KEYS = {f["key"] for f in DEFAULT_FLAGS}
+_DEFAULT_ENABLED_KEYS = {"wallet_deposit", "wallet_send"}
 
 
 # ─── DB helpers ────────────────────────────────────────────────────────────────
 async def ensure_default_flags(db) -> None:
-    """Insert any missing flag as disabled. Idempotent — safe to call at every
-    startup / redeploy. We deliberately DO NOT reset flags that already exist,
-    so admin's toggles survive redeploys."""
+    """Insert missing flags with their declared initial state.
+
+    Idempotent — existing admin choices survive every startup and redeploy.
+    """
     now = datetime.now(timezone.utc)
     for f in DEFAULT_FLAGS:
         await db.feature_flags.update_one(
@@ -54,7 +58,7 @@ async def ensure_default_flags(db) -> None:
                     "key": f["key"],
                     "label": f["label"],
                     "category": f["category"],
-                    "enabled": False,
+                    "enabled": f["key"] in _DEFAULT_ENABLED_KEYS,
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -100,7 +104,9 @@ async def public_features(request: Request):
     """Public snapshot used by the frontend to know which entries to render.
     Returns a plain `{ key: bool }` dict — no auth required."""
     db = request.app.state.db
-    out: Dict[str, bool] = {f["key"]: False for f in DEFAULT_FLAGS}
+    out: Dict[str, bool] = {
+        f["key"]: f["key"] in _DEFAULT_ENABLED_KEYS for f in DEFAULT_FLAGS
+    }
     async for doc in db.feature_flags.find({}, {"key": 1, "enabled": 1}):
         if doc.get("key") in out:
             out[doc["key"]] = bool(doc.get("enabled"))
@@ -122,7 +128,7 @@ async def list_flags(request: Request):
             "key": f["key"],
             "label": f["label"],
             "category": f["category"],
-            "enabled": bool(d.get("enabled")),
+            "enabled": bool(d.get("enabled", f["key"] in _DEFAULT_ENABLED_KEYS)),
             "updated_at": d.get("updated_at"),
         })
     return {"items": items}

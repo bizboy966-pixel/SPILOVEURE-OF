@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 import btp_catalog
 import biztranspay
+import feature_flags
 import wallet_finance
 from mongomock_motor import AsyncMongoMockClient
 from wallet_finance import (
@@ -135,6 +136,7 @@ async def test_definitive_send_failure_refunds_reserved_wallet_once():
 @pytest.mark.asyncio
 async def test_public_catalog_hides_disabled_routes_and_provider_names(monkeypatch):
     db = AsyncMongoMockClient().wallet_public_catalog
+    await feature_flags.ensure_default_flags(db)
     request = type("Request", (), {"app": type("App", (), {"state": type("State", (), {"db": db})()})()})()
     user = {"id": "user-1", "role": "user", "status": "active", "max_level": 1}
     rows = [
@@ -244,6 +246,7 @@ async def test_fee_warning_is_attached_only_to_an_admin_enabled_route(monkeypatc
 @pytest.mark.asyncio
 async def test_admin_fee_catalog_uses_direction_catalogs_and_keeps_crypto_payout_closed(monkeypatch):
     db = AsyncMongoMockClient().wallet_admin_catalog
+    await feature_flags.ensure_default_flags(db)
     request = type("Request", (), {"app": type("App", (), {"state": type("State", (), {"db": db})()})()})()
     actor = {"id": "admin-1"}
 

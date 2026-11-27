@@ -10,6 +10,8 @@ import { api } from "./api";
  * full map via `useFeatures()`.
  */
 export type FeatureKey =
+  | "wallet_deposit"
+  | "wallet_send"
   | "landing_page"
   | "crypto_auto"
   | "auto_withdrawal"
@@ -25,6 +27,8 @@ export type FeatureKey =
 type FeaturesMap = Record<FeatureKey, boolean>;
 
 const DEFAULT: FeaturesMap = {
+  wallet_deposit: true,
+  wallet_send: true,
   landing_page: false,
   crypto_auto: false,
   auto_withdrawal: false,
@@ -57,8 +61,9 @@ export function FeaturesProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const r = await api.get<{ features: FeaturesMap }>("/features", { auth: false });
-      // Merge over default so any newly-added flag stays `false` until backend
-      // exposes it, avoiding "undefined" checks at call sites.
+      // Merge over defaults to avoid undefined feature checks while loading.
+      // Deposit/send defaults match the backend seed; server-side guards remain
+      // authoritative for every wallet operation.
       setFeatures({ ...DEFAULT, ...(r?.features || {}) });
     } catch {
       // On error keep last-known state — do not "open the gates".

@@ -2146,9 +2146,9 @@ export default function AdminHome() {
                 <Text style={styles.section}>Gestion des fonctionnalités</Text>
               </View>
               <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                Activez ou désactivez chaque module. Une fonctionnalité désactivée devient
-                immédiatement inaccessible côté utilisateur (menu masqué + endpoints bloqués).
-                L'état est conservé après redéploiement.
+                Activez ou désactivez chaque module. Selon le module, l’accès utilisateur est
+                désactivé ou remplacé par « Bientôt disponible »; les opérations désactivées
+                sont bloquées côté serveur. L’état est conservé après redéploiement.
               </Text>
             </Card>
 

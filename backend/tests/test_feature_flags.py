@@ -18,7 +18,8 @@ from admin_test_credentials import get_admin_credentials
 ADMIN_EMAIL, ADMIN_PASSWORD = get_admin_credentials()
 
 ALL_KEYS = {
-    "landing_page", "ads", "ads_create_video", "ads_create_poster",
+    "wallet_deposit", "wallet_send", "landing_page", "crypto_auto",
+    "auto_withdrawal", "ads", "ads_create_video", "ads_create_poster",
     "special_tasks", "marketplace", "marketplace_publish",
     "service_request", "paid_tasks",
 }
