@@ -3793,24 +3793,30 @@ async def get_withdrawal_settings(request: Request):
     db = request.app.state.db
     settings = await _get_withdrawal_settings(db)
     try:
-        from biztranspay import crypto_withdrawal_assets, is_crypto_payout_enabled
-        assets = await crypto_withdrawal_assets(db)
-        settings["crypto_payout_available"] = any(
-            item.get("label") == "USDT BEP20" for item in assets
-        )
+        from biztranspay import crypto_payout_status
+        status = await crypto_payout_status(db)
+        settings["crypto_payout_available"] = bool(status["available"])
         if not settings["crypto_payout_available"]:
-            if not await is_crypto_payout_enabled(db):
-                settings["crypto_payout_unavailable_reason"] = (
-                    "Le retrait USDT BEP20 n’est pas activé pour le moment. "
-                    "Aucun montant ne sera débité."
-                )
-            else:
-                settings["crypto_payout_unavailable_reason"] = (
-                    "Le réseau USDT BEP20 est temporairement indisponible. "
-                    "Aucun montant ne sera débité."
-                )
+            user_messages = {
+                "provider_disabled": "Les retraits crypto sont désactivés dans les réglages. Aucun montant ne sera débité.",
+                "global_switch_disabled": "Les retraits crypto sont désactivés dans les réglages. Aucun montant ne sera débité.",
+                "credentials_missing": "La configuration du retrait crypto est incomplète. Aucun montant ne sera débité.",
+                "catalog_unreachable": "Le service n’a pas pu vérifier la disponibilité de USDT BEP20. Aucun montant ne sera débité.",
+                "catalog_http_error": "Le service n’a pas confirmé USDT BEP20 comme actif de retrait. Aucun montant ne sera débité.",
+                "invalid_catalog_response": "La disponibilité de USDT BEP20 n’a pas pu être vérifiée. Aucun montant ne sera débité.",
+                "asset_not_available": "USDT BEP20 n’est pas confirmé comme actif dans le catalogue de retrait. Aucun montant ne sera débité.",
+                "asset_code_missing": "Le code de retrait USDT BEP20 est incomplet. Aucun montant ne sera débité.",
+            }
+            settings["crypto_payout_unavailable_reason"] = user_messages.get(
+                status.get("reason_code"),
+                "La disponibilité du retrait USDT BEP20 n’a pas été confirmée. Aucun montant ne sera débité.",
+            )
     except Exception:
         settings["crypto_payout_available"] = False
+        settings["crypto_payout_unavailable_reason"] = (
+            "La disponibilité du retrait USDT BEP20 n’a pas pu être vérifiée. "
+            "Aucun montant ne sera débité."
+        )
     if settings["crypto_payout_available"]:
         settings["crypto_payout_unavailable_reason"] = ""
     return settings

@@ -787,6 +787,24 @@ async def admin_btp_catalog(request: Request, direction: str = "deposit", _=Depe
             "raw_sample": doc.get("raw_sample"), "updated_at": doc.get("updated_at")}
 
 
+@api.get("/admin/biztranspay/crypto-payout-status")
+async def admin_crypto_payout_status(
+    request: Request, force: bool = True, _=Depends(require_admin),
+):
+    """Refresh the read-only crypto payout catalog and explain readiness."""
+    status = await crypto_payout_status(request.app.state.db, force=force)
+    return {
+        "available": status["available"],
+        "reason_code": status["reason_code"],
+        "message": status["message"],
+        "http_status": status.get("http_status"),
+        "catalog_item_count": status.get("catalog_item_count", 0),
+        "matching_item_count": status.get("matching_item_count", 0),
+        "cached": status.get("cached", False),
+        "assets": status.get("assets") or [],
+    }
+
+
 @api.get("/payments/biztranspay/status/{reference}")
 async def biztranspay_status(reference: str, request: Request, user=Depends(get_current_user)):
     """Poll a payin status via GET /deposits/{id}."""
@@ -1417,23 +1435,163 @@ def _crypto_catalog_items(payload) -> list[dict]:
 
 
 def _is_usdt_bep20_catalog_asset(row: dict) -> bool:
-    active = next(
-        (row.get(key) for key in ("isActive", "active", "enabled", "status")
-         if row.get(key) is not None),
-        None,
-    )
-    if active is False or str(active).strip().lower() in {"false", "0", "inactive", "disabled"}:
-        return False
-    values = (
-        row.get("asset_code"), row.get("assetCode"), row.get("code"),
-        row.get("symbol"), row.get("coinCode"), row.get("coin"),
-        row.get("network_code"), row.get("networkCode"), row.get("network"),
-        row.get("chain"),
-    )
-    text = " ".join(str(value or "") for value in values).upper()
+    inactive_values = {"false", "0", "no", "off", "inactive", "disabled", "unavailable"}
+    for key in (
+        "isActive", "is_active", "active", "enabled", "is_enabled",
+        "available", "isAvailable", "withdraw_enabled", "withdrawal_enabled",
+        "payout_enabled", "can_withdraw", "status",
+    ):
+        active = row.get(key)
+        if (
+            active is False
+            or (isinstance(active, (int, float)) and active == 0)
+            or str(active if active is not None else "").strip().lower() in inactive_values
+        ):
+            return False
+    values = []
+    for key in (
+        "asset_code", "assetCode", "code", "symbol", "coinCode", "coin",
+        "asset", "currency", "name", "network_code", "networkCode",
+        "network", "network_name", "chain", "blockchain",
+    ):
+        value = row.get(key)
+        if isinstance(value, dict):
+            values.extend(
+                str(value.get(nested) or "")
+                for nested in ("asset_code", "code", "symbol", "name", "id")
+            )
+        elif value is not None:
+            values.append(str(value))
+    text = " ".join(values).upper()
     normalized = re.sub(r"[^A-Z0-9]", "", text)
-    is_bep20 = "BEP20" in normalized or "BSC" in normalized or "BNBSMART" in normalized
+    is_bep20 = (
+        "BEP20" in normalized
+        or "BSC" in normalized
+        or "BNBSMART" in normalized
+        or "BINANCESMARTCHAIN" in normalized
+    )
     return "USDT" in normalized and is_bep20
+
+
+def _crypto_catalog_code(row: dict, fields: tuple[str, ...]) -> str:
+    for key in fields:
+        value = row.get(key)
+        if isinstance(value, dict):
+            value = next(
+                (value.get(nested) for nested in ("code", "asset_code", "symbol", "id")
+                 if value.get(nested) not in (None, "")),
+                None,
+            )
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+async def crypto_payout_status(db, *, force: bool = False) -> dict:
+    """Read-only availability check with safe diagnostics; never submits a payout."""
+    global _CRYPTO_PAYOUT_CATALOG_CACHE
+    cfg = await _load_cfg(db)
+    if not bool(cfg.get("biztranspay_enabled")):
+        return {
+            "available": False, "reason_code": "provider_disabled",
+            "message": "Le prestataire principal est désactivé dans les réglages.",
+            "assets": [], "http_status": None, "catalog_item_count": 0,
+        }
+    if not bool(cfg.get("biztranspay_crypto_payout_enabled", False)):
+        return {
+            "available": False, "reason_code": "global_switch_disabled",
+            "message": "L’interrupteur global de retrait crypto est désactivé dans les réglages.",
+            "assets": [], "http_status": None, "catalog_item_count": 0,
+        }
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    if not secret_key or not public_key:
+        return {
+            "available": False, "reason_code": "credentials_missing",
+            "message": "La configuration API du retrait est incomplète.",
+            "assets": [], "http_status": None, "catalog_item_count": 0,
+        }
+    cached_at, cached_assets = _CRYPTO_PAYOUT_CATALOG_CACHE
+    if (
+        not force and cached_assets
+        and time.monotonic() - cached_at < _CRYPTO_PAYOUT_CATALOG_TTL_SECONDS
+    ):
+        return {
+            "available": True, "reason_code": "available",
+            "message": "USDT BEP20 est actif dans le catalogue de retrait.",
+            "assets": [dict(asset) for asset in cached_assets],
+            "http_status": 200, "catalog_item_count": len(cached_assets),
+            "cached": True,
+        }
+    try:
+        response = await _get(
+            "/crypto/assets?direction=payout", secret_key, public_key,
+        )
+    except Exception as exc:
+        log.warning("BTP crypto payout catalog unavailable (%s)", type(exc).__name__)
+        return {
+            "available": False, "reason_code": "catalog_unreachable",
+            "message": "Impossible de joindre le catalogue de retrait.",
+            "assets": [], "http_status": None, "catalog_item_count": 0,
+        }
+    if response.status_code >= 400:
+        log.warning("BTP crypto payout catalog HTTP %s", response.status_code)
+        return {
+            "available": False, "reason_code": "catalog_http_error",
+            "message": f"Le catalogue de retrait a répondu HTTP {response.status_code}.",
+            "assets": [], "http_status": response.status_code,
+            "catalog_item_count": 0,
+        }
+    try:
+        rows = _crypto_catalog_items(response.json())
+    except Exception:
+        return {
+            "available": False, "reason_code": "invalid_catalog_response",
+            "message": "La réponse du catalogue de retrait est illisible.",
+            "assets": [], "http_status": response.status_code,
+            "catalog_item_count": 0,
+        }
+    assets = []
+    matching_rows = [row for row in rows if _is_usdt_bep20_catalog_asset(row)]
+    for row in matching_rows:
+        asset_code = _crypto_catalog_code(
+            row, ("asset_code", "assetCode", "code", "symbol", "coinCode", "coin", "asset"),
+        )
+        network_code = _crypto_catalog_code(
+            row, ("network_code", "networkCode", "network", "chain", "blockchain"),
+        )
+        if asset_code:
+            assets.append({
+                "asset_code": asset_code,
+                "network_code": network_code,
+                "label": "USDT BEP20",
+            })
+    if not assets:
+        reason_code = "asset_code_missing" if matching_rows else "asset_not_available"
+        message = (
+            "Le catalogue contient USDT BEP20, mais ne fournit pas son code d’actif."
+            if matching_rows else
+            "Le catalogue de retrait ne confirme pas d’actif USDT BEP20 actif."
+        )
+        return {
+            "available": False, "reason_code": reason_code, "message": message,
+            "assets": [], "http_status": response.status_code,
+            "catalog_item_count": len(rows),
+            "matching_item_count": len(matching_rows),
+        }
+    _CRYPTO_PAYOUT_CATALOG_CACHE = (time.monotonic(), assets)
+    return {
+        "available": True, "reason_code": "available",
+        "message": "USDT BEP20 est actif dans le catalogue de retrait.",
+        "assets": [dict(asset) for asset in assets],
+        "http_status": response.status_code, "catalog_item_count": len(rows),
+        "matching_item_count": len(matching_rows), "cached": False,
+    }
+
+
+async def crypto_withdrawal_assets(db, *, force: bool = False) -> list[dict]:
+    """Return active USDT.BEP20 from BTP's payout catalog, globally."""
+    status = await crypto_payout_status(db, force=force)
+    return status.get("assets") or []
 
 
 def _crypto_payout_object(payload):
@@ -1441,52 +1599,6 @@ def _crypto_payout_object(payload):
         return {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     return data.get("payout") if isinstance(data.get("payout"), dict) else data
-
-
-async def crypto_withdrawal_assets(db, *, force: bool = False) -> list[dict]:
-    """Return active USDT.BEP20 from BTP's payout catalog, globally."""
-    global _CRYPTO_PAYOUT_CATALOG_CACHE
-    if not await is_crypto_payout_enabled(db):
-        return []
-    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
-    if not secret_key or not public_key:
-        return []
-    cached_at, cached_assets = _CRYPTO_PAYOUT_CATALOG_CACHE
-    if (
-        not force and cached_assets
-        and time.monotonic() - cached_at < _CRYPTO_PAYOUT_CATALOG_TTL_SECONDS
-    ):
-        return [dict(asset) for asset in cached_assets]
-    try:
-        response = await _get(
-            "/crypto/assets?direction=payout", secret_key, public_key,
-        )
-        if response.status_code >= 400:
-            log.warning("BTP crypto payout catalog HTTP %s", response.status_code)
-            return []
-        assets = []
-        for row in _crypto_catalog_items(response.json()):
-            if not _is_usdt_bep20_catalog_asset(row):
-                continue
-            asset_code = str(
-                row.get("asset_code") or row.get("assetCode") or row.get("code")
-                or row.get("symbol") or "",
-            ).strip()
-            network_code = str(
-                row.get("network_code") or row.get("networkCode")
-                or row.get("network") or row.get("chain") or "",
-            ).strip()
-            if asset_code:
-                assets.append({
-                    "asset_code": asset_code,
-                    "network_code": network_code,
-                    "label": "USDT BEP20",
-                })
-        _CRYPTO_PAYOUT_CATALOG_CACHE = (time.monotonic(), assets)
-        return [dict(asset) for asset in assets]
-    except Exception as exc:
-        log.warning("BTP crypto payout catalog unavailable (%s)", type(exc).__name__)
-        return []
 
 
 def invalidate_crypto_payout_catalog_cache() -> None:

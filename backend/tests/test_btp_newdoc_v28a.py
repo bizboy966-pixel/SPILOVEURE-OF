@@ -281,6 +281,48 @@ def test_public_withdrawal_settings_follow_global_crypto_payout_switch(env):
     assert "Biz-transPay" not in settings_off["crypto_payout_unavailable_reason"]
 
 
+def test_crypto_payout_catalog_accepts_nested_asset_and_network_fields(env, monkeypatch):
+    db, loop = env
+    assert not b._is_usdt_bep20_catalog_asset({
+        "asset": "USDT", "network": "BSC", "is_active": 0,
+    })
+
+    async def nested_catalog_get(path, sk, pk):
+        assert path == "/crypto/assets?direction=payout"
+        return R(200, {"data": {"assets": [{
+            "asset": {"code": "USDT", "symbol": "USDT"},
+            "network": {"code": "BEP20", "name": "BNB Smart Chain"},
+            "withdrawal_enabled": True,
+        }]}})
+
+    monkeypatch.setattr(b, "_get", nested_catalog_get)
+    status = loop.run_until_complete(b.crypto_payout_status(db, force=True))
+    assert status["available"] is True
+    assert status["assets"] == [{
+        "asset_code": "USDT", "network_code": "BEP20", "label": "USDT BEP20",
+    }]
+
+
+def test_crypto_payout_catalog_diagnostic_reports_http_failure_without_post(env, monkeypatch):
+    import server
+
+    db, loop = env
+
+    async def forbidden_catalog_get(path, sk, pk):
+        return R(403, {"detail": "scope not enabled"})
+
+    monkeypatch.setattr(b, "_get", forbidden_catalog_get)
+    status = loop.run_until_complete(b.crypto_payout_status(db, force=True))
+    assert status["available"] is False
+    assert status["reason_code"] == "catalog_http_error"
+    assert status["http_status"] == 403
+    public_settings = loop.run_until_complete(server.get_withdrawal_settings(_req(db)))
+    assert public_settings["crypto_payout_available"] is False
+    assert "n’a pas confirmé" in public_settings["crypto_payout_unavailable_reason"]
+    assert "réseau temporairement indisponible" not in public_settings["crypto_payout_unavailable_reason"]
+    assert not any(item[0] == "POST" for item in CALLS)
+
+
 def test_crypto_payout_status_lookup_is_read_only(env):
     db, loop = env
     status = loop.run_until_complete(b.get_crypto_payout(db, "btp-crypto-1"))

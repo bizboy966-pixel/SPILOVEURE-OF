@@ -4308,6 +4308,8 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
   const [secretKeyInput, setSecretKeyInput] = useState("");
   const [webhookInput, setWebhookInput] = useState("");
   const [refundInput, setRefundInput] = useState("");
+  const [cryptoPayoutDiagnostic, setCryptoPayoutDiagnostic] = useState<any>(null);
+  const [checkingCryptoPayout, setCheckingCryptoPayout] = useState(false);
 
   const load = async () => {
     try {
@@ -4329,6 +4331,22 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
       const msg = e?.detail ? (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : "Échec";
       if (typeof window !== "undefined") window.alert("❌ " + msg);
     } finally { setSaving(false); }
+  };
+
+  const checkCryptoPayout = async () => {
+    setCheckingCryptoPayout(true);
+    try {
+      setCryptoPayoutDiagnostic(
+        await api.get<any>("/admin/biztranspay/crypto-payout-status?force=true"),
+      );
+    } catch {
+      setCryptoPayoutDiagnostic({
+        available: false,
+        message: "Le diagnostic n’a pas pu être exécuté.",
+      });
+    } finally {
+      setCheckingCryptoPayout(false);
+    }
   };
 
   if (!cfg) return (
@@ -4430,6 +4448,38 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
           : "Interrupteur activé, mais le prestataire principal doit aussi être activé."}
         hintOff="Aucun retrait crypto automatique. Ce réglage ne demande aucune liste de pays."
       />
+      <View style={{ marginTop: 10, padding: 10, borderRadius: 12, backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: theme.colors.border }}>
+        <TouchableOpacity
+          onPress={checkCryptoPayout}
+          disabled={checkingCryptoPayout}
+          testID="btp-check-crypto-payout"
+          style={{ minHeight: 40, paddingHorizontal: 10, borderRadius: 9, backgroundColor: "#E0E7FF", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }}
+        >
+          <Ionicons name="refresh" size={16} color="#1D4ED8" />
+          <Text style={{ color: "#1D4ED8", fontWeight: "800", fontSize: 12 }}>
+            {checkingCryptoPayout ? "Vérification en cours…" : "Vérifier le retrait USDT.BEP20"}
+          </Text>
+        </TouchableOpacity>
+        {cryptoPayoutDiagnostic && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: cryptoPayoutDiagnostic.available ? "#047857" : "#B91C1C" }}>
+              {cryptoPayoutDiagnostic.available ? "Actif confirmé" : "Retrait non confirmé"}
+            </Text>
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 3 }}>
+              {cryptoPayoutDiagnostic.message}
+            </Text>
+            {cryptoPayoutDiagnostic.reason_code && (
+              <Text style={{ fontSize: 10, color: theme.colors.textSecondary, marginTop: 3 }}>
+                Diagnostic : {cryptoPayoutDiagnostic.reason_code}
+                {cryptoPayoutDiagnostic.http_status ? ` • HTTP ${cryptoPayoutDiagnostic.http_status}` : ""}
+                {typeof cryptoPayoutDiagnostic.catalog_item_count === "number"
+                  ? ` • ${cryptoPayoutDiagnostic.catalog_item_count} actif(s) retourné(s)`
+                  : ""}
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
 
       {/* Webhook URL — read-only, à coller dans le dashboard BTP */}
       <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE" }}>
