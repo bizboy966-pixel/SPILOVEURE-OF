@@ -11,7 +11,6 @@ import { FeatureGuard } from "@/src/components/FeatureGuard";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
-import { BottomNav } from "@/src/components/BottomNav";
 import { useAuth } from "@/src/auth";
 import { useChat } from "@/src/chat/ChatContext";
 import { clearChatLogoutMarker } from "@/src/chat/chatLaunchState";
@@ -701,7 +700,6 @@ function MarketplaceScreenInner() {
           />
         </View>
       )}
-      <BottomNav />
       <MediaLightbox
         open={lightbox.open}
         slides={lightbox.slides}
@@ -868,8 +866,8 @@ const styles = StyleSheet.create({
   audioText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   mediaCount: { marginLeft: "auto", backgroundColor: "rgba(0,0,0,0.48)", borderRadius: 15, paddingHorizontal: 10, paddingVertical: 5 },
   mediaCountText: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  actionRail: { position: "absolute", right: 8, bottom: 116, width: 56, flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 10, zIndex: 3 },
-  actionRailCompact: { bottom: 90, gap: 4 },
+  actionRail: { position: "absolute", right: 8, bottom: 10, width: 56, flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 10, zIndex: 3 },
+  actionRailCompact: { bottom: 10, gap: 4 },
   sellerAvatarWrap: { width: 42, height: 46, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   avatarButton: { width: 38, height: 38, borderRadius: 20, borderWidth: 2, borderColor: "#fff", overflow: "hidden", backgroundColor: "#dbeafe" },
   sellerAvatar: { width: "100%", height: "100%" },
@@ -883,7 +881,7 @@ const styles = StyleSheet.create({
   actionButtonCompact: { minHeight: 0 },
   actionLabel: { color: "#fff", textAlign: "center", fontSize: 9, fontWeight: "800", maxWidth: "100%" },
   actionLabelCompact: { fontSize: 8 },
-  listingDetails: { position: "absolute", left: 0, right: 72, bottom: 96, paddingHorizontal: 16, paddingTop: 7, paddingBottom: 5, gap: 4, backgroundColor: "#050914", zIndex: 2 },
+  listingDetails: { position: "absolute", left: 0, right: 72, bottom: 10, paddingHorizontal: 16, paddingTop: 7, paddingBottom: 5, gap: 4, zIndex: 2 },
   listingSummary: { gap: 2 },
   sellerLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   sellerName: { color: "#fff", fontSize: 15, fontWeight: "900", maxWidth: "72%", textShadowColor: "rgba(0,0,0,.65)", textShadowRadius: 5 },

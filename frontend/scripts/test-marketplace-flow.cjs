@@ -48,15 +48,16 @@ test("Chat route opens the exact unique conversation and retains listing context
   assert.match(messenger, /setSelected\(conversation\)/);
 });
 
-test("Marketplace interactions and the existing bottom navigation are wired", () => {
+test("Marketplace interactions remain wired without its bottom navigation", () => {
   for (const token of [
-    "<BottomNav />", "/messenger/contacts/", "/like`", "/comments`",
+    "/messenger/contacts/", "/like`", "/comments`",
     "marketplaceShareMessage(", "marketplaceConversationRoute(",
     "testID={`mk-contact-add-", "testID=\"mk-contact-save\"",
     "testID={`mk-like-", "testID={`mk-comments-", "testID={`mk-share-",
   ]) {
     assert.ok(marketplace.includes(token), `Missing Marketplace interaction: ${token}`);
   }
+  assert.doesNotMatch(marketplace, /BottomNav/);
 });
 
 test("Marketplace empty states are white while the media feed remains dark", () => {
@@ -82,9 +83,9 @@ test("Marketplace media swipes horizontally and details stay folded until reques
 });
 
 test("Marketplace profile and social actions stay in a right-side vertical rail", () => {
-  assert.match(marketplace, /actionRail: \{ position: "absolute", right: 8, bottom: 116, width: 56, flexDirection: "column"/);
+  assert.match(marketplace, /actionRail: \{ position: "absolute", right: 8, bottom: 10, width: 56, flexDirection: "column"/);
   assert.match(marketplace, /const compactActions = pageHeight < 500/);
-  assert.match(marketplace, /actionRailCompact: \{ bottom: 90, gap: 4 \}/);
+  assert.match(marketplace, /actionRailCompact: \{ bottom: 10, gap: 4 \}/);
   assert.match(marketplace, /actionButtonCompact: \{ minHeight: 0 \}/);
   assert.match(marketplace, /actionIconCompact: \{ width: 32, height: 32 \}/);
   assert.match(marketplace, /sellerAvatarWrap/);
@@ -93,8 +94,9 @@ test("Marketplace profile and social actions stay in a right-side vertical rail"
   }
 });
 
-test("Marketplace product summary sits above navigation without shrinking media", () => {
-  assert.match(marketplace, /listingDetails: \{ position: "absolute", left: 0, right: 72, bottom: 96,/);
+test("Marketplace product summary sits at the bottom without a separate background", () => {
+  assert.match(marketplace, /listingDetails: \{ position: "absolute", left: 0, right: 72, bottom: 10,/);
+  assert.doesNotMatch(marketplace, /listingDetails: \{[^}]*backgroundColor/);
   assert.match(marketplace, /mediaStage: \{ flex: 1, minHeight: 220,/);
   assert.doesNotMatch(marketplace, /mediaStageExpanded/);
   assert.match(marketplace, /detailsExpanded \? "Voir moins" : "Voir plus"/);
