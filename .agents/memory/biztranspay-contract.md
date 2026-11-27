@@ -37,3 +37,16 @@ retrait du compte marchand, même si le profil utilisateur reste fixe.
 actif. Les appels réseau incertains gardent les fonds réservés jusqu’au
 rapprochement; ne jamais retenter avec une nouvelle clé ni rembourser sans
 échec terminal confirmé.
+
+Pour Wave CI en Pay-in, suivre la réponse du dépôt plutôt que supposer un seul
+parcours : ouvrir une URL de paiement HTTPS lorsqu’elle est renvoyée; si le
+catalogue/résultat indique un push sans URL, laisser l’utilisateur valider dans
+Wave et garder le suivi de statut actif. Ne jamais fabriquer un lien Wave.
+
+**Why:** L’API peut fournir une page hébergée ou une demande Mobile Money selon
+le flux du compte marchand; aucun paiement réel n’a été lancé pour confirmer
+le comportement d’un compte précis.
+
+**How to apply:** Extraire les champs de redirection explicites des enveloppes
+de réponse documentées, préouvrir un onglet Web dans le geste utilisateur pour
+éviter le blocage des pop-ups, et proposer un bouton de secours si nécessaire.

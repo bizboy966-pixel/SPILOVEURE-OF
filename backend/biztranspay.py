@@ -326,6 +326,7 @@ def _extract_payment_redirect_url(payload: dict) -> Optional[str]:
             child = current.get(key)
             if isinstance(child, dict):
                 pending.append((child, key in {
+                    "data",
                     "deposit", "payment", "payment_flow", "paymentFlow",
                     "checkout", "links",
                 }))

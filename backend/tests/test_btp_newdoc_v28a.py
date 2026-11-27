@@ -439,7 +439,7 @@ def test_admin_catalog_directions_and_preserved_toggles(env):
     db, loop = env
     from payment_router import toggle_country
     result = loop.run_until_complete(b.admin_btp_catalog(_req(db), "deposit", USER))
-    assert result["count"] == 4
+    assert result["count"] == 5
     assert all("enabled" in item and "country_enabled" in item for item in result["items"])
     loop.run_until_complete(toggle_country(db, "biztranspay", "CD", False))
     result = loop.run_until_complete(b.admin_btp_catalog(_req(db), "deposit", USER))
