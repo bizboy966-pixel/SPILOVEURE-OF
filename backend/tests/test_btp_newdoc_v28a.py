@@ -49,6 +49,14 @@ class R:
 
 async def fake_get(path, sk, pk):
     CALLS.append(("GET", path, None))
+    if path == "/crypto/assets?direction=payout":
+        return R(200, {"assets": [
+            {"asset_code": "USDT", "network_code": "BEP20", "active": True},
+            {"asset_code": "USDT", "network_code": "ERC20", "active": True},
+            {"asset_code": "BTC", "network_code": "BEP20", "active": True},
+        ]})
+    if path == "/crypto/payouts/btp-crypto-1":
+        return R(200, {"id": "btp-crypto-1", "status": "completed"})
     if path.startswith("/mobile-money/operators?direction=deposit"):
         return R(200, DEPOSIT_CAT)
     if path.startswith("/mobile-money/operators?direction=payout"):
@@ -72,6 +80,9 @@ async def fake_post(path, body, sk, pk, *, idempotency_key):
                        "deposit": {"status": "pending", "charged_amount": body["amount"]}})
     if path == "/payouts":
         return R(200, {"id": "po-1", "status": "pending", "payout": {"id": "po-1", "status": "pending"}})
+    if path == "/crypto/payouts":
+        return R(200, {"id": "btp-crypto-1", "status": "pending",
+                       "payout": {"id": "btp-crypto-1", "status": "pending"}})
     return R(400, {"detail": "bad"})
 
 
@@ -83,6 +94,7 @@ def env(monkeypatch):
     loop.run_until_complete(db.client.drop_database("spv_btp_test"))
     loop.run_until_complete(db.app_settings.insert_one({"key": "payment_gateway", "value": {
         "biztranspay_enabled": True, "biztranspay_payin_enabled": True, "biztranspay_payout_enabled": True,
+        "biztranspay_crypto_payout_enabled": True,
         "biztranspay_secret_key": "sk_live_x", "biztranspay_public_key": "pk_live_x",
         "biztranspay_webhook_secret": "whsec"}}))
     # Existing catalog rows represent the preserved Pay-in setup; the first
@@ -106,6 +118,7 @@ def env(monkeypatch):
     monkeypatch.setattr(b, "_get", fake_get)
     monkeypatch.setattr(b, "_post", fake_post)
     bc._CATALOG.clear(); bc._RATES.clear(); CALLS.clear()
+    b._CRYPTO_PAYOUT_CATALOG_CACHE = (0.0, [])
     yield db, loop
     loop.run_until_complete(db.client.drop_database("spv_btp_test"))
     loop.close()
@@ -218,6 +231,64 @@ def test_payout_benin_not_supported(env):
     assert r["reason"] == "country_not_supported"
 
 
+def test_crypto_payout_uses_the_active_global_usdt_bep20_catalog(env):
+    db, loop = env
+    assets = loop.run_until_complete(b.crypto_withdrawal_assets(db, force=True))
+    result = loop.run_until_complete(b.create_crypto_payout(
+        db, reference="withdrawal-global-1", amount_usdt=1.23456789,
+        destination_address="0x" + "a" * 40,
+    ))
+    call = next(item for item in CALLS if item[0] == "POST" and item[1] == "/crypto/payouts")
+    assert assets == [{
+        "asset_code": "USDT", "network_code": "BEP20", "label": "USDT BEP20",
+    }]
+    assert result["id"] == "btp-crypto-1" and result["status"] == "pending"
+    assert call[2] == {
+        "amount": 1.23456789, "asset_code": "USDT",
+        "network_code": "BEP20", "wallet_address": "0x" + "a" * 40,
+        "fee_bearer": "sender",
+    }
+    assert call[3] == "withdrawal-global-1"
+    assert ("GET", "/crypto/assets?direction=payout", None) in CALLS
+    assert not any("direction=deposit" in item[1] for item in CALLS if item[0] == "GET")
+
+
+def test_crypto_payout_global_switch_blocks_requests_without_country_configuration(env):
+    db, loop = env
+    loop.run_until_complete(db.app_settings.update_one(
+        {"key": "payment_gateway"},
+        {"$set": {"value.biztranspay_crypto_payout_enabled": False}},
+    ))
+    assets = loop.run_until_complete(b.crypto_withdrawal_assets(db, force=True))
+    assert assets == []
+    assert not any(item[1] == "/crypto/assets?direction=payout" for item in CALLS if item[0] == "GET")
+
+
+def test_public_withdrawal_settings_follow_global_crypto_payout_switch(env):
+    import server
+
+    db, loop = env
+    settings = loop.run_until_complete(server.get_withdrawal_settings(_req(db)))
+    assert settings["crypto_payout_available"] is True
+    loop.run_until_complete(db.app_settings.update_one(
+        {"key": "payment_gateway"},
+        {"$set": {"value.biztranspay_crypto_payout_enabled": False}},
+    ))
+    settings_off = loop.run_until_complete(server.get_withdrawal_settings(_req(db)))
+    assert settings_off["crypto_payout_available"] is False
+    assert "Biz-transPay" not in settings_off["crypto_payout_unavailable_reason"]
+
+
+def test_crypto_payout_status_lookup_is_read_only(env):
+    db, loop = env
+    status = loop.run_until_complete(b.get_crypto_payout(db, "btp-crypto-1"))
+    assert status == {
+        "ok": True, "id": "btp-crypto-1", "status": "completed", "tx_hash": None,
+    }
+    assert ("GET", "/crypto/payouts/btp-crypto-1", None) in CALLS
+    assert not any(item[0] == "POST" for item in CALLS)
+
+
 def _signed(body: dict, secret="whsec"):
     raw = json.dumps(body).encode()
     ts = str(int(time.time()))
@@ -247,6 +318,43 @@ def test_webhook_payout_completed_and_dedup(env):
     assert loop.run_until_complete(db.withdrawals.find_one({"id": "wdX"}))["status"] == "completed"
     r2 = loop.run_until_complete(b.biztranspay_webhook(FakeReq(db, raw, h)))
     assert r2.get("duplicate")
+
+
+def test_crypto_payout_webhook_refunds_failed_withdrawal_once(env):
+    db, loop = env
+    loop.run_until_complete(db.users.insert_one({
+        "id": "crypto-user", "balance_crypto": 0.5,
+        "crypto_withdrawal_debits": ["crypto-wd-1"],
+    }))
+    loop.run_until_complete(db.withdrawals.insert_one({
+        "id": "crypto-wd-1", "user_id": "crypto-user", "method": "crypto",
+        "gateway": "biztranspay_crypto", "status": "dispatched",
+        "gateway_status": "pending", "payout_id": "btp-crypto-1",
+        "amount": 1.0, "wallet_debit": 1.0, "net_payout": 0.98,
+        "asset_code": "USDT.BEP20",
+    }))
+    body = {
+        "id": "evt-crypto-failed",
+        "type": "crypto.payout.status_changed",
+        "data": {
+            "id": "btp-crypto-1", "type": "crypto_payout",
+            "status": "failed", "tx_hash": "0xdeadbeef",
+        },
+    }
+    raw, headers = _signed(body)
+    result = loop.run_until_complete(b.biztranspay_webhook(FakeReq(db, raw, headers)))
+    withdrawal = loop.run_until_complete(db.withdrawals.find_one({"id": "crypto-wd-1"}))
+    user = loop.run_until_complete(db.users.find_one({"id": "crypto-user"}))
+    assert result["reconciled"] == "crypto_withdrawal"
+    assert withdrawal["status"] == "rejected"
+    assert withdrawal["tx_hash"] == "0xdeadbeef"
+    assert user["balance_crypto"] == 1.5
+
+    retry_body = {**body, "id": "evt-crypto-failed-retry"}
+    retry_raw, retry_headers = _signed(retry_body)
+    loop.run_until_complete(b.biztranspay_webhook(FakeReq(db, retry_raw, retry_headers)))
+    user_after_retry = loop.run_until_complete(db.users.find_one({"id": "crypto-user"}))
+    assert user_after_retry["balance_crypto"] == 1.5
 
 
 def test_webhook_bad_signature(env):
@@ -510,6 +618,10 @@ def test_ambiguous_payout_blocks_resubmit_and_manual_refund(env, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         loop.run_until_complete(server.admin_reject_withdrawal(wd["id"], _req(db), {"id": "admin"}))
     assert exc.value.status_code == 409
+    verification = loop.run_until_complete(server.admin_verify_withdrawal(
+        wd["id"], _req(db), {"manual_confirmation": True}, {"id": "admin"},
+    ))
+    assert verification["manual_confirmation_recorded"] is True
     result = loop.run_until_complete(server.admin_validate_withdrawal(
         wd["id"], _req(db), {"id": "admin"}))
     assert result == {"ok": True, "status": "validated", "provider_request_sent": False}

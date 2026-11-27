@@ -507,21 +507,14 @@ async def wallet_profile_catalog(request: Request, _=Depends(get_current_user)):
             "name": name,
         })
 
-    # The legacy crypto-withdrawal balance is a dedicated USDT.BEP20 balance,
-    # so expose only this asset and only when IziChange confirms it is enabled
-    # on the merchant account. This catalog is universal, not country-scoped.
-    crypto_assets = []
-    try:
-        from izichange import ASSET_CODE, withdrawal_assets
-        if any(row.get("asset_code") == ASSET_CODE
-               for row in await withdrawal_assets(db)):
-            crypto_assets.append({
-                "asset_code": ASSET_CODE, "code": ASSET_CODE,
-                "label": "USDT BEP20", "coin": "USDT",
-                "network": "BEP20", "available": True,
-            })
-    except Exception as exc:
-        log.info("Crypto withdrawal profile catalog unavailable (%s)", type(exc).__name__)
+    # The saved crypto destination is a fixed profile value, independent of
+    # provider availability. Payout readiness is checked separately when a
+    # withdrawal is requested; configuring an address must always be possible.
+    crypto_assets = [{
+        "asset_code": "USDT.BEP20", "code": "USDT.BEP20",
+        "label": "USDT BEP20", "coin": "USDT",
+        "network": "USDT.BEP20", "available": True,
+    }]
 
     return {
         "countries": sorted(countries.values(), key=lambda item: item["name"]),

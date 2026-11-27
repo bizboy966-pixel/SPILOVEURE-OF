@@ -1,13 +1,15 @@
 """Biz-transPay (SoftPay) integration — Integration API v1 (2026-02-24).
 
 Documentation: https://biz-transpay.com/integration/docs
-Scope: TG / BJ / BF (XOF), Mobile Money.
+Scope: country/operator Mobile Money plus universal USDT.BEP20 withdrawals.
 
 Endpoints (Integration v1):
   • POST /api/integration/v1/deposits            — pay-in (Mobile Money)
   • POST /api/integration/v1/payouts             — pay-out (Mobile Money)
   • GET  /api/integration/v1/deposits/{id}       — status polling (payin)
   • GET  /api/integration/v1/payouts/{id}        — status polling (payout)
+  • POST /api/integration/v1/crypto/payouts      — pay-out (crypto)
+  • GET  /api/integration/v1/crypto/payouts/{id} — status polling (crypto payout)
   • Webhook: HMAC-SHA256 on `timestamp + "." + raw_body`
 
 Authentication (per new doc): TWO keys required on every request
@@ -18,6 +20,7 @@ Config lives in `app_settings.payment_gateway.value` under keys:
   • biztranspay_enabled       (bool)  master switch
   • biztranspay_payin_enabled (bool)  activations
   • biztranspay_payout_enabled(bool)  auto-withdrawal
+  • biztranspay_crypto_payout_enabled(bool)  universal crypto auto-withdrawal
   • biztranspay_public_key    (str)   Public key (pk_test_* / pk_live_*)
   • biztranspay_secret_key    (str)   Secret key (sk_test_* / sk_live_*)
   • biztranspay_webhook_secret(str)   HMAC secret
@@ -30,6 +33,7 @@ import logging
 from pymongo.errors import DuplicateKeyError
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -1143,6 +1147,8 @@ async def biztranspay_webhook(request: Request):
     # previous_status, status, amount, currency, reference}}
     data_obj = body.get("data") if isinstance(body.get("data"), dict) else {}
     ref = data_obj.get("reference") or body.get("reference")
+    if isinstance(ref, dict):
+        ref = ref.get("reference") or ref.get("id") or ref.get("value")
     provider_id = data_obj.get("id") or (None if data_obj else body.get("id"))
     status_raw = str(data_obj.get("status") or data_obj.get("final_status") or data_obj.get("new_status")
                      or data_obj.get("current_status") or data_obj.get("to_status")
@@ -1150,6 +1156,7 @@ async def biztranspay_webhook(request: Request):
     event = (event_type_hdr or str(body.get("type") or body.get("event") or "")).lower()
     obj_type = str(data_obj.get("object") or data_obj.get("type") or data_obj.get("object_type") or "").lower()
     is_payout_event = "payout" in event or "payout" in obj_type
+    is_crypto_payout_event = "crypto.payout" in event or "crypto_payout" in obj_type
 
     PAID_EVENTS = {"payment.completed", "mobile_money.payment.approved", "push.succeeded",
                    "crypto_deposit.success", "crypto_deposit.confirmed", "crypto_payout.success"}
@@ -1174,6 +1181,48 @@ async def biztranspay_webhook(request: Request):
             p = await db.payments.find_one({"provider": "biztranspay", "provider_intent_id": provider_id}, {"_id": 0})
     if not p:
         wd = None
+        if is_crypto_payout_event:
+            if provider_id:
+                wd = await db.withdrawals.find_one({
+                    "payout_id": provider_id,
+                    "gateway": "biztranspay_crypto",
+                    "method": "crypto",
+                }, {"_id": 0})
+            if not wd and ref:
+                wd = await db.withdrawals.find_one({
+                    "id": ref,
+                    "gateway": "biztranspay_crypto",
+                    "method": "crypto",
+                }, {"_id": 0})
+            if not wd:
+                return {"ok": True, "ignored": "unknown_crypto_payout"}
+            if wd.get("payout_id") and provider_id and str(wd["payout_id"]) != str(provider_id):
+                log.warning("BTP crypto payout webhook ID mismatch wd=%s", wd.get("id"))
+                return {"ok": True, "ignored": "payout_id_mismatch"}
+            now = datetime.now(timezone.utc)
+            fields = {"gateway_status": status_raw or event, "updated_at": now}
+            if provider_id:
+                fields.update({"payout_id": provider_id, "provider_intent_id": provider_id})
+            tx_hash = data_obj.get("tx_hash") or data_obj.get("txid") or data_obj.get("transaction_hash")
+            if tx_hash:
+                fields["tx_hash"] = tx_hash
+            await db.withdrawals.update_one(
+                {"id": wd["id"], "status": {"$nin": ["completed", "rejected", "validated"]}},
+                {"$set": fields},
+            )
+            if internal_status in ("paid", "failed"):
+                from server import _settle_crypto_withdrawal
+                target_status = "completed" if internal_status == "paid" else "rejected"
+                outcome = await _settle_crypto_withdrawal(
+                    db, wd, target_status, status_raw or event, source="webhook",
+                )
+            else:
+                outcome = {"ok": True, "status": "pending", "changed": False}
+            return {
+                "ok": True, "reconciled": "crypto_withdrawal",
+                "status": outcome.get("status") or internal_status,
+                "changed": outcome.get("changed", False),
+            }
         if provider_id:
             wd = await db.withdrawals.find_one({"payout_id": provider_id})
             wallet_sends = getattr(db, "wallet_sends", None)
@@ -1253,6 +1302,223 @@ async def biztranspay_webhook(request: Request):
 
 BTP_CRYPTO_ASSET = os.environ.get("BIZTRANSPAY_CRYPTO_ASSET", "USDT.BEP20")
 BTP_CRYPTO_AMOUNT = float(os.environ.get("BIZTRANSPAY_CRYPTO_AMOUNT", "5"))
+CRYPTO_WITHDRAWAL_ASSET = "USDT.BEP20"
+_CRYPTO_PAYOUT_CATALOG_TTL_SECONDS = 300
+_CRYPTO_PAYOUT_CATALOG_CACHE: tuple[float, list[dict]] = (0.0, [])
+
+
+class CryptoPayoutSubmissionError(Exception):
+    """BTP crypto payout refusal or uncertain submission, without secret data."""
+
+    def __init__(self, message: str, *, uncertain: bool):
+        super().__init__(message)
+        self.uncertain = uncertain
+
+
+async def is_crypto_payout_enabled(db) -> bool:
+    """One global switch for crypto withdrawals, with no country matrix."""
+    if not await is_enabled(db):
+        return False
+    cfg = await _load_cfg(db)
+    return bool(cfg.get("biztranspay_crypto_payout_enabled", False))
+
+
+def _crypto_catalog_items(payload) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ("assets", "data", "items", "results"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = _crypto_catalog_items(value)
+            if nested:
+                return nested
+    return []
+
+
+def _is_usdt_bep20_catalog_asset(row: dict) -> bool:
+    active = next(
+        (row.get(key) for key in ("isActive", "active", "enabled", "status")
+         if row.get(key) is not None),
+        None,
+    )
+    if active is False or str(active).strip().lower() in {"false", "0", "inactive", "disabled"}:
+        return False
+    values = (
+        row.get("asset_code"), row.get("assetCode"), row.get("code"),
+        row.get("symbol"), row.get("coinCode"), row.get("coin"),
+        row.get("network_code"), row.get("networkCode"), row.get("network"),
+        row.get("chain"),
+    )
+    text = " ".join(str(value or "") for value in values).upper()
+    normalized = re.sub(r"[^A-Z0-9]", "", text)
+    is_bep20 = "BEP20" in normalized or "BSC" in normalized or "BNBSMART" in normalized
+    return "USDT" in normalized and is_bep20
+
+
+def _crypto_payout_object(payload):
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    return data.get("payout") if isinstance(data.get("payout"), dict) else data
+
+
+async def crypto_withdrawal_assets(db, *, force: bool = False) -> list[dict]:
+    """Return active USDT.BEP20 from BTP's payout catalog, globally."""
+    global _CRYPTO_PAYOUT_CATALOG_CACHE
+    if not await is_crypto_payout_enabled(db):
+        return []
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    if not secret_key or not public_key:
+        return []
+    cached_at, cached_assets = _CRYPTO_PAYOUT_CATALOG_CACHE
+    if (
+        not force and cached_assets
+        and time.monotonic() - cached_at < _CRYPTO_PAYOUT_CATALOG_TTL_SECONDS
+    ):
+        return [dict(asset) for asset in cached_assets]
+    try:
+        response = await _get(
+            "/crypto/assets?direction=payout", secret_key, public_key,
+        )
+        if response.status_code >= 400:
+            log.warning("BTP crypto payout catalog HTTP %s", response.status_code)
+            return []
+        assets = []
+        for row in _crypto_catalog_items(response.json()):
+            if not _is_usdt_bep20_catalog_asset(row):
+                continue
+            asset_code = str(
+                row.get("asset_code") or row.get("assetCode") or row.get("code")
+                or row.get("symbol") or "",
+            ).strip()
+            network_code = str(
+                row.get("network_code") or row.get("networkCode")
+                or row.get("network") or row.get("chain") or "",
+            ).strip()
+            if asset_code:
+                assets.append({
+                    "asset_code": asset_code,
+                    "network_code": network_code,
+                    "label": "USDT BEP20",
+                })
+        _CRYPTO_PAYOUT_CATALOG_CACHE = (time.monotonic(), assets)
+        return [dict(asset) for asset in assets]
+    except Exception as exc:
+        log.warning("BTP crypto payout catalog unavailable (%s)", type(exc).__name__)
+        return []
+
+
+def invalidate_crypto_payout_catalog_cache() -> None:
+    """Drop cached payout codes when an admin changes the merchant config."""
+    global _CRYPTO_PAYOUT_CATALOG_CACHE
+    _CRYPTO_PAYOUT_CATALOG_CACHE = (0.0, [])
+
+
+async def create_crypto_payout(
+    db, *, reference: str, amount_usdt: float, destination_address: str,
+    asset: Optional[dict] = None,
+) -> dict:
+    """Submit one USDT.BEP20 payout using the documented idempotent API."""
+    address = str(destination_address or "").strip()
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
+        raise HTTPException(400, "Adresse de retrait USDT BEP20 invalide.")
+    if not (float(amount_usdt) > 0):
+        raise HTTPException(400, "Montant de retrait crypto invalide.")
+    if not await is_crypto_payout_enabled(db):
+        raise CryptoPayoutSubmissionError(
+            "Retrait crypto automatique désactivé.", uncertain=False,
+        )
+    available = await crypto_withdrawal_assets(db)
+    selected_asset = asset or next(
+        (item for item in available if item.get("label") == "USDT BEP20"),
+        None,
+    )
+    if not selected_asset or selected_asset not in available:
+        raise CryptoPayoutSubmissionError(
+            "USDT BEP20 absent du catalogue actif de retrait.", uncertain=False,
+        )
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    body = {
+        "amount": round(float(amount_usdt), 8),
+        "asset_code": selected_asset["asset_code"],
+        "wallet_address": address,
+        "fee_bearer": "sender",
+    }
+    if selected_asset.get("network_code"):
+        body["network_code"] = selected_asset["network_code"]
+    try:
+        response = await _post(
+            "/crypto/payouts", body, secret_key, public_key,
+            idempotency_key=reference,
+        )
+    except Exception as exc:
+        raise CryptoPayoutSubmissionError(
+            "Résultat réseau incertain; vérifier le retrait avant toute nouvelle tentative.",
+            uncertain=True,
+        ) from exc
+    if response.status_code >= 400:
+        detail, _ = _btp_error_detail(response)
+        uncertain = response.status_code >= 500 or response.status_code in (408, 409, 429)
+        raise CryptoPayoutSubmissionError(
+            detail or f"Retrait refusé ({response.status_code}).",
+            uncertain=uncertain,
+        )
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise CryptoPayoutSubmissionError(
+            "Réponse de retrait illisible; vérifier le statut avant toute nouvelle tentative.",
+            uncertain=True,
+        ) from exc
+    payout = _crypto_payout_object(payload)
+    payout_id = str(payout.get("id") or payload.get("id") or "").strip()
+    if not payout_id:
+        raise CryptoPayoutSubmissionError(
+            "Réponse sans identifiant; vérifier le statut avant toute nouvelle tentative.",
+            uncertain=True,
+        )
+    return {
+        "id": payout_id,
+        "status": str(payout.get("status") or payload.get("status") or "pending").lower(),
+        "asset_code": selected_asset["asset_code"],
+        "network_code": selected_asset.get("network_code") or "",
+        "tx_hash": payload.get("tx_hash") or payload.get("txid")
+        or payout.get("tx_hash") or payout.get("txid"),
+    }
+
+
+async def get_crypto_payout(db, payout_id: str) -> dict:
+    """Read the original BTP payout status; this function never submits money."""
+    secret_key, public_key = await _get_secret_key(db), await _get_public_key(db)
+    if not secret_key or not public_key:
+        return {"ok": False, "reason": "credentials_unavailable"}
+    from urllib.parse import quote
+    try:
+        response = await _get(
+            f"/crypto/payouts/{quote(str(payout_id), safe='')}",
+            secret_key, public_key,
+        )
+    except Exception as exc:
+        log.warning("BTP crypto payout status unavailable (%s)", type(exc).__name__)
+        return {"ok": False, "reason": "provider_status_unavailable"}
+    if response.status_code >= 400:
+        return {"ok": False, "reason": f"provider_http_{response.status_code}"}
+    try:
+        payload = response.json()
+    except Exception:
+        return {"ok": False, "reason": "invalid_provider_response"}
+    payout = _crypto_payout_object(payload)
+    return {
+        "ok": True,
+        "id": str(payout.get("id") or payload.get("id") or payout_id),
+        "status": str(payout.get("status") or payload.get("status") or "").lower(),
+        "tx_hash": payload.get("tx_hash") or payload.get("txid")
+        or payout.get("tx_hash") or payout.get("txid"),
+    }
 
 
 async def is_crypto_enabled(db) -> bool:

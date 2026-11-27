@@ -53,7 +53,7 @@ _PROVIDER_CATALOG: dict[str, dict] = {
         "name": "IziChangePay",
         "type": "crypto",
         "auto_deposit": True,
-        "auto_withdrawal": True,
+        "auto_withdrawal": False,
         "default_priority": 5,
         "countries_source": "crypto_universal",
     },
@@ -91,7 +91,8 @@ async def _sync_provider_row(db, provider_id: str, cfg: dict) -> None:
         from feature_flags import is_enabled as _flag_on
         enabled = await _flag_on(db, "crypto_auto")
         auto_dep = enabled
-        auto_wd = enabled
+        # Crypto payouts are now handled by the global Biz-transPay switch.
+        auto_wd = False
     else:
         enabled, auto_dep, auto_wd = False, False, False
 

@@ -157,8 +157,8 @@ export default function Wallet() {
       Alert.alert(t("wallet.mobile_error_title"), t("wallet.mobile_error"));
       return;
     }
-    if (method === "crypto" && walletAddress.trim().length < 12) {
-      Alert.alert(t("wallet.crypto_error_title"), t("wallet.crypto_error"));
+    if (method === "crypto" && !/^0x[0-9a-fA-F]{40}$/.test(walletAddress.trim())) {
+      Alert.alert(t("wallet.crypto_error_title"), "Saisissez une adresse USDT BEP20 valide (0x suivi de 40 caractères hexadécimaux).");
       return;
     }
     setLoading(true);

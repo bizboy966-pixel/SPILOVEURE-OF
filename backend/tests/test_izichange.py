@@ -1,7 +1,7 @@
 """Backend tests for the IziChangePay direct integration.
 
 Coverage:
-• admin login + feature-flag toggle for `crypto_auto` and `auto_withdrawal`
+• admin login + feature-flag toggle for `crypto_auto`
 • user registration → crypto-auto/create → crypto-auto/verify happy/error paths
 • Standard-Webhooks signature verification (valid / invalid / expired / unknown)
 • admin activations list contains the crypto_auto row
@@ -245,20 +245,18 @@ def test_admin_activations_contains_crypto_auto(admin_headers, created_activatio
     assert it.get("deposit_address", "").startswith("0x")
 
 
-def test_admin_feature_flags_lists_auto_withdrawal(admin_headers):
+def test_admin_feature_flags_does_not_expose_legacy_crypto_withdrawal_switch(admin_headers):
     r = requests.get(f"{API}/admin/feature-flags", headers=admin_headers, timeout=10)
     assert r.status_code == 200
     keys = [f["key"] for f in r.json()["items"]]
-    assert "auto_withdrawal" in keys
+    assert "auto_withdrawal" not in keys
     assert "crypto_auto" in keys
 
 
-def test_toggle_auto_withdrawal_flag(admin_headers):
-    for enabled in (True, False):
-        r = requests.put(f"{API}/admin/feature-flags/auto_withdrawal",
-                         json={"enabled": enabled}, headers=admin_headers, timeout=10)
-        assert r.status_code == 200, r.text
-        assert r.json()["enabled"] is enabled
+def test_legacy_crypto_withdrawal_switch_is_not_a_second_admin_control(admin_headers):
+    r = requests.put(f"{API}/admin/feature-flags/auto_withdrawal",
+                     json={"enabled": True}, headers=admin_headers, timeout=10)
+    assert r.status_code == 404
 
 
 # ─── create_payout helper (unit) ─────────────────────────────────────────────

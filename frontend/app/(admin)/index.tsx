@@ -3973,7 +3973,29 @@ function PaymentProvidersRouterCard({
     if (!visibleProviders.some((provider) => provider.id === fallback.id)) visibleProviders.push(fallback);
   }
 
-  const renderCatalog = (pid: string, kind: "payin" | "payout", countries: any[]) => (
+  const renderCatalog = (
+    pid: string, kind: "payin" | "payout", countries: any[], isCrypto = false,
+  ) => {
+    if (kind === "payout" && isCrypto) {
+      return (
+        <View
+          testID={`provider-${pid}-payout-global`}
+          style={{
+            marginTop: 10, padding: 10, borderRadius: 12,
+            borderWidth: 1, borderColor: "#A7F3D0",
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.textPrimary }}>
+            Retraits USDT.BEP20 · tous les pays
+          </Text>
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 4 }}>
+            Aucun catalogue par pays à configurer. L’activation globale se règle dans la configuration Biz-transPay.
+          </Text>
+        </View>
+      );
+    }
+    return (
     <View
       testID={`provider-${pid}-${kind}-catalog`}
       style={{
@@ -4086,7 +4108,8 @@ function PaymentProvidersRouterCard({
         );
       })}
     </View>
-  );
+    );
+  };
 
   return (
     <View testID="providers-router-card">
@@ -4121,7 +4144,9 @@ function PaymentProvidersRouterCard({
                   <Text style={{ fontSize: 11, fontWeight: "600" }}>  •  Priorité {p.priority}</Text>
                 </Text>
                 <Text style={{ fontSize: 11, color: providerColor, marginTop: 3 }}>
-                  {providerListLoading ? "Chargement des catalogues…" : `${p.type === "crypto" ? "Crypto" : "Mobile Money"} • Dépôt ${p.auto_deposit ? "✅" : "❌"} · ${p.countries?.length || 0} pays • Retrait ${p.auto_withdrawal ? "✅" : "❌"} · ${p.payout_countries?.length || 0} pays`}
+                  {providerListLoading ? "Chargement des catalogues…" : p.type === "crypto"
+                    ? `Crypto • Dépôt ${p.auto_deposit ? "✅" : "❌"} · Retrait USDT.BEP20 global`
+                    : `Mobile Money • Dépôt ${p.auto_deposit ? "✅" : "❌"} · ${p.countries?.length || 0} pays • Retrait ${p.auto_withdrawal ? "✅" : "❌"} · ${p.payout_countries?.length || 0} pays`}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
@@ -4190,7 +4215,7 @@ function PaymentProvidersRouterCard({
                   </View>
                 )}
                 {renderCatalog(p.id, "payin", p.countries || [])}
-                {renderCatalog(p.id, "payout", p.payout_countries || [])}
+                {renderCatalog(p.id, "payout", p.payout_countries || [], p.type === "crypto")}
               </View>
             )}
           </Card>
@@ -4315,6 +4340,7 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
   const enabled = !!cfg.enabled;
   const payinEnabled = cfg.payin_enabled !== false;   // default true
   const payoutEnabled = !!cfg.payout_enabled;
+  const cryptoPayoutEnabled = !!cfg.crypto_payout_enabled;
 
   // Reconstruit l'URL webhook côté client à partir du base URL public si le
   // backend n'a renvoyé qu'un chemin relatif.
@@ -4394,6 +4420,15 @@ function BizTransPayCard({ onSaved }: { onSaved?: () => void }) {
         onPress={() => patch({ biztranspay_crypto_enabled: !cfg.crypto_enabled })}
         hintOn="Les utilisateurs voient une option USDT.BEP20 via Biz-transPay sur /pay."
         hintOff="L'option USDT.BEP20 via Biz-transPay est masquée côté /pay."
+      />
+      <StatusRow
+        label="Retrait crypto USDT.BEP20 (tous pays)"
+        on={cryptoPayoutEnabled}
+        onPress={() => patch({ biztranspay_crypto_payout_enabled: !cryptoPayoutEnabled })}
+        hintOn={enabled
+          ? "Retraits crypto automatiques pour tous les pays, si USDT BEP20 est actif dans le catalogue de retrait."
+          : "Interrupteur activé, mais le prestataire principal doit aussi être activé."}
+        hintOff="Aucun retrait crypto automatique. Ce réglage ne demande aucune liste de pays."
       />
 
       {/* Webhook URL — read-only, à coller dans le dashboard BTP */}

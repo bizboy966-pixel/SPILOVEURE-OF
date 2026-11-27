@@ -23,3 +23,17 @@ incertaine n’établit ni un échec ni la possibilité d’un remboursement.
 **How to apply:** Garder les validations automatisées isolées du réseau
 marchand et conserver une opération incertaine jusqu’au rapprochement,
 sans nouvelle soumission ni remboursement automatique.
+
+Les retraits crypto utilisent `POST /crypto/payouts` et l’actif exact du
+catalogue `GET /crypto/assets?direction=payout`; le statut peut être relu par
+`GET /crypto/payouts/{id}` et confirmé par `crypto.payout.status_changed`.
+Chaque création requiert une clé d’idempotence et les scopes/autorisation
+Live adéquats.
+
+**Why:** La disponibilité et les codes réseau varient selon le catalogue de
+retrait du compte marchand, même si le profil utilisateur reste fixe.
+
+**How to apply:** N’envoyer que l’actif USDT.BEP20 correspondant au catalogue
+actif. Les appels réseau incertains gardent les fonds réservés jusqu’au
+rapprochement; ne jamais retenter avec une nouvelle clé ni rembourser sans
+échec terminal confirmé.

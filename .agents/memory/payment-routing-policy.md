@@ -43,3 +43,14 @@ d’actif, même lorsque le retrait automatique est désactivé.
 **How to apply:** Garder le profil portefeuille indépendant de l’activation
 des paiements; ne pas afficher d’erreur « aucun actif disponible » pendant
 l’enregistrement de l’adresse fixe.
+
+Les retraits crypto USDT.BEP20 sont universels et ne dépendent pas du pays
+choisi sur le profil. Un seul interrupteur admin global les active ou les
+désactive; la disponibilité réelle exige aussi USDT.BEP20 dans le catalogue
+Biz-transPay de direction `payout`.
+
+**Why:** L’utilisateur a demandé l’éligibilité de tous les pays sans liste ni
+sélection d’opérateurs, tout en gardant le contrôle d’activation global.
+
+**How to apply:** Ne pas appliquer la matrice pays/opérateur Mobile Money aux
+retraits crypto; ne jamais confondre le catalogue `deposit` avec `payout`.

@@ -1037,6 +1037,10 @@ async def get_wallet(request: Request, user=Depends(get_current_user)):
             "asset_code": w.get("asset_code") or "",
             "wallet_address": w.get("wallet_address") or "",
         }
+    for method, profile in profiles.items():
+        if method == "crypto" and isinstance(profile, dict):
+            profile["asset_code"] = "USDT.BEP20"
+            profile["network"] = "USDT.BEP20"
     selected_method = w.get("method") if w.get("method") in {"mobile", "crypto"} else legacy_method
     selected = profiles.get(selected_method) or {}
     return {**selected, "method": selected_method, "profiles": profiles}
@@ -1054,18 +1058,16 @@ async def save_wallet(data: WalletIn, request: Request, user=Depends(get_current
         if not (data.operator and data.phone):
             raise HTTPException(400, "Opérateur et numéro de téléphone requis.")
     else:  # crypto
-        if not (data.wallet_address and len(data.wallet_address.strip()) >= 12):
-            raise HTTPException(400, "Adresse wallet invalide.")
-        if not (data.asset_code or data.network):
-            raise HTTPException(400, "Choisissez le réseau ou l’actif crypto.")
+        if not re.fullmatch(r"0x[0-9a-fA-F]{40}", str(data.wallet_address or "").strip()):
+            raise HTTPException(400, "Adresse USDT BEP20 invalide (format 0x de 42 caractères).")
     profile = {
         "country": data.country,
         "full_name": data.full_name,
         "method": method,
         "operator": (data.operator or "") if method == "mobile" else "",
         "phone": (data.phone or "") if method == "mobile" else "",
-        "network": (data.asset_code or data.network or "").strip() if method == "crypto" else "",
-        "asset_code": (data.asset_code or data.network or "").strip() if method == "crypto" else "",
+        "network": "USDT.BEP20" if method == "crypto" else "",
+        "asset_code": "USDT.BEP20" if method == "crypto" else "",
         "wallet_address": (data.wallet_address or "").strip() if method == "crypto" else "",
         "updated_at": datetime.now(timezone.utc),
     }
@@ -1162,15 +1164,16 @@ async def _reject_unsubmitted_withdrawal(db, wd: dict, reason: str) -> bool:
 async def _settle_crypto_withdrawal(
     db, wd: dict, target_status: str, gateway_status: str, *, source: str,
 ) -> dict:
-    """Finalize an IziChange crypto withdrawal with one-time refund/accounting."""
+    """Finalize a crypto withdrawal with one-time refund/accounting."""
     wd_id = str(wd.get("id") or "")
     user_id = wd.get("user_id")
-    if not wd_id or not user_id or target_status not in {"completed", "rejected"}:
+    if not wd_id or not user_id or target_status not in {"completed", "rejected", "validated"}:
         return {"ok": False, "reason": "invalid_terminal_status"}
     finalizing = f"settling_{target_status}"
     claim = await db.withdrawals.update_one(
         {"id": wd_id, "status": {"$nin": [
-            "completed", "rejected", "validated", "settling_completed", "settling_rejected",
+            "completed", "rejected", "validated", "settling_completed",
+            "settling_rejected", "settling_validated",
         ]}},
         {"$set": {
             "status": finalizing, "gateway_status": gateway_status,
@@ -1204,7 +1207,11 @@ async def _settle_crypto_withdrawal(
             {"$inc": {"total_withdrawn_crypto": float(current.get("amount") or 0)},
              "$addToSet": {"crypto_withdrawal_completed": wd_id}},
         )
-        fields = {"status": "completed", "completed_at": now}
+        fields = (
+            {"status": "validated", "validated_at": now}
+            if target_status == "validated"
+            else {"status": "completed", "completed_at": now}
+        )
     fields.update({
         "gateway_status": gateway_status, "settled_at": now,
         "settlement_source": source, "updated_at": now,
@@ -1219,10 +1226,16 @@ async def _settle_crypto_withdrawal(
             {"$setOnInsert": {
                 "id": notification_id, "user_id": user_id,
                 "kind": "withdrawal_status",
-                "title": "Retrait crypto confirmé" if target_status == "completed" else "Retrait crypto refusé",
+                "title": (
+                    "Retrait crypto refusé" if target_status == "rejected"
+                    else "Retrait crypto validé" if target_status == "validated"
+                    else "Retrait crypto confirmé"
+                ),
                 "body": (
                     f"Votre retrait de {current.get('net_payout')} {current.get('asset_code')} est confirmé."
                     if target_status == "completed" else
+                    f"Votre retrait crypto de {current.get('net_payout')} {current.get('asset_code')} a été validé."
+                    if target_status == "validated" else
                     f"Votre retrait crypto a échoué; {current.get('wallet_debit') or current.get('amount')} "
                     f"{current.get('asset_code')} ont été recrédités."
                 ),
@@ -1276,24 +1289,68 @@ async def _reconcile_izichange_withdrawal(db, wd: dict) -> dict:
     return {"ok": True, "changed": False, "gateway_status": status or "pending"}
 
 
+async def _reconcile_biztranspay_crypto_withdrawal(db, wd: dict) -> dict:
+    """Read a BTP crypto payout by ID; never issue a second payout."""
+    payout_id = str(wd.get("payout_id") or "").strip()
+    if not payout_id:
+        return {"ok": False, "reason": "provider_payout_id_missing"}
+    try:
+        from biztranspay import get_crypto_payout
+        payout = await get_crypto_payout(db, payout_id)
+    except Exception as exc:
+        log.info(
+            "BTP crypto payout status unavailable wd=%s (%s)",
+            wd.get("id"), type(exc).__name__,
+        )
+        return {"ok": False, "reason": "provider_status_unavailable"}
+    if payout.get("ok") is False:
+        return payout
+    status = str(payout.get("status") or "").strip().lower()
+    updates = {"updated_at": datetime.now(timezone.utc)}
+    if payout.get("id"):
+        updates.update({"payout_id": payout["id"], "provider_intent_id": payout["id"]})
+    if payout.get("tx_hash"):
+        updates["tx_hash"] = payout["tx_hash"]
+    if status:
+        updates["gateway_status"] = status
+    if len(updates) > 1:
+        await db.withdrawals.update_one(
+            {"id": wd.get("id"), "status": {"$nin": ["completed", "rejected", "validated"]}},
+            {"$set": updates},
+        )
+    if status in {"completed", "confirmed", "succeeded", "paid", "success"}:
+        outcome = await _settle_crypto_withdrawal(
+            db, wd, "completed", status, source="poll",
+        )
+        return {**outcome, "gateway_status": status}
+    if status in {"failed", "declined", "cancelled", "canceled", "rejected", "expired"}:
+        outcome = await _settle_crypto_withdrawal(
+            db, wd, "rejected", status, source="poll",
+        )
+        return {**outcome, "gateway_status": status}
+    return {"ok": True, "changed": False, "gateway_status": status or "pending"}
+
+
 async def _request_crypto_withdrawal(
     db, user: dict, wallet: dict, data: WithdrawalIn, settings: dict,
 ) -> dict:
-    from izichange import (
-        ASSET_CODE, PayoutSubmissionError, create_payout, withdrawal_assets,
+    from biztranspay import (
+        CRYPTO_WITHDRAWAL_ASSET, CryptoPayoutSubmissionError,
+        create_crypto_payout, crypto_withdrawal_assets,
     )
     asset = str(wallet.get("asset_code") or wallet.get("network") or "").strip().upper()
     if asset in {"USDT BEP20", "USDT_BEP20", "BEP20"}:
-        asset = ASSET_CODE
+        asset = CRYPTO_WITHDRAWAL_ASSET
     requested_asset = str(data.asset_code or asset).strip().upper()
     if requested_asset in {"USDT BEP20", "USDT_BEP20", "BEP20"}:
-        requested_asset = ASSET_CODE
-    if asset != ASSET_CODE or requested_asset != asset:
+        requested_asset = CRYPTO_WITHDRAWAL_ASSET
+    if asset != CRYPTO_WITHDRAWAL_ASSET or requested_asset != asset:
         raise HTTPException(400, "L’actif sélectionné ne correspond pas au portefeuille crypto enregistré.")
-    if not await withdrawal_assets(db):
+    payout_assets = await crypto_withdrawal_assets(db)
+    if not payout_assets:
         raise HTTPException(503, "Le retrait crypto automatique n’est pas disponible pour le moment.")
-    if not wallet.get("wallet_address") or len(str(wallet["wallet_address"]).strip()) < 12:
-        raise HTTPException(400, "Adresse de retrait crypto invalide.")
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", str(wallet.get("wallet_address") or "").strip()):
+        raise HTTPException(400, "Adresse USDT BEP20 invalide.")
 
     request_id = str(data.request_id or uuid.uuid4().hex).strip()
     if len(request_id) > 120 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", request_id):
@@ -1321,7 +1378,7 @@ async def _request_crypto_withdrawal(
         raise HTTPException(400, "Montant crypto invalide.") from exc
     minimum = Decimal(str(settings.get("crypto_min_amount") or 0))
     if minimum and amount < minimum:
-        raise HTTPException(400, f"Montant minimum de retrait : {minimum} {ASSET_CODE}.")
+        raise HTTPException(400, f"Montant minimum de retrait : {minimum} {CRYPTO_WITHDRAWAL_ASSET}.")
     rate = Decimal(str(settings.get("crypto_fee_percent") or 0))
     fixed = Decimal(str(settings.get("crypto_fee_flat") or 0))
     fee = min(amount, (amount * rate / Decimal(100) + fixed).quantize(
@@ -1340,11 +1397,13 @@ async def _request_crypto_withdrawal(
         "user_id": user["id"], "username": user.get("username"),
         "amount": float(amount), "wallet_debit": float(amount),
         "fee": float(fee), "net_payout": float(net),
-        "asset_code": ASSET_CODE, "method": "crypto",
+        "asset_code": CRYPTO_WITHDRAWAL_ASSET, "method": "crypto",
         "wallet_address": str(wallet["wallet_address"]).strip(),
-        "network": ASSET_CODE, "country": wallet.get("country") or "",
+        "network": CRYPTO_WITHDRAWAL_ASSET, "country": wallet.get("country") or "",
+        "provider_asset_code": payout_assets[0]["asset_code"],
+        "provider_network_code": payout_assets[0].get("network_code") or "",
         "full_name": wallet.get("full_name") or user.get("full_name") or "",
-        "gateway": "izichange", "gateway_status": "not_submitted",
+        "gateway": "biztranspay_crypto", "gateway_status": "not_submitted",
         "status": "pending", "created_at": now, "updated_at": now,
     }
     try:
@@ -1379,6 +1438,7 @@ async def _request_crypto_withdrawal(
         {"id": wd_id, "status": "pending", "crypto_submission_claimed": {"$ne": True}},
         {"$set": {
             "status": "processing", "gateway_status": "submitting",
+            "gateway": "biztranspay_crypto",
             "crypto_submission_claimed": True, "auto_dispatched": True,
             "updated_at": datetime.now(timezone.utc),
         }},
@@ -1391,11 +1451,11 @@ async def _request_crypto_withdrawal(
                 "net_payout": current.get("net_payout", float(net))}
 
     try:
-        payout = await create_payout(
+        payout = await create_crypto_payout(
             db, reference=wd_id, amount_usdt=float(net),
-            destination_address=wd["wallet_address"], asset_code=ASSET_CODE,
+            destination_address=wd["wallet_address"], asset=payout_assets[0],
         )
-    except PayoutSubmissionError as exc:
+    except CryptoPayoutSubmissionError as exc:
         if exc.uncertain:
             await db.withdrawals.update_one(
                 {"id": wd_id, "status": "processing"},
@@ -1413,7 +1473,7 @@ async def _request_crypto_withdrawal(
                 "fee": float(fee), "net_payout": float(net),
                 "message": "Le retrait a été refusé et le solde a été recrédité."}
     except Exception as exc:
-        log.warning("IziChange payout dispatch uncertain wd=%s (%s)", wd_id, type(exc).__name__)
+        log.warning("Biz-transPay crypto payout dispatch uncertain wd=%s (%s)", wd_id, type(exc).__name__)
         await db.withdrawals.update_one(
             {"id": wd_id, "status": "processing"},
             {"$set": {"status": "unknown", "gateway_status": "unknown",
@@ -1440,7 +1500,7 @@ async def _request_crypto_withdrawal(
         {"$set": {
             "status": "dispatched", "gateway_status": remote_status or "pending",
             "payout_id": payout_id or None, "provider_intent_id": payout_id or None,
-            "tx_hash": payout.get("txid"), "dispatched_at": datetime.now(timezone.utc),
+            "tx_hash": payout.get("tx_hash"), "dispatched_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }},
     )
@@ -1648,8 +1708,14 @@ async def my_withdrawals(request: Request, user=Depends(get_current_user)):
     db = request.app.state.db
     items = await db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
     for wd in items[:30]:
-        if (wd.get("gateway") == "izichange" and wd.get("method") == "crypto"
-                and wd.get("status") not in ("completed", "rejected", "validated")):
+        if (
+            wd.get("gateway") == "biztranspay_crypto"
+            and wd.get("method") == "crypto"
+            and wd.get("status") not in ("completed", "rejected", "validated")
+        ):
+            await _reconcile_biztranspay_crypto_withdrawal(db, wd)
+        elif (wd.get("gateway") == "izichange" and wd.get("method") == "crypto"
+              and wd.get("status") not in ("completed", "rejected", "validated")):
             await _reconcile_izichange_withdrawal(db, wd)
     if items:
         items = await db.withdrawals.find(
@@ -1943,6 +2009,8 @@ _PG_DEFAULTS = {
     # v27w (2026-02-24) — USDT.BEP20 crypto pay-in (parallel to Mobile Money)
     "biztranspay_crypto_enabled": True,
     "biztranspay_crypto_refund_address": "",
+    # One global switch; USDT.BEP20 withdrawals are not country-scoped.
+    "biztranspay_crypto_payout_enabled": False,
     # { "TG": { "tmoney_tg": bool, "moov_tg": bool }, "BJ": {...}, "BF": {...} }
     "biztranspay_countries": {},
 }
@@ -2010,6 +2078,7 @@ class PaymentGatewayUpdate(_PGBaseModel):
     biztranspay_webhook_secret: Optional[str] = None
     biztranspay_crypto_enabled: Optional[bool] = None    # v27w
     biztranspay_crypto_refund_address: Optional[str] = None
+    biztranspay_crypto_payout_enabled: Optional[bool] = None
     biztranspay_countries: Optional[dict] = None
 
 
@@ -2066,6 +2135,7 @@ def _register_payment_gateway_routes(router):
                 # v27w — USDT.BEP20 crypto sub-status
                 "crypto_enabled": bool(cfg.get("biztranspay_crypto_enabled", True)),
                 "crypto_refund_address": cfg.get("biztranspay_crypto_refund_address") or "",
+                "crypto_payout_enabled": bool(cfg.get("biztranspay_crypto_payout_enabled", False)),
                 "countries": cfg.get("biztranspay_countries") or {},
                 "catalog_url": "/api/admin/biztranspay/catalog",
             },
@@ -2179,6 +2249,10 @@ def _register_payment_gateway_routes(router):
         # v27w — USDT.BEP20 crypto sub-toggle
         if body.biztranspay_crypto_enabled is not None:
             new["biztranspay_crypto_enabled"] = bool(body.biztranspay_crypto_enabled)
+        if body.biztranspay_crypto_payout_enabled is not None:
+            new["biztranspay_crypto_payout_enabled"] = bool(
+                body.biztranspay_crypto_payout_enabled,
+            )
         # Allow any subset of gateways to be enabled — including none at all.
         act = new["active"]
         chain = [
@@ -2200,6 +2274,11 @@ def _register_payment_gateway_routes(router):
             }},
             upsert=True,
         )
+        try:
+            from biztranspay import invalidate_crypto_payout_catalog_cache
+            invalidate_crypto_payout_catalog_cache()
+        except Exception:
+            pass
         # v27j — re-sync the normalized `payment_providers` collections so
         # that the router immediately reflects the admin's toggle changes
         # (master, PayIn, PayOut, per-provider). Best-effort.
@@ -3714,11 +3793,22 @@ async def get_withdrawal_settings(request: Request):
     db = request.app.state.db
     settings = await _get_withdrawal_settings(db)
     try:
-        from izichange import ASSET_CODE, withdrawal_assets
+        from biztranspay import crypto_withdrawal_assets, is_crypto_payout_enabled
+        assets = await crypto_withdrawal_assets(db)
         settings["crypto_payout_available"] = any(
-            item.get("asset_code") == ASSET_CODE
-            for item in await withdrawal_assets(db)
+            item.get("label") == "USDT BEP20" for item in assets
         )
+        if not settings["crypto_payout_available"]:
+            if not await is_crypto_payout_enabled(db):
+                settings["crypto_payout_unavailable_reason"] = (
+                    "Le retrait USDT BEP20 n’est pas activé pour le moment. "
+                    "Aucun montant ne sera débité."
+                )
+            else:
+                settings["crypto_payout_unavailable_reason"] = (
+                    "Le réseau USDT BEP20 est temporairement indisponible. "
+                    "Aucun montant ne sera débité."
+                )
     except Exception:
         settings["crypto_payout_available"] = False
     if settings["crypto_payout_available"]:
@@ -4565,7 +4655,7 @@ async def admin_list_withdrawals(request: Request, status_filter: Optional[str] 
 
 def _withdrawal_requires_provider_verification(wd: dict) -> bool:
     """Only gate actions when an automatic provider may actually hold the payout."""
-    if wd.get("gateway") not in ("biztranspay", "moneyfusion"):
+    if wd.get("gateway") not in ("biztranspay", "biztranspay_crypto", "izichange", "moneyfusion"):
         return False
     if wd.get("admin_provider_verified_at"):
         return False
@@ -4602,6 +4692,8 @@ async def admin_verify_withdrawal(
             provider_result = await reconcile_withdrawal(db, wd_id)
         elif wd.get("gateway") == "izichange" and wd.get("method") == "crypto":
             provider_result = await _reconcile_izichange_withdrawal(db, wd)
+        elif wd.get("gateway") == "biztranspay_crypto" and wd.get("method") == "crypto":
+            provider_result = await _reconcile_biztranspay_crypto_withdrawal(db, wd)
     except HTTPException as exc:
         verification_error = str(exc.detail)[:240]
     except Exception:
@@ -4774,6 +4866,23 @@ async def admin_validate_withdrawal(wd_id: str, request: Request, admin=Depends(
                 "et confirmez le résultat auprès du prestataire avant de le valider.",
             )
 
+        if wd.get("method") == "crypto":
+            outcome = await _settle_crypto_withdrawal(
+                db, wd, "validated",
+                str(wd.get("gateway_status") or "admin_verified"),
+                source="admin",
+            )
+            if not outcome.get("ok"):
+                raise HTTPException(409, "Le retrait crypto n’a pas pu être validé.")
+            await db.admin_logs.insert_one({
+                "id": str(uuid.uuid4()), "admin_id": admin["id"],
+                "action": "validate_crypto_withdrawal_status_only", "target": wd_id,
+                "gateway": wd.get("gateway"), "previous_status": current_status,
+                "provider_submission_present": bool(wd.get("payout_id") or wd.get("auto_dispatched")),
+                "at": datetime.now(timezone.utc),
+            })
+            return {"ok": True, "status": outcome["status"], "provider_request_sent": False}
+
         user = await db.users.find_one({"id": wd.get("user_id")}, {"_id": 0, "id": 1})
         if not user:
             raise HTTPException(404, "Compte du bénéficiaire introuvable.")
@@ -4838,6 +4947,23 @@ async def admin_reject_withdrawal(wd_id: str, request: Request, admin=Depends(re
                 "Ce retrait a peut-être déjà été envoyé. Cliquez sur « Vérifier » "
                 "et confirmez auprès du prestataire que le transfert n’a pas été payé avant de le rejeter.",
             )
+        if wd.get("method") == "crypto":
+            if wd.get("status") not in ("pending", "dispatched", "processing", "unknown"):
+                raise HTTPException(400, "Déjà traité.")
+            outcome = await _settle_crypto_withdrawal(
+                db, wd, "rejected",
+                str(wd.get("gateway_status") or "admin_rejected"),
+                source="admin",
+            )
+            if not outcome.get("ok"):
+                raise HTTPException(409, "Le retrait crypto n’a pas pu être remboursé.")
+            await db.admin_logs.insert_one({
+                "id": str(uuid.uuid4()), "admin_id": admin["id"],
+                "action": "reject_crypto_withdrawal_refund", "target": wd_id,
+                "gateway": wd.get("gateway"), "reason": reason[:300],
+                "at": datetime.now(timezone.utc),
+            })
+            return {"ok": True, "status": outcome["status"], "refunded": True}
         btp_submitted = (
             wd.get("gateway") == "biztranspay"
             and wd.get("gateway_status") != "not_submitted"
@@ -5009,6 +5135,8 @@ async def admin_reconcile_withdrawal(wd_id: str, request: Request, admin=Depends
         return await _mf_recon(db, wd_id)
     if wd.get("gateway") == "izichange" and wd.get("method") == "crypto":
         return await _reconcile_izichange_withdrawal(db, wd)
+    if wd.get("gateway") == "biztranspay_crypto" and wd.get("method") == "crypto":
+        return await _reconcile_biztranspay_crypto_withdrawal(db, wd)
     raise HTTPException(400, f"Vérification non prise en charge pour la passerelle '{wd.get('gateway')}'.")
 
 
