@@ -6,7 +6,7 @@ import Svg, {
   Path, Polyline, Rect, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, Ellipse, G,
 } from "react-native-svg";
 
-import { formatFCFA, formatDate } from "@/src/utils/format";
+import { formatFCFA, formatAssetAmount, formatDate } from "@/src/utils/format";
 import { useI18n } from "@/src/i18n";
 
 /* ============================================================
@@ -226,14 +226,6 @@ export const DashboardHero: React.FC<Props> = ({
   const selectedWallet = wallets.find((wallet) => wallet.asset_code === currency) || wallets[0];
   const cryptoWithdrawalBalance = Number(stats?.balance_crypto || 0);
 
-  const formatAmount = (amount: number, asset: string) => {
-    const decimals = asset.includes(".") || /^(USDT|USDC|BTC|ETH)/i.test(asset) ? 6 : 0;
-    const n = Number(amount || 0).toLocaleString("fr-FR", {
-      minimumFractionDigits: 0, maximumFractionDigits: decimals,
-    }).replace(/,/g, "\u202f");
-    return `${n} ${asset}`;
-  };
-
   return (
     <LinearGradient
       colors={["#0E1F4F", "#1B5BFF", "#0B2D6F"] as any}
@@ -288,7 +280,7 @@ export const DashboardHero: React.FC<Props> = ({
               adjustsFontSizeToFit
               testID="dashboard-wallet-amount"
             >
-              {balanceHidden ? "••••••" : formatAmount(selectedWallet?.balance || 0, selectedWallet?.asset_code || "XOF")}
+              {balanceHidden ? "••••••" : formatAssetAmount(selectedWallet?.balance || 0, selectedWallet?.asset_code || "XOF")}
             </Text>
             <TouchableOpacity
               style={styles.eyeBtn}
@@ -366,7 +358,7 @@ export const DashboardHero: React.FC<Props> = ({
           value={balanceHidden ? "•••" : formatFCFA(balance_profit)}
           hint=""
           subLabel="Solde crypto"
-          subValue={balanceHidden ? "•••" : formatAmount(cryptoWithdrawalBalance, "USDT.BEP20")}
+           subValue={balanceHidden ? "•••" : formatAssetAmount(cryptoWithdrawalBalance, "USDT.BEP20")}
           trendPct={trend.balance_pct ?? 0}
           series={trend.balance_series || [0, 0, 0, 0, 0, 0, 0]}
           seriesId="bal"
@@ -414,7 +406,7 @@ export const DashboardHero: React.FC<Props> = ({
                     <Text style={styles.currencyRowSub}>
                       {asset === "XOF" ? "Franc CFA (UEMOA)" :
                         asset === "XAF" ? "Franc CFA (CEMAC)" :
-                          `${formatAmount(wallet.balance, asset)} disponibles`}
+                          `${formatAssetAmount(wallet.balance, asset)} disponibles`}
                     </Text>
                   </View>
                   {active ? (
