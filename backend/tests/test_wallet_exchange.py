@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from fastapi.encoders import jsonable_encoder
 from fastapi import HTTPException
 from mongomock_motor import AsyncMongoMockClient
 
@@ -60,6 +61,7 @@ async def test_xof_to_crypto_executes_once_and_keeps_deposit_wallet_separate():
 
     saved = await db.users.find_one({"id": user["id"]})
     assert first["status"] == "completed"
+    assert "_id" not in jsonable_encoder(first)
     assert second["already_completed"] is True
     assert saved["balance_profit"] == 3000
     assert saved["wallet_deposit_balance"] == 321

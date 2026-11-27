@@ -1936,7 +1936,11 @@ async def execute_wallet_exchange(
                 raise HTTPException(400, f"Solde {quote['source_code']} insuffisant.")
     completed_at = _now()
     completed = {
-        **operation, "status": "completed",
+        # PyMongo adds an ObjectId to the inserted dict in place. Never copy
+        # that internal field into a Mongo update or the JSON response:
+        # `_id` is immutable in MongoDB and ObjectId is not JSON-serializable.
+        **{key: value for key, value in operation.items() if key != "_id"},
+        "status": "completed",
         "completed_at": completed_at, "updated_at": completed_at,
     }
     await db.wallet_exchange_operations.update_one(
