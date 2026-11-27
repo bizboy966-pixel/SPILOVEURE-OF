@@ -48,7 +48,7 @@ test("Chat route opens the exact unique conversation and retains listing context
   assert.match(messenger, /setSelected\(conversation\)/);
 });
 
-test("Marketplace interactions remain wired without its bottom navigation", () => {
+test("Marketplace interactions remain wired with its bottom navigation", () => {
   for (const token of [
     "/messenger/contacts/", "/like`", "/comments`",
     "marketplaceShareMessage(", "marketplaceConversationRoute(",
@@ -57,7 +57,8 @@ test("Marketplace interactions remain wired without its bottom navigation", () =
   ]) {
     assert.ok(marketplace.includes(token), `Missing Marketplace interaction: ${token}`);
   }
-  assert.doesNotMatch(marketplace, /BottomNav/);
+  assert.match(marketplace, /import \{ BottomNav \} from "@\/src\/components\/BottomNav"/);
+  assert.match(marketplace, /\{mainUser \? <BottomNav \/> : null\}/);
 });
 
 test("Marketplace empty states are white while the media feed remains dark", () => {
@@ -88,6 +89,14 @@ test("Marketplace users can reply to a comment thread", () => {
   assert.match(marketplace, /comment\.replies\.map\(reply =>/);
   assert.match(marketplace, /Répondre à \$\{replyTarget\.username\}/);
   assert.match(marketplace, /testID=\{replyTarget \? "mk-reply-send" : "mk-comment-send"\}/);
+});
+
+test("Only the Marketplace listing owner sees comment deletion controls", () => {
+  assert.match(marketplace, /commentsTarget\?\.seller_id === mainUser\?\.id/);
+  assert.match(marketplace, /testID=\{`mk-comment-delete-\$\{comment\.id\}`\}/);
+  assert.match(marketplace, /api\.delete<\{ deleted_count\?: number \}>/);
+  assert.match(marketplace, /comments\/\$\{encodeURIComponent\(comment\.id\)\}/);
+  assert.match(marketplace, /Les réponses associées seront également supprimées/);
 });
 
 test("Marketplace profile and social actions stay in a right-side vertical rail", () => {

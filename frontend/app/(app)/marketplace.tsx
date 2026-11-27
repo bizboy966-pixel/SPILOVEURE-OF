@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform,
+  ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Modal, Platform,
   Pressable, RefreshControl, SafeAreaView, ScrollView, Share, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from "react-native";
@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { FeatureGuard } from "@/src/components/FeatureGuard";
+import { BottomNav } from "@/src/components/BottomNav";
 import { theme } from "../../src/theme";
 import { api, resolveMediaUrl } from "../../src/api";
 import { MediaLightbox, useMediaLightbox } from "@/src/components/MediaLightbox";
@@ -75,6 +76,7 @@ function MarketplaceScreenInner() {
   const [commentText, setCommentText] = useState("");
   const [replyTarget, setReplyTarget] = useState<ListingComment | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [socialBusy, setSocialBusy] = useState<Record<string, boolean>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const mediaScrollRefs = useRef<Record<string, ScrollView | null>>({});
@@ -330,6 +332,49 @@ function MarketplaceScreenInner() {
     } finally {
       setCommentBusy(false);
     }
+  };
+
+  const deleteComment = async (comment: ListingComment) => {
+    if (!commentsTarget || deletingCommentId) return;
+    setDeletingCommentId(comment.id);
+    try {
+      const result = await api.delete<{ deleted_count?: number }>(
+        `/marketplace/${encodeURIComponent(commentsTarget.id)}/comments/${encodeURIComponent(comment.id)}`,
+      );
+      const deletedCount = Math.max(1, Number(result?.deleted_count) || 1);
+      setComments(previous => previous
+        .filter(root => root.id !== comment.id)
+        .map(root => ({
+          ...root,
+          replies: root.replies?.filter(reply => reply.id !== comment.id),
+        })));
+      if (replyTarget?.id === comment.id) {
+        setReplyTarget(null);
+        setCommentText("");
+      }
+      setItems(previous => previous.map(row => row.id === commentsTarget.id
+        ? { ...row, comments_count: Math.max(0, (row.comments_count || 0) - deletedCount) }
+        : row));
+    } catch (error: any) {
+      setNotice({ text: error?.detail || "Impossible de supprimer ce commentaire.", error: true });
+    } finally {
+      setDeletingCommentId(null);
+    }
+  };
+
+  const confirmDeleteComment = (comment: ListingComment) => {
+    const message = !comment.parent_comment_id && comment.replies?.length
+      ? "Les réponses associées seront également supprimées."
+      : "Cette action est définitive.";
+    const confirm = () => { void deleteComment(comment); };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(`Supprimer ce commentaire ?\n\n${message}`)) confirm();
+      return;
+    }
+    Alert.alert("Supprimer ce commentaire ?", message, [
+      { text: "Annuler", style: "cancel" },
+      { text: "Supprimer", style: "destructive", onPress: confirm },
+    ]);
   };
 
   const shareListing = async (listing: Listing) => {
@@ -812,6 +857,20 @@ function MarketplaceScreenInner() {
                         <Text style={styles.commentName}>{comment.username}</Text>
                         <Text style={styles.commentText}>{comment.text}</Text>
                       </View>
+                      {commentsTarget?.seller_id === mainUser?.id && (
+                        <TouchableOpacity
+                          onPress={() => confirmDeleteComment(comment)}
+                          disabled={!!deletingCommentId}
+                          style={styles.deleteCommentButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Supprimer le commentaire de ${comment.username}`}
+                          testID={`mk-comment-delete-${comment.id}`}
+                        >
+                          {deletingCommentId === comment.id
+                            ? <ActivityIndicator size="small" color={theme.colors.danger} />
+                            : <Ionicons name="trash-outline" size={17} color={theme.colors.danger} />}
+                        </TouchableOpacity>
+                      )}
                     </View>
                     <TouchableOpacity
                       onPress={() => { setReplyTarget(comment); setCommentText(""); }}
@@ -838,6 +897,20 @@ function MarketplaceScreenInner() {
                               <Text style={styles.commentName}>{reply.username}</Text>
                               <Text style={styles.commentText}>{reply.text}</Text>
                             </View>
+                            {commentsTarget?.seller_id === mainUser?.id && (
+                              <TouchableOpacity
+                                onPress={() => confirmDeleteComment(reply)}
+                                disabled={!!deletingCommentId}
+                                style={styles.deleteCommentButton}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Supprimer la réponse de ${reply.username}`}
+                                testID={`mk-comment-delete-${reply.id}`}
+                              >
+                                {deletingCommentId === reply.id
+                                  ? <ActivityIndicator size="small" color={theme.colors.danger} />
+                                  : <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />}
+                              </TouchableOpacity>
+                            )}
                           </View>
                         ))}
                       </View>
@@ -886,6 +959,7 @@ function MarketplaceScreenInner() {
           </KeyboardAvoidingView>
         </View>
       </Modal>
+      {mainUser ? <BottomNav /> : null}
     </ScreenContainer>
   );
 }
@@ -993,6 +1067,7 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, paddingVertical: 10 },
   commentAvatar: { width: 32, height: 32, borderRadius: 17, backgroundColor: theme.colors.primaryBg, alignItems: "center", justifyContent: "center" },
   commentAvatarText: { color: theme.colors.primary, fontSize: 13, fontWeight: "900" },
+  deleteCommentButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.dangerBg, marginLeft: 4 },
   commentThread: { paddingVertical: 4 },
   commentBody: { flex: 1 },
   commentName: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: "900", marginBottom: 2 },

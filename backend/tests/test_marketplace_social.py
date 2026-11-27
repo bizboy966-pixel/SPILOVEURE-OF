@@ -9,7 +9,7 @@ from mongomock_motor import AsyncMongoMockClient
 import marketplace
 from marketplace import (
     ListingComment, ListingCreate, add_listing_comment, create_listing, initialize,
-    listing_comments, public_feed, toggle_listing_like,
+    delete_listing_comment, listing_comments, public_feed, toggle_listing_like,
 )
 
 
@@ -187,3 +187,48 @@ async def test_replies_must_target_a_root_comment_on_the_same_listing(marketplac
             user={"id": "buyer", "username": "Buyer"},
         )
     assert getattr(nested_reply.value, "status_code", None) == 400
+
+
+@pytest.mark.asyncio
+async def test_only_listing_owner_can_delete_comments_and_root_deletion_cascades(marketplace_db):
+    request = request_for(marketplace_db)
+    root = await add_listing_comment(
+        "listing-1", ListingComment(text="Commentaire de départ."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Réponse à conserver sauf suppression du parent.", parent_comment_id=root["id"]),
+        request,
+        user={"id": "seller", "username": "Shop"},
+    )
+
+    with pytest.raises(Exception) as unauthorized:
+        await delete_listing_comment(
+            "listing-1", root["id"], request, user={"id": "buyer"},
+        )
+    assert getattr(unauthorized.value, "status_code", None) == 403
+
+    deleted = await delete_listing_comment(
+        "listing-1", root["id"], request, user={"id": "seller"},
+    )
+    assert deleted == {"deleted": True, "deleted_count": 2}
+    assert await listing_comments("listing-1", request, user={"id": "buyer"}) == []
+
+    remaining = await add_listing_comment(
+        "listing-1", ListingComment(text="Nouveau commentaire."), request,
+        user={"id": "buyer", "username": "Buyer"},
+    )
+    remaining_reply = await add_listing_comment(
+        "listing-1",
+        ListingComment(text="Réponse isolée.", parent_comment_id=remaining["id"]),
+        request,
+        user={"id": "seller", "username": "Shop"},
+    )
+    deleted_reply = await delete_listing_comment(
+        "listing-1", remaining_reply["id"], request, user={"id": "seller"},
+    )
+    assert deleted_reply == {"deleted": True, "deleted_count": 1}
+    threads = await listing_comments("listing-1", request, user={"id": "buyer"})
+    assert len(threads) == 1 and threads[0]["id"] == remaining["id"]
+    assert threads[0]["replies"] == []

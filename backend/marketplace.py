@@ -298,6 +298,37 @@ async def add_listing_comment(
     return _serialize(row)
 
 
+@public.delete("/marketplace/{listing_id}/comments/{comment_id}")
+async def delete_listing_comment(
+    listing_id: str, comment_id: str, request: Request,
+    user=Depends(get_current_user),
+):
+    db = request.app.state.db
+    listing = await _approved_listing(db, listing_id)
+    if listing.get("seller_id") != user.get("id"):
+        raise HTTPException(403, "Seul le propriétaire de l’annonce peut supprimer les commentaires.")
+
+    comments = db.marketplace_listing_comments
+    comment = await comments.find_one(
+        {"id": comment_id, "listing_id": listing_id},
+        {"_id": 0},
+    )
+    if not comment:
+        raise HTTPException(404, "Commentaire introuvable pour cette annonce.")
+
+    if comment.get("parent_comment_id"):
+        result = await comments.delete_one({"id": comment_id, "listing_id": listing_id})
+    else:
+        result = await comments.delete_many({
+            "listing_id": listing_id,
+            "$or": [
+                {"id": comment_id},
+                {"parent_comment_id": comment_id},
+            ],
+        })
+    return {"deleted": result.deleted_count > 0, "deleted_count": result.deleted_count}
+
+
 # ---------- "Nouveauté" badge + WhatsApp-style ring (v27ao) ----------
 # NOTE: these static routes MUST come before `/marketplace/{listing_id}` so
 # that FastAPI doesn't interpret "unread-count" / "mark-seen" / "unread-ring"
