@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, BackHandler, Image, Linking, Modal, SafeAreaView, ScrollView,
+  ActivityIndicator, BackHandler, Image, Linking, Modal, Platform, SafeAreaView, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -146,6 +146,7 @@ export default function Pay() {
   const amountLabel = (isMobilePick && selectedOperator?.amount_label)
     || `${(catalog?.amount_fcfa ?? 2650).toLocaleString("fr-FR").replace(/,/g, "\u202f")} FCFA`;
   const [pendingMsg, setPendingMsg] = useState<string>("");
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [ussdAuthorization, setUssdAuthorization] = useState<{ code: string; message: string; accepted: boolean } | null>(null);
   useEffect(() => { setUssdAuthorization(null); }, [countryCode, operatorCode, phone]);
   const operatorRequiresOtp = !!selectedOperator?.requires_otp;
@@ -201,6 +202,19 @@ export default function Pay() {
     if (!selectedCountry || !selectedOperator) return;
     setErr(null);
     setLoading(true);
+    setCheckoutUrl(null);
+    const operatorKey = selectedOperator.code.toLowerCase().replace(/[^a-z]/g, "");
+    const isWaveCi = selectedCountry.code === "CI" &&
+      (operatorKey === "waveci" || selectedOperator.label.toLowerCase().includes("wave"));
+    let checkoutTab: Window | null = null;
+    if (isWaveCi && Platform.OS === "web" && typeof window !== "undefined") {
+      // Open a tab during the user gesture. Opening only after the API await
+      // is blocked by browsers, which leaves Wave payments spinning in-place.
+      try {
+        checkoutTab = window.open("about:blank", "_blank");
+        if (checkoutTab) checkoutTab.opener = null;
+      } catch {}
+    }
     try {
       const body: any = { method: isCryptoPick ? "crypto" : "mobile" };
       if (isCryptoPick) {
@@ -231,10 +245,29 @@ export default function Pay() {
       setPendingMsg(String(r.message || ""));
       setPhase("pending");
       if (r.redirect_url) {
-        try { await Linking.openURL(r.redirect_url); }
-        catch { setErr("Impossible d’ouvrir la page du prestataire. Le paiement reste en attente ; ne le renvoyez pas."); }
+        const url = String(r.redirect_url);
+        setCheckoutUrl(url);
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          if (checkoutTab && !checkoutTab.closed) {
+            try {
+              checkoutTab.location.href = url;
+              checkoutTab = null;
+            } catch {
+              setErr("Le paiement est prêt. Appuyez sur « Ouvrir la page de paiement » pour continuer.");
+            }
+          } else {
+            setErr("Le navigateur a bloqué l’ouverture automatique. Appuyez sur « Ouvrir la page de paiement ».");
+          }
+        } else {
+          try { await Linking.openURL(url); }
+          catch { setErr("Impossible d’ouvrir la page de paiement. Utilisez le bouton ci-dessous ; ne relancez pas la transaction."); }
+        }
+      } else if (checkoutTab && !checkoutTab.closed) {
+        checkoutTab.close();
+        checkoutTab = null;
       }
     } catch (e: any) {
+      if (checkoutTab && !checkoutTab.closed) checkoutTab.close();
       // v27az — detect OTP_REQUIRED backend contract and render a proper
       // UI instead of dumping the raw JSON object as the error message.
       const detail = e?.detail;
@@ -306,6 +339,25 @@ export default function Pay() {
   const copy = (v: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(v);
+    }
+  };
+
+  const openPaymentPage = async () => {
+    if (!checkoutUrl) return;
+    setErr(null);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const tab = window.open(checkoutUrl, "_blank");
+      if (tab) {
+        tab.opener = null;
+        return;
+      }
+      setErr("Le navigateur bloque cette page. Autorisez les fenêtres secondaires puis réessayez.");
+      return;
+    }
+    try {
+      await Linking.openURL(checkoutUrl);
+    } catch {
+      setErr("Impossible d’ouvrir la page de paiement. Ne relancez pas la transaction.");
     }
   };
 
@@ -631,6 +683,16 @@ export default function Pay() {
                 {pendingMsg || translate("payment.approve_phone")} {translate("payment.activation_auto")}
               </Text>
             )}
+            {checkoutUrl ? (
+              <TouchableOpacity
+                style={[styles.cta, { marginTop: 12 }]}
+                onPress={() => void openPaymentPage()}
+                testID="pay-open-checkout"
+              >
+                <Ionicons name="open-outline" size={18} color="#fff" />
+                <Text style={styles.ctaTxt}>OUVRIR LA PAGE DE PAIEMENT</Text>
+              </TouchableOpacity>
+            ) : null}
             {phase === "review" && ref ? (
               <Text style={styles.pendingSub}>Référence à communiquer au support : {ref}</Text>
             ) : null}

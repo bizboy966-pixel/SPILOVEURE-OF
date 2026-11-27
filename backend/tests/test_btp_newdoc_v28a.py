@@ -27,6 +27,8 @@ DEPOSIT_CAT = {"operators": [
      "payment_flow": {"kind": "ussd", "otp_required": True, "ussd_template": "*144*4*6*{amount}#"}},
     {"code": "orange-ci", "name": "Orange Money CI", "country": "CI", "currency": "XOF",
      "payment_flow": {"kind": "push", "otp_required": True, "otp_request_before_submit": True}},
+    {"code": "wave_ci", "name": "Wave CI", "country": "CI", "currency": "XOF",
+     "payment_flow": {"kind": "push"}},
     {"code": "vodacom-cd", "name": "M-Pesa", "country": "CD", "currency": "CDF",
      "payment_flow": {"kind": "push"}},
 ]}
@@ -634,20 +636,52 @@ def test_ambiguous_payout_blocks_resubmit_and_manual_refund(env, monkeypatch):
     assert loop.run_until_complete(db.users.find_one({"id": "u1"}))["total_withdrawn"] == 1000
 
 
-def test_wave_redirect_and_duplicate_return_same_url(env, monkeypatch):
+@pytest.mark.parametrize(("response", "expected_url"), [
+    (
+        {"id": "wave-1", "status": "pending",
+         "deposit": {"redirect_url": "https://checkout.example/wave"}},
+        "https://checkout.example/wave",
+    ),
+    (
+        {"data": {"id": "wave-2", "status": "pending",
+                  "payment": {"payment_url": "https://checkout.example/wave-2"}}},
+        "https://checkout.example/wave-2",
+    ),
+    (
+        {"id": "wave-3", "status": "pending",
+         "deposit": {"payment_flow": {"checkout_url": "https://checkout.example/wave-3"}}},
+        "https://checkout.example/wave-3",
+    ),
+])
+def test_wave_redirect_and_duplicate_return_same_url(env, monkeypatch, response, expected_url):
     db, loop = env
     async def redirected(path, body, sk, pk, *, idempotency_key):
         if path == "/deposits":
             CALLS.append(("POST", path, body, idempotency_key))
-            return R(200, {"id": "wave-1", "status": "pending",
-                           "deposit": {"redirect_url": "https://example.invalid/wave"}})
+            return R(200, response)
         return await fake_post(path, body, sk, pk, idempotency_key=idempotency_key)
     monkeypatch.setattr(b, "_post", redirected)
-    data = b.BtpActivationIn(country_code="TG", operator="tmoney_tg", phone="90000000")
+    data = b.BtpActivationIn(country_code="CI", operator="wave_ci", phone="0700000000")
     first = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
     second = loop.run_until_complete(b.biztranspay_activation(data, _req(db), USER))
-    assert first["redirect_url"] == second["redirect_url"] == "https://example.invalid/wave"
+    assert first["redirect_url"] == second["redirect_url"] == expected_url
+    assert "page de paiement" in first["message"].lower()
+    deposit_body = [call for call in CALLS if call[1] == "/deposits"][0][2]
+    assert deposit_body["country"] == "CI"
+    assert deposit_body["operator"] == "wave_ci"
+    assert deposit_body["phone_number"] == "+225700000000"
     assert len([call for call in CALLS if call[1] == "/deposits"]) == 1
+
+
+def test_wave_push_without_checkout_instructs_phone_confirmation(env):
+    db, loop = env
+    result = loop.run_until_complete(b.biztranspay_activation(
+        b.BtpActivationIn(country_code="CI", operator="wave_ci", phone="0700000000"),
+        _req(db), USER,
+    ))
+    assert result["redirect_url"] is None
+    assert "wave" in result["message"].lower()
+    assert "validez-la" in result["message"].lower()
 
 
 def test_failed_webhook_different_event_ids_refunds_only_once(env):

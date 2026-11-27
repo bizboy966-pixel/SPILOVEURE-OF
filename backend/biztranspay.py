@@ -269,6 +269,73 @@ def _normalize_phone(phone: str, country_code: str) -> str:
     return p
 
 
+def _deposit_response_parts(payload: dict) -> tuple[dict, dict]:
+    """Unwrap the supported payment response envelopes without losing URLs."""
+    root = payload if isinstance(payload, dict) else {}
+    data = root.get("data") if isinstance(root.get("data"), dict) else {}
+    deposit = next(
+        (value for value in (
+            root.get("deposit"), data.get("deposit"),
+            root.get("payment"), data.get("payment"),
+        ) if isinstance(value, dict)),
+        None,
+    )
+    deposit = deposit or data or root
+    payment_flow = next(
+        (value for value in (
+            deposit.get("payment_flow"), deposit.get("paymentFlow"),
+            data.get("payment_flow"), data.get("paymentFlow"),
+            root.get("payment_flow"), root.get("paymentFlow"),
+        ) if isinstance(value, dict)),
+        {},
+    )
+    return deposit, payment_flow
+
+
+def _extract_payment_redirect_url(payload: dict) -> Optional[str]:
+    """Find an explicit hosted-payment URL in common BTP response envelopes."""
+    root = payload if isinstance(payload, dict) else {}
+    url_fields = (
+        "redirect_url", "redirectUrl", "checkout_url", "checkoutUrl",
+        "payment_url", "paymentUrl", "payment_link", "paymentLink",
+        "checkout_link", "checkoutLink", "payment_page_url", "paymentPageUrl",
+        "hosted_url", "hostedUrl",
+    )
+    payment_containers = (
+        "data", "deposit", "payment", "payment_flow", "paymentFlow",
+        "checkout", "links",
+    )
+    pending: list[tuple[dict, bool]] = [(root, True)]
+    visited: set[int] = set()
+    while pending:
+        current, allow_plain_url = pending.pop(0)
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        candidates = [current.get(key) for key in url_fields]
+        if allow_plain_url:
+            candidates.append(current.get("url"))
+        for value in candidates:
+            if not isinstance(value, str) or not value.strip():
+                continue
+            from urllib.parse import urlparse
+            parsed = urlparse(value.strip())
+            if parsed.scheme.lower() == "https" and parsed.hostname:
+                return value.strip()
+        for key in payment_containers:
+            child = current.get(key)
+            if isinstance(child, dict):
+                pending.append((child, key in {
+                    "deposit", "payment", "payment_flow", "paymentFlow",
+                    "checkout", "links",
+                }))
+            elif isinstance(child, list) and key == "links":
+                pending.extend(
+                    (item, True) for item in child if isinstance(item, dict)
+                )
+    return None
+
+
 # ─── Config helpers ──────────────────────────────────────────────────
 async def _load_cfg(db) -> dict:
     doc = await db.app_settings.find_one({"key": "payment_gateway"}) or {}
@@ -651,14 +718,13 @@ async def biztranspay_activation(
         jd = resp.json()
     except Exception:
         pass
-    dep = jd.get("deposit") or {}
-    provider_id = jd.get("id") or dep.get("id")
-    provider_status = str(jd.get("status") or dep.get("status") or "pending").lower()
-    pf = dep.get("payment_flow") or {}
-    redirect_url = dep.get("redirect_url") or pf.get("redirect_url") or jd.get("redirect_url")
-    from urllib.parse import urlparse
-    if redirect_url and urlparse(str(redirect_url)).scheme != "https":
-        redirect_url = None
+    dep, pf = _deposit_response_parts(jd)
+    response_data = jd.get("data") if isinstance(jd.get("data"), dict) else {}
+    provider_id = jd.get("id") or response_data.get("id") or dep.get("id")
+    provider_status = str(
+        jd.get("status") or response_data.get("status") or dep.get("status") or "pending"
+    ).lower()
+    redirect_url = _extract_payment_redirect_url(jd)
     if pf:
         flow.update({k: v for k, v in pf.items() if v is not None})
         ussd = render_ussd(flow, dep.get("charged_amount") or charged) or ussd
@@ -672,13 +738,23 @@ async def biztranspay_activation(
         p = await db.payments.find_one({"reference": ref}, {"_id": 0})
         await _apply_payment_success(db, p, "paid", source="biztranspay")
     show_ussd = ussd if (flow.get("kind") == "ussd" and not flow.get("otp_required")) else ""
+    if redirect_url:
+        message = "La page de paiement est prête. Ouvrez-la pour confirmer la transaction."
+    elif show_ussd:
+        message = f"Composez {show_ussd} pour confirmer le paiement."
+    elif cc == "CI" and _resolve_operator_code(cc, entry["code"]) == "wave_ci":
+        message = (
+            "Si une demande s’affiche dans Wave sur le téléphone associé à ce numéro, "
+            "validez-la. Gardez cette page ouverte : le statut sera vérifié automatiquement."
+        )
+    else:
+        message = "Validez la demande de paiement sur votre téléphone."
     return {
         "reference": ref, "status": provider_status, "amount": charged, "currency": currency,
         "operator": entry["code"], "country_code": cc, "provider": "biztranspay",
-        "redirect_url": redirect_url,
+        "redirect_url": redirect_url, "payment_flow": flow,
         "ussd": show_ussd,
-        "message": (f"Composez {show_ussd} pour confirmer le paiement." if show_ussd
-                    else "Validez la demande de paiement sur votre téléphone."),
+        "message": message,
     }
 
 
