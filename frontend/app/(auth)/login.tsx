@@ -10,14 +10,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
 import { useAuth } from "@/src/auth";
-import { useChat } from "@/src/chat/ChatContext";
 import { api } from "@/src/api";
 import { armWelcomeSplash } from "@/src/components/WelcomeSplash";
 import { theme } from "@/src/theme";
 import { useI18n } from "@/src/i18n";
-import { clearChatLogoutMarker } from "@/src/chat/chatLaunchState";
-
-const ISOLATED_CHAT_PREVIEW = process.env.EXPO_PUBLIC_SPV_ISOLATED_PREVIEW === "1";
 
 export default function Login() {
   const { t } = useI18n();
@@ -26,14 +22,11 @@ export default function Login() {
   const refCode = typeof params.ref === "string" ? params.ref : "";
   const landingHref = `/?showLanding=1${refCode ? `&ref=${encodeURIComponent(refCode)}` : ""}`;
   const { signIn } = useAuth();
-  const { refresh: refreshChat } = useChat();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatError, setChatError] = useState("");
 
   const submit = async () => {
     setErr(null);
@@ -53,38 +46,6 @@ export default function Login() {
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const openChat = async () => {
-    if (chatLoading) return;
-    setChatLoading(true);
-    setChatError("");
-    try {
-      if (ISOLATED_CHAT_PREVIEW) {
-        const opened = await api.post<{ user: { id: string } }>(
-          "/identity/preview/chat/open",
-          undefined,
-          { auth: false, credentials: "include" }
-        );
-        const chatUser = await refreshChat();
-        if (!chatUser || chatUser.id !== opened.user?.id) {
-          throw { detail: "La session de démonstration n’a pas pu être ouverte." };
-        }
-        await clearChatLogoutMarker();
-        router.replace("/messenger" as any);
-        return;
-      }
-      await api.get("/identity/chat/session", { auth: false, credentials: "include" });
-      const chatUser = await refreshChat();
-      if (!chatUser) throw { detail: "La session Chat n’a pas pu être reprise." };
-      await clearChatLogoutMarker();
-      router.push("/messenger" as any);
-    } catch (e: any) {
-      if (e?.status === 401) router.push("/verify-email?source=chat" as any);
-      else setChatError(e?.detail || t("auth.chat_session_error"));
-    } finally {
-      setChatLoading(false);
     }
   };
 
@@ -165,19 +126,6 @@ export default function Login() {
               testID="login-submit"
             />
 
-            <TouchableOpacity
-              onPress={openChat}
-              disabled={chatLoading}
-              accessibilityRole="button"
-              accessibilityLabel={t("auth.open_chat")}
-              testID="login-chat-button"
-              style={styles.chatButton}
-            >
-              <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.primary} />
-              <Text style={styles.chatButtonText}>{chatLoading ? t("auth.checking_session") : t("auth.open_chat")}</Text>
-            </TouchableOpacity>
-            {chatError ? <Text accessibilityRole="alert" style={styles.chatError}>{chatError}</Text> : null}
-
             <View style={styles.bottomRow}>
               <Text style={styles.bottomText}>{t("auth.no_account_yet")}</Text>
               <TouchableOpacity onPress={() => router.replace(landingHref as any)} testID="goto-register">
@@ -232,9 +180,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   link: { color: theme.colors.primary, fontWeight: "600", fontSize: 13 },
-  chatButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 12, backgroundColor: theme.colors.primaryBg },
-  chatButtonText: { color: theme.colors.primary, fontSize: 13, fontWeight: "800" },
-  chatError: { color: theme.colors.danger, fontSize: 12, marginTop: 7, textAlign: "center" },
   bottomRow: { flexDirection: "row", justifyContent: "center", marginTop: 20, flexWrap: "wrap" },
   bottomText: { color: theme.colors.textSecondary, fontSize: 13 },
   errBox: {
