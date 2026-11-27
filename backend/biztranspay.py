@@ -1825,7 +1825,7 @@ async def reconcile_all_dispatched(db, max_docs: int = 500) -> dict:
             results["errors"] += 1
     remaining = max(0, max_docs - results["scanned"])
     wallet_sends = getattr(db, "wallet_sends", None)
-    if wallet_sends:
+    if wallet_sends is not None:
         async for send in wallet_sends.find({
             "provider": "biztranspay",
             "payout_id": {"$exists": True, "$nin": [None, ""]},

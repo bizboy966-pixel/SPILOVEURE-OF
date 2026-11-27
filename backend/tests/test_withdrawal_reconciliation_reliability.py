@@ -1,6 +1,6 @@
 """Isolated payout lifecycle regressions. Provider requests are mocked."""
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +17,27 @@ def run(coro):
 
 def _db():
     return AsyncMongoMockClient(tz_aware=True).withdrawal_reliability
+
+
+class _MongoCollectionWithoutTruthiness:
+    """Mirror PyMongo collections, which reject boolean evaluation."""
+
+    def __init__(self, collection):
+        self._collection = collection
+
+    def __bool__(self):
+        raise NotImplementedError("Collection objects do not support truth testing")
+
+    def __getattr__(self, name):
+        return getattr(self._collection, name)
+
+
+def _db_with_non_truthy_wallet_sends(db):
+    return SimpleNamespace(
+        moneyfusion_payouts=db.moneyfusion_payouts,
+        withdrawals=db.withdrawals,
+        wallet_sends=_MongoCollectionWithoutTruthiness(db.wallet_sends),
+    )
 
 
 def _moneyfusion_rows(db, *, status="dispatched", token="mf-token", withdrawal_status="processing"):
@@ -132,6 +153,35 @@ def test_moneyfusion_unknown_without_token_is_not_polled_or_resubmitted(monkeypa
     assert sweep["scanned"] == 0
     verify.assert_not_awaited()
     assert run(db.withdrawals.find_one({"id": "wd-mf"}))["status"] == "processing"
+
+
+def test_moneyfusion_stale_submission_handles_non_truthy_wallet_sends_collection():
+    db = _db()
+    stale_created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    async def seed():
+        await db.moneyfusion_payouts.insert_one({
+            "wd_id": "wd-stale-mf", "status": "submitting",
+            "created_at": stale_created_at,
+        })
+        await db.withdrawals.insert_one({
+            "id": "wd-stale-mf", "status": "processing",
+            "gateway": "moneyfusion",
+        })
+        await db.wallet_sends.insert_one({
+            "id": "wd-stale-mf", "status": "submitting",
+        })
+
+    run(seed())
+    result = run(moneyfusion.reconcile_all_dispatched(
+        _db_with_non_truthy_wallet_sends(db), max_docs=5,
+    ))
+
+    payout = run(db.moneyfusion_payouts.find_one({"wd_id": "wd-stale-mf"}))
+    wallet_send = run(db.wallet_sends.find_one({"id": "wd-stale-mf"}))
+    assert result["stale_marked_unknown"] == 1
+    assert payout["status"] == "unknown"
+    assert wallet_send["status"] == "unknown"
 
 
 def test_biztranspay_settlement_accounts_and_notifies_once():
@@ -302,6 +352,16 @@ def test_biztranspay_sweep_reconciles_legacy_payout_without_auto_flag(monkeypatc
     assert result["scanned"] == result["updated"] == 1
     assert withdrawal["status"] == "completed"
     assert user["total_withdrawn"] == 3000
+
+
+def test_biztranspay_sweep_handles_non_truthy_wallet_sends_collection():
+    db = _db()
+
+    result = run(biztranspay.reconcile_all_dispatched(
+        _db_with_non_truthy_wallet_sends(db), max_docs=5,
+    ))
+
+    assert result == {"scanned": 0, "updated": 0, "errors": 0, "changes": []}
 
 
 def test_biztranspay_nested_error_code_is_preserved():

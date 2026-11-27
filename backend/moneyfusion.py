@@ -1637,7 +1637,7 @@ async def reconcile_all_dispatched(db, max_docs: int = 50) -> dict:
         if changed.modified_count:
             stale_count += 1
             wallet_sends = getattr(db, "wallet_sends", None)
-            if wallet_sends:
+            if wallet_sends is not None:
                 await wallet_sends.update_one(
                     {"id": payout.get("wd_id"), "status": "submitting"},
                     {"$set": {
